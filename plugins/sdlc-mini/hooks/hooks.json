@@ -1,0 +1,4 @@
+{
+  "description": "sdlc-mini no longer registers any hooks. The worktree strategy and its surrounding hooks (plan-question-redirect, strategy-guard, worktree-confine, dispatch-executor) moved to the mentor plugin in sdlc-mini v1.0.0.",
+  "hooks": {}
+}

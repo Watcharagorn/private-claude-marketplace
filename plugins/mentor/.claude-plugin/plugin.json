@@ -1,0 +1,8 @@
+{
+  "name": "mentor",
+  "description": "A plugin-owned planning harness for Claude Code: fail-closed read-only planning (no native plan mode), with research and plan authoring delegated to subagents and a configurable plan deliverable — styled HTML or Mermaid-first Markdown.",
+  "version": "0.43.0",
+  "author": {
+    "name": "NTBX"
+  }
+}
