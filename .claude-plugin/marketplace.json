@@ -15,12 +15,6 @@
       "description": "Turbo SDLC helpers: a release-notes generator and a tidy commit helper. Manifest and env-config setup have moved to the devflow plugin; init-turbo-manifest and init-turbo-env-config remain as deprecated redirects.",
       "source": "./plugins/sdlc-mini",
       "category": "development"
-    },
-    {
-      "name": "devflow",
-      "description": "Generic spec → code → ship development workflow: gated stages, staged in-repo docs, and an optional branded bilingual HTML plan render. Project-agnostic; bundles the org coding-standard skills (Go object storage, NATS JetStream outbox & SMS/email via the org Go messaging library, plus language-agnostic DB migrations) and auto-applies the matching one during a feature. Also owns the turbo-manifest deployment-manifest lifecycle (init / add-app / validate / migrate / explain) with a schema-gated validator.",
-      "source": "./plugins/devflow",
-      "category": "development"
     }
   ]
 }
