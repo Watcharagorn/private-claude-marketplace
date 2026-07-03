@@ -1,7 +1,7 @@
 {
-  "name": "ntbx-marketplace",
+  "name": "private-marketplace",
   "owner": {
-    "name": "NTBX"
+    "name": "my-private"
   },
   "plugins": [
     {
