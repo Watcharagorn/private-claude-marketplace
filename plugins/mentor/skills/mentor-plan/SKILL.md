@@ -18,6 +18,10 @@ follow:
 
 - **`FORMAT: html`** — persist the plan as the bespoke styled HTML document. Follow
   **[Step 8 — HTML Plan Document Format](#step-8--html-plan-document-format-when-format--html)**.
+  The HTML is the **review surface only**: the moment the user approves, the release hooks
+  finalize it — the canonical Markdown is extracted from its `plan-source` block into
+  `<slug>.md` and the `.html` is **deleted**. Implementation always reads the `.md` (Step 6c).
+  (plan-only repos keep the HTML: there the plan is the deliverable and nothing implements it.)
 - **`FORMAT: md`** — persist the plan as a self-contained, Mermaid-first Markdown document. Follow
   **[Step 8M — Markdown Plan Document Format](#step-8m--markdown-plan-document-format-when-format--md)**.
 - **`FORMAT: UNSET`** — no format is persisted for this repo. Per begin-plan.sh's instruction, ask
@@ -401,7 +405,9 @@ Do not skip this step on the grounds of brevity. If the plan body is long, the u
 ### 6b. Persist the plan file (mandatory, global, not in the repo)
 
 After 6a, save the plan to a **user-global** location — the artifact the user actually reviews
-(it auto-opens for review) and the file every downstream hook reads. The path is derived from the
+(it auto-opens for review) and the file every downstream hook reads **until approval** (at
+approval an html plan is finalized to `<slug>.md`, which becomes the post-approval read target —
+see the Step 8 Lifecycle note). The path is derived from the
 repo root — never written inside the working tree. **Branch by the format resolved in Step 0:**
 
 - **`html`** — a single **self-contained styled HTML document**; follow **Step 8** below.
@@ -454,7 +460,7 @@ Do not write inside `<repo>/.claude/` or `<worktree>/.claude/` — those locatio
 > URLs that drift from this file; keep all review content in this one HTML so the file on disk and
 > what the user reviews stay in lockstep.
 
-**Keep it current.** Whenever you revise the plan content during this session (new step, changed approach, edited footer), **re-write this same plan file** (`.html` or `.md`, per Step 0) so it always reflects the latest plan. The path is **slug-derived and timestamp-free** (the block above), so re-running that compute on a revision yields the **same** file — overwrite it in place; never create a second timestamped copy (that would desync the open review tab from what the gates validate). You do **not** need to open it manually — the `PostToolUse` `plan-open.sh` hook opens it for review the **first time it is created**:
+**Keep it current.** Whenever you revise the plan content during this session (new step, changed approach, edited footer), **re-write this same plan file** (`.html` or `.md`, per Step 0) so it always reflects the latest plan. The path is **slug-derived and timestamp-free** (the block above), so re-running that compute on a revision yields the **same** file — overwrite it in place; never create a second timestamped copy (that would desync the open review tab from what the gates validate). This applies **during planning only**: after approval an html-format plan has been finalized to `<slug>.md` (the `.html` is gone) — any post-approval plan correction goes into that `.md` (routed through the plan-author, per `dispatch-agents`), never into a re-created `.html`. You do **not** need to open it manually — the `PostToolUse` `plan-open.sh` hook opens it for review the **first time it is created**:
 
 - **HTML** — inside VSCode it opens as a **focused editor tab** (render it in the integrated browser with one keystroke via the *Live Preview* extension — see the plugin README), otherwise in **Google Chrome → the OS default browser**.
 - **Markdown** — opens as a **VSCode editor tab** when a VSCode CLI is available (toggle the preview with ⇧⌘V; install a Markdown-Mermaid preview extension to render the diagrams), otherwise the **OS default Markdown handler** — never a raw-text browser tab (Chrome is deliberately skipped for `.md`).
@@ -492,7 +498,8 @@ bash "${CLAUDE_PLUGIN_ROOT}/hooks/set-mode.sh" status
   plan and release the gate. The plan file is the deliverable — no implementation, no
   dispatch (repo mode: plan-only)." }`). On **Deliver plan**, run `approve-plan.sh` exactly as
   on Proceed below, then **end the turn** reporting the plan's file path — do NOT implement
-  and do NOT dispatch implementation agents.
+  and do NOT dispatch implementation agents. (The delivered plan file keeps its chosen format —
+  an html plan is NOT finalized to md in plan-only mode.)
 - **any other mode (or `UNSET`)** → ask the standard **Proceed / Review the plan (light) /
   Keep planning** question:
 
@@ -517,10 +524,15 @@ bash "${CLAUDE_PLUGIN_ROOT}/hooks/approve-plan.sh"
 
 `approve-plan.sh` validates the plan (footer markers + a fresh plan file, by delegating to
 `strategy-guard.sh`). **If valid**, it deletes the `.planning` / `.research-dispatched` /
-`.read-budget` markers (the edit gate OPENS — repo edits are now allowed) and prints the dispatch
-directive for `dispatch` / `worktree+dispatch` strategies. **If invalid**, it prints the exact
-problem, **keeps the `.planning` marker** (the gate stays closed), and exits non-zero — fix the
-plan (re-write the plan file per 6b) and run it again.
+`.read-budget` markers (the edit gate OPENS — repo edits are now allowed), **finalizes the plan**
+— for the html format it extracts the canonical Markdown from the `plan-source` block into
+`<slug>.md` and **deletes the `.html`** (the review surface is terminated; no-op for md format,
+skipped in plan-only mode where the plan file is the deliverable and keeps its format)
+— and prints the dispatch directive for `dispatch` / `worktree+dispatch` strategies. The `plan:`
+path it prints is the finalized `.md`: **that file is THE plan for everything after approval** —
+read it for implementation, hand its path to agents, and never look for (or re-create) the
+`.html`. **If invalid**, it prints the exact problem, **keeps the `.planning` marker** (the gate
+stays closed), and exits non-zero — fix the plan (re-write the plan file per 6b) and run it again.
 
 On **Hand off to next agent**, run:
 
@@ -594,7 +606,9 @@ The `PreToolUse:ExitPlanMode` strategy-guard validates the footer markers + a fr
 exit (a guard rejection leaves the `.proceed-mode` marker untouched for your retry); the
 `PermissionRequest:ExitPlanMode` hook then auto-approves the exit and switches the mode. The native
 modal's extras (Ultraplan, `Ctrl+G`, clear-context) are not offered — iterate via **Keep planning**.
-`PostToolUse:ExitPlanMode` (dispatch-executor) fires once execution begins.
+`PostToolUse:ExitPlanMode` (dispatch-executor) fires once execution begins — it first **finalizes**
+an html-format plan (extracts the `plan-source` Markdown into `<slug>.md` and deletes the `.html`),
+so implementation on this path reads the `.md` too.
 
 ---
 
@@ -625,8 +639,19 @@ build step. It serves two audiences and must satisfy both:
 
 - **Humans** read the rendered `<body>` — a bespoke, plan-specific design-doc that you design
   per plan (see "Design the document" below).
-- **Machines** (strategy-guard, dispatch-executor, plan-review) read the
-  `<script type="text/markdown" id="plan-source">` block — clean Markdown, never the rendered HTML.
+- **Machines** read clean Markdown, never the rendered HTML: **pre-approval**, strategy-guard and
+  plan-review extract the `<script type="text/markdown" id="plan-source">` block; **post-approval**,
+  dispatch-executor and implementation read the finalized `<slug>.md` (which *is* that block,
+  persisted at approval).
+
+> **Lifecycle — the HTML lives only until approval.** This document is the *review* surface. At
+> approval, `plan-finalize.sh` (run by `approve-plan.sh` in the owned flow, and by the
+> `PostToolUse:ExitPlanMode` hook in the native fallback) extracts the `plan-source` Markdown into
+> `<slug>.md`, deletes the `.html`, and the `.md` becomes the plan file every post-approval
+> consumer reads. This is why the `plan-source` block must be complete and byte-faithful: it *is*
+> the plan that survives. **Exception — plan-only repos:** there the plan file is the user's
+> deliverable and nothing downstream consumes it, so finalize is skipped and the styled HTML is
+> kept.
 
 ### Machine contract (non-negotiable)
 

@@ -8,7 +8,11 @@ mode. Plans are persisted as a single self-contained document — **your choice*
 (portable; renders on GitHub/GitLab), via [`/mentor:plan-output-format`](#plan-output-format-mentorplan-output-format).
 Either way it carries required per-topic visualizations + a mandatory **Use case scenarios** section
 proving the plan understood the request, auto-opens for review, and serves as the single source of
-truth for every downstream hook.
+truth for every downstream hook. **An HTML plan lives only until approval:** the moment you confirm
+the plan, its canonical Markdown is extracted into `<slug>.md` and the `.html` is deleted — the lean
+`.md` is the plan file implementation (and every later consumer) reads, so the heavy rendered HTML
+never burns context after review. (Exception: `plan-only` repos keep the styled HTML — there the
+plan file is the deliverable and nothing downstream consumes it.)
 
 ## Quick start
 
@@ -104,7 +108,7 @@ value. Existing repos are unaffected until they opt in — when unset, the gates
 
 | Format | Deliverable |
 |---|---|
-| `html` | A single **self-contained styled HTML** document — a bespoke per-plan theme, **live before/after `<iframe>` mockups** (frontend), purposeful animation, in-place self-refresh. The original deliverable; richest review surface. |
+| `html` | A single **self-contained styled HTML** document — a bespoke per-plan theme, **live before/after `<iframe>` mockups** (frontend), purposeful animation, in-place self-refresh. The original deliverable; richest review surface. **Review-time only:** at approval it is finalized — the canonical Markdown is extracted to `<slug>.md` and the `.html` is deleted; implementation reads the `.md` (plan-only repos keep the HTML — it is the deliverable there). |
 | `md` | A single **self-contained Markdown** document. Visualization is **Mermaid-first** (` ```mermaid ` flowchart/sequence/ER/state/class), with **ASCII diagrams**, **GFM tables**, and **GFM alerts**. The `.md` *is* its own canonical source (footer markers at end-of-file, dispatch annotations inline — no embedded `plan-source` block). Portable: renders richly on GitHub/GitLab and in any Mermaid-capable Markdown viewer. |
 
 **Markdown visualization idiom** — one artifact per change, never two representations of one thing:
@@ -130,7 +134,8 @@ them natively).
 | `hooks/plan-read-gate.sh` | **Always-delegate-RESEARCH floor:** ~2 free reads, then blocks bulk reads until a research subagent is dispatched — keeps the main conversation lean. |
 | `hooks/plan-author-gate.sh` | **Always-delegate-AUTHORING floor:** blocks the plan-file write until a **plan-author** subagent has been dispatched — the main thread renders the returned body, it never drafts the plan. |
 | `hooks/plan-html-stop-gate.sh` | **Persist-the-plan floor (Stop):** once the plan-author has returned, the turn cannot end until the plan file is written — in every mode the plan file (HTML or Markdown, per format) is the deliverable, not the chat text. |
-| `hooks/approve-plan.sh` | Validates the plan (via `strategy-guard.sh`), releases the gate, prints the dispatch directive. With `--handoff`: same validation + gate release, but prints a hand-off directive (write a `/mentor:handoff` doc, then stop) and **suppresses dispatch** — for any strategy. |
+| `hooks/approve-plan.sh` | Validates the plan (via `strategy-guard.sh`), releases the gate, **finalizes the plan** (via `plan-finalize.sh`), prints the dispatch directive. With `--handoff`: same validation + gate release + finalize, but prints a hand-off directive (write a `/mentor:handoff` doc, then stop) and **suppresses dispatch** — for any strategy. |
+| `hooks/plan-finalize.sh` | **Approval-time finalizer:** given the explicit, just-validated plan (`--plan <path>` — never "newest `*.html`", so stale HTMLs from abandoned sessions are never resurrected), extracts the canonical Markdown from its `plan-source` block into `<slug>.md`, deletes the `.html` (+ its `.opened` sidecar), and pre-marks the `.md` as opened (no second review tab). Runs from `approve-plan.sh` (owned flow) and `dispatch-executor.sh` (native `PostToolUse:ExitPlanMode`); fail-soft, no-op for `.md` targets, **skipped in plan-only mode** (the plan file is the deliverable there). |
 
 ### Always-delegate planning (context optimization)
 

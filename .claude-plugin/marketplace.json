@@ -6,7 +6,7 @@
   "plugins": [
     {
       "name": "mentor",
-      "description": "A plugin-owned planning harness for Claude Code: fail-closed read-only planning (no native plan mode), with research and plan authoring delegated to subagents. The plan deliverable is user-configurable per repo — a bespoke styled-HTML document or a Mermaid-first Markdown document — shaped per domain.",
+      "description": "A plugin-owned planning harness for Claude Code: fail-closed read-only planning (no native plan mode), with research and plan authoring delegated to subagents. The plan deliverable is user-configurable per repo — a bespoke styled-HTML review document (finalized to lean Markdown at approval) or a Mermaid-first Markdown document — shaped per domain.",
       "source": "./plugins/mentor",
       "category": "development"
     },

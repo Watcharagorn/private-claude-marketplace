@@ -8,8 +8,10 @@
 #   2. validates it by DELEGATING to strategy-guard.sh — the single source of
 #      truth for footer markers + HTML freshness — via a synthetic plan_path JSON;
 #   3. on success: deletes .planning / .research-dispatched / .read-budget / .proceed-mode
-#      (the gate OPENS — repo edits are now allowed), then runs dispatch-executor.sh
-#      so dispatch / worktree+dispatch plans get their fan-out directive;
+#      (the gate OPENS — repo edits are now allowed), FINALIZES an html plan via
+#      plan-finalize.sh (canonical .md persisted, review .html terminated — skipped in
+#      plan-only mode), then runs dispatch-executor.sh so dispatch / worktree+dispatch
+#      plans get their fan-out directive;
 #   4. on failure: surfaces strategy-guard's exact error, leaves .planning in place
 #      (the gate STAYS CLOSED), and exits non-zero.
 #
@@ -59,6 +61,17 @@ if [ -z "$newest_plan" ]; then
   legacy_dir="${HOME}/.claude/mentor/plans/${repo_base}-${repo_hash}"
   newest_plan="$(ls -t "${legacy_dir}/"*."${plan_ext}" 2>/dev/null | head -1 || true)"
 fi
+if [ -z "$newest_plan" ] && [ "$plan_ext" = "html" ] && [ ! -f "$marker" ]; then
+  # Idempotency: an html-format plan that was already approved has been FINALIZED — the
+  # .html was terminated and the canonical .md persisted in its place (plan-finalize.sh).
+  # A re-run must not demand a fresh HTML; report the finalized plan and stop.
+  finalized="$(ls -t "${plans_dir}/"*.md 2>/dev/null | head -1 || true)"
+  if [ -n "$finalized" ]; then
+    echo "[mentor approve-plan] Plan already APPROVED and finalized — gate is open, nothing to do."
+    echo "  plan: ${finalized}"
+    exit 0
+  fi
+fi
 if [ -z "$newest_plan" ]; then
   echo "[mentor approve-plan] No ${plan_kind} plan found in ${plans_dir}." >&2
   echo "Write the ${plan_kind} plan (mentor-plan Step 6b) before approving." >&2
@@ -84,8 +97,30 @@ rm -f "$marker" \
       "${plans_dir}/.read-budget" \
       "${plans_dir}/.proceed-mode" 2>/dev/null || true
 
+# Finalize: the HTML review surface has done its job — terminate it and persist the canonical
+# Markdown (extracted from its plan-source block) as <slug>.md. From here on, every post-approval
+# consumer (dispatch directive, implementation, handoff) reads the lean .md, never the HTML.
+# Target is the EXPLICIT plan just validated above — never "newest *.html" (a stale HTML from an
+# abandoned session must not be resurrected). No-op for md-format repos; fail-soft (extraction
+# failure keeps the .html as the plan). SKIPPED in plan-only mode: there the plan file is the
+# user's DELIVERABLE and nothing downstream consumes it — the rich HTML is kept.
+final_plan=""
+if [ "$(mentor_get_mode "$repo_root")" != "plan-only" ]; then
+  final_plan="$(bash "${hook_dir}/plan-finalize.sh" --plan "$newest_plan" || true)"
+fi
+if [ -n "$final_plan" ]; then
+  newest_plan="$final_plan"
+  # Rebuild the synthetic so dispatch-executor resolves the finalized .md, not the deleted .html.
+  synthetic="$(jq -nc --arg p "$newest_plan" --arg c "$cwd" \
+    '{tool_name:"ExitPlanMode", cwd:$c, tool_input:{plan_path:$p}}')"
+fi
+
 echo "[mentor approve-plan] Plan APPROVED — gate released. Repo edits are now allowed."
 echo "  plan: ${newest_plan}"
+if [ -n "$final_plan" ]; then
+  echo "  (HTML review surface terminated — the canonical Markdown above IS the plan file now."
+  echo "   Read THAT .md for implementation; do not look for the .html.)"
+fi
 
 # Hand-off: the plan is approved and the gate is open, but implementation is deferred to
 # a fresh agent. Print the directive and exit BEFORE the plan-only block and before

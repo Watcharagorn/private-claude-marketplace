@@ -46,13 +46,18 @@ rm -f "${plans_dir}/.research-dispatched" \
       "${plans_dir}/.proceed-mode" \
       "${plans_dir}"/*.opened 2>/dev/null || true
 
-# Format-switch hygiene: when the format is known, drop any plan file of the OTHER
-# extension (and its .opened sidecar) so the deliverable gates (strategy-guard.sh,
-# approve-plan.sh, plan-html-stop-gate.sh) resolve ONLY the current-format plan. A
-# switch via /mentor:plan-output-format must not leave a foreign-format plan behind.
+# Format-switch hygiene (md format only): drop any foreign *.html review surface (and its
+# .opened sidecar) so the deliverable gates (strategy-guard.sh, approve-plan.sh,
+# plan-html-stop-gate.sh) resolve ONLY the current-format plan. A switch via
+# /mentor:plan-output-format must not leave a foreign-format plan behind.
+#
+# The html branch does NOT purge *.md — in an html-format repo a *.md is (since the
+# finalize-at-approval enhancement) the FINALIZED APPROVED plan of a prior session, i.e.
+# the durable artifact implementation/handoff/resume still consume. Sweeping it here
+# destroyed the approved plan the moment a new /mentor:plan started. The html gates all
+# key on *.html, so a lingering .md cannot confuse them during planning.
 case "$format" in
-  md)   rm -f "${plans_dir}"/*.html "${plans_dir}"/*.html.opened 2>/dev/null || true ;;
-  html) rm -f "${plans_dir}"/*.md   "${plans_dir}"/*.md.opened   2>/dev/null || true ;;
+  md) rm -f "${plans_dir}"/*.html "${plans_dir}"/*.html.opened 2>/dev/null || true ;;
 esac
 
 : > "${plans_dir}/.planning"

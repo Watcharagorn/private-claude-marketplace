@@ -76,8 +76,10 @@ fi
 # v0.15.0: plans persist as HTML carrying the canonical plan in a
 # <script type="text/markdown" id="plan-source">…</script> block. When present,
 # extract that block so all marker greps run against clean Markdown (never HTML body).
+# Shared with plan-finalize.sh via lib/state.sh — what this guard validates is byte-for-byte
+# what finalize persists as the post-approval .md.
 if printf '%s' "$plan" | grep -q 'id="plan-source"'; then
-  plan=$(printf '%s' "$plan" | sed -n '/<script[^>]*id="plan-source"/,/<\/script>/p' | sed '1d;$d')
+  plan=$(printf '%s' "$plan" | mentor_extract_plan_source)
 fi
 
 # Extract declared strategy

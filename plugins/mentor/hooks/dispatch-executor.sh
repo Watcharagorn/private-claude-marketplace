@@ -36,29 +36,47 @@ MSG
   exit 0
 fi
 
+plan_file=""
 if [[ -n "$plan_path" && -r "$plan_path" ]]; then
   plan=$(cat "$plan_path")
+  plan_file="$plan_path"
 elif [[ -n "$plan_inline" ]]; then
   plan="$plan_inline"
 else
   fallback_file=""
   if [[ -n "$global_plans_dir" && -d "$global_plans_dir" ]]; then
-    # v0.15.0: plans persist as .html (legacy .md honored one release). Newest wins.
-    fallback_file=$(ls -t "${global_plans_dir}/"*.html "${global_plans_dir}/"*.md 2>/dev/null | head -1)
+    # Newest wins. After finalize (above) an approved html-format plan resolves to its .md.
+    # `|| true`: with one format present the OTHER glob stays literal and ls exits non-zero
+    # — under `set -euo pipefail` that aborted the whole hook before the directive printed.
+    fallback_file=$(ls -t "${global_plans_dir}/"*.html "${global_plans_dir}/"*.md 2>/dev/null | head -1 || true)
   fi
   if [[ -z "$fallback_file" && -n "$cwd" && -d "${cwd}/.claude/plans" ]]; then
-    fallback_file=$(ls -t "${cwd}/.claude/plans/"*.html "${cwd}/.claude/plans/"*.md 2>/dev/null | head -1)
+    fallback_file=$(ls -t "${cwd}/.claude/plans/"*.html "${cwd}/.claude/plans/"*.md 2>/dev/null | head -1 || true)
   fi
   if [[ -n "$fallback_file" && -r "$fallback_file" ]]; then
     plan=$(cat "$fallback_file")
+    plan_file="$fallback_file"
   else
     plan=""
   fi
 fi
 
-# v0.15.0: extract the canonical Markdown from the HTML plan-source block when present.
+# Finalize at approval: terminate the HTML review surface and persist the canonical .md
+# (plan-finalize.sh). This hook fires only AFTER ExitPlanMode approval (native fallback), so
+# this is the approval moment on that path. The target is the EXPLICIT plan resolved above —
+# never "newest *.html" (a stale HTML from an abandoned session must not be resurrected). On
+# the owned path approve-plan.sh already finalized and passed the .md, so the extension guard
+# skips this entirely. Runs after the plan-only early-exit (plan-only keeps its rich HTML
+# deliverable) and is fail-soft — on extraction failure the .html stays and is handled below.
+if [[ "$plan_file" == *.html ]]; then
+  finalized=$(bash "$(dirname "${BASH_SOURCE[0]}")/plan-finalize.sh" --plan "$plan_file" 2>/dev/null || true)
+  [[ -n "$finalized" ]] && plan_file="$finalized"
+fi
+
+# v0.15.0: extract the canonical Markdown from the HTML plan-source block when present
+# (the in-memory $plan still holds the html on the fail-soft path and the finalized path alike).
 if printf '%s' "$plan" | grep -q 'id="plan-source"'; then
-  plan=$(printf '%s' "$plan" | sed -n '/<script[^>]*id="plan-source"/,/<\/script>/p' | sed '1d;$d')
+  plan=$(printf '%s' "$plan" | mentor_extract_plan_source)
 fi
 
 strategy=$(printf '%s' "$plan" | grep -E '^strategy:[[:space:]]*' | head -1 \
@@ -66,23 +84,39 @@ strategy=$(printf '%s' "$plan" | grep -E '^strategy:[[:space:]]*' | head -1 \
 
 [[ "$strategy" == "dispatch" || "$strategy" == "worktree+dispatch" ]] || exit 0
 
-# Format-aware read-back instruction: an HTML plan carries the canonical Markdown in a
-# plan-source block; a Markdown plan IS its own canonical source (read it directly).
-case "$(mentor_get_format "$repo_root")" in
-  md)
-    read_step='1. Read the plan file now (path shown in the plan mode system message). It is a
+# Read-back instruction keyed off the RESOLVED plan file (not the configured format): after
+# finalize, an approved html-format plan lives at <slug>.md — the canonical Markdown IS the
+# plan file and is read directly. The html wording survives only as the fail-soft fallback
+# (finalize kept the .html) and for the legacy inline-plan shape.
+if [[ "$plan_file" == *.md ]]; then
+  read_step="1. Read the approved plan file now: ${plan_file}
+     It is a Markdown document and IS its own canonical source — read the plan directly. The
+     footer markers are bare lines at end-of-file; the [role: … · model: … · effort: …]
+     annotations and the \"Run in parallel:\" / \"Sequential:\" groups are inline in the steps."
+elif [[ -n "$plan_file" ]]; then
+  read_step="1. Read the approved plan file now: ${plan_file}
+     It is an HTML document — read the canonical plan from the Markdown inside
+     <script type=\"text/markdown\" id=\"plan-source\">…</script> (NOT the rendered body).
+     The parallel/sequential groups and the [role: … · model: … · effort: …] annotations
+     live in that Markdown block."
+else
+  # Legacy inline plan body — no file to point at; fall back to the configured format's wording.
+  case "$(mentor_get_format "$repo_root")" in
+    md)
+      read_step='1. Read the plan file now (path shown in the plan mode system message). It is a
      Markdown document and IS its own canonical source — read the plan directly. The footer
      markers are bare lines at end-of-file; the [role: … · model: … · effort: …] annotations
      and the "Run in parallel:" / "Sequential:" groups are inline in the steps.'
-    ;;
-  *)
-    read_step='1. Read the plan file now (path shown in the plan mode system message). It is an HTML
+      ;;
+    *)
+      read_step='1. Read the plan file now (path shown in the plan mode system message). It is an HTML
      document — read the canonical plan from the Markdown inside
      <script type="text/markdown" id="plan-source">…</script> (NOT the rendered body).
      The parallel/sequential groups and the [role: … · model: … · effort: …] annotations
      live in that Markdown block.'
-    ;;
-esac
+      ;;
+  esac
+fi
 
 cat <<MSG
 ENHANCED-PLANNING DISPATCH ACTIVATED — PostToolUse:ExitPlanMode

@@ -125,6 +125,15 @@ mentor_plan_ext() {
   esac
 }
 
+# mentor_extract_plan_source — stdin filter: emit the canonical Markdown inside an HTML
+# plan's <script type="text/markdown" id="plan-source">…</script> block (the two sed
+# passes drop the open/close tag lines). Emits nothing when no block is present. This is
+# THE extraction — strategy-guard.sh, dispatch-executor.sh, and plan-finalize.sh all call
+# it, so the finalized .md is byte-identical to what the guard validated (no regex drift).
+mentor_extract_plan_source() {
+  sed -n '/<script[^>]*id="plan-source"/,/<\/script>/p' | sed '1d;$d'
+}
+
 # mentor_config_bool <config_path> <key> — echo "true" | "false" | "unset".
 # Distinguishes an absent key from an explicit false (jq's `// ` cannot — `false // x`
 # yields x — so we test has($k)). Fail-soft: no path/key/file/jq → "unset".

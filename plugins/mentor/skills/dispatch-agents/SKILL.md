@@ -198,8 +198,9 @@ Before releasing the plan:
    strategy: dispatch
    ```
    (add `worktree: …` if this is a worktree+dispatch plan). The dispatch-executor reads these
-   annotations (from the `plan-source` block in html, or the file directly in md) to fan out the
-   agents — keep each annotation on its own line. You do not need to open the file; the
+   annotations to fan out the agents (at approval an html plan is finalized to `<slug>.md`, so
+   in both formats the executor reads the Markdown file directly; the `plan-source` block is
+   read only on the fail-soft fallback) — keep each annotation on its own line. You do not need to open the file; the
    `plan-open.sh` hook opens it for review on first creation (html → VSCode tab or Chrome; md →
    VSCode tab or the OS default Markdown handler, never raw-text Chrome); it refreshes in place on
    later edits (no new tab/window, no focus-steal).
@@ -230,12 +231,14 @@ Before releasing the plan:
 
 After release (`approve-plan.sh` prints the dispatch directive in the owned flow; `PostToolUse:ExitPlanMode` does so in native):
 
-1. **Read the plan file immediately.** The path is shown in the plan mode system message
-   (e.g. `~/.claude/mentor/<repo>-<hash>/plans/<slug>.{html,md}`). If it is an **HTML** document,
-   read the canonical plan from the Markdown inside `<script type="text/markdown" id="plan-source">…</script>`,
-   not the rendered body. If it is a **Markdown** (`.md`) document, it IS its own canonical source —
-   read it directly (footer markers at end-of-file, annotations inline). Do not continue inline —
-   read the plan first.
+1. **Read the plan file immediately.** The dispatch directive prints the resolved path
+   (e.g. `~/.claude/mentor/<repo>-<hash>/plans/<slug>.md`). At approval the plan was **finalized**:
+   an html-format plan's canonical Markdown was extracted into `<slug>.md` and the `.html` was
+   deleted — so post-approval the plan is normally a **Markdown** (`.md`) document that IS its own
+   canonical source: read it directly (footer markers at end-of-file, annotations inline). Only if
+   finalize fail-softed and an **HTML** file is still the resolved plan, read the canonical plan
+   from the Markdown inside `<script type="text/markdown" id="plan-source">…</script>`, not the
+   rendered body. Do not continue inline — read the plan first.
 2. **Dispatch "Run in parallel:" groups.** Issue ALL `Agent()` calls for each parallel group
    in a **single message** so they run concurrently. After dispatching, **do not issue a no-op
    `Bash` call** (e.g. `echo "Waiting…"`) or `sleep` to "hold" while the agents run — that wastes a
@@ -245,16 +248,19 @@ After release (`approve-plan.sh` prints the dispatch directive in the owned flow
    issuing the next `Agent()` call.
 4. **Verify each Done when: criterion** before moving to the next step — agents describe
    what they intended; trust but verify.
-   - **Render-only fixes are yours; plan content is not.** If verification surfaces a small
-     cosmetic/render defect in the plan **HTML** (a CSS or theme-alignment tweak, a Mermaid
-     `themeVariables` / ER row-color fix — see [mentor-plan Step 8 rule 11](../mentor-plan/SKILL.md)),
-     you MAY apply it inline: rendering the HTML is the orchestrator's own job, not plan authorship.
+   - **Render-only fixes are yours; plan content is not.** This carve-out applies **during
+     planning only** — post-approval the html plan has been finalized to `<slug>.md` and there is
+     no render layer left. Pre-approval, if review surfaces a small cosmetic/render defect in the
+     plan **HTML** (a CSS or theme-alignment tweak, a Mermaid `themeVariables` / ER row-color fix
+     — see [mentor-plan Step 8 rule 11](../mentor-plan/SKILL.md)), you MAY apply it inline:
+     rendering the HTML is the orchestrator's own job, not plan authorship.
      Two hard limits — (a) **never edit the `<script id="plan-source">` block** (that is plan
      *content*; the strategy-guard greps it and a hand-edit desyncs body↔source — route any content
      change back through the plan-author); (b) anything spanning **multiple files or in-repo source**
      dispatches a corrective agent. This carve-out covers the rendered plan artifact (which lives
-     outside the repo) only — in-repo source edits stay gated. **In md mode there is no render layer
-     and no `plan-source` block** — the `.md` is pure content, so this carve-out does not apply:
-     route every change (even a typo) back through the plan-author and re-write the `.md`.
+     outside the repo) only — in-repo source edits stay gated. **For a `.md` plan (md format, or
+     the finalized post-approval plan) there is no render layer and no `plan-source` block** — the
+     `.md` is pure content, so this carve-out does not apply: route every change (even a typo)
+     back through the plan-author and re-write the `.md`.
 
 Do NOT paraphrase the plan or summarize what you're about to do. Dispatch immediately.
