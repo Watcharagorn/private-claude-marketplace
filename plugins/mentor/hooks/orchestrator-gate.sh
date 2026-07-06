@@ -25,7 +25,7 @@
 #
 # Deferral (exit 0) — plugin-owned flows own enforcement, so the gate steps aside when:
 #   • a fresh `.planning` marker is present (the plan harness),
-#   • a fresh `/tmp/mentor-flow-active-<session_id>` flag is present (/ship, /mentor:harvest,
+#   • a fresh `/tmp/mentor-flow-active-<session_id>` flag is present (/ship, /plugin-ops:harvest,
 #     /simplify), or
 #   • cwd is inside a mentor-managed worktree (.git/worktrees/<n>/mentor.json).
 #
@@ -85,7 +85,7 @@ plans_dir="$(mentor_plans_dir "$repo_root_common")"
 if mentor_marker_fresh "${plans_dir}/.planning"; then
   exit 0
 fi
-# 2. /ship · /mentor:harvest · /simplify flow flag (fresh < 60 min).
+# 2. /ship · /plugin-ops:harvest · /simplify flow flag (fresh < 60 min).
 FLOW="/tmp/mentor-flow-active-${SESSION_ID}"
 if [ -f "$FLOW" ] && [ -z "$(find "$FLOW" -mmin +60 2>/dev/null)" ]; then
   exit 0

@@ -115,7 +115,7 @@ paraphrase an agent's claim as fact without checking · retry a gate-blocked too
 
 ## Exempt flows
 
-`/mentor:plan` (its own gates own the plan phase), `/ship`, `/mentor:harvest`, and `/simplify`
+`/mentor:plan` (its own gates own the plan phase), `/ship`, `/plugin-ops:harvest`, and `/simplify`
 run unimpeded even with orchestrator ON — the gate defers to them. Escape hatch for everything
 else: `/mentor:orchestrator off` (repo-wide; orchestrator is a persisted config toggle — repo
 overrides global — not a working mode).

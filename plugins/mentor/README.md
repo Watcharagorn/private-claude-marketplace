@@ -184,41 +184,21 @@ generalist reviewer.
 - `/plan-review` — a fixed 3-topic review of the current plan; also offered as a **Review the plan (light)** option at the owned-flow proceed gate, which loops back to re-ask without releasing the edit gate.
 - `/ship` — worktree-aware finish that auto-opens the MR/PR on push.
 - `/dispatch-agents` — decompose a plan into annotated subagent dispatches.
-- `/harvest` — analyze the finished session and turn repeated manual work into reusable artifacts (see below).
+- `/plugin-ops:harvest` — analyze the finished session and turn repeated manual work into reusable artifacts (**moved to the `plugin-ops` plugin in v0.45.0** — see below).
 - `/mentor:mode [plan|plan-only|status]` — get/set the persisted **repo working mode** (see above).
 - `/mentor:plan-output-format [md|html|status]` — get/set the persisted **plan output format** (see [above](#plan-output-format-mentorplan-output-format)).
 - `/mentor:orchestrator [on|off|status|clear] [global]` — toggle the orthogonal **orchestrator** flag (see below).
 
-### Harvest — session → reusable automation
+### Harvest — moved to `plugin-ops` (v0.45.0)
 
-```
-/mentor:harvest [optional path to a session transcript .jsonl]
-```
-
-The inverse of planning. After a session, `/harvest` analyzes the active transcript, detects
-repeated manual prompts / multi-step work, and then **creates or updates** the right Claude Code
-artifacts so future similar sessions need less hand-prompting. It follows the `harvest-automations`
-skill, which:
-
-1. **Locates** the live session transcript (newest `*.jsonl` in the cwd-derived project dir;
-   falls back to an explicit path or asks). The transcript path — never its contents — is handed
-   to an analysis subagent, keeping the main context lean.
-2. **Analyzes** via a subagent that returns the top 4 opportunities as **usage-centric** JSON —
-   each opportunity is a complete usage/workflow (invocation · example · end-to-end steps ·
-   outcome) delivered by a bundle of one or more artifacts, each with a role in the workflow.
-3. **Validates the bundle per Claude best practice** across the full customization surface —
-   skills, commands, subagents, hooks, permissions, `CLAUDE.md`/memory, path-scoped rules,
-   MCP servers, output styles — enforcing minimality: the smallest artifact set that delivers
-   the usage (`references/artifact-catalog.md` holds the taxonomy + templates + merge recipes +
-   bundle pairings/anti-patterns).
-4. **Proposes usages, not artifacts**: prints a usage card per opportunity (you do X → this
-   happens → you get Y, with the artifacts as a footnote), then a usage multi-select. You pick
-   the workflows you want; scope (user / project / plugin) is confirmed per accepted usage in one
-   batched question, with settings-based artifacts falling back from plugin scope automatically.
-5. **Creates or updates** with per-type safety: `jq` deep-merge + validate + timestamped backup for
-   structured files (`settings.json`, `.mcp.json`), append-section for `CLAUDE.md`/rules/memory,
-   whole-file for skills/agents/commands/output-styles — always showing a diff and confirming
-   before any update, and never inventing secrets.
+The harvest capability (`/harvest` command + `harvest-automations` skill) **moved to the
+`plugin-ops` plugin** in mentor v0.45.0 — it is session-lifecycle tooling, not planning. Invoke it
+as `/plugin-ops:harvest [optional session-id or transcript .jsonl]` (unqualified `/harvest` also
+resolves while unique). Behavior is unchanged: it analyzes a session transcript, detects repeated
+manual work, and creates/updates the smallest set of Claude Code artifacts (skills, commands,
+agents, hooks, permissions, rules, …) that removes it. Requires `plugin-ops@private-marketplace`
+to be enabled where you run it. Mentor's orchestrator still exempts the harvest flow (the flow
+flag now matches `/plugin-ops:harvest` and bare `/harvest`).
 
 ## Orchestrator toggle — session-wide orchestration
 
@@ -259,7 +239,7 @@ and run **read-only** verification Bash (`git`, `gh`, tests, builds, `cat`/`grep
 delegate all edits and bulk research.
 
 **Exempt flows** run unimpeded even with orchestrator ON: `/mentor:plan` (its own gates own the
-plan phase), `/ship`, `/mentor:harvest`, and `/simplify`.
+plan phase), `/ship`, `/plugin-ops:harvest`, and `/simplify`.
 
 **Knobs:** `MENTOR_ORCHESTRATOR_READ_FREE` (in-repo reads per turn before the nudge; default 3),
 `MENTOR_ORCHESTRATOR_ARTIFACT_DIRS` (comma-separated repo-relative build/output dirs Bash may

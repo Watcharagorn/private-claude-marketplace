@@ -34,7 +34,7 @@ Three references are the authority here; read them before deciding artifact type
   echo "${common:-NO_COMMON}"
   ```
 
-- **[`references/artifact-catalog.md`](references/artifact-catalog.md)** — which pattern maps to which
+- **[`../../references/artifact-catalog.md`](../../references/artifact-catalog.md)** — which pattern maps to which
   artifact type, per-type templates, merge recipes, per-type safety, and the "Composing usage
   bundles" minimality rules.
 - **[`references/plugin-packaging.md`](references/plugin-packaging.md)** — how to assemble those

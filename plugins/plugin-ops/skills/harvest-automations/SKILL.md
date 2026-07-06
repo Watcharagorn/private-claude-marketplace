@@ -24,7 +24,7 @@ each accepted usage is delivered by the smallest artifact bundle per Claude guid
 new** artifacts or **merging into existing** ones across the whole customization surface.
 
 The authoritative best-practice rubric (which pattern maps to which artifact), the per-type
-templates, and the merge recipes live in **[`references/artifact-catalog.md`](references/artifact-catalog.md)**.
+templates, and the merge recipes live in **[`../../references/artifact-catalog.md`](../../references/artifact-catalog.md)**.
 Read it before deciding artifact types and before writing any file.
 
 ## When to use
@@ -112,7 +112,7 @@ Dispatch **one** `Explore` (or `general-purpose`) subagent on **sonnet** with th
   session.
 - For each opportunity, design the **usage** first (how the user will trigger it, what happens end
   to end, what they get), then choose the **smallest set of artifacts** that delivers that usage —
-  types, scopes, and create/update modes per the rubric in `references/artifact-catalog.md`. One
+  types, scopes, and create/update modes per the rubric in `../../references/artifact-catalog.md`. One
   usage may bundle multiple artifacts (e.g. a command + the permission it needs).
 - For huge transcripts (>~20k lines), **sample by intent-cluster** rather than full read.
 - **Never paste raw transcript content back** — evidence is line numbers / short quote refs only.
@@ -148,7 +148,7 @@ top-level `also_noticed` array (titles only) — the main agent mentions them in
 
 ## Step 3 — Apply the decision rubric
 
-Read **[`references/artifact-catalog.md`](references/artifact-catalog.md)** for the authoritative
+Read **[`../../references/artifact-catalog.md`](../../references/artifact-catalog.md)** for the authoritative
 best-practice rubric (which pattern -> which artifact), the per-type templates, and the merge
 recipes. Validate **every entry in each opportunity's `artifacts[]`** — `artifact_type` / `mode` /
 `merge_strategy` — against the catalog before proposing.
@@ -299,7 +299,7 @@ suggestion rather than applying it.
   only its tail was read in the main context — never the whole file.
 - A single analysis subagent returned **usage-centric** opportunities with `artifacts[]`, capped
   at 4 (no raw transcript content leaked back); extras beyond 4 were listed as "also noticed".
-- Every artifact in every bundle was checked against `references/artifact-catalog.md` AND the
+- Every artifact in every bundle was checked against `../../references/artifact-catalog.md` AND the
   minimality rule.
 - Usage cards were printed, the user multi-selected **usages** (never artifact types), and scope
   was confirmed per accepted usage in one batched question — settings-based artifacts fell back

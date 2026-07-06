@@ -94,7 +94,7 @@ Pick the entries that fit the current state, tailored to the next-session focus:
 - **Unclear approach / unfinished design** → `/mentor:plan <focus>` (runs the gated plan harness).
 - **A plan exists but its decisions feel shaky** → `/mentor:grill` to pressure-test it, then re-plan / approve.
 - **Approved plan, ready to build** → resume implementation; if a worktree is active, `/ship` when done.
-- **Repeated manual work worth capturing** → `/mentor:harvest`.
+- **Repeated manual work worth capturing** → `/plugin-ops:harvest`.
 - **Heavy multi-area work** → `/mentor:orchestrator on`, then dispatch.
 - Always cite the repo's persisted working mode (`/mentor:mode status`) so the next agent knows whether this repo is `plan` or `plan-only`.
 

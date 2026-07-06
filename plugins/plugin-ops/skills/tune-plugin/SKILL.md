@@ -48,7 +48,7 @@ echo "${common:-NO_COMMON}"
 - **You want a NEW plugin from the session**, not an improvement to an existing one → use
   `harvest-to-plugin` (it starts from a session and packages a plugin).
 - **The redundancy isn't plugin-shaped** (belongs in a user/project artifact, not inside any one
-  plugin) → use `mentor:harvest-automations`, which works over the whole session and does not publish.
+  plugin) → use `harvest-automations` (a sibling skill in this plugin), which works over the whole session and does not publish.
 - The target plugin lives outside this marketplace repo (the publish step assumes `plugins/<name>/`).
 
 ## Inputs
