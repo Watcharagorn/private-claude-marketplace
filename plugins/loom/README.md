@@ -1,4 +1,4 @@
-# plugin-ops
+# loom
 
 Session-driven harvesting and plugin lifecycle tools: **harvest** a working session into reusable
 Claude Code artifacts or a new packaged plugin, **tune** (audit/enhance) an existing plugin from a
@@ -11,17 +11,17 @@ The plugin-lifecycle skills (`harvest-to-plugin`, `tune-plugin`, `publish-plugin
 this marketplace repo** — they write `plugins/<name>/`, edit `.claude-plugin/marketplace.json`,
 and commit/push this repo; run them with **cwd = this repo**. `harvest-automations` is the
 exception: it harvests **any** session into user/project artifacts and works in any repo — enable
-`plugin-ops@private-marketplace` wherever you want `/harvest`.
+`loom@private-marketplace` wherever you want `/harvest`.
 
 ## Commands
 
 | Command | Args | Does |
 |---|---|---|
-| `/plugin-ops:harvest` | `[session-id \| transcript.jsonl]` | Analyze a session and create/update reusable Claude Code artifacts (skills, commands, agents, hooks, permissions, rules, …) at user/project scope — works in any repo (moved from `mentor` v0.45.0) |
-| `/plugin-ops:harvest-to-plugin` | `[session-id \| transcript.jsonl]` | Analyze a session, package repeated work as a **new** plugin (or merge into an existing one), register it, offer to publish |
-| `/plugin-ops:tune-plugin` | `<session> [plugin]` | Improve an existing plugin from a session — **both** lenses (audit + enhance), one consolidated release |
-| `/plugin-ops:audit-plugin` | `<session> [plugin]` | `tune-plugin` with **lens = audit** — find & fix misbehavior only |
-| `/plugin-ops:enhance-plugin` | `<session> [plugin]` | `tune-plugin` with **lens = enhance** — eliminate redundant manual work only |
+| `/loom:harvest` | `[session-id \| transcript.jsonl]` | Analyze a session and create/update reusable Claude Code artifacts (skills, commands, agents, hooks, permissions, rules, …) at user/project scope — works in any repo (moved from `mentor` v0.45.0) |
+| `/loom:harvest-to-plugin` | `[session-id \| transcript.jsonl]` | Analyze a session, package repeated work as a **new** plugin (or merge into an existing one), register it, offer to publish |
+| `/loom:tune-plugin` | `<session> [plugin]` | Improve an existing plugin from a session — **both** lenses (audit + enhance), one consolidated release |
+| `/loom:audit-plugin` | `<session> [plugin]` | `tune-plugin` with **lens = audit** — find & fix misbehavior only |
+| `/loom:enhance-plugin` | `<session> [plugin]` | `tune-plugin` with **lens = enhance** — eliminate redundant manual work only |
 
 Unqualified forms (`/harvest-to-plugin`, `/tune-plugin`, …) also resolve while no other enabled
 plugin ships a same-named command.

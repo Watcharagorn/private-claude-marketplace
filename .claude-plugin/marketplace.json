@@ -17,9 +17,9 @@
       "category": "development"
     },
     {
-      "name": "plugin-ops",
+      "name": "loom",
       "description": "Session harvesting and plugin lifecycle tools: harvest a session into reusable Claude Code artifacts or a new marketplace plugin, tune (audit/enhance) an existing plugin from a real session, and publish releases with synced manifests.",
-      "source": "./plugins/plugin-ops",
+      "source": "./plugins/loom",
       "category": "development"
     }
   ]

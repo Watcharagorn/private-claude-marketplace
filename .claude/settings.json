@@ -1,6 +1,6 @@
 {
   "enabledPlugins": {
     "skill-creator@claude-plugins-official": true,
-    "plugin-ops@private-marketplace": true
+    "loom@private-marketplace": true
   }
 }

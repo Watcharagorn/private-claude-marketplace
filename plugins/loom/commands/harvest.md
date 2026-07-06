@@ -4,7 +4,7 @@ argument-hint: [optional session-id OR path to a session transcript .jsonl]
 allowed-tools: [Bash, Read, Write, Edit, Skill, Task, AskUserQuestion]
 ---
 
-# plugin-ops — harvest automations
+# loom — harvest automations
 
 Analyze a session and extract reusable Claude Code artifacts that reduce future manual work.
 

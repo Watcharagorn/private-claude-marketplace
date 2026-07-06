@@ -184,21 +184,21 @@ generalist reviewer.
 - `/plan-review` — a fixed 3-topic review of the current plan; also offered as a **Review the plan (light)** option at the owned-flow proceed gate, which loops back to re-ask without releasing the edit gate.
 - `/ship` — worktree-aware finish that auto-opens the MR/PR on push.
 - `/dispatch-agents` — decompose a plan into annotated subagent dispatches.
-- `/plugin-ops:harvest` — analyze the finished session and turn repeated manual work into reusable artifacts (**moved to the `plugin-ops` plugin in v0.45.0** — see below).
+- `/loom:harvest` — analyze the finished session and turn repeated manual work into reusable artifacts (**moved to the `loom` plugin in v0.45.0** — see below).
 - `/mentor:mode [plan|plan-only|status]` — get/set the persisted **repo working mode** (see above).
 - `/mentor:plan-output-format [md|html|status]` — get/set the persisted **plan output format** (see [above](#plan-output-format-mentorplan-output-format)).
 - `/mentor:orchestrator [on|off|status|clear] [global]` — toggle the orthogonal **orchestrator** flag (see below).
 
-### Harvest — moved to `plugin-ops` (v0.45.0)
+### Harvest — moved to `loom` (v0.45.0)
 
 The harvest capability (`/harvest` command + `harvest-automations` skill) **moved to the
-`plugin-ops` plugin** in mentor v0.45.0 — it is session-lifecycle tooling, not planning. Invoke it
-as `/plugin-ops:harvest [optional session-id or transcript .jsonl]` (unqualified `/harvest` also
+`loom` plugin** in mentor v0.45.0 — it is session-lifecycle tooling, not planning. Invoke it
+as `/loom:harvest [optional session-id or transcript .jsonl]` (unqualified `/harvest` also
 resolves while unique). Behavior is unchanged: it analyzes a session transcript, detects repeated
 manual work, and creates/updates the smallest set of Claude Code artifacts (skills, commands,
-agents, hooks, permissions, rules, …) that removes it. Requires `plugin-ops@private-marketplace`
+agents, hooks, permissions, rules, …) that removes it. Requires `loom@private-marketplace`
 to be enabled where you run it. Mentor's orchestrator still exempts the harvest flow (the flow
-flag now matches `/plugin-ops:harvest` and bare `/harvest`).
+flag now matches `/loom:harvest` and bare `/harvest`).
 
 ## Orchestrator toggle — session-wide orchestration
 
@@ -239,7 +239,7 @@ and run **read-only** verification Bash (`git`, `gh`, tests, builds, `cat`/`grep
 delegate all edits and bulk research.
 
 **Exempt flows** run unimpeded even with orchestrator ON: `/mentor:plan` (its own gates own the
-plan phase), `/ship`, `/plugin-ops:harvest`, and `/simplify`.
+plan phase), `/ship`, `/loom:harvest`, and `/simplify`.
 
 **Knobs:** `MENTOR_ORCHESTRATOR_READ_FREE` (in-repo reads per turn before the nudge; default 3),
 `MENTOR_ORCHESTRATOR_ARTIFACT_DIRS` (comma-separated repo-relative build/output dirs Bash may

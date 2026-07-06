@@ -29,7 +29,7 @@ repo — bump the version, keep the manifests and git in sync, and record releas
 - `plugins/<name>/README.md` — human docs (optional; the place for a changelog if you keep one)
 - `plugins/<name>/skills/*/SKILL.md` — skills (each has its own `version` in frontmatter)
 
-Three plugins ship today: `mentor`, `sdlc-mini`, `plugin-ops`.
+Three plugins ship today: `mentor`, `sdlc-mini`, `loom`.
 
 ## Procedure
 

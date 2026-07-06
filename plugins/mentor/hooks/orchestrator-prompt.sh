@@ -9,7 +9,7 @@
 #      can't leak state (incl. a one-release reaper for the legacy mentor-commander-* names).
 #   2. Migrates any legacy {"mode":"commander"} repo config (one-shot, first-read).
 #   3. When orchestrator is ON: resets the per-turn read budget + dispatch
-#      flag, sets the shared mentor-flow-active marker if a /ship · /plugin-ops:harvest ·
+#      flag, sets the shared mentor-flow-active marker if a /ship · /loom:harvest ·
 #      /simplify command is present (so orchestrator-gate defers to that flow), emits the
 #      <=2-line reminder, and ONCE per session injects the condensed playbook span
 #      (<!--INJECT-->…<!--/INJECT-->) from skills/orchestrator/SKILL.md — NOT the whole
@@ -49,7 +49,7 @@ rm -f "$DISPATCHED" 2>/dev/null || true
 
 # Defer to a plugin-owned flow invoked THIS turn (fresh marker; orchestrator-gate honors <60min).
 if printf '%s' "$prompt" | grep -qE '(^|[[:space:]])/(ship|simplify)([[:space:]]|$)' \
-   || printf '%s' "$prompt" | grep -qE '(^|[[:space:]])/(plugin-ops:)?harvest([[:space:]]|$)'; then
+   || printf '%s' "$prompt" | grep -qE '(^|[[:space:]])/(loom:)?harvest([[:space:]]|$)'; then
   touch "$FLOW" 2>/dev/null || true
 fi
 
