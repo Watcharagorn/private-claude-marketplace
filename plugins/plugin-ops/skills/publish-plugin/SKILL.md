@@ -4,7 +4,7 @@ description: >
   Publish (release) a plugin inside this ntbx-marketplace repo. Bumps the plugin's semver,
   syncs the version + description into the plugin manifest, the marketplace manifest, and the
   plugin README (keeping manifest descriptions short and meaningful — trimming bloat on sight, never
-  changelogs), validates the JSON, then commits and pushes to origin/main.
+  changelogs), validates the JSON, then commits and pushes to the repo's default branch.
   Invoke when the user says "publish the plugin", "release <plugin>", "pump/bump version and push",
   "ship the marketplace plugin", or "/publish-plugin". Repo-scoped to ntbx-marketplace.
 version: 1.2.0
@@ -29,7 +29,7 @@ repo — bump the version, keep the manifests and git in sync, and record releas
 - `plugins/<name>/README.md` — human docs (optional; the place for a changelog if you keep one)
 - `plugins/<name>/skills/*/SKILL.md` — skills (each has its own `version` in frontmatter)
 
-Two plugins ship today: `mentor`, `sdlc-mini`.
+Three plugins ship today: `mentor`, `sdlc-mini`, `plugin-ops`.
 
 ## Procedure
 
@@ -135,7 +135,7 @@ manifest breaks the whole marketplace, and a hardcoded hook path makes the plugi
 
 ### 7. Commit and push
 
-Stage the plugin dir plus the marketplace manifest, commit with a conventional message, push to `main`.
+Stage the plugin dir plus the marketplace manifest, commit with a conventional message, push to the repo's default branch (`develop`).
 
 ```bash
 git -C . add plugins/<name>/ .claude-plugin/marketplace.json
@@ -144,14 +144,14 @@ feat(<name>): <summary>, bump to vX.Y.Z
 
 <one or two lines on what the release contains and why>
 
-Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>
+Co-Authored-By: Claude <noreply@anthropic.com>
 EOF
 )"
-git -C . push origin main
+git -C . push origin HEAD
 ```
 
 - Use `feat(<name>):` for MINOR, `fix(<name>):` for PATCH, `feat(<name>)!:` or a `BREAKING CHANGE:` footer for MAJOR.
-- Confirm the push landed (report the new short SHA and the `old..new main -> main` line).
+- Confirm the push landed (report the new short SHA and the `old..new` line on the default branch).
 
 ## Rules
 
@@ -168,7 +168,7 @@ git -C . push origin main
 - Never edit another plugin's manifest in the same commit unless the user is publishing it too.
 - Default to one plugin per commit. If several changed, publish them separately.
 - Only `git push` after the user has asked to publish/push (this skill is invoked for exactly that),
-  and only push `main` unless told otherwise.
+  and only push the repo's default branch unless told otherwise.
 - Always validate JSON (step 6) before committing — a malformed manifest takes down the marketplace.
 - Match the existing description/README voice; don't reformat untouched entries — the **one
   exception** is trimming a bloated description to the brief form (steps 3–4).

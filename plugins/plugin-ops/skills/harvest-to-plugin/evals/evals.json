@@ -5,7 +5,7 @@
     {
       "id": 0,
       "name": "new-plugin-cert-expiry",
-      "prompt": "/harvest-to-plugin .claude/skills/harvest-to-plugin/evals/fixtures/a_new_plugin_cert_expiry.jsonl",
+      "prompt": "/harvest-to-plugin plugins/plugin-ops/skills/harvest-to-plugin/evals/fixtures/a_new_plugin_cert_expiry.jsonl",
       "expected_output": "Detects the repeated (x3) TLS-cert-expiry macro. No existing plugin matches its purpose, so it proposes a NEW plugin (e.g. cert-check) with a command + skill. On acceptance, scaffolds plugins/<name>/.claude-plugin/plugin.json (version 0.1.0) + artifacts, appends one entry to marketplace.json plugins[], validates JSON, then STOPS at the publish offer.",
       "files": ["fixtures/a_new_plugin_cert_expiry.jsonl"],
       "assertions": [
@@ -20,7 +20,7 @@
     {
       "id": 1,
       "name": "merge-into-db-tools",
-      "prompt": "/harvest-to-plugin .claude/skills/harvest-to-plugin/evals/fixtures/b_merge_db_backup.jsonl",
+      "prompt": "/harvest-to-plugin plugins/plugin-ops/skills/harvest-to-plugin/evals/fixtures/b_merge_db_backup.jsonl",
       "expected_output": "With the db-tools stub present in plugins/, detects the repeated (x2) backup->S3 macro. Purpose matches db-tools (database maintenance), and the GAP scan shows backup is ABSENT from db-tools' surface (it only has vacuum-db), so it proposes a MERGE into db-tools (a new backup skill/command appended into the existing plugin). The usage card names the target plugin db-tools + its purpose. No duplicate marketplace entry is added.",
       "files": ["fixtures/b_merge_db_backup.jsonl", "fixtures/stub-plugin/db-tools"],
       "assertions": [
@@ -35,7 +35,7 @@
     {
       "id": 2,
       "name": "noop-oneoff",
-      "prompt": "/harvest-to-plugin .claude/skills/harvest-to-plugin/evals/fixtures/c_noop_oneoff.jsonl",
+      "prompt": "/harvest-to-plugin plugins/plugin-ops/skills/harvest-to-plugin/evals/fixtures/c_noop_oneoff.jsonl",
       "expected_output": "Nothing recurs >= 2x, so it reports 'nothing to harvest (needs >=2 repeats)' and creates no files. No plugin scaffolded, no marketplace edit.",
       "files": ["fixtures/c_noop_oneoff.jsonl"],
       "assertions": [
@@ -46,7 +46,7 @@
     {
       "id": 3,
       "name": "already-covered-vacuum",
-      "prompt": "/harvest-to-plugin .claude/skills/harvest-to-plugin/evals/fixtures/d_already_covered_vacuum.jsonl",
+      "prompt": "/harvest-to-plugin plugins/plugin-ops/skills/harvest-to-plugin/evals/fixtures/d_already_covered_vacuum.jsonl",
       "expected_output": "With the db-tools stub present, detects the repeated (x2) vacuum/analyze macro. Purpose matches db-tools AND the GAP scan shows it is ALREADY implemented by db-tools/skills/vacuum-db. So it reports the usage as 'already covered' and creates nothing for it — proving it never ships a redundant workflow.",
       "files": ["fixtures/d_already_covered_vacuum.jsonl", "fixtures/stub-plugin/db-tools"],
       "assertions": [

@@ -15,6 +15,12 @@
       "description": "Turbo SDLC helpers: a release-notes generator and a tidy commit helper. Manifest and env-config setup have moved to the devflow plugin; init-turbo-manifest and init-turbo-env-config remain as deprecated redirects.",
       "source": "./plugins/sdlc-mini",
       "category": "development"
+    },
+    {
+      "name": "plugin-ops",
+      "description": "Plugin lifecycle tools for this marketplace: harvest a session into a new plugin, tune (audit/enhance) an existing one from a real session, and publish releases with synced manifests.",
+      "source": "./plugins/plugin-ops",
+      "category": "development"
     }
   ]
 }

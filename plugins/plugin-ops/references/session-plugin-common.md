@@ -186,6 +186,6 @@ materialized", create/change nothing, do **not** publish. This is a valid no-op 
 (or "**patch**: fixes <bugs>", or for a first release "first release at 0.1.0 — do not bump").
 `publish-plugin` has **no positional parser** — it classifies the bump itself (new artifact surface →
 **minor**; bug-only → **patch**; breaking → **major**), syncs manifests + README, validates JSON,
-checks hook paths, and commits + pushes to `main`. Let it own that; let the commit body enumerate the
-changes. Report the **new version** and the `old..new main -> main` push line, and advise the user to
+checks hook paths, and commits + pushes to the repo's default branch. Let it own that; let the commit
+body enumerate the changes. Report the **new version** and the `old..new` push line, and advise the user to
 run **`/reload-plugins`** so the plugin loads. One plugin per publish.

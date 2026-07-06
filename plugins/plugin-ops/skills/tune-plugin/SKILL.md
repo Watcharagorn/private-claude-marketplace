@@ -181,7 +181,7 @@ landed. For **merged (audit+enhance) items**, apply the single combined change t
 
 Follow shared chassis **§J**: invoke `publish-plugin` with the plugin + one consolidated bump as
 **intent** (highest class present: new artifact surface → minor; bug-only → patch; breaking → major).
-Report the new version + the `old..new main -> main` push line, and advise `/reload-plugins`.
+Report the new version + the `old..new` push line on the default branch, and advise `/reload-plugins`.
 
 ---
 
