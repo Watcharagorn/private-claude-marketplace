@@ -77,10 +77,10 @@ Write a Markdown document with these sections (skip a section only if genuinely 
 
 - **Goal / next-session focus** — from `$ARGUMENTS`; what the next agent should accomplish.
 - **What happened** — a tight summary of the conversation and the progress made. Narrative, not a transcript.
-- **Current state** — branch / worktree, what is done vs pending, any failing checks or known-broken bits.
+- **Current state** — branch, what is done vs pending, any failing checks or known-broken bits.
 - **Recommended mentor commands for the next agent** — see the mapping below.
 - **Referenced artifacts (do not duplicate)** — link by **path/URL**, never paste the contents:
-  - the current mentor plan file at `~/.claude/mentor/<repo>-<hash>/plans/<slug>.{html,md}` (if one exists),
+  - the current mentor plan file at `~/.claude/mentor/<repo>-<hash>/plans/<slug>.md` (if one exists),
   - PRDs / ADRs / design docs by path,
   - issue / PR / MR URLs,
   - key commit SHAs (`git rev-parse --short HEAD`, relevant ancestors),
@@ -93,9 +93,9 @@ Pick the entries that fit the current state, tailored to the next-session focus:
 
 - **Unclear approach / unfinished design** → `/mentor:plan <focus>` (runs the gated plan harness).
 - **A plan exists but its decisions feel shaky** → `/mentor:grill` to pressure-test it, then re-plan / approve.
-- **Approved plan, ready to build** → resume implementation; if a worktree is active, `/ship` when done.
+- **Approved plan, ready to build** → resume implementation; `/mentor:ship` when done.
 - **Repeated manual work worth capturing** → `/loom:harvest`.
-- **Heavy multi-area work** → `/mentor:orchestrator on`, then dispatch.
+- **Heavy multi-area work** → dispatch subagents per `dispatch-agents`.
 - Always cite the repo's persisted working mode (`/mentor:mode status`) so the next agent knows whether this repo is `plan` or `plan-only`.
 
 ## Step 4 — Redact secrets

@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # PostToolUse:Write|Edit
 #
-# Opens the mentor plan document (HTML or Markdown, per the repo's format) for review ONCE,
-# the first time it is created;
+# Opens the mentor plan document (the Markdown plan, or an opt-in HTML zoom
+# artifact) for review ONCE, the first time it is created;
 # later Write/Edits refresh it in place (the document self-refreshes on return to the tab,
 # and Live Preview / the browser reloads when the file changes on disk).
 #
@@ -29,11 +29,11 @@ file=$(printf '%s' "$input" | jq -r '.tool_input.file_path // ""' 2>/dev/null)
 # Off-switch: set MENTOR_PLAN_OPEN=off in ~/.claude/settings.json env to disable auto-open.
 case "${MENTOR_PLAN_OPEN:-}" in off|0|false|no) exit 0 ;; esac
 
-# Only act on the plugin's own plan files (HTML or Markdown, per the repo's configured
-# format; new <repo>-<hash>/plans/ layout; legacy mentor/plans/ arm kept — drop in 0.34).
+# Only act on the plugin's own plan files: the canonical Markdown plan, or an
+# opt-in HTML zoom artifact written beside it.
 case "$file" in
-  */.claude/mentor/*/plans/*.html|*/.claude/mentor/plans/*.html) ;;
-  */.claude/mentor/*/plans/*.md|*/.claude/mentor/plans/*.md) ;;
+  */.claude/mentor/*/plans/*.html) ;;
+  */.claude/mentor/*/plans/*.md) ;;
   *) exit 0 ;;
 esac
 

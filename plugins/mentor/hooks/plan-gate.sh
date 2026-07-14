@@ -1,0 +1,93 @@
+#!/usr/bin/env bash
+# plan-gate.sh — PreToolUse:Write|Edit|MultiEdit|NotebookEdit
+#
+# The single fail-closed edit gate of the mentor plan harness. It keys off a
+# repo-scoped `.planning` MARKER (armed by begin-plan.sh, released by
+# approve-plan.sh), so it holds even under bypassPermissions: PreToolUse hooks
+# deny independently of permission mode.
+#
+# While the marker is present, ALLOW only targets OUTSIDE the repo working tree
+# (the plan file lives under ~/.claude/mentor/<repo>-<hash>/plans/). Any in-repo
+# target — or an unresolvable/absent path — is DENIED. FAIL-CLOSED.
+#
+# Bash is NOT matched: the gate covers Claude's near-universal edit path
+# (Write/Edit/MultiEdit/NotebookEdit); the skill instructs against repo-mutating
+# shell commands during planning but does not enforce it.
+#
+# Staleness: a marker older than 8h is treated as released (a crashed planning
+# session must never permanently lock out editing) — the marker is removed and
+# the call allowed.
+#
+# No marker → exit 0 (not planning). Cannot resolve the repo/marker → exit 0
+# (nothing to protect). Exit 2 = block (stderr shown to the agent).
+
+set -euo pipefail
+
+command -v jq >/dev/null 2>&1 || exit 0
+. "$(dirname "${BASH_SOURCE[0]}")/lib/state.sh"
+
+INPUT="$(cat)" || exit 0
+TOOL_NAME="$(printf '%s' "$INPUT" | jq -r '.tool_name // ""' 2>/dev/null)" || exit 0
+case "$TOOL_NAME" in
+  Write|Edit|MultiEdit|NotebookEdit) ;;
+  *) exit 0 ;;
+esac
+
+CWD="$(mentor_cwd "$INPUT")"
+
+# --- resolve the repo-scoped plans dir + marker ---
+repo_root_common="$(mentor_repo_root "$CWD")"
+[ -z "$repo_root_common" ] && exit 0
+plans_dir="$(mentor_plans_dir "$repo_root_common")"
+marker="${plans_dir}/.planning"
+
+# No marker → not planning → allow.
+[ -f "$marker" ] || exit 0
+
+# Stale marker (>8h) → treat as released; self-heal and allow.
+if [ -n "$(find "$marker" -mmin +480 2>/dev/null)" ]; then
+  rm -f "$marker" 2>/dev/null || true
+  exit 0
+fi
+
+# The working-tree root to protect (writes anywhere inside it are denied while planning).
+REPO_WT="$(git -C "$CWD" rev-parse --show-toplevel 2>/dev/null || true)"
+[ -z "$REPO_WT" ] && REPO_WT="$repo_root_common"
+
+# Canonicalize without requiring the path to exist (new-file writes are the common
+# case). macOS BSD `realpath` lacks -m and fails on non-existent paths, so fall back
+# to python's os.path.realpath (resolves the existing prefix).
+_canon() {
+  local p="${1/#\~/$HOME}"     # expand leading ~ to $HOME before realpath
+  realpath -m -- "$p" 2>/dev/null && return 0
+  realpath -- "$p" 2>/dev/null && return 0
+  python3 -c "import os,sys; print(os.path.realpath(sys.argv[1]))" "$p" 2>/dev/null && return 0
+  echo "$p"
+}
+REPO_CANON="$(_canon "$REPO_WT")"
+
+FILE_PATH="$(printf '%s' "$INPUT" | jq -r '.tool_input.file_path // .tool_input.notebook_path // ""' 2>/dev/null)" || true
+if [ -n "$FILE_PATH" ]; then
+  FILE_CANON="$(_canon "$FILE_PATH")"
+  case "$FILE_CANON" in
+    "$REPO_CANON"|"${REPO_CANON}/"*) ;;   # inside repo → deny (fall through)
+    *) exit 0 ;;                          # outside repo (the plan file, /tmp, …) → allow
+  esac
+fi
+
+# empty path (unresolvable) OR inside-repo → deny (fail-closed).
+cat >&2 << EOF
+BLOCKED by mentor: PLAN PHASE is active — approve the plan first.
+
+  ${FILE_PATH:-<no path>}
+
+The .planning marker blocks edits to any file in the repo working tree until the
+plan is approved through the plan skill (approve-plan.sh validates the plan,
+then releases the gate). This holds even under bypassPermissions.
+
+During planning the ONLY file you write is the persisted Markdown plan under
+  ${plans_dir}/<slug>.md
+(outside the repo — always allowed). Finish the plan, choose "Proceed" (which runs
+approve-plan.sh), and edit/implement only AFTER approval.
+EOF
+exit 2

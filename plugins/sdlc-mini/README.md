@@ -12,7 +12,13 @@ deprecated redirect. To manage a `turbo-manifest.yml`, invoke **`/devflow:turbo-
 
 ## v1.0.0 — BREAKING change
 
-The **worktree strategy now lives entirely in the `mentor` plugin** (v0.9.0+). The following sdlc-mini surface area was removed in this release:
+The **worktree strategy now lives entirely in the `mentor` plugin** (v0.9.0+).
+
+> **Note (mentor ≥1.0.0):** mentor has since removed worktree strategies entirely — the table
+> below is historical. For isolated-branch work use Claude Code's native worktree tooling
+> (`EnterWorktree`); mentor's ship flow is now `/mentor:ship` (current branch, no worktrees).
+
+The following sdlc-mini surface area was removed in this release:
 
 - Skills: `sdlc-mini-plan`, `sdlc-mini-finish`
 - Hooks: `plan-question-redirect.sh`, `strategy-guard.sh`, `worktree-confine.sh`, `dispatch-executor.sh`
@@ -41,7 +47,7 @@ The merge target semantics changed: mentor merges back into the branch that was 
   loader standard), **`/devflow:thanos-env-vars-scaffold`** (scaffold/convert + build the env-var
   catalog), and **`/devflow:thanos-env-vars-setup`** (push the catalog into thanos).
 - `skills/release-notes/` — generate a categorized changelog (Features, Bug Fixes, UX Polish) from the latest git tag to HEAD, with a meaningful title. Invoke via `/release-notes` or "what changed since last release". _(added in v1.1.0)_
-- `skills/tidy/` — run `/simplify` over the working tree, then commit the result **locally — never pushes**. Invoke via `/tidy` or "simplify and commit". For pushing/PRs use mentor's `/ship`. _(added in v1.2.0)_
+- `skills/tidy/` — run `/simplify` over the working tree, then commit the result **locally — never pushes**. Invoke via `/tidy` or "simplify and commit". For pushing/PRs use mentor's `/mentor:ship`. _(added in v1.2.0)_
 
 None of these skills touch worktrees.
 

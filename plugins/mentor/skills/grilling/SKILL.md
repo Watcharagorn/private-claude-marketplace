@@ -36,7 +36,7 @@ Grilling resolves "have we actually thought this through?"; plan-review answers 
 ## When NOT to use
 
 - Trivial / single-file changes where the interview costs more than the change.
-- The plan is already approved and the user wants implementation — point them at the proceed gate or `/ship`.
+- The plan is already approved and the user wants implementation — point them at the proceed gate or `/mentor:ship`.
 - The user wants an automated audit of a written plan against fixed quality lenses — that is `/plan-review`.
 - Pure exploration with no plan or design to interrogate.
 
@@ -47,15 +47,14 @@ Grilling resolves "have we actually thought this through?"; plan-review answers 
 Figure out *what* you are grilling, in this order:
 
 1. **Explicit argument.** If the user passed a topic (via `/mentor:grill <topic>` or in the message), grill that design.
-2. **Current mentor plan.** Otherwise, look for a current plan. Search the most recent `<system-reminder>` for a path matching `~/.claude/plans/[^\s)]+\.(md|html)`; if none is in context, find the newest mentor plan for this repo:
+2. **Current mentor plan.** Otherwise, find the newest mentor plan for this repo:
    ```bash
-   # newest mentor plan for this repo (html preferred, legacy md)
    git_common=$(git rev-parse --git-common-dir 2>/dev/null) && \
      repo_root=$(cd "$(dirname "$git_common")" && pwd) && \
      d="$HOME/.claude/mentor/$(basename "$repo_root")-$(printf '%s' "$repo_root" | shasum | cut -c1-8)/plans"
-   ls -t "$d"/*.html "$d"/*.md 2>/dev/null | head -1
+   ls -t "$d"/*.md 2>/dev/null | head -1
    ```
-   If a plan file is found, `Read` it and grill its canonical plan — **HTML:** the Markdown inside its `<script type="text/markdown" id="plan-source">…</script>` block (ignore the rendered body); **`.md`:** the file itself (it is canonical — no `plan-source` block). Do **not** edit it.
+   If a plan file is found, `Read` it (the `.md` is canonical) and grill it. Do **not** edit it.
 3. **The conversation.** If there is no argument and no plan, grill the design described in the conversation so far.
 
 If there is genuinely nothing to grill, say so in one line and stop.
@@ -68,7 +67,7 @@ Interview the user relentlessly about every aspect of this plan until you reach 
 
 - **Ask the questions one at a time**, waiting for feedback on each question before continuing. Asking multiple questions at once is bewildering — favor `AskUserQuestion` with a single focused question (your recommended option first).
 - **Order by dependency.** Resolve the decisions that other decisions hang off of first; let each answer narrow the next question.
-- **If a question can be answered by exploring the codebase, explore the codebase instead of asking.** In mentor, that means **dispatch an `Explore` subagent** for anything beyond a couple of orienting reads (the same delegate-don't-read discipline as the plan flow) — then fold what it finds into your next question. Do not bulk-read files on the main thread. If a plan gate (`.planning`) or orchestrator mode is active, the read budget will block bulk reads after the first couple of files — that is expected, not an error: dispatch the `Explore` agent and the gate steps aside automatically.
+- **If a question can be answered by exploring the codebase, explore the codebase instead of asking.** Prefer dispatching an `Explore` subagent for anything beyond a few orienting reads — then fold what it finds into your next question.
 - Keep going until the material decisions are resolved or explicitly deferred — do not stop at the first easy answer.
 
 ---

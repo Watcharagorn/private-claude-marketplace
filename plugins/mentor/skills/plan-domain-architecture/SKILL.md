@@ -2,22 +2,21 @@
 name: plan-domain-architecture
 description: >
   Domain planning skill for ARCHITECTURE / system-structure work, invoked ONCE
-  by mentor-plan (Step 1.5 domain detection) when a plan changes structure — a
+  by `plan` (Step 3 domain routing) when a plan changes structure — a
   new/changed/removed service, container, datastore, queue, external integration,
-  component, or data flow. Orchestrator-invoked only (like plan-review) — not a
-  /command. Shapes the research dispatch (map the current architecture, its
-  containers, external systems, and the edges between them) and the plan-author
-  prompt to produce a before/after C4-model visualization in the plan HTML —
-  diff-highlighted Context / Container (/ Component) diagrams, rendering only the
-  C4 levels the change actually moves. No extra agent: the C4 spec is plain prose
-  that lives in plan-source and is rendered to polished HTML by the main thread.
+  component, or data flow. Not a /command. Shapes the research (map the current
+  architecture, its containers, external systems, and the edges between them)
+  and the Markdown plan to carry a before/after C4-model view — diff-highlighted
+  Mermaid Context / Container (/ Component) diagrams, rendering only the C4
+  levels the change actually moves. No extra agent; a polished HTML/CSS C4
+  diagram is reserved for the opt-in HTML zoom (`plan` Step 5).
 ---
 
 # Architecture (C4) Planning Domain
 
-Invoked **once per plan** by `mentor-plan`'s domain detection (top of Step 1.5) when the task
-**changes system structure**. Like the backend-api domain (and unlike frontend), it adds directives
-to the agents the flow already dispatches — **no extra agent dispatch**.
+Invoked **once per plan** by `plan`'s domain routing (Step 3) when the task **changes system
+structure**. Like the backend-api domain (and unlike frontend), it adds directives to the research
+and plan-writing the flow already performs — **no extra agent dispatch**.
 
 The signature deliverable: the plan carries a **before/after C4-model view** of the system — a
 [C4](https://c4model.com) diagram at each level the change touches, with new/changed/removed elements
@@ -38,8 +37,8 @@ which containers / components / integrations are **added, changed, or removed**,
 communicate** — from the diagram alone, no source dive. Every choice serves that:
 
 - Each element carries a **status**: NEW · CHANGED · REMOVED · UNCHANGED.
-- New elements/relationships are **added-green**, changed **amber**, removed **struck/red**, unchanged
-  **plain** — with a legend.
+- New elements/relationships are **visually distinct** from changed, removed, and unchanged ones —
+  with a legend.
 - People and external systems are drawn **distinctly** from in-system containers (C4 convention).
 - A reviewer can answer "what new pieces appear, what do they talk to, and what's the blast radius on
   the existing system?" from the viz alone.
@@ -81,9 +80,10 @@ L4 is never rendered. Pick levels by **where the delta lives** (a plan may rende
 
 Do not render a level whose elements are all UNCHANGED — that is noise, not comprehension.
 
-## 1 — Shape the research dispatch (folds into 1.5a)
+## 1 — Shape the research (`plan` Step 2)
 
-Append these directives to the architecture-relevant `Explore` agents' prompts:
+When research is delegated (as `plan` Step 2 suggests), append these directives to the
+architecture-relevant research agents' prompts; when researching directly, cover the same points:
 
 - Map the **current architecture** from real source — the deployable/runnable **units** (from
   manifests, compose / IaC / k8s, service entrypoints), the **datastores / queues / caches**, and the
@@ -93,17 +93,17 @@ Append these directives to the architecture-relevant `Explore` agents' prompts:
 - For **L1**: identify the **system boundary** (what is "us" vs external), the **actors/personas**, and
   the **external systems**.
 - Classify each in-scope element and edge **NEW / CHANGED / REMOVED / UNCHANGED** so FINDINGS can drive
-  the status + diff colors.
+  the status + diff styling.
 
 The research return contract is unchanged (FINDINGS ≤ ~400 words / EVIDENCE `file:line` / OPEN
 QUESTIONS), with one addition: FINDINGS include a compact **current-architecture snapshot** for the
 levels in scope — the elements (id · name · type/technology) and the relationships (from → to · label ·
 sync|async).
 
-## 2 — Shape the plan-author prompt (folds into 1.5b)
+## 2 — Shape the plan body (`plan` Step 4)
 
-Append to the plan-author agent's prompt — all of it as **plain-prose C4 spec** (per Step 8 **rule 9**:
-a *spec*, never ASCII art). For **each level you render**, provide:
+Build a **plain-prose C4 spec** (a *spec*, never ASCII art) as the working input for the diagrams.
+For **each level you render**, provide:
 
 - an **element list** — one line each: `id · name · type/technology · responsibility · status`
   (status ∈ NEW|CHANGED|REMOVED|UNCHANGED);
@@ -111,42 +111,15 @@ a *spec*, never ASCII art). For **each level you render**, provide:
 
 Make it **diff-aware** (before → after), the same spirit as backend-api's contract diff. State which
 levels you are rendering and **why** (which delta justified each). Mark people and external systems so
-the renderer can style them distinctly. **Define every architecture term at first use** (generalist-
+the diagram can style them distinctly. **Define every architecture term at first use** (generalist-
 reviewer principle) — name each container's role, and decode every protocol/abbreviation.
 
-In the **html** format this prose spec lives in `plan-source`; it is the stand-in the body's diagram
-replaces (Step 8 rule 3). In the **md** format there is no plan-source — the `.md` is canonical and the
-spec is realized as a Mermaid `flowchart` per [§Markdown-mode rendering](#markdown-mode-rendering-when-format--md).
+The spec is realized in the `.md` as Mermaid diagrams per §3 — the diagram (+ legend) is what ships;
+the spec is scaffolding, not a section to echo verbatim.
 
-## 3 — Plan HTML deliverable (Step 8, html format)
+## 3 — Plan rendering (`plan` Step 4)
 
-The body renders each selected C4 level as a **polished HTML/CSS diagram** (Step 8 **rule 10**):
-
-- **Boxes** for containers/components — each with a name + a **technology sub-label** + a one-line
-  responsibility; **connectors** between them carrying the relationship label (and protocol /
-  sync·async). **People and external systems are styled distinctly** from in-system containers (C4
-  convention: e.g. a person glyph / a muted "external" treatment).
-- **Diff-highlighted** with a **legend**: NEW added-green, CHANGED amber, REMOVED struck/red, UNCHANGED
-  plain. The reviewer must read the change at a glance.
-- **Level headers**: label each diagram `C4 L1 — System Context` / `C4 L2 — Container` / `C4 L3 —
-  Component: <container>`. Render **only** the levels that moved (Level-selection above).
-- **Self-contained** (Step 8 rule 5): pure HTML/CSS, with **inline** SVG allowed for connectors — **no
-  external JS, images, or build step**, and **no ASCII box-drawing / `<pre>` art** (Step 8 rule 9).
-- **Stand-in semantics** (Step 8 rule 3): the prose C4 spec stays in `plan-source`; the **body shows
-  the diagram** in its place — do not also echo the spec text as a `<pre>` beside the diagram. The
-  `plan-review` reviewers read the prose spec from `plan-source`; they never see the diagram.
-- Give each diagram a stable `id` and link it from the plan's nav/outline.
-
-This domain composes with others: when `backend-api` also matched, the C4 Container diagram and the
-contract tables are **complementary** (system shape vs. endpoint contracts) — do not duplicate the
-sequence-flow viz as a C4 diagram or vice-versa; each answers a different question.
-
-## Markdown-mode rendering (when format = md)
-
-When mentor-plan **Step 0** resolved **md**, §1 (research) and §2 (the prose C4 spec) are unchanged —
-the plan-author still returns the element + relationship lists per level. The main thread realizes each
-rendered level **inline in the `.md`** as a Mermaid **`flowchart TB`** (the `.md` is canonical — no
-plan-source split):
+Realize each rendered level **inline in the `.md`** as a Mermaid **`flowchart TB`**:
 
 - **Do NOT use Mermaid `C4Context` / `C4Container`.** Those diagram types are experimental and fail to
   render on GitHub/GitLab — the block shows as an error box or raw text on exactly the surfaces md plans
@@ -166,7 +139,21 @@ plan-source split):
   `C4 L2 — Container` / `C4 L3 — Component: <container>`. Render only the levels that moved; keep each
   small (split if dense — large flowcharts shrink to unreadable text on GitHub).
 - **ASCII fallback:** when a flowchart can't cleanly carry the layout, an ASCII box diagram in a code
-  fence is an acceptable substitute (the md ASCII carve-out, Step 8M).
+  fence is an acceptable substitute (`plan` Step 4's ASCII carve-out).
 
-Per Step 8M anti-duplication: the diagram (+ legend) IS the artifact — do not also echo the prose
-element/relationship lists beside it.
+Per `plan` Step 4's anti-duplication rule: the diagram (+ legend) IS the artifact — do not also
+echo the prose element/relationship lists beside it.
+
+This domain composes with others: when `backend-api` also matched, the C4 Container diagram and the
+contract tables are **complementary** (system shape vs. endpoint contracts) — do not duplicate the
+sequence-flow viz as a C4 diagram or vice-versa; each answers a different question.
+
+## HTML zoom (opt-in)
+
+When the user explicitly requests a visual zoom of this domain's area (`plan` Step 5), the zoom
+html file may carry a **polished HTML/CSS C4 diagram** for the requested level(s) only: boxes with
+name + technology sub-label + one-line responsibility, connectors carrying the relationship label
+(protocol / sync·async), people and external systems styled distinctly (person glyph / muted
+"external" treatment), diff-highlighted with a legend (NEW added-green, CHANGED amber, REMOVED
+struck/red, UNCHANGED plain), and a `C4 L1/L2/L3` header per diagram. Pure HTML/CSS with inline SVG
+for connectors — self-contained per `plan` Step 5. The `.md` plan stays the source of truth.

@@ -64,14 +64,8 @@ echo "== C. No-op cases (no opener selected) =="
 check "" "off-switch MENTOR_PLAN_OPEN=off -> no-op"   "$PLAN" MENTOR_PLAN_OPEN=off
 check "" "non-plan path -> no-op"                     "$ROOT/random.html"
 
-echo "== C2. Path patterns: new <repo>-<hash>/plans/ layout + legacy (drop in 0.34) =="
-LEGACY_DIR="$HOME/.claude/mentor/plans/${repo_base}-${repo_hash}-legacytest"
-mkdir -p "$LEGACY_DIR"
-LEGACY_PLAN="$LEGACY_DIR/old-plan.html"
-: > "$LEGACY_PLAN"
-check chrome "new layout path matches"    "$PLAN"
-check chrome "legacy layout path matches" "$LEGACY_PLAN"
-rm -f "$LEGACY_PLAN" "$LEGACY_PLAN.opened"; rmdir "$LEGACY_DIR" 2>/dev/null || true
+echo "== C2. Path patterns: <repo>-<hash>/plans/ layout =="
+check chrome "plans layout path matches" "$PLAN"
 
 echo "== E. Markdown (.md) plans: prefer a VSCode tab, never raw-text Chrome =="
 MD="$PLANS_DIR/sample-plan.md"; : > "$MD"
