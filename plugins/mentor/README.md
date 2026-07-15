@@ -41,7 +41,7 @@ review and are the single source of truth for implementation, handoff, and revie
 | `/mentor:grill [topic]` | One-question-at-a-time interview that sharpens a design's open decisions before you build. Conversation only; no repo edits. |
 | `/mentor:handoff "<focus>"` | Compact the session into a handoff document (outside the repo) for a fresh agent. Also offered as **Hand off to next agent** at the proceed gate. |
 | `/mentor:resume [slug\|number]` | List this repo's handoff notes and continue the chosen one. |
-| `/plan-review` | Fixed 3-topic review (practicality, comprehensiveness, cleanliness) of the current plan; also offered as **Review the plan (light)** at the proceed gate. |
+| `/plan-review` | Fixed 4-topic review (practicality, comprehensiveness, cleanliness, and a spec-kit-`analyze`-style **consistency** check across the plan + related artifacts) of the current plan; also offered as **Review the plan (light)** at the proceed gate. |
 | `/dispatch-agents` | The annotation grammar for fanning a plan out to subagents, and how to execute the dispatches after approval. |
 
 ## Repo modes (`/mentor:mode`)

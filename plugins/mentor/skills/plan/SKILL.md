@@ -192,7 +192,7 @@ same turn, ask via `AskUserQuestion`:
   "options": [
     { "label": "Proceed", "description": "Validate the plan, release the edit gate, and begin implementation." },
     { "label": "Hand off to next agent", "description": "Approve and release the gate, but don't implement here — write a /mentor:handoff document so a fresh agent picks up implementation, then stop." },
-    { "label": "Review the plan (light)", "description": "Run plan-review — fan out 3 read-only reviewers over this plan. Stays in planning; surfaces findings, then asks again." },
+    { "label": "Review the plan (light)", "description": "Run plan-review — fan out 4 read-only reviewers over this plan (incl. a spec-kit-analyze-style consistency check). Stays in planning; surfaces findings, then asks again." },
     { "label": "Keep planning", "description": "Do not release — keep refining. Re-write the plan file and ask again when ready." }
   ]
 }
