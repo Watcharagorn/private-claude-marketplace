@@ -6,7 +6,7 @@
   "plugins": [
     {
       "name": "mentor",
-      "description": "A lean planning harness for Claude Code: a single marker-driven edit gate keeps the repo read-only while you plan, plans persist as Mermaid-first Markdown outside the repo, with optional research/author delegation and opt-in HTML visual zooms.",
+      "description": "A lean planning harness for Claude Code: a single marker-driven edit gate keeps the repo read-only while you plan, plans persist as Mermaid-first Markdown outside the repo, and a committed per-repo constitution sets governing principles every plan verifies against. Optional research/author delegation and opt-in HTML visual zooms.",
       "source": "./plugins/mentor",
       "category": "development"
     },

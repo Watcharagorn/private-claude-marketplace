@@ -8,9 +8,10 @@ description: >
 
 # mentor Plan
 
-The flow: resolve the mode → clarify if needed → research (delegation suggested)
-→ domain routing → write the Markdown plan → (optional HTML zoom on request) →
-approve & release.
+The flow: resolve the mode & load the constitution → clarify if needed →
+research (delegation suggested) → domain routing → write the Markdown plan
+(with a Constitution Check when a constitution exists) → (optional HTML zoom on
+request) → approve & release.
 
 While the `.planning` marker is armed, `plan-gate.sh` blocks every
 Write/Edit/MultiEdit/NotebookEdit inside the repo working tree — the only file
@@ -18,7 +19,7 @@ you write during planning is the plan itself (it lives outside the repo). Do not
 run repo-mutating shell commands during planning either; Bash is not enforced,
 but the rule is the same.
 
-## Step 0 — Mode {#mode}
+## Step 0 — Mode & constitution {#mode}
 
 `begin-plan.sh` printed a `MODE:` line:
 
@@ -28,6 +29,13 @@ but the rule is the same.
 - **`MODE: UNSET`** — ask the user **once** via `AskUserQuestion` (plan /
   plan-only), persist with
   `bash "${CLAUDE_PLUGIN_ROOT}/hooks/set-mode.sh" <choice>`, then continue.
+
+**Load the constitution.** Check for `.mentor/constitution.md` at the repo root
+(`git rev-parse --show-toplevel`). If it exists, `Read` it now — its principles
+are governing rules for this repo. Keep them in mind through research and design,
+and prove compliance in the plan's **Constitution Check** section (Step 4). If it
+is absent, no constitution governs this repo; skip the Constitution Check (you may
+mention `/mentor:constitution` once if the user seems to want project-wide rules).
 
 ## Step 1 — Clarify (optional) {#clarify}
 
@@ -113,13 +121,19 @@ Required sections, in order:
    can verify your understanding at a glance.
 4. `## Approach` — the recommended design, with one visualization per
    significant change/decision realized inline under its owning topic.
-5. `## Implementation steps` — numbered, concrete. If the work will fan out to
+5. `## Constitution Check` — **include only when `.mentor/constitution.md` exists**
+   (Step 0). A GFM table with one row per principle: `Principle | Verdict | Notes`,
+   verdict = ✅ complies / ⚠️ deviates / ➖ N/A. For every ⚠️, the Notes cell must
+   either point at the plan change that resolves it or record an explicit,
+   justified deviation. If a principle can only be honored by amending the
+   constitution, say so and stop short of encoding the violation as the plan.
+6. `## Implementation steps` — numbered, concrete. If the work will fan out to
    subagents after approval, annotate steps per `Skill(skill="dispatch-agents")`
    (`[role: … · model: … · effort: …]`, grouped `Run in parallel:` /
    `Sequential:`) — optional, self-serve.
-6. `## Critical files`
-7. `## Out of scope`
-8. `## Verification` — how to test end-to-end.
+7. `## Critical files`
+8. `## Out of scope`
+9. `## Verification` — how to test end-to-end.
 
 **Visualization decision rule (pick exactly ONE idiom per artifact):**
 

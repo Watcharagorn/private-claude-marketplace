@@ -35,6 +35,7 @@ review and are the single source of truth for implementation, handoff, and revie
 | Command | What it does |
 |---|---|
 | `/mentor:plan <task>` | The gated plan flow (above). |
+| `/mentor:constitution [principles]` | Create/amend this repo's governing principles at `.mentor/constitution.md` — versioned, committed, and honored by every plan. |
 | `/mentor:mode [plan\|plan-only\|status]` | Get/set the persisted repo working mode. |
 | `/mentor:ship` | Finish the current branch: clean-check → `/simplify` → optional tests → push + auto-open PR/MR (or push to upstream). Never force-pushes. |
 | `/mentor:grill [topic]` | One-question-at-a-time interview that sharpens a design's open decisions before you build. Conversation only; no repo edits. |
@@ -60,6 +61,36 @@ State-dir layout:
 ├── plans/          # <slug>.md plan + the .planning marker (+ *.opened sidecars)
 └── handoffs/       # handoff notes (/mentor:handoff → /mentor:resume)
 ```
+
+## Constitution (`/mentor:constitution`)
+
+A **constitution** is this repo's supreme rulebook: a short list of named,
+declarative, **testable** principles (MUST/SHOULD language) plus a governance
+block. It is the one mentor artifact that lives **in the repo** — committed at
+`.mentor/constitution.md` — so the whole team shares one set of rules.
+
+```
+/mentor:constitution                     # bootstrap from repo conventions, or
+/mentor:constitution "Test-First: every endpoint ships with a contract test"
+```
+
+`/mentor:constitution` is a **standalone authoring flow** (it never arms the plan
+gate): it loads any existing constitution, collects/derives principles, bumps a
+**semantic version** (MAJOR remove/redefine · MINOR add/expand · PATCH reword),
+records ratification + last-amended dates, prepends a **sync-impact report**, and
+writes the file after you confirm. Because it writes in-repo, run it **outside** a
+plan session — while a `.planning` marker is armed the edit gate would block it.
+
+Once it exists, it is honored automatically — there are no generated templates to
+keep in sync; the plan skill reads it **live**:
+
+| Consumer | Effect |
+|---|---|
+| `/mentor:plan` | Reads the constitution and adds a **`## Constitution Check`** table to the plan — one row per principle (✅ complies / ⚠️ deviates / ➖ N/A). Every ⚠️ must be resolved by the plan or justified explicitly. |
+| `/plan-review` | Each reviewer additionally flags any principle the plan violates. |
+
+Deviation is allowed but never silent: a plan either satisfies each principle,
+records a justified exception, or the constitution is amended first.
 
 ## How it works
 

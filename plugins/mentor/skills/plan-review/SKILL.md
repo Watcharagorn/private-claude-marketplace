@@ -85,6 +85,11 @@ concurrently. Each call uses `subagent_type: general-purpose`, `model: sonnet`,
    ```
 5. Word cap: `Cap your reply at 400 words.`
 6. Anti-recursion: `Do not invoke /plan-review or any planning skill.`
+7. **Constitution (conditional)** — if `.mentor/constitution.md` exists at the
+   repo root, add its path to every reviewer's prompt with:
+   `Also read .mentor/constitution.md and flag, under Risks, any place this plan
+   violates a stated principle (name the principle).` Skip this line when the file
+   is absent — do not add a fourth reviewer.
 
 ## Step 4 — Surface findings
 
