@@ -56,8 +56,8 @@ Three global rules govern everything in this domain (restated as hard rules in �
 2. All design work derives from **REAL front-end source files** — never invented structure.
 3. **Never create mockup HTML files inside the repo** (`docs/`, `mockups/`, or any documentation
    directory). The opt-in zoom html lives beside the plan at
-   `~/.claude/mentor/<repo>-<hash>/plans/…` — outside the repo — so that is the one compliant
-   place for mockup markup.
+   `<repo>/.mentor/plans/…` (exempt from the plan gate, so the write is allowed) — so that is
+   the one compliant place for mockup markup.
 
 ## 1 — Shape the research (`plan` Step 2)
 

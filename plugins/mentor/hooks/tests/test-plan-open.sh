@@ -21,15 +21,13 @@ git init -q -b main "$REPO" >/dev/null 2>&1
 git_common="$(git -C "$REPO" rev-parse --git-common-dir)"
 case "$git_common" in /*) common_abs="$git_common";; *) common_abs="$REPO/$git_common";; esac
 repo_root="$(cd "$(dirname "$common_abs")" && pwd)"
-repo_base="$(basename "$repo_root")"
-repo_hash="$(printf '%s' "$repo_root" | shasum | cut -c1-8)"
-PLANS_DIR="$HOME/.claude/mentor/${repo_base}-${repo_hash}/plans"
+PLANS_DIR="$repo_root/.mentor/plans"   # project-scoped, in-repo (v2.0.0)
 mkdir -p "$PLANS_DIR"
 PLAN="$PLANS_DIR/sample-plan-202606-1200.html"
 MARKER="$PLAN.opened"
 : > "$PLAN"
 
-trap 'rm -rf "$ROOT"; rm -f "$PLAN" "$MARKER"; rmdir "$PLANS_DIR" "$(dirname "$PLANS_DIR")" 2>/dev/null || true' EXIT
+trap 'rm -rf "$ROOT"' EXIT   # .mentor/ lives inside $ROOT, so this cleans everything
 
 PASS=0; FAIL=0
 mkjson() { python3 -c 'import json,sys;print(json.dumps({"tool_name":"Write","tool_input":{"file_path":sys.argv[1]}}))' "$1"; }
@@ -64,7 +62,7 @@ echo "== C. No-op cases (no opener selected) =="
 check "" "off-switch MENTOR_PLAN_OPEN=off -> no-op"   "$PLAN" MENTOR_PLAN_OPEN=off
 check "" "non-plan path -> no-op"                     "$ROOT/random.html"
 
-echo "== C2. Path patterns: <repo>-<hash>/plans/ layout =="
+echo "== C2. Path patterns: .mentor/plans/ layout =="
 check chrome "plans layout path matches" "$PLAN"
 
 echo "== E. Markdown (.md) plans: prefer a VSCode tab, never raw-text Chrome =="

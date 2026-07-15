@@ -22,9 +22,7 @@ NONGIT="$ROOT/plain"; mkdir -p "$NONGIT"
 trap 'rm -rf "$ROOT"' EXIT
 
 repo_root="$(cd "$REPO" && pwd -P)"
-repo_base="$(basename "$repo_root")"
-repo_hash="$(printf '%s' "$repo_root" | shasum | cut -c1-8)"
-STATE_DIR="$SANDBOX/.claude/mentor/${repo_base}-${repo_hash}"
+STATE_DIR="$repo_root/.mentor"   # project-scoped, in-repo (v2.0.0)
 PLANS_DIR="$STATE_DIR/plans"
 CONF="$STATE_DIR/config.json"
 
@@ -66,22 +64,22 @@ chk "non-repo → exit 1"                test "$rc" = "1"
 
 echo "== B. begin-plan.sh mode-aware output + arming =="
 sm plan-only >/dev/null
-out="$( cd "$REPO" && HOME="$SANDBOX" bash "$BEGIN" 2>&1 )"
+out="$( cd "$REPO" && HOME="$SANDBOX" MENTOR_CONTEXT_GATE=off bash "$BEGIN" 2>&1 )"
 chk "plan-only → MODE: plan-only line" sh -c "printf '%s' \"\$0\" | grep -q 'MODE: plan-only'" "$out"
 chk "marker armed"                     test -f "$PLANS_DIR/.planning"
 sm plan >/dev/null
-out="$( cd "$REPO" && HOME="$SANDBOX" bash "$BEGIN" 2>&1 )"
+out="$( cd "$REPO" && HOME="$SANDBOX" MENTOR_CONTEXT_GATE=off bash "$BEGIN" 2>&1 )"
 chk "plan → MODE: plan line"           sh -c "printf '%s' \"\$0\" | grep -q 'MODE: plan'" "$out"
 rm -f "$CONF"
-out="$( cd "$REPO" && HOME="$SANDBOX" bash "$BEGIN" 2>&1 )"
+out="$( cd "$REPO" && HOME="$SANDBOX" MENTOR_CONTEXT_GATE=off bash "$BEGIN" 2>&1 )"
 chk "unset → MODE: UNSET line"         sh -c "printf '%s' \"\$0\" | grep -q 'MODE: UNSET'" "$out"
 chk "unset → ask directive"            sh -c "printf '%s' \"\$0\" | grep -q 'No repo mode is set'" "$out"
 # .opened sidecars are cleared on arm.
 : > "$PLANS_DIR/some-plan.md.opened"
-( cd "$REPO" && HOME="$SANDBOX" bash "$BEGIN" >/dev/null 2>&1 )
+( cd "$REPO" && HOME="$SANDBOX" MENTOR_CONTEXT_GATE=off bash "$BEGIN" >/dev/null 2>&1 )
 chk ".opened sidecars cleared on arm"  test ! -f "$PLANS_DIR/some-plan.md.opened"
 # Outside a repo: fail-soft (exit 0, notice printed, no marker anywhere).
-out="$( cd "$NONGIT" && HOME="$SANDBOX" bash "$BEGIN" 2>&1 )"; rc=$?
+out="$( cd "$NONGIT" && HOME="$SANDBOX" MENTOR_CONTEXT_GATE=off bash "$BEGIN" 2>&1 )"; rc=$?
 chk "non-repo begin-plan exits 0"      test "$rc" = "0"
 chk "non-repo → NOT-armed notice"      sh -c "printf '%s' \"\$0\" | grep -q 'NOT armed'" "$out"
 

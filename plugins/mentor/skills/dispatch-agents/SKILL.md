@@ -104,7 +104,7 @@ Sequential:
 Dispatch implementation/editing agents **only after the plan is approved**
 (`approve-plan.sh` released the gate). Then:
 
-1. **Read the approved plan file** (`~/.claude/mentor/<repo>-<hash>/plans/<slug>.md`) — do not work from memory.
+1. **Read the approved plan file** (`<repo>/.mentor/plans/<slug>.md`) — do not work from memory.
 2. **Dispatch "Run in parallel:" groups** — issue ALL `Agent()` calls for each parallel group in a **single message** so they run concurrently. After dispatching, do not busy-poll with `sleep`/no-op Bash calls; stop and let the harness re-invoke you when agents complete.
 3. **Dispatch "Sequential:" steps one at a time** — wait for the prior step's result before issuing the next call.
 4. **Verify each `Done when:` criterion** before moving to the next step — agents describe what they intended; trust but verify.

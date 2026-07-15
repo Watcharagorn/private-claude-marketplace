@@ -40,11 +40,13 @@ Derive the per-repo handoffs dir. **This derivation must stay byte-for-byte iden
 
 ```bash
 # keep in sync with handoff SKILL Step 2
-git_common="$(git rev-parse --git-common-dir 2>/dev/null)"
-repo_root="$(cd "$(dirname "$git_common")" && pwd)"
-repo_base="$(basename "$repo_root")"
-repo_hash="$(printf '%s' "$repo_root" | shasum | cut -c1-8)"
-hand_dir="$HOME/.claude/mentor/${repo_base}-${repo_hash}/handoffs"
+git_common="$(git rev-parse --git-common-dir 2>/dev/null || true)"
+if [ -n "$git_common" ]; then
+  repo_root="$(cd "$(dirname "$git_common")" && pwd)"
+  hand_dir="$repo_root/.mentor/handoffs"
+else
+  hand_dir="$HOME/.claude/mentor/_no-repo/handoffs"   # not in a git repo
+fi
 mkdir -p -m 700 "$hand_dir"
 echo "$hand_dir"
 ```

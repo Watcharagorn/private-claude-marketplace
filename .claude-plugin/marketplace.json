@@ -6,7 +6,7 @@
   "plugins": [
     {
       "name": "mentor",
-      "description": "A lean planning harness for Claude Code: a marker-driven edit gate keeps the repo read-only until a Mermaid-first Markdown plan — checked against a per-repo constitution and a pre-approval light review — is approved.",
+      "description": "A lean planning harness for Claude Code: a marker-driven edit gate keeps the repo read-only until a Mermaid-first Markdown plan — checked against a per-repo constitution and a pre-approval light review — is approved; a tiered context gate warns and then blocks before the session window overflows, steering you to hand off. State lives in-repo under .mentor/.",
       "source": "./plugins/mentor",
       "category": "development"
     },

@@ -6,9 +6,9 @@
 # approve-plan.sh), so it holds even under bypassPermissions: PreToolUse hooks
 # deny independently of permission mode.
 #
-# While the marker is present, ALLOW only targets OUTSIDE the repo working tree
-# (the plan file lives under ~/.claude/mentor/<repo>-<hash>/plans/). Any in-repo
-# target — or an unresolvable/absent path — is DENIED. FAIL-CLOSED.
+# While the marker is present, ALLOW targets OUTSIDE the repo working tree AND mentor's
+# own in-repo state dir (<repo>/.mentor/ — where the plan file now lives). Any OTHER
+# in-repo target — or an unresolvable/absent path — is DENIED. FAIL-CLOSED.
 #
 # Bash is NOT matched: the gate covers Claude's near-universal edit path
 # (Write/Edit/MultiEdit/NotebookEdit); the skill instructs against repo-mutating
@@ -70,8 +70,9 @@ FILE_PATH="$(printf '%s' "$INPUT" | jq -r '.tool_input.file_path // .tool_input.
 if [ -n "$FILE_PATH" ]; then
   FILE_CANON="$(_canon "$FILE_PATH")"
   case "$FILE_CANON" in
-    "$REPO_CANON"|"${REPO_CANON}/"*) ;;   # inside repo → deny (fall through)
-    *) exit 0 ;;                          # outside repo (the plan file, /tmp, …) → allow
+    "${REPO_CANON}/.mentor"|"${REPO_CANON}/.mentor/"*) exit 0 ;;  # mentor's own state (plan file, markers) → always allow
+    "$REPO_CANON"|"${REPO_CANON}/"*) ;;   # else inside repo → deny (fall through)
+    *) exit 0 ;;                          # outside repo (/tmp, …) → allow
   esac
 fi
 

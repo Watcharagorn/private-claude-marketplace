@@ -36,8 +36,7 @@ if [ -z "$git_common" ]; then
   echo "NOT-A-REPO"
 else
   repo_root="$(cd "$(dirname "$git_common")" && pwd)"
-  repo_hash="$(printf '%s' "$repo_root" | shasum | cut -c1-8)"
-  marker="$HOME/.claude/mentor/$(basename "$repo_root")-${repo_hash}/plans/.planning"
+  marker="$repo_root/.mentor/plans/.planning"
   echo "REPO_ROOT=$repo_root"
   # A fresh marker means a live plan session; a stale one (>8h) is a crashed
   # session the edit gate self-heals, so treat it as idle.

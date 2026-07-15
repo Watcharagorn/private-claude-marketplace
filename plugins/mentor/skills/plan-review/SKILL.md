@@ -59,7 +59,7 @@ domain detection — every plan is reviewed against these same four dimensions.
 ```bash
 git_common=$(git rev-parse --git-common-dir 2>/dev/null) && \
   repo_root=$(cd "$(dirname "$git_common")" && pwd) && \
-  d="$HOME/.claude/mentor/$(basename "$repo_root")-$(printf '%s' "$repo_root" | shasum | cut -c1-8)/plans"
+  d="$repo_root/.mentor/plans"
 primary=$(ls -t "$d"/*.md 2>/dev/null | head -1)   # the PRIMARY plan — subject for all 4 reviewers
 echo "$primary"
 ```

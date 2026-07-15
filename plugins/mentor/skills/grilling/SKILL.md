@@ -51,7 +51,7 @@ Figure out *what* you are grilling, in this order:
    ```bash
    git_common=$(git rev-parse --git-common-dir 2>/dev/null) && \
      repo_root=$(cd "$(dirname "$git_common")" && pwd) && \
-     d="$HOME/.claude/mentor/$(basename "$repo_root")-$(printf '%s' "$repo_root" | shasum | cut -c1-8)/plans"
+     d="$repo_root/.mentor/plans"
    ls -t "$d"/*.md 2>/dev/null | head -1
    ```
    If a plan file is found, `Read` it (the `.md` is canonical) and grill it. Do **not** edit it.

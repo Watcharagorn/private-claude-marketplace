@@ -6,7 +6,7 @@ allowed-tools: [Bash, AskUserQuestion, Read]
 
 # mentor — repo mode
 
-The mentor working mode persists per repo in `~/.claude/mentor/<repo>-<hash>/config.json`:
+The mentor working mode persists per repo in `<repo>/.mentor/config.json`:
 
 - **plan** — default behavior: `/mentor:plan` plans, then executes on approval. (It does
   **not** force planning — it names the default flow.)
@@ -40,5 +40,8 @@ reporting the mode, enter the harness yourself:
 bash "${CLAUDE_PLUGIN_ROOT}/hooks/begin-plan.sh"
 ```
 
-Read its stdout first (it carries the mode-aware instructions), then invoke
+Read its stdout first (it carries the mode-aware instructions). **If that stdout contains
+`CONTEXT: BLOCKED`**, STOP: do **not** invoke the plan skill — relay the printed instructions
+(hand off or `/compact`, then re-run `/mentor:plan`) and end your turn. If it contains
+`CONTEXT: WARN`, mention it and continue. Otherwise invoke
 `Skill(skill="mentor:plan", args="<the co-submitted request>")`.

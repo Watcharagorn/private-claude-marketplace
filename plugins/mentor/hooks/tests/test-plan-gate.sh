@@ -29,13 +29,11 @@ git init -q -b main "$REPO" >/dev/null 2>&1
 git_common="$(git -C "$REPO" rev-parse --git-common-dir)"
 case "$git_common" in /*) common_abs="$git_common";; *) common_abs="$REPO/$git_common";; esac
 repo_root="$(cd "$(dirname "$common_abs")" && pwd)"
-repo_base="$(basename "$repo_root")"
-repo_hash="$(printf '%s' "$repo_root" | shasum | cut -c1-8)"
-PLANS_DIR="$HOME/.claude/mentor/${repo_base}-${repo_hash}/plans"
+PLANS_DIR="$repo_root/.mentor/plans"   # project-scoped, in-repo (v2.0.0)
 MARKER="$PLANS_DIR/.planning"
 mkdir -p "$PLANS_DIR"
 
-trap 'rm -rf "$ROOT"; rm -f "$MARKER"; rmdir "$PLANS_DIR" "$(dirname "$PLANS_DIR")" 2>/dev/null || true' EXIT
+trap 'rm -rf "$ROOT"' EXIT   # .mentor/ lives inside $ROOT, so this cleans everything
 
 PASS=0; FAIL=0
 run() { # expect cwd tool desc file_path
@@ -62,8 +60,13 @@ run block "$REPO" Edit         "Edit repo source"            "$REPO/src/app.ts"
 run block "$REPO" MultiEdit    "MultiEdit repo source"       "$REPO/src/app.ts"
 run block "$REPO" Write        "Write new repo file"         "$REPO/NEWFILE"
 run block "$REPO" NotebookEdit "NotebookEdit in repo"        "$REPO/nb.ipynb"
-run allow "$REPO" Write        "Write the plan .md (outside)" "$PLANS_DIR/plan.md"
+run allow "$REPO" Write        "Write the plan .md (.mentor/ exempt)" "$PLANS_DIR/plan.md"
 run allow "$REPO" Write        "Write to scratch (outside)"  "$ROOT/scratch.txt"
+
+echo "== B2. Marker present → mentor's own .mentor/ tree is EXEMPT (always writable) =="
+run allow "$REPO" Write "Write .mentor/config.json (exempt)"       "$REPO/.mentor/config.json"
+run allow "$REPO" Edit  "Edit nested .mentor/ file (exempt)"        "$REPO/.mentor/handoffs/note.md"
+run block "$REPO" Write ".mentor-evil sibling is NOT exempt"        "$REPO/.mentor-evil/x"
 
 echo "== C. Marker present → NotebookEdit notebook_path field also gated =="
 json=$(python3 -c 'import json,sys;print(json.dumps({"tool_name":"NotebookEdit","cwd":sys.argv[1],"tool_input":{"notebook_path":sys.argv[2]}}))' "$REPO" "$REPO/nb.ipynb")

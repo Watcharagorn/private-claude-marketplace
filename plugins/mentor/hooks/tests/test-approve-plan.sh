@@ -25,9 +25,7 @@ git init -q -b main "$REPO" >/dev/null 2>&1
 trap 'rm -rf "$ROOT"' EXIT
 
 repo_root="$(cd "$REPO" && pwd -P)"
-repo_base="$(basename "$repo_root")"
-repo_hash="$(printf '%s' "$repo_root" | shasum | cut -c1-8)"
-STATE_DIR="$SANDBOX/.claude/mentor/${repo_base}-${repo_hash}"
+STATE_DIR="$repo_root/.mentor"   # project-scoped, in-repo (v2.0.0)
 PLANS_DIR="$STATE_DIR/plans"
 MARKER="$PLANS_DIR/.planning"
 mkdir -p "$PLANS_DIR"

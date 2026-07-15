@@ -3,7 +3,7 @@
 #
 # Usage: set-mode.sh [plan|plan-only|status]    (bare = status)
 #
-# The mode lives in ~/.claude/mentor/{repo_base}-{repo_hash}/config.json as
+# The mode lives in <repo_root>/.mentor/config.json as
 # {"mode": "..."} :
 #   plan      — default behavior (/mentor:plan plans, then executes on approval).
 #               NOTE: does NOT force planning; it just names today's default.
@@ -45,6 +45,7 @@ case "$arg" in
     ;;
   plan|plan-only)
     mkdir -p -m 700 "$state_dir"
+    mentor_ensure_gitignore "$state_dir"
     if [ -f "$config" ]; then
       tmp="$(mktemp "${state_dir}/.config.XXXXXX")"
       jq --arg m "$arg" '.mode = $m' "$config" > "$tmp" && mv "$tmp" "$config"

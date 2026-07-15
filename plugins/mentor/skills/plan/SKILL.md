@@ -30,6 +30,12 @@ is not enforced, but the rule is the same.
   plan-only), persist with
   `bash "${CLAUDE_PLUGIN_ROOT}/hooks/set-mode.sh" <choice>`, then continue.
 
+`begin-plan.sh` may also print a **`CONTEXT:`** line (the context gate). A
+**`CONTEXT: WARN`** means the session is getting large — surface it to the user and,
+at the Step 6 approval, prefer **"Hand off to next agent"** over executing in this
+session. (A **`CONTEXT: BLOCKED`** never reaches this skill — begin-plan refuses to
+arm and the command stops before invoking the skill; noted here for completeness.)
+
 **Load the constitution.** Check for `.mentor/constitution.md` at the repo root
 (`git rev-parse --show-toplevel`). If it exists, `Read` it now — its principles
 are governing rules for this repo. Keep them in mind through research and design,
@@ -89,9 +95,7 @@ Compute the path (substituting a kebab-case `<slug>` derived from the request �
 slug="<slug>"
 git_common="$(git rev-parse --git-common-dir 2>/dev/null)"
 repo_root="$(cd "$(dirname "$git_common")" && pwd)"
-repo_base="$(basename "$repo_root")"
-repo_hash="$(printf '%s' "$repo_root" | shasum | cut -c1-8)"
-plans_dir="$HOME/.claude/mentor/${repo_base}-${repo_hash}/plans"
+plans_dir="$repo_root/.mentor/plans"
 mkdir -p -m 700 "$plans_dir"   # 700: plans may contain sensitive paths/snippets
 echo "${plans_dir}/${slug}.md"   # slug-derived, NO timestamp — stable across revisions
 ```

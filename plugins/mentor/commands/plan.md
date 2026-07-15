@@ -20,12 +20,18 @@ Do these in order:
 
    This writes the `.planning` marker. From this point, `plan-gate.sh` blocks every
    repo source edit until the plan is approved. The only file you write during
-   planning is the Markdown plan under `~/.claude/mentor/<repo>-<hash>/plans/`
-   (outside the repo). Read the script's stdout — it carries the `MODE:` line
-   (plan / plan-only / UNSET → ask once).
+   planning is the Markdown plan under `<repo>/.mentor/plans/` (inside the repo, but the
+   `.mentor/` tree is exempt from the gate). Read the script's stdout — it carries the
+   `MODE:` line (plan / plan-only / UNSET → ask once) and, when the session context is
+   large, a `CONTEXT:` line:
+   - If stdout contains **`CONTEXT: BLOCKED`**, STOP: do **not** call the plan skill.
+     Relay the printed instructions (hand off or `/compact`, then re-run `/mentor:plan`)
+     and end your turn — the gate was intentionally NOT armed.
+   - If stdout contains **`CONTEXT: WARN`**, mention it to the user and continue.
 
 2. **Immediately call `Skill({"skill": "mentor:plan"})` and follow it end
-   to end** — do **NOT** call `mentor:plan` (that would reload this command).
+   to end** (unless step 1 printed `CONTEXT: BLOCKED`, in which case you already
+   stopped) — do **NOT** call `mentor:plan` (that would reload this command).
    At the approval step, ask **Proceed / Hand off to next agent / Review the
    plan (light) / Keep planning**; on Proceed run `approve-plan.sh`, which
    validates the plan and releases the gate.

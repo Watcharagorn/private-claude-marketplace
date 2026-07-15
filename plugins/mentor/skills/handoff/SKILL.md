@@ -42,16 +42,22 @@ detail. If the argument is empty, write a general handoff covering the whole ses
 
 ## Step 2 — Compute the save path
 
-Save under the **per-repo mentor dir** (consistent with where mentor keeps plans; outside the repo,
-so every gate allows the write):
+Save under the **per-repo mentor dir** at `<repo>/.mentor/handoffs/` (consistent with where mentor
+keeps plans; the `.mentor/` tree is exempt from the plan gate, so the write is always allowed):
 
 ```bash
-git_common="$(git rev-parse --git-common-dir 2>/dev/null)"
-repo_root="$(cd "$(dirname "$git_common")" && pwd)"
-repo_base="$(basename "$repo_root")"
-repo_hash="$(printf '%s' "$repo_root" | shasum | cut -c1-8)"
-hand_dir="$HOME/.claude/mentor/${repo_base}-${repo_hash}/handoffs"
+git_common="$(git rev-parse --git-common-dir 2>/dev/null || true)"
+if [ -n "$git_common" ]; then
+  repo_root="$(cd "$(dirname "$git_common")" && pwd)"
+  hand_dir="$repo_root/.mentor/handoffs"
+else
+  hand_dir="$HOME/.claude/mentor/_no-repo/handoffs"   # not in a git repo
+fi
 mkdir -p -m 700 "$hand_dir"
+# keep transient handoffs out of git (in-repo only); never clobber a user-tweaked file
+if [ -n "$git_common" ] && [ ! -e "$repo_root/.mentor/.gitignore" ]; then
+  printf '%s\n' '*' '!.gitignore' '!config.json' '!constitution.md' > "$repo_root/.mentor/.gitignore"
+fi
 slug="session"   # ← REPLACE with a short kebab-case of the next-session focus, e.g. "auth-retry-fix"
 out="${hand_dir}/$(date +%Y%m%d-%H%M%S)-${slug}.md"
 echo "$out"
@@ -60,10 +66,10 @@ echo "$out"
 Derive `slug` from the focus you resolved in Step 1 (short kebab-case, ≤40 chars). Set it as the
 `slug=` variable above **before** running the snippet — never leave a literal `<…>` placeholder in
 the path. If you have no specific focus, the `session` default is a valid filename. (If not inside a
-git repo, fall back to `$HOME/.claude/mentor/_no-repo/handoffs/`.)
+git repo, the snippet falls back to `$HOME/.claude/mentor/_no-repo/handoffs/`.)
 
 > **The directory AND filename are computed by the snippet above — never infer them from an existing
-> file.** The canonical location is `…/mentor/<repo>-<hash>/handoffs/<YYYYMMDD-HHMMSS>-<slug>.md`. Do
+> file.** The canonical location is `<repo>/.mentor/handoffs/<YYYYMMDD-HHMMSS>-<slug>.md`. Do
 > **not** read a prior handoff to copy its path or naming: older notes may use a stale layout (e.g.
 > `…/plans/HANDOFF-<slug>.md`), and Step 3 below fully specifies the section structure, so you never
 > need a sample to imitate. **Discoverability contract:** `/mentor:resume` lists ONLY notes under the
@@ -80,7 +86,7 @@ Write a Markdown document with these sections (skip a section only if genuinely 
 - **Current state** — branch, what is done vs pending, any failing checks or known-broken bits.
 - **Recommended mentor commands for the next agent** — see the mapping below.
 - **Referenced artifacts (do not duplicate)** — link by **path/URL**, never paste the contents:
-  - the current mentor plan file at `~/.claude/mentor/<repo>-<hash>/plans/<slug>.md` (if one exists),
+  - the current mentor plan file at `<repo>/.mentor/plans/<slug>.md` (if one exists),
   - PRDs / ADRs / design docs by path,
   - issue / PR / MR URLs,
   - key commit SHAs (`git rev-parse --short HEAD`, relevant ancestors),

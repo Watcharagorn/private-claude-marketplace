@@ -3,8 +3,8 @@
 A lean planning harness for Claude Code. One enforcement mechanism: `/mentor:plan`
 arms a repo-scoped `.planning` marker, and a single fail-closed `PreToolUse` hook
 blocks every repo edit — even under `bypassPermissions` — until the plan is
-approved. Plans are **Mermaid-first Markdown** documents persisted **outside the
-repo**, with required per-topic visualizations and a mandatory **Use case
+approved. Plans are **Mermaid-first Markdown** documents persisted in the repo's
+**`.mentor/`** dir (gitignored), with required per-topic visualizations and a mandatory **Use case
 scenarios** section proving the plan understood the request. They auto-open for
 review and are the single source of truth for implementation, handoff, and review.
 
@@ -22,7 +22,7 @@ review and are the single source of truth for implementation, handoff, and revie
    the edit gate**. From here, repo source edits are blocked until approval.
 2. Follows the `plan` skill: optional clarify (grilling), research
    (subagent delegation suggested for big tasks), domain routing, then a
-   Markdown plan written to `~/.claude/mentor/<repo>-<hash>/plans/<slug>.md`.
+   Markdown plan written to `<repo>/.mentor/plans/<slug>.md` (in-repo, gitignored).
 3. At approval, runs `approve-plan.sh` — it validates the plan (non-empty, and
    newer than the marker, so a stale plan from a prior session can never release
    the gate) and deletes the marker. The gate opens; implementation begins.
@@ -39,28 +39,35 @@ review and are the single source of truth for implementation, handoff, and revie
 | `/mentor:mode [plan\|plan-only\|status]` | Get/set the persisted repo working mode. |
 | `/mentor:ship` | Finish the current branch: clean-check → `/simplify` → optional tests → push + auto-open PR/MR (or push to upstream). Never force-pushes. |
 | `/mentor:grill [topic]` | One-question-at-a-time interview that sharpens a design's open decisions before you build. Conversation only; no repo edits. |
-| `/mentor:handoff "<focus>"` | Compact the session into a handoff document (outside the repo) for a fresh agent. Also offered as **Hand off to next agent** at the proceed gate. |
+| `/mentor:handoff "<focus>"` | Compact the session into a handoff document (in `.mentor/handoffs/`, gitignored) for a fresh agent. Also offered as **Hand off to next agent** at the proceed gate. |
 | `/mentor:resume [slug\|number]` | List this repo's handoff notes and continue the chosen one. |
 | `/plan-review` | Fixed 4-topic review (practicality, comprehensiveness, cleanliness, and a spec-kit-`analyze`-style **consistency** check across the plan + related artifacts) of the current plan; also offered as **Review the plan (light)** at the proceed gate. |
 | `/dispatch-agents` | The annotation grammar for fanning a plan out to subagents, and how to execute the dispatches after approval. |
 
 ## Repo modes (`/mentor:mode`)
 
-The mode persists in `~/.claude/mentor/<repo>-<hash>/config.json`:
+The mode persists in `<repo>/.mentor/config.json` (committed — shared with the team):
 
 | Mode | Behavior |
 |---|---|
 | `plan` | Default: `/mentor:plan` plans, then executes on approval. (Does **not** force planning — it names the default flow.) |
 | `plan-only` | Plans are the deliverable: after approval execution **soft-stops** — no implementation, no dispatch. |
 
-State-dir layout:
+State-dir layout (**project-scoped** — `<repo>/.mentor/`, since v2.0.0):
 
 ```
-~/.claude/mentor/<repo>-<hash>/
-├── config.json     # {"mode": "plan|plan-only"}
-├── plans/          # <slug>.md plan + the .planning marker (+ *.opened sidecars)
-└── handoffs/       # handoff notes (/mentor:handoff → /mentor:resume)
+<repo>/.mentor/
+├── .gitignore       # commits config.json + constitution.md; ignores the rest
+├── config.json      # {"mode": "plan|plan-only", + context-gate keys}   ← committed
+├── constitution.md  # governing principles (/mentor:constitution)        ← committed
+├── plans/           # <slug>.md plan + the .planning marker (+ *.opened) ← gitignored
+└── handoffs/        # handoff notes (/mentor:handoff → /mentor:resume)   ← gitignored
 ```
+
+Only `config.json` and `constitution.md` are committed (team-shared); plans, handoffs
+and the transient markers are gitignored. Un-ignore `plans/` if you want plans
+version-controlled. **Not in a git repo?** handoff/resume and the context gate fall
+back to `~/.claude/mentor/_no-repo/`.
 
 ## Constitution (`/mentor:constitution`)
 
@@ -92,16 +99,50 @@ keep in sync; the plan skill reads it **live**:
 Deviation is allowed but never silent: a plan either satisfies each principle,
 records a justified exception, or the constitution is amended first.
 
+## Context gate
+
+A long-running session's context can balloon to the point where plan and answer
+quality degrade. The **context gate** (`hooks/context-gate.sh`, a `UserPromptSubmit`
+hook) measures the live context size from the session transcript and acts in two tiers:
+
+- **Warn** (default **200000** tokens) — a one-time-per-session notice suggesting
+  `/mentor:handoff` (→ `/mentor:resume` in a fresh session) or `/compact`.
+- **Block** (default **270000** tokens) — plain prompts are refused (the prompt is
+  erased) until you shrink the context. `/mentor:plan` additionally refuses to arm a
+  plan in an already-over-block session (`begin-plan.sh`).
+
+Escape hatches always pass: an empty prompt and any slash command (`/mentor:handoff`,
+`/compact`, `/mentor:mode`, …) are never gated, so you can always reach the tools that
+fix the problem. Everything is fail-soft — no `jq`, no transcript, or an unreadable
+transcript simply lets the prompt through.
+
+> **Note:** the gate is a **long-context / 1M-window backstop**. On a standard 200k
+> window with auto-compact enabled it may never fire (auto-compact triggers ~155–165k,
+> below the 200k warn default). Raise `context_block_tokens` per-repo when you
+> intentionally run long-context sessions.
+
+Knobs — env vars under `env` in `~/.claude/settings.json` (or the project's
+`.claude/settings.json`), or per-repo keys in `.mentor/config.json`. Precedence:
+**env var > `.mentor/config.json` key > default**.
+
+| Env var | `.mentor/config.json` key | Default | Effect |
+|---|---|---|---|
+| `MENTOR_CONTEXT_GATE=off` | `"context_gate": "off"` | on | Disable the gate entirely (`off\|0\|false\|no`). |
+| `MENTOR_CONTEXT_WARN_TOKENS` | `"context_warn_tokens"` | `200000` | Warn threshold (tokens). |
+| `MENTOR_CONTEXT_BLOCK_TOKENS` | `"context_block_tokens"` | `270000` | Block threshold (tokens). |
+| `MENTOR_CONTEXT_TAIL_LINES` | — | `400` | Transcript tail window scanned for the measurement. |
+
 ## How it works
 
 | Piece | Role |
 |---|---|
 | `commands/plan.md` | The `/mentor:plan` trigger. |
-| `hooks/begin-plan.sh` | Arms the `.planning` marker (closes the gate); prints the `MODE:` line. |
-| `hooks/plan-gate.sh` | **The one gate.** Fail-closed `PreToolUse` on Write/Edit/MultiEdit/NotebookEdit — denies in-repo writes while the marker exists, even under `bypassPermissions`. The plan file lives outside the repo, so it is always writable. Stale markers (>8h) self-heal. |
+| `hooks/begin-plan.sh` | Arms the `.planning` marker (closes the gate); prints the `MODE:` line — and a `CONTEXT:` line, refusing to arm when the session is already over the block threshold. |
+| `hooks/plan-gate.sh` | **The one gate.** Fail-closed `PreToolUse` on Write/Edit/MultiEdit/NotebookEdit — denies in-repo writes while the marker exists, even under `bypassPermissions`. Mentor's own `.mentor/` tree (where the plan file lives) is exempt, so the plan is always writable. Stale markers (>8h) self-heal. |
 | `hooks/approve-plan.sh` | Validates the plan (non-empty `.md` **newer than the marker**), releases the gate. `--handoff` prints a hand-off directive instead of implementing; plan-only mode prints a soft-stop directive. |
 | `hooks/plan-open.sh` | Auto-opens the plan for review the first time it is written (VSCode tab / OS default; HTML zoom artifacts open in the browser). |
 | `hooks/set-mode.sh` | Get/set the repo working mode. |
+| `hooks/context-gate.sh` | **Context gate.** `UserPromptSubmit` — measures live context from the transcript and warns once (~200k) then blocks plain prompts (~270k), steering to `/mentor:handoff` or `/compact`. Fail-soft; slash commands always pass. |
 
 ### Known limitations
 
@@ -159,6 +200,18 @@ extra deliverable. Instruction-only — no hooks.
 | `plan-domain-architecture` | Structural change — services, containers, datastores, integrations | Diff-highlighted C4-style Mermaid flowcharts, only the levels that change. |
 | `plan-domain-dynamic` | No registered domain matched (fallback) | A dispatched domain-definer names the domain and returns a best-practices brief; the plan gains a practice→step mapping. |
 
+## Breaking changes in v2.0.0
+
+mentor's state moved from **user scope** (`~/.claude/mentor/<repo>-<hash>/`) to
+**project scope** — `<repo>/.mentor/` — so config, plans, handoffs and markers live in
+the repo they belong to (`config.json` + `constitution.md` committed; the rest
+gitignored). Also new: the **context gate** (above).
+
+**Migration:** the old user-scope state is **ignored**, not read. Re-run `/mentor:mode`
+once per repo to re-persist the working mode; existing plans/handoffs under
+`~/.claude/mentor/<repo>-<hash>/` are orphaned and can be deleted. Not-in-a-repo
+handoffs still use `~/.claude/mentor/_no-repo/`.
+
 ## Breaking changes in v1.0.0
 
 mentor 1.0.0 is a wholesale simplification (~10.5k → ~3k lines). Removed:
@@ -184,8 +237,9 @@ mentor 1.0.0 is a wholesale simplification (~10.5k → ~3k lines). Removed:
   `strategy:`/`worktree:`/`dispatch-agents:` footer lines; approval validates
   freshness instead.
 
-Stale state from older versions (`orchestrator`/`format` keys in `config.json`,
-old marker sidecars, legacy `~/.claude/mentor/plans/` dirs) is simply ignored.
+Stale state from older versions (`orchestrator`/`format` keys in `config.json`, old
+marker sidecars, and the entire user-scope `~/.claude/mentor/<repo>-<hash>/` tree from
+≤ v1.x) is simply ignored.
 
 ## Requirements
 

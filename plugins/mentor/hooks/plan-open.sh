@@ -32,15 +32,15 @@ case "${MENTOR_PLAN_OPEN:-}" in off|0|false|no) exit 0 ;; esac
 # Only act on the plugin's own plan files: the canonical Markdown plan, or an
 # opt-in HTML zoom artifact written beside it.
 case "$file" in
-  */.claude/mentor/*/plans/*.html) ;;
-  */.claude/mentor/*/plans/*.md) ;;
+  */.mentor/plans/*.html) ;;
+  */.mentor/plans/*.md) ;;
   *) exit 0 ;;
 esac
 
 [ -f "$file" ] || exit 0
 
 # Open-once: don't re-open the same plan on every later Write/Edit (sidecar marker lives beside
-# the plan file, outside the repo). The open tab/preview self-refreshes when the file changes.
+# the plan file under <repo>/.mentor/plans/, gitignored). The open tab/preview self-refreshes.
 marker="${file}.opened"
 [ -e "$marker" ] && exit 0
 
