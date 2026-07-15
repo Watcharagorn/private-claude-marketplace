@@ -121,10 +121,14 @@ and GFM alerts. Portable: renders richly on GitHub/GitLab and any Mermaid-capabl
 viewer. One visualization per significant change, never two representations of
 one thing.
 
-**Optional HTML zoom:** when you explicitly ask to zoom into a specific topic or
-area for visual review (a UI surface, a flow, an architecture slice), a
-supplementary `<slug>-<topic>.html` is written next to the `.md` — a throwaway,
-self-contained visual aid for that area only. The `.md` stays the source of truth.
+**Optional HTML zoom:** when you explicitly ask for an HTML preview/zoom, mentor
+never renders the whole plan as one file — it first resolves **topic(s) ×
+perspective(s)** (end user / implementor / reviewer-architect / QA-tester),
+asking for whichever dimension your request didn't name, then dispatches one
+agent per topic × perspective combination. Each writes its own supplementary
+`<slug>-<topic>-<perspective>.html` next to the `.md` — a throwaway,
+self-contained visual aid for that topic through that lens. The `.md` stays the
+source of truth.
 
 ### Viewing the plan
 
@@ -150,7 +154,7 @@ extra deliverable. Instruction-only — no hooks.
 
 | Domain | Triggers | Extra plan deliverable |
 |---|---|---|
-| `plan-domain-frontend` | UX/UI — components, pages, styles, layout, theming | ASCII zone wireframes + delta/token tables; live mockups via a dispatched mockup-author only in an opt-in HTML zoom. |
+| `plan-domain-frontend` | UX/UI — components, pages, styles, layout, theming | ASCII zone wireframes + delta/token tables; live mockups authored by the zoom combo agent only in an opt-in HTML zoom. |
 | `plan-domain-backend-api` | API/endpoint/route/handler/schema/DTO/contract | Before/after contract diff tables, schema diffs, Mermaid sequence flows. |
 | `plan-domain-architecture` | Structural change — services, containers, datastores, integrations | Diff-highlighted C4-style Mermaid flowcharts, only the levels that change. |
 | `plan-domain-dynamic` | No registered domain matched (fallback) | A dispatched domain-definer names the domain and returns a best-practices brief; the plan gains a practice→step mapping. |

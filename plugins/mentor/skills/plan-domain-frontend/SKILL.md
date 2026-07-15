@@ -6,10 +6,10 @@ description: >
   layout, or design systems. Not a /command. Shapes the research prompts and
   the Markdown plan body: a before/after delta table, ASCII zone wireframe,
   and token table per changed surface, all derived from the project's REAL
-  design tokens and source. The live before/after HTML/CSS mockup dispatch
-  (prompt token mentor:frontend-mockup) is reserved for the opt-in HTML zoom
-  (`plan` Step 5), when the user explicitly requests a visual zoom of a
-  UI surface.
+  design tokens and source. The live before/after HTML/CSS mockup contract
+  (prompt token mentor:frontend-mockup) is carried by the per-combo zoom
+  agents of the opt-in HTML zoom (`plan` Step 5), when the user explicitly
+  requests a visual zoom of a UI surface.
 ---
 
 # Frontend Planning Domain
@@ -17,12 +17,12 @@ description: >
 Invoked **once per plan** by `plan`'s domain routing (Step 3) when the task touches UX/UI —
 components, pages, styles, layout, design systems, theming, responsive work. This skill adds
 directives to the research and plan-writing the flow already performs, plus — **only when the user
-requests an HTML zoom of a UI surface** (`plan` Step 5) — one extra dispatch: the
-mockup-author (§4).
+requests an HTML zoom of a UI surface** (`plan` Step 5) — the mockup contract (§4), folded into
+each UI combo agent's prompt.
 
 The plan deliverable (Markdown, always): a **before/after delta table + ASCII zone wireframe +
 token table** per changed surface (§3), precise about *what* changes and approximate about layout.
-When the user explicitly requests a visual zoom of a UI surface, the standalone zoom html file
+When the user explicitly requests a visual zoom of a UI surface, that combo's zoom html file
 carries **live before/after HTML/CSS mockups** faithful to the project's real design tokens, fonts,
 and component structure (§4).
 
@@ -47,7 +47,7 @@ pad identical panes):
 
 When this domain matches, the main thread invokes `Skill(skill="frontend-design:frontend-design")`
 **once**, before writing the plan, and distills its design principles for the plan body (§2) and
-any later mockup-author prompt (§4). If that skill is unavailable in the session, degrade
+any later UI combo-agent prompt (§4). If that skill is unavailable in the session, degrade
 gracefully — proceed without it and note the omission in the plan's Context.
 
 Three global rules govern everything in this domain (restated as hard rules in §Constraints):
@@ -72,8 +72,8 @@ frontend-relevant research agents' prompts; when researching directly, cover the
 
 The research return contract is unchanged (FINDINGS ≤ ~400 words / EVIDENCE `file:line` / OPEN
 QUESTIONS). EVIDENCE **must** include the `file:line` of the token, theme, and font sources —
-do not inline token values into FINDINGS; whoever renders the deltas (and the mockup-author, if a
-zoom is later requested) reads the source itself.
+do not inline token values into FINDINGS; whoever renders the deltas (and the zoom combo agent, if
+a zoom is later requested) reads the source itself.
 
 ## 2 — Shape the plan body (`plan` Step 4)
 
@@ -84,8 +84,8 @@ Apply these requirements when writing the plan:
 - Apply the distilled frontend-design principles from the Preflight.
 - Emit an itemized **`## Proposed UI changes per surface`** section — one entry per changed
   surface, each naming the surface, its source file(s), and the concrete visual deltas. This
-  section drives the delta rendering (§3) and is the mockup-author's spec if a zoom is requested
-  (§4); without it the AFTER cannot be authored.
+  section drives the delta rendering (§3) and is the zoom combo agent's mockup spec if a zoom is
+  requested (§4); without it the AFTER cannot be authored.
 - When a change makes a surface **full-bleed/full-height**, repositions it, or alters its
   **z-order**, call out the **stacking-context / overlap / hit-test risk** (which existing surface it
   may now cover, and the toggle / `pointer-events` boundary that could break) and name the **e2e
@@ -116,92 +116,65 @@ always prose, never the rendering). Per `plan` Step 4's anti-duplication rule, t
 + ASCII wireframe IS the surface's visualization — do not also emit a separate per-topic UI diagram
 for the same surface.
 
-## 4 — Mockup-author dispatch (HTML zoom only — `plan` Step 5)
+## 4 — Mockup contract (HTML zoom only — `plan` Step 5)
 
-> **This skill owns the contract.** Dispatch the mockup-author **only** when the user explicitly
-> requests an HTML zoom of a UI surface (`plan` Step 5). The `.md` plan (§3) stays the source
-> of truth; the zoom is a supplementary visual aid for the requested surface(s) only.
+> **This skill owns the contract.** `plan` Step 5 generates zoom artifacts by dispatching one
+> agent per topic × perspective combo; when a combo's topic is a UI surface and the perspective
+> needs to *see* that surface to do its job — End user, Reviewer/Architect, or QA/Tester (the
+> tester must see the states they verify), everyone **except** the Implementor, whose zoom is
+> about file wiring and step order rather than appearance — fold this section into that combo
+> agent's prompt. Subagents cannot dispatch nested agents, so there is no separate mockup-author
+> dispatch — the combo agent reads the real source files and authors + embeds the mockup panes
+> inside its own zoom file. The `.md` plan (§3) stays the source of truth; the zoom is a
+> supplementary visual aid for the requested surface(s) only.
 
 Rules:
 
-- **Sequencing.** Dispatch AFTER the plan is written — the AFTER pane needs the authored
-  `Proposed UI changes per surface` spec.
-- **Skip when there is no visual delta** (e.g. a pure component refactor): do not dispatch; note
+- **Sequencing.** Zoom combos dispatch AFTER the plan is written — the AFTER pane needs the
+  authored `Proposed UI changes per surface` spec.
+- **Skip when there is no visual delta** (e.g. a pure component refactor): the zoom notes
   "no visual change" instead. Never force identical before/after panes.
-- **Re-dispatch on revision.** If the `Proposed UI changes per surface` section changes during a
-  Keep-planning iteration and the zoom is being refreshed, re-dispatch the mockup-author **before**
-  re-writing the zoom html — never ship stale panes.
-- **`srcdoc` only — never a hosted Artifact.** The mockup-author returns self-contained `srcdoc`
-  mini-docs (per the dispatch contract below); it must **not** call the `Artifact` tool or return a
-  claude.ai-hosted URL. The panes are embedded **inline** in the single self-contained zoom html
-  file — a published artifact would be a detached, drifting copy.
+- **Regenerate on revision.** If the `Proposed UI changes per surface` section changes during a
+  Keep-planning iteration and a zoom is being refreshed, re-dispatch that combo with the updated
+  spec — never ship stale panes.
+- **Inline panes only — never a hosted Artifact.** The panes are embedded **inline** as
+  `<iframe srcdoc>` in the combo's single self-contained zoom html file; the agent must **not**
+  call the `Artifact` tool or return a claude.ai-hosted URL — a published artifact would be a
+  detached, drifting copy.
 
-### Dispatch contract
+### Combo-agent prompt inputs
 
-One `Agent` call — `subagent_type: general-purpose`, `model: sonnet`, `effort: high`. The prompt
-MUST contain the literal token `mentor:frontend-mockup` and these inputs:
+The UI combo agent's prompt MUST contain the literal token `mentor:frontend-mockup` and these
+inputs (so pane fidelity never depends on the agent re-researching):
 
-1. The changed-surface list (scoped to the requested zoom area) with the real component / token /
+1. The changed-surface list (scoped to the combo's topic) with the real component / token /
    font **file paths** from research EVIDENCE.
-2. The plan's `Proposed UI changes per surface` section, verbatim.
+2. The plan's `Proposed UI changes per surface` entries relevant to the topic, verbatim.
 3. The distilled frontend-design principles from the Preflight.
 4. The instruction: *"Read the real source files yourself. The BEFORE pane must faithfully
    reproduce the current UI; the AFTER pane the proposed UI. Invent nothing — every color, font,
    spacing value, and structural element comes from the project's actual source or the
    proposed-changes spec."*
-5. The isolation requirement: *"Return each pane as a COMPLETE self-contained mini-HTML document
-   (its own `<style>` with the project's real tokens inlined, system-font fallback) suitable for
-   an `<iframe srcdoc>`. **Static HTML/CSS + inline SVG ONLY — no JavaScript at all (no `<script>`,
-   no `<canvas>`), no external CSS/JS, no images.** The pane must render identically inside an
-   `<iframe srcdoc>` with scripting disabled."*
+5. The isolation requirement: *"Author each pane as a COMPLETE self-contained mini-HTML document
+   (its own `<style>` with the project's real tokens inlined, system-font fallback) and embed it
+   via `<iframe srcdoc>`. **Static HTML/CSS + inline SVG ONLY — no JavaScript at all (no
+   `<script>`, no `<canvas>`), no external CSS/JS, no images.** The pane must render identically
+   inside an `<iframe srcdoc>` with scripting disabled."*
 6. The review-clarity requirement (the quality bar above): *"Place numbered markers (➊➋➌) directly
-   on the changed elements in the AFTER mini-doc — a small absolutely-positioned span on a
-   `position:relative` wrapper, self-contained — and list them in CALLOUTS keyed to the same
-   numbers. Verify the AFTER holds at 360px; if reflow matters, return a second AFTER mini-doc
-   prefixed `--- AFTER (mobile 360) ---`. List every color/font token you introduced or changed in
-   TOKENS. Note any contrast or focus-order delta in A11Y. Order surfaces by user-visibility
-   (primary surface first)."*
-7. The delivery prohibition (**do not skip — the agent does not otherwise know this**): *"Do NOT
-   call the `Artifact` tool and do NOT return any hosted / claude.ai URL. The panes are embedded
-   **inline** as `<iframe srcdoc>` in a single self-contained zoom html file — a published Artifact
-   is a detached, drifting copy. Return ONLY the self-contained mini-HTML documents in the format
-   below; nothing hosted, nothing external."*
+   on the changed elements in the AFTER pane — a small absolutely-positioned span on a
+   `position:relative` wrapper, self-contained — and render a callout list keyed to the same
+   numbers beside the panes. Verify the AFTER holds at 360px; when reflow matters, add a third
+   AFTER pane with its iframe capped at 360px wide, labeled mobile. Render every color/font token
+   you introduced or changed as a swatch strip (color tokens get a color chip). Call out any
+   contrast or focus-order delta alongside. Order surfaces by user-visibility (primary surface
+   first)."*
+7. The escaping rule: *"HTML-attribute-escape every mini-doc before embedding it in `srcdoc` —
+   **in this order**: `&` → `&amp;` FIRST, then `"` → `&quot;`. (Order matters — escaping `"`
+   first would let the later `&` pass corrupt the `&quot;` entities. Do NOT escape `<` / `>`;
+   `srcdoc` does not need it.)"*
 
-**Required return format** (and nothing else) — one block per changed surface, each header field on
-its own line with its fixed prefix (so the renderer parses deterministically):
-
-```
-### SURFACE: <name>  ·  VIEWPORT: <desktop|mobile|both>
-CHANGED: <comma-separated deltas>
-CALLOUTS: ➊ <delta 1> | ➋ <delta 2> | ➌ <delta 3>
-TOKENS: <name>=<value>, <name>=<value>      (omit line if no token introduced/changed)
-A11Y: <contrast / focus-order note>          (omit line if none)
---- BEFORE ---
-<!doctype html>…complete self-contained mini-doc, current UI…</html>
---- AFTER ---
-<!doctype html>…proposed UI; ➊➋➌ markers ON the changed elements…</html>
---- AFTER (mobile 360) ---
-<!doctype html>…optional: proposed UI at 360px, only when reflow matters…</html>
---- END ---
-```
-
-### Renderer duties (main thread)
-
-**Receiving the panes** (async): the mockup-author runs in the background, so take its returned
-blocks from the **delivered completion message** — never reconstruct them from `subagents/*.jsonl`
-or task `.output` files, and if the completion notification is body-less, request them **once** via
-the completion channel (a `SendMessage` to the agent). Never busy-poll in Bash.
-
-Parse each block and HTML-attribute-escape every mini-doc (BEFORE, AFTER, and any mobile AFTER)
-**in this order**: `&` → `&amp;` FIRST, then `"` → `&quot;`. (Order matters — escaping `"` first
-would let the later `&` pass corrupt the `&quot;` entities. Do NOT escape `<` / `>`; `srcdoc` does
-not need it.) Drop the escaped docs into `<iframe srcdoc="…">` panes inside the zoom html file —
-under zoom, that file IS the container; there is no host plan HTML. Render `CALLOUTS:` as a
-numbered list keyed to the ➊➋➌ markers, `TOKENS:` as a swatch strip (color tokens get a color
-chip), `VIEWPORT:` as a label on the AFTER pane, `A11Y:` alongside, and a mobile AFTER as a third
-AFTER pane with its iframe capped at 360px wide. The zoom file follows `plan` Step 5's
-constraints (single self-contained file, inline CSS, WCAG-AA, ≥15px); the pane/badge/callout
-styling is yours to design.
+The zoom file follows `plan` Step 5's constraints (single self-contained file authored in one
+`Write`, inline CSS, WCAG-AA, ≥15px); the pane/badge/callout styling is the agent's to design.
 
 ## Constraints recap (hard rules)
 

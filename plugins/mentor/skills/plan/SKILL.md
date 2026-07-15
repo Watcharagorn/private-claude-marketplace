@@ -10,14 +10,14 @@ description: >
 
 The flow: resolve the mode & load the constitution → clarify if needed →
 research (delegation suggested) → domain routing → write the Markdown plan
-(with a Constitution Check when a constitution exists) → (optional HTML zoom on
-request) → approve & release.
+(with a Constitution Check when a constitution exists) → (optional
+topic × perspective HTML zooms on request) → approve & release.
 
 While the `.planning` marker is armed, `plan-gate.sh` blocks every
-Write/Edit/MultiEdit/NotebookEdit inside the repo working tree — the only file
-you write during planning is the plan itself (it lives outside the repo). Do not
-run repo-mutating shell commands during planning either; Bash is not enforced,
-but the rule is the same.
+Write/Edit/MultiEdit/NotebookEdit inside the repo working tree — the only files
+written during planning are the plan and its opt-in zoom artifacts, all outside
+the repo. Do not run repo-mutating shell commands during planning either; Bash
+is not enforced, but the rule is the same.
 
 ## Step 0 — Mode & constitution {#mode}
 
@@ -72,7 +72,7 @@ Multiple domains may match; if none match, invoke the dynamic fallback.
 
 | Domain | Trigger signals | Skill to invoke | Extra plan deliverable |
 |---|---|---|---|
-| frontend | UX/UI — components, pages, styles, layout, design systems, theming, responsive | `Skill(skill="plan-domain-frontend")` | ASCII wireframes + delta/token tables; live mockups only in an HTML zoom (Step 5) |
+| frontend | UX/UI — components, pages, styles, layout, design systems, theming, responsive | `Skill(skill="plan-domain-frontend")` | ASCII wireframes + delta/token tables; live mockups only in an HTML zoom combo (Step 5) |
 | backend-api | API/endpoint/route/handler/schema/DTO/contract | `Skill(skill="plan-domain-backend-api")` | Before/after contract diff tables + schema diffs + Mermaid sequence flow |
 | architecture (C4) | Structural change — new/changed/removed service, container, datastore, queue, external integration, component, or data flow (NOT pure content/config/doc/style/refactor) | `Skill(skill="plan-domain-architecture")` | Diff-highlighted C4-style Mermaid flowcharts, only the levels that change |
 | dynamic (fallback) | no registered domain matched | `Skill(skill="plan-domain-dynamic")` | Domain best-practices section (practice→step mapping) |
@@ -161,24 +161,80 @@ examples. The plan must be approvable by someone outside the domain.
 
 ## Step 5 — Optional HTML zoom (explicit user opt-in only) {#html-zoom}
 
-Only when the **user asks** to zoom into / visually review a specific topic or
-area (a UI surface, a flow, an architecture slice) — never by default — write a
-supplementary `<slug>-<topic>.html` next to the `.md` (plan-open.sh auto-opens
-it). It is a throwaway visual aid; **the `.md` stays the source of truth** — no
-sync contract, no finalize step.
+Only when the **user asks** for an HTML zoom / visual preview — never by
+default — and **never as one file for the whole plan**. Every zoom artifact is
+scoped to one **topic × perspective** pair. A whole-plan ask ("preview the plan
+as HTML") does not bypass the gate below — it is exactly the case the gate
+exists for.
 
-Spec: a single self-contained file — inline CSS, no build step; Mermaid via CDN
+### Selection gate
+
+Resolve two dimensions before generating anything:
+
+1. Derive up to 4 candidate **topics** from the plan itself — its `## Approach`
+   subsections, `Proposed UI changes per surface` entries, or
+   implementation-step groupings.
+2. Ask ONE `AskUserQuestion` call with two multi-select questions — **Topics**
+   (the derived candidates) and **Perspective** (catalog below). Skip a
+   question only when the user's request already explicitly named that
+   dimension ("zoom into checkout as the end user" skips both). When only one
+   topic is derivable, treat topic as resolved and ask only Perspective
+   (AskUserQuestion needs 2–4 options per question).
+
+| Perspective | The zoom emphasizes |
+|---|---|
+| End user | Journey/scenario walkthroughs, visible states, UI mockups (frontend topics); hides implementation detail |
+| Implementor | File-level touchpoints, sequence diagrams, data structures, step order/dependencies |
+| Reviewer / Architect | Architecture slice, trade-offs, risks, constitution compliance for that topic |
+| QA / Tester | Test scenarios, edge cases, verification steps for that topic |
+
+Combos = selected topics × selected perspectives. If combos > 6, confirm the
+count before dispatching (mention `MENTOR_PLAN_OPEN=off` as the escape hatch —
+every finished file auto-opens). Kebab-sanitize topic and perspective names and
+uniquify colliding topic slugs (append `-2`, `-3`, …) so no two combos share a
+path.
+
+### Generation — one agent per combo, always dispatched
+
+Issue one `Agent` call per combo (`subagent_type: general-purpose`,
+`model: sonnet`, `effort: high`), ALL combos in one message — even a single
+combo is dispatched, keeping one contract and keeping HTML out of the main
+context. Each agent's prompt carries: the plan path (the agent `Read`s it), its
+topic, its perspective row from the catalog above, the output path
+`${plans_dir}/<slug>-<topic>-<perspective>.html`, the spec below, and the
+delivery prohibition: *"Do NOT call the `Artifact` tool and do NOT return any
+hosted URL. Return ONLY the file path + a one-line summary — never the HTML
+body."* Perspective-conditional inputs: **Reviewer/Architect** combos also get
+the `.mentor/constitution.md` path when it exists; a **UI-surface topic** gets
+the mockup contract inputs from `plan-domain-frontend` §4 whenever the
+perspective needs to *see* the surface to do its job — End user,
+Reviewer/Architect, and QA/Tester (the tester must see the states they verify) —
+but **not** Implementor, whose zoom is about file wiring and step order, where a
+pixel-faithful mockup is redundant.
+
+Per-file spec: a single self-contained file — inline CSS, no build step;
+Mermaid via CDN
 (`https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.min.js` +
-`<pre class="mermaid">`) is allowed; mockups/diagrams for the **requested area
-only**, not the whole plan; readable — body text ≥15px-equivalent, WCAG-AA
-contrast, monospace for code. For a frontend UI zoom, the mockup-author dispatch
-in `plan-domain-frontend` applies.
+`<pre class="mermaid">`) is allowed; content for the **assigned topic through
+the assigned perspective only**, never the whole plan; readable — body text
+≥15px-equivalent, WCAG-AA contrast, monospace for code; authored in a
+**single `Write` call** (no skeleton-then-`Edit` — plan-open.sh opens the file
+on first Write and must never show a half-built page). The path is outside the
+repo, so the edit gate allows the Write; plan-open.sh auto-opens each file
+once. Stable names — a re-zoom of the same combo overwrites in place. Zoom
+artifacts are throwaway visual aids; **the `.md` stays the source of truth** —
+no sync contract, no finalize step.
+
+**Completion check.** After the agents return, `ls` the expected paths; report
+any missing combo file and re-dispatch it once before giving up.
 
 ## Step 6 — Approve & release {#approve}
 
 > **🚫 No edits or implementation until the plan is APPROVED.** During planning,
 > only read-only agents (Explore, Plan, plan-review reviewers) may be
-> dispatched; every editing/implementation agent comes AFTER approval.
+> dispatched — the sole exception is Step 5's zoom combo agents, which write
+> ONLY zoom artifacts beside the plan (outside the repo), never repo files.
+> Every editing/implementation agent comes AFTER approval.
 
 First **surface the complete plan body** in your message — plain markdown,
 verbatim, no commentary around it — so the user can review it in the transcript.

@@ -7,8 +7,8 @@ description: >
   research (find route definitions, handlers, schemas, callers) and the
   Markdown plan to carry a before/after API contract comparison —
   per-endpoint diff tables, schema diffs, and a Mermaid sequence-flow per
-  changed flow. No mockup-author agent; richer styled panels are reserved
-  for the opt-in HTML zoom (`plan` Step 5).
+  changed flow. No mockup contract; richer styled panels are reserved
+  for the opt-in topic × perspective HTML zoom (`plan` Step 5).
 ---
 
 # Backend-API Planning Domain
