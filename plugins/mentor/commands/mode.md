@@ -1,17 +1,20 @@
 ---
-description: get or set the persisted per-repo mentor WORKING MODE (plan | plan-only)
+description: get or set the persisted per-repo approval-gate default (plan | plan-only)
 argument-hint: "[plan | plan-only | status]"
-allowed-tools: [Bash, AskUserQuestion, Read]
+allowed-tools: [Bash, Read]
 ---
 
 # mentor — repo mode
 
-The mentor working mode persists per repo in `<repo>/.mentor/config.json`:
+The mentor mode persists per repo in `<repo>/.mentor/config.json` and is only
+the **approval-gate default** — it decides which option `/mentor:plan`'s final
+approval question lists first; both outcomes are always offered there:
 
-- **plan** — default behavior: `/mentor:plan` plans, then executes on approval. (It does
-  **not** force planning — it names the default flow.)
-- **plan-only** — plans are the deliverable: `/mentor:plan` runs the full harness, but after
-  approval execution **soft-stops** (no implementation, no dispatch).
+- **plan** — "Proceed" listed first (plan, then implement on approval).
+- **plan-only** — "Deliver plan only" listed first (the plan file is the
+  deliverable). A default, not a lock — picking "Proceed" still implements.
+
+Unset behaves as `plan`. `/mentor:plan` never asks for a mode upfront.
 
 Do these in order:
 
@@ -25,12 +28,9 @@ Do these in order:
 
    The raw arguments were: `$ARGUMENTS`
 
-2. **If the output contains the token `UNSET`** (status request on a repo with no persisted
-   mode): ask the user which mode to persist via `AskUserQuestion` — one question, two
-   options (`plan` / `plan-only`), using the one-line descriptions above — then run
-   `bash "${CLAUDE_PLUGIN_ROOT}/hooks/set-mode.sh" <choice>`.
-
-3. **Report the resulting mode verbatim** (the script's confirmation lines).
+2. **Report the resulting mode verbatim** (the script's confirmation lines).
+   `UNSET` is a fully functional state (defaults to `plan`) — report it as
+   such; do **not** ask the user to pick a mode.
 
 If a feature/task request was passed in the SAME prompt as this command (anything
 beyond the first mode-word token), it did **not** start the plan harness. After

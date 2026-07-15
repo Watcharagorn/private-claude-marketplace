@@ -40,6 +40,7 @@ chk "unset → prints UNSET token"       sh -c "printf '%s' \"\$0\" | grep -q '^
 
 out="$(sm plan-only)"
 chk "set plan-only → confirmation"     sh -c "printf '%s' \"\$0\" | grep -q 'mode set: plan-only'" "$out"
+chk "plan-only → no legacy SOFT-STOPS" sh -c "! printf '%s' \"\$0\" | grep -q 'SOFT-STOPS'" "$out"
 chk "config.json written"              test -f "$CONF"
 chk "config mode is plan-only"         test "$(jq -r .mode "$CONF")" = "plan-only"
 
@@ -65,15 +66,16 @@ chk "non-repo → exit 1"                test "$rc" = "1"
 echo "== B. begin-plan.sh mode-aware output + arming =="
 sm plan-only >/dev/null
 out="$( cd "$REPO" && HOME="$SANDBOX" MENTOR_CONTEXT_GATE=off bash "$BEGIN" 2>&1 )"
-chk "plan-only → MODE: plan-only line" sh -c "printf '%s' \"\$0\" | grep -q 'MODE: plan-only'" "$out"
+chk "plan-only → MODE: plan-only line" sh -c "printf '%s' \"\$0\" | grep -q '^MODE: plan-only$'" "$out"
+chk "plan-only → no hard directive"    sh -c "! printf '%s' \"\$0\" | grep -q 'do NOT implement'" "$out"
 chk "marker armed"                     test -f "$PLANS_DIR/.planning"
 sm plan >/dev/null
 out="$( cd "$REPO" && HOME="$SANDBOX" MENTOR_CONTEXT_GATE=off bash "$BEGIN" 2>&1 )"
-chk "plan → MODE: plan line"           sh -c "printf '%s' \"\$0\" | grep -q 'MODE: plan'" "$out"
+chk "plan → MODE: plan line"           sh -c "printf '%s' \"\$0\" | grep -q '^MODE: plan$'" "$out"
 rm -f "$CONF"
 out="$( cd "$REPO" && HOME="$SANDBOX" MENTOR_CONTEXT_GATE=off bash "$BEGIN" 2>&1 )"
-chk "unset → MODE: UNSET line"         sh -c "printf '%s' \"\$0\" | grep -q 'MODE: UNSET'" "$out"
-chk "unset → ask directive"            sh -c "printf '%s' \"\$0\" | grep -q 'No repo mode is set'" "$out"
+chk "unset → UNSET defaults to plan"   sh -c "printf '%s' \"\$0\" | grep -qF 'MODE: UNSET (default: plan)'" "$out"
+chk "unset → no upfront ask"           sh -c "! printf '%s' \"\$0\" | grep -qE 'AskUserQuestion|set-mode.sh'" "$out"
 # .opened sidecars are cleared on arm.
 : > "$PLANS_DIR/some-plan.md.opened"
 ( cd "$REPO" && HOME="$SANDBOX" MENTOR_CONTEXT_GATE=off bash "$BEGIN" >/dev/null 2>&1 )

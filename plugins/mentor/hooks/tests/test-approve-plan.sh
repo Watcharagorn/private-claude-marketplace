@@ -1,9 +1,11 @@
 #!/usr/bin/env bash
-# test-approve-plan.sh — regression tests for approve-plan.sh (v1.0.0).
+# test-approve-plan.sh — regression tests for approve-plan.sh.
 #
 # Contract: release the .planning gate ONLY when a non-empty Markdown plan
 # exists that is NEWER than the marker (i.e. written this planning session).
-# --handoff prints the hand-off directive; plan-only mode prints the soft-stop.
+# --handoff / --deliver print their directives (mode-agnostic — the persisted
+# mode is never read — and still printed when the gate is already open);
+# unknown flags are rejected before the marker is touched.
 #
 # Runs against a SANDBOX $HOME so it never touches real user state.
 set -uo pipefail
@@ -71,10 +73,17 @@ chk "fresh plan → marker gone"         test ! -f "$MARKER"
 chk "fresh plan → APPROVED message"    sh -c "printf '%s' \"\$0\" | grep -q 'Plan APPROVED'" "$out"
 chk "fresh plan → plan path printed"   sh -c "printf '%s' \"\$0\" | grep -q 'fixture-plan.md'" "$out"
 
-echo "== E. Idempotency: gate already open → exit 0, no error =="
+echo "== E. Idempotency: gate already open → exit 0, directives still print =="
 out="$(ap)"; rc=$?
 chk "already open → exit 0"            test "$rc" = "0"
 chk "already open → notice"            sh -c "printf '%s' \"\$0\" | grep -q 'already open'" "$out"
+# A re-run of a no-implementation flag must never lose its directive.
+out="$(ap --deliver)"; rc=$?
+chk "open + --deliver → exit 0"        test "$rc" = "0"
+chk "open + --deliver → directive"     sh -c "printf '%s' \"\$0\" | grep -q 'DELIVER-ONLY'" "$out"
+out="$(ap --handoff)"; rc=$?
+chk "open + --handoff → exit 0"        test "$rc" = "0"
+chk "open + --handoff → directive"     sh -c "printf '%s' \"\$0\" | grep -q 'HAND-OFF REQUESTED'" "$out"
 
 echo "== F. --handoff: approve + hand off, never implement =="
 arm; fresh_plan
@@ -90,19 +99,37 @@ chk "handoff(stale) → exit 1"          test "$rc" = "1"
 chk "handoff(stale) → marker kept"     test -f "$MARKER"
 chk "handoff(stale) → no sentinel"     sh -c "! printf '%s' \"\$0\" | grep -q 'HAND-OFF REQUESTED'" "$out"
 
-echo "== G. plan-only mode: gate released + soft-stop directive =="
+echo "== G. --deliver: mode-agnostic deliverable soft-stop =="
+sm plan
+arm; fresh_plan
+out="$(ap --deliver)"; rc=$?
+chk "deliver → exit 0"                 test "$rc" = "0"
+chk "deliver → marker gone"            test ! -f "$MARKER"
+chk "deliver → DELIVER-ONLY directive" sh -c "printf '%s' \"\$0\" | grep -q 'DELIVER-ONLY'" "$out"
+# deliver with a stale plan: validation precedes the directive.
+rm -f "$PLANS_DIR"/*.md
+printf '# Old\n' > "$PLANS_DIR/fixture-plan.md"; sleep 1; arm
+out="$(ap --deliver)"; rc=$?
+chk "deliver(stale) → exit 1"          test "$rc" = "1"
+chk "deliver(stale) → marker kept"     test -f "$MARKER"
+chk "deliver(stale) → no directive"    sh -c "! printf '%s' \"\$0\" | grep -q 'DELIVER-ONLY'" "$out"
+# persisted plan-only mode must NOT change a plain approve (the old mode branch is gone).
 sm plan-only
 arm; fresh_plan
 out="$(ap)"; rc=$?
-chk "plan-only → exit 0"               test "$rc" = "0"
-chk "plan-only → marker gone"          test ! -f "$MARKER"
-chk "plan-only → soft-stop text"       sh -c "printf '%s' \"\$0\" | grep -q 'PLAN-ONLY MODE'" "$out"
+chk "plan-only + no-arg → exit 0"      test "$rc" = "0"
+chk "plan-only + no-arg → no soft-stop" sh -c "! printf '%s' \"\$0\" | grep -qE 'DELIVER-ONLY|PLAN-ONLY MODE'" "$out"
 sm plan
-arm; fresh_plan
-out="$(ap)"
-chk "plan mode → no soft-stop text"    sh -c "! printf '%s' \"\$0\" | grep -q 'PLAN-ONLY MODE'" "$out"
 
-echo "== H. Non-repo cwd → exit 1 =="
+echo "== H. Unknown flag → rejected before touching the marker =="
+arm; fresh_plan
+out="$(ap --bogus)"; rc=$?
+chk "bogus flag → exit 1"              test "$rc" = "1"
+chk "bogus flag → marker kept"         test -f "$MARKER"
+chk "bogus flag → usage printed"       sh -c "printf '%s' \"\$0\" | grep -q 'Usage:'" "$out"
+rm -f "$MARKER"
+
+echo "== I. Non-repo cwd → exit 1 =="
 NONGIT="$ROOT/plain"; mkdir -p "$NONGIT"
 rc=0; ( cd "$NONGIT" && HOME="$SANDBOX" bash "$APPROVE" >/dev/null 2>&1 ) || rc=$?
 chk "non-repo → exit 1"                test "$rc" = "1"

@@ -21,19 +21,18 @@ is not enforced, but the rule is the same.
 
 ## Step 0 — Mode & constitution {#mode}
 
-`begin-plan.sh` printed a `MODE:` line:
+`begin-plan.sh` printed a `MODE:` line. The mode is only the **approval-gate
+default** — it decides which option Step 6 lists first; both outcomes are
+always offered there, and you never ask the user to pick a mode upfront:
 
-- **`MODE: plan`** — default: plan, then execute on approval.
-- **`MODE: plan-only`** — the plan file is the deliverable; after approval you
-  do NOT implement and do NOT dispatch implementation agents.
-- **`MODE: UNSET`** — ask the user **once** via `AskUserQuestion` (plan /
-  plan-only), persist with
-  `bash "${CLAUDE_PLUGIN_ROOT}/hooks/set-mode.sh" <choice>`, then continue.
+- **`MODE: plan-only`** — list **"Deliver plan only"** first at Step 6.
+- **`MODE: plan`**, **`MODE: UNSET (default: plan)`**, or no `MODE:` line at
+  all (not in a git repo — the gate was not armed) — list **"Proceed"** first.
 
 `begin-plan.sh` may also print a **`CONTEXT:`** line (the context gate). A
-**`CONTEXT: WARN`** means the session is getting large — surface it to the user and,
-at the Step 6 approval, prefer **"Hand off to next agent"** over executing in this
-session. (A **`CONTEXT: BLOCKED`** never reaches this skill — begin-plan refuses to
+**`CONTEXT: WARN`** means the session is getting large — surface it to the user
+and use the WARN option set at Step 6 (it leads with **"Hand off to next
+agent"**). (A **`CONTEXT: BLOCKED`** never reaches this skill — begin-plan refuses to
 arm and the command stops before invoking the skill; noted here for completeness.)
 
 **Load the constitution.** Check for `.mentor/constitution.md` at the repo root
@@ -247,22 +246,26 @@ same turn, ask via `AskUserQuestion`:
 
 ```json
 {
-  "question": "The plan is ready. Proceed to implementation?",
-  "header": "Proceed",
+  "question": "The plan is ready. What happens next?",
+  "header": "Approve",
   "options": [
     { "label": "Proceed", "description": "Validate the plan, release the edit gate, and begin implementation." },
-    { "label": "Hand off to next agent", "description": "Approve and release the gate, but don't implement here — write a /mentor:handoff document so a fresh agent picks up implementation, then stop." },
+    { "label": "Deliver plan only", "description": "Validate the plan and release the gate; the plan file is the deliverable — no implementation, no dispatch. (/mentor:handoff can brief a fresh agent afterwards.)" },
     { "label": "Review the plan (light)", "description": "Run plan-review — fan out 4 read-only reviewers over this plan (incl. a spec-kit-analyze-style consistency check). Stays in planning; surfaces findings, then asks again." },
     { "label": "Keep planning", "description": "Do not release — keep refining. Re-write the plan file and ask again when ready." }
   ]
 }
 ```
 
-**plan-only mode:** replace "Proceed" with `{ "label": "Deliver plan",
-"description": "Validate the plan and release the gate. The plan file is the
-deliverable — no implementation, no dispatch." }` and drop "Hand off".
+**Ordering:** when Step 0 resolved the default to `plan-only`, swap the first
+two options ("Deliver plan only" first). When Step 0 reported
+**`CONTEXT: WARN`**, use this fixed option set instead, regardless of mode:
+**Hand off to next agent** (first) / **Deliver plan only** / **Proceed** /
+**Keep planning** — a large session should hand implementation to a fresh
+agent, and plan-review would inflate the context further (it stays reachable
+via "Other").
 
-On **Proceed** (or **Deliver plan**), run:
+On **Proceed**, run:
 
 ```bash
 bash "${CLAUDE_PLUGIN_ROOT}/hooks/approve-plan.sh"
@@ -271,8 +274,7 @@ bash "${CLAUDE_PLUGIN_ROOT}/hooks/approve-plan.sh"
 It validates the plan (a non-empty `.md` newer than the `.planning` marker), and
 on success deletes the marker — the gate OPENS. On failure it prints the problem,
 keeps the gate closed, and exits non-zero: fix the plan (re-write per Step 4) and
-re-ask. In plan-only mode it prints a soft-stop directive — report the plan path
-and STOP. Otherwise, implement the plan.
+re-ask. On success, implement the plan.
 
 **Executing dispatch annotations after approval:** if the plan carries
 `[role: …]` annotations, dispatch each `Run in parallel:` group's agents in ONE
@@ -280,7 +282,18 @@ message (multiple `Agent` calls), run `Sequential:` steps one at a time, and
 verify each step's `Done when:` before starting the next. Do not busy-poll
 background agents — end the turn and let the harness re-invoke you.
 
-On **Hand off to next agent**, run:
+On **Deliver plan only**, run:
+
+```bash
+bash "${CLAUDE_PLUGIN_ROOT}/hooks/approve-plan.sh" --deliver
+```
+
+Same validation + release, then **follow the DELIVER-ONLY directive it prints** —
+report where the plan lives and STOP. Do not implement and do not dispatch in
+this session.
+
+On **Hand off to next agent** (or an "Other" answer expressing handoff intent),
+run:
 
 ```bash
 bash "${CLAUDE_PLUGIN_ROOT}/hooks/approve-plan.sh" --handoff
@@ -298,3 +311,7 @@ and re-write the plan file; then re-ask this same question — this option never
 releases the gate by itself.
 
 On **Keep planning**, do not run the script; return to planning.
+
+**Not in a git repo?** begin-plan reported the gate was NOT armed — skip
+`approve-plan.sh` (it would fail outside a repo) and honor the user's choice
+directly.

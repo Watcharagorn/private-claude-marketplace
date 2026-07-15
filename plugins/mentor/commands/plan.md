@@ -22,7 +22,8 @@ Do these in order:
    repo source edit until the plan is approved. The only file you write during
    planning is the Markdown plan under `<repo>/.mentor/plans/` (inside the repo, but the
    `.mentor/` tree is exempt from the gate). Read the script's stdout — it carries the
-   `MODE:` line (plan / plan-only / UNSET → ask once) and, when the session context is
+   `MODE:` line (plan / plan-only / UNSET — only sets which approval option is listed
+   first; NEVER ask the user to pick a mode upfront) and, when the session context is
    large, a `CONTEXT:` line:
    - If stdout contains **`CONTEXT: BLOCKED`**, STOP: do **not** call the plan skill.
      Relay the printed instructions (hand off or `/compact`, then re-run `/mentor:plan`)
@@ -32,9 +33,12 @@ Do these in order:
 2. **Immediately call `Skill({"skill": "mentor:plan"})` and follow it end
    to end** (unless step 1 printed `CONTEXT: BLOCKED`, in which case you already
    stopped) — do **NOT** call `mentor:plan` (that would reload this command).
-   At the approval step, ask **Proceed / Hand off to next agent / Review the
-   plan (light) / Keep planning**; on Proceed run `approve-plan.sh`, which
-   validates the plan and releases the gate.
+   At the approval step, ask **Proceed / Deliver plan only / Review the plan
+   (light) / Keep planning** (the `MODE:` line decides whether Proceed or
+   Deliver is listed first; under `CONTEXT: WARN`, **Hand off to next agent**
+   replaces Review and leads); on Proceed run `approve-plan.sh` (no-arg), on
+   Deliver `approve-plan.sh --deliver` — both validate the plan and release
+   the gate.
 
 The task to plan:
 

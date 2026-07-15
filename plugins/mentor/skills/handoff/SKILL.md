@@ -102,7 +102,7 @@ Pick the entries that fit the current state, tailored to the next-session focus:
 - **Approved plan, ready to build** → resume implementation; `/mentor:ship` when done.
 - **Repeated manual work worth capturing** → `/loom:harvest`.
 - **Heavy multi-area work** → dispatch subagents per `dispatch-agents`.
-- Always cite the repo's persisted working mode (`/mentor:mode status`) so the next agent knows whether this repo is `plan` or `plan-only`.
+- If a mode is persisted (`/mentor:mode status`), cite the repo's approval-gate default so the next agent knows whether "Proceed" or "Deliver plan only" is listed first at plan approval.
 
 ## Step 4 — Redact secrets
 

@@ -11,7 +11,7 @@ review and are the single source of truth for implementation, handoff, and revie
 ## Quick start
 
 ```
-/mentor:mode plan-only        # optional: persist a repo WORKING MODE (plan | plan-only)
+/mentor:mode plan-only        # optional: set the approval-gate default (plan | plan-only)
 /mentor:grill <topic>         # optional: sharpen open design decisions before you plan
 /mentor:plan <what you want to build>
 ```
@@ -23,9 +23,12 @@ review and are the single source of truth for implementation, handoff, and revie
 2. Follows the `plan` skill: optional clarify (grilling), research
    (subagent delegation suggested for big tasks), domain routing, then a
    Markdown plan written to `<repo>/.mentor/plans/<slug>.md` (in-repo, gitignored).
-3. At approval, runs `approve-plan.sh` — it validates the plan (non-empty, and
-   newer than the marker, so a stale plan from a prior session can never release
-   the gate) and deletes the marker. The gate opens; implementation begins.
+3. At approval you choose the outcome — **Proceed** (implement), **Deliver plan
+   only** (the plan file is the deliverable), review, or keep planning. The
+   chosen approval runs `approve-plan.sh`, which validates the plan (non-empty,
+   and newer than the marker, so a stale plan from a prior session can never
+   release the gate) and deletes the marker. The gate opens; the chosen outcome
+   follows.
 
 > `/mentor:plan` is **namespaced** — it cannot collide with Claude Code's native
 > reserved `/plan` command.
@@ -36,22 +39,26 @@ review and are the single source of truth for implementation, handoff, and revie
 |---|---|
 | `/mentor:plan <task>` | The gated plan flow (above). |
 | `/mentor:constitution [principles]` | Create/amend this repo's governing principles at `.mentor/constitution.md` — versioned, committed, and honored by every plan. |
-| `/mentor:mode [plan\|plan-only\|status]` | Get/set the persisted repo working mode. |
+| `/mentor:mode [plan\|plan-only\|status]` | Get/set the persisted approval-gate default (which approval option is listed first). |
 | `/mentor:ship` | Finish the current branch: clean-check → `/simplify` → optional tests → push + auto-open PR/MR (or push to upstream). Never force-pushes. |
 | `/mentor:grill [topic]` | One-question-at-a-time interview that sharpens a design's open decisions before you build. Conversation only; no repo edits. |
-| `/mentor:handoff "<focus>"` | Compact the session into a handoff document (in `.mentor/handoffs/`, gitignored) for a fresh agent. Also offered as **Hand off to next agent** at the proceed gate. |
+| `/mentor:handoff "<focus>"` | Compact the session into a handoff document (in `.mentor/handoffs/`, gitignored) for a fresh agent. Also offered as **Hand off to next agent** at the approval gate — leading the options when the context gate warns. |
 | `/mentor:resume [slug\|number]` | List this repo's handoff notes and continue the chosen one. |
 | `/plan-review` | Fixed 4-topic review (practicality, comprehensiveness, cleanliness, and a spec-kit-`analyze`-style **consistency** check across the plan + related artifacts) of the current plan; also offered as **Review the plan (light)** at the proceed gate. |
 | `/dispatch-agents` | The annotation grammar for fanning a plan out to subagents, and how to execute the dispatches after approval. |
 
 ## Repo modes (`/mentor:mode`)
 
-The mode persists in `<repo>/.mentor/config.json` (committed — shared with the team):
+The mode persists in `<repo>/.mentor/config.json` (committed — shared with the team)
+and is only the **approval-gate default**: `/mentor:plan`'s final approval question
+always offers both **Proceed** and **Deliver plan only**; the mode just decides
+which is listed first. It is never asked for upfront — an unset mode behaves as
+`plan`, and the real decision is made per task, at approval.
 
-| Mode | Behavior |
+| Mode | Approval question |
 |---|---|
-| `plan` | Default: `/mentor:plan` plans, then executes on approval. (Does **not** force planning — it names the default flow.) |
-| `plan-only` | Plans are the deliverable: after approval execution **soft-stops** — no implementation, no dispatch. |
+| `plan` (or unset) | **Proceed** listed first — plan, then implement on approval. |
+| `plan-only` | **Deliver plan only** listed first — the plan file is the deliverable. A default, not a lock: picking Proceed still implements. |
 
 State-dir layout (**project-scoped** — `<repo>/.mentor/`, since v2.0.0):
 
@@ -137,11 +144,11 @@ Knobs — env vars under `env` in `~/.claude/settings.json` (or the project's
 | Piece | Role |
 |---|---|
 | `commands/plan.md` | The `/mentor:plan` trigger. |
-| `hooks/begin-plan.sh` | Arms the `.planning` marker (closes the gate); prints the `MODE:` line — and a `CONTEXT:` line, refusing to arm when the session is already over the block threshold. |
+| `hooks/begin-plan.sh` | Arms the `.planning` marker (closes the gate); prints the `MODE:` line (the approval-gate default) — and a `CONTEXT:` line, refusing to arm when the session is already over the block threshold. |
 | `hooks/plan-gate.sh` | **The one gate.** Fail-closed `PreToolUse` on Write/Edit/MultiEdit/NotebookEdit — denies in-repo writes while the marker exists, even under `bypassPermissions`. Mentor's own `.mentor/` tree (where the plan file lives) is exempt, so the plan is always writable. Stale markers (>8h) self-heal. |
-| `hooks/approve-plan.sh` | Validates the plan (non-empty `.md` **newer than the marker**), releases the gate. `--handoff` prints a hand-off directive instead of implementing; plan-only mode prints a soft-stop directive. |
+| `hooks/approve-plan.sh` | Validates the plan (non-empty `.md` **newer than the marker**), releases the gate. Mode-agnostic — flags map to the approval options: no-arg implements, `--deliver` prints the deliverable soft-stop, `--handoff` the hand-off directive (both directives also print on a re-run when the gate is already open); unknown flags are rejected. |
 | `hooks/plan-open.sh` | Auto-opens the plan for review the first time it is written (VSCode tab / OS default; HTML zoom artifacts open in the browser). |
-| `hooks/set-mode.sh` | Get/set the repo working mode. |
+| `hooks/set-mode.sh` | Get/set the approval-gate default. |
 | `hooks/context-gate.sh` | **Context gate.** `UserPromptSubmit` — measures live context from the transcript and warns once (~200k) then blocks plain prompts (~270k), steering to `/mentor:handoff` or `/compact`. Fail-soft; slash commands always pass. |
 
 ### Known limitations
@@ -199,6 +206,25 @@ extra deliverable. Instruction-only — no hooks.
 | `plan-domain-backend-api` | API/endpoint/route/handler/schema/DTO/contract | Before/after contract diff tables, schema diffs, Mermaid sequence flows. |
 | `plan-domain-architecture` | Structural change — services, containers, datastores, integrations | Diff-highlighted C4-style Mermaid flowcharts, only the levels that change. |
 | `plan-domain-dynamic` | No registered domain matched (fallback) | A dispatched domain-definer names the domain and returns a best-practices brief; the plan gains a practice→step mapping. |
+
+## Changes in v2.1.0
+
+The working mode no longer gates execution — it is now only the **approval-gate
+default**. `/mentor:plan` never asks an upfront mode question (an unset mode behaves
+as `plan`), and the approval step **always offers both** "Proceed" and "Deliver plan
+only"; the persisted mode merely decides which is listed first.
+
+- **`plan-only` no longer hard-blocks implementation:** choosing "Proceed" in a
+  `plan-only` repo implements immediately — teams that relied on the hard stop have
+  the operator pick "Deliver plan only" at approval instead.
+- **No config migration needed:** a committed `{"mode":"plan-only"}` now simply
+  reads as "deliver-first default".
+- **`approve-plan.sh` is mode-agnostic:** it gained an explicit `--deliver` flag
+  (the deliverable soft-stop) and no longer reads the persisted mode; directives
+  are also printed when the gate is already open, and unknown flags are rejected.
+- **"Hand off to next agent" moved out of the default approval options** — it
+  leads them when the context gate warns, and stays reachable via "Other" or
+  `/mentor:handoff` after a deliver-only approval.
 
 ## Breaking changes in v2.0.0
 

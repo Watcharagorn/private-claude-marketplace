@@ -79,8 +79,8 @@ mentor_config_get() {
   return 0
 }
 
-# mentor_get_mode <repo_root> — echo the persisted repo mode (plan|plan-only) or empty
-# when unset / no repo / no jq (fail-open to default behavior).
+# mentor_get_mode <repo_root> — echo the persisted approval-gate default (plan|plan-only)
+# or empty when unset / no repo / no jq (fail-open: unset behaves as plan).
 mentor_get_mode() {
   mentor_config_get "${1:-}" "mode"
 }

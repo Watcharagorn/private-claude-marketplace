@@ -1,14 +1,15 @@
 #!/usr/bin/env bash
-# set-mode.sh — read/write the persisted per-repo mentor WORKING MODE.
+# set-mode.sh — read/write the persisted per-repo mentor APPROVAL-GATE DEFAULT.
 #
 # Usage: set-mode.sh [plan|plan-only|status]    (bare = status)
 #
-# The mode lives in <repo_root>/.mentor/config.json as
-# {"mode": "..."} :
-#   plan      — default behavior (/mentor:plan plans, then executes on approval).
-#               NOTE: does NOT force planning; it just names today's default.
-#   plan-only — /mentor:plan runs fully, but after approval the plan file is the
-#               deliverable: execution soft-stops (no dispatch, no implementation).
+# The mode lives in <repo_root>/.mentor/config.json as {"mode": "..."} and only
+# decides which option the plan-approval question lists FIRST — both outcomes
+# are always offered there:
+#   plan      — "Proceed" listed first (plan, then implement on approval).
+#   plan-only — "Deliver plan only" listed first (the plan file is the deliverable).
+# Unset behaves as plan. The mode never blocks execution and is never asked
+# for upfront — /mentor:plan works without it.
 #
 # Status output contract (consumed by commands/mode.md and the plan skill):
 #   "mode: <mode>"  or the literal token "UNSET" when no mode is persisted.
@@ -34,7 +35,7 @@ case "$arg" in
   status)
     mode="$(mentor_get_mode "$repo_root")"
     if [ -z "$mode" ]; then
-      echo "UNSET — no mentor mode persisted for this repo."
+      echo "UNSET — no approval default persisted for this repo (behaves as plan: \"Proceed\" listed first)."
       echo "  config: ${config}"
       echo "  Set one with: /mentor:mode plan | plan-only"
     else
@@ -56,12 +57,11 @@ case "$arg" in
     echo "  config: ${config}"
     case "$arg" in
       plan)
-        echo "  plan — default behavior: /mentor:plan plans, then executes on approval."
+        echo "  plan — approval question lists \"Proceed\" first; \"Deliver plan only\" stays available."
         ;;
       plan-only)
-        echo "  plan-only — plans are the deliverable: /mentor:plan runs fully, but after"
-        echo "  approval execution SOFT-STOPS (no implementation, no dispatch). Switch back"
-        echo "  with /mentor:mode plan to execute plans again."
+        echo "  plan-only — approval question lists \"Deliver plan only\" first; \"Proceed\" stays"
+        echo "  available. This is a default, not a lock — the choice is made at each approval."
         ;;
     esac
     exit 0

@@ -91,27 +91,22 @@ EOF
 
 [ -n "$context_warn" ] && echo "$context_warn"
 
+# The mode is only the APPROVAL-GATE DEFAULT — it decides which option the
+# Step-6 approval question lists first; both outcomes are always offered.
+# Never ask the user to pick a mode upfront.
 mode="$(mentor_get_mode "$repo_root")"
 case "$mode" in
   plan-only)
     echo "MODE: plan-only"
-    cat <<'EOF'
-plan-only — after approval the plan file is the DELIVERABLE. Do NOT implement
-and do NOT dispatch implementation agents; the approval step will soft-stop.
-EOF
+    echo '[mentor] Approval default: "Deliver plan only" listed first ("Proceed" always offered).'
     ;;
   "")
-    echo "MODE: UNSET"
-    cat <<'EOF'
-No repo mode is set. After entering the plan skill, FIRST ask the user via
-AskUserQuestion which mode to persist for this repo — plan (default: plan then
-execute on approval) / plan-only (plans are deliverables; no execution) — then run:
-  bash "${CLAUDE_PLUGIN_ROOT}/hooks/set-mode.sh" <choice>
-and continue planning.
-EOF
+    echo "MODE: UNSET (default: plan)"
+    echo '[mentor] No approval default persisted — "Proceed" listed first. Set one with /mentor:mode.'
     ;;
   *)
     echo "MODE: ${mode}"
+    echo '[mentor] Approval default: "Proceed" listed first ("Deliver plan only" always offered).'
     ;;
 esac
 exit 0
