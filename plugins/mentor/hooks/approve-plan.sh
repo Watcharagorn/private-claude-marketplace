@@ -4,7 +4,8 @@
 # Run by the plan skill when the user makes an approval choice. Flags map 1:1
 # to the approval options — the persisted repo mode is NOT read here; the
 # user's explicit choice decides:
-#   (no arg)   — approve: validate, release the gate, implementation begins.
+#   (no arg)   — approve: validate, release the gate, implementation begins;
+#                prints the subagents-first (SDD) execution directive.
 #   --deliver  — approve, but the plan file is the DELIVERABLE: prints a
 #                DELIVER-ONLY soft-stop directive (no implementation).
 #   --handoff  — approve, then hand off: prints a directive to write a
@@ -98,5 +99,16 @@ a fresh agent, or ask to proceed later — the gate is already open.)
 EOF
   exit 0
 fi
+
+# No-arg approve: implementation follows. Restate the SDD directive here —
+# informational only, no enforcement — because this is the exact moment the
+# model resumes after the Bash call (printed on re-runs too, mirroring the
+# idempotent-directive rule for the flags above).
+cat <<EOF
+
+Implementation is subagents-first (SDD) — execute the plan's dispatch
+annotations per Skill(skill="mentor:dispatch-agents"); implement directly in
+the main thread only if the plan states "Dispatch: skipped".
+EOF
 
 exit 0

@@ -123,7 +123,8 @@ for the same surface.
 > needs to *see* that surface to do its job — End user, Reviewer/Architect, or QA/Tester (the
 > tester must see the states they verify), everyone **except** the Implementor, whose zoom is
 > about file wiring and step order rather than appearance — fold this section into that combo
-> agent's prompt. Subagents cannot dispatch nested agents, so there is no separate mockup-author
+> agent's prompt. Subagents cannot dispatch nested agents (see `mentor:dispatch-agents`,
+> "no nested fan-out"), so there is no separate mockup-author
 > dispatch — the combo agent reads the real source files and authors + embeds the mockup panes
 > inside its own zoom file. The `.md` plan (§3) stays the source of truth; the zoom is a
 > supplementary visual aid for the requested surface(s) only.

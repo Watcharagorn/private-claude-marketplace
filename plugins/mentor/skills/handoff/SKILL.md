@@ -8,7 +8,6 @@ description: >
   commits, diffs) by path/URL instead of duplicating them, and redacts secrets.
   Saved under the repo's gitignored .mentor/handoffs/ dir, so it never pollutes
   `git status`.
-version: 0.1.0
 ---
 
 # Handoff — Compact the Session for the Next Agent
@@ -100,9 +99,9 @@ Pick the entries that fit the current state, tailored to the next-session focus:
 
 - **Unclear approach / unfinished design** → `/mentor:plan <focus>` (runs the gated plan harness).
 - **A plan exists but its decisions feel shaky** → `/mentor:grill` to pressure-test it, then re-plan / approve.
-- **Approved plan, ready to build** → resume implementation; `/mentor:ship` when done.
+- **Approved plan, ready to build** → resume implementation — execute the plan's dispatch annotations via `Skill(skill="mentor:dispatch-agents")`; `/mentor:ship` when done.
 - **Repeated manual work worth capturing** → `/loom:harvest`.
-- **Heavy multi-area work** → dispatch subagents per `dispatch-agents`.
+- **Heavy multi-area work** → dispatch subagents per `mentor:dispatch-agents`.
 - If a mode is persisted (`/mentor:mode status`), cite the repo's approval-gate default so the next agent knows whether "Proceed" or "Deliver plan only" is listed first at plan approval.
 
 ## Step 4 — Redact secrets

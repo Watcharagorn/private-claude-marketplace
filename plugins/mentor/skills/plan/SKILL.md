@@ -12,7 +12,8 @@ description: >
 The flow: resolve the mode & load the constitution → clarify if needed →
 research (delegation suggested) → domain routing → write the Markdown plan
 (with a Constitution Check when a constitution exists) → (optional
-topic × perspective HTML zooms on request) → approve & release.
+topic × perspective HTML zooms on request) → approve & release →
+subagents-first implementation (dispatch-agents).
 
 While the `.planning` marker is armed, `plan-gate.sh` blocks every
 Write/Edit/MultiEdit/NotebookEdit inside the repo working tree — the only files
@@ -78,10 +79,10 @@ Multiple domains may match; if none match, invoke the dynamic fallback.
 
 | Domain | Trigger signals | Skill to invoke | Extra plan deliverable |
 |---|---|---|---|
-| frontend | UX/UI — components, pages, styles, layout, design systems, theming, responsive | `Skill(skill="plan-domain-frontend")` | ASCII wireframes + delta/token tables; live mockups only in an HTML zoom combo (Step 5) |
-| backend-api | API/endpoint/route/handler/schema/DTO/contract | `Skill(skill="plan-domain-backend-api")` | Before/after contract diff tables + schema diffs + Mermaid sequence flow |
-| architecture (C4) | Structural change — new/changed/removed service, container, datastore, queue, external integration, component, or data flow (NOT pure content/config/doc/style/refactor) | `Skill(skill="plan-domain-architecture")` | Diff-highlighted C4-style Mermaid flowcharts, only the levels that change |
-| dynamic (fallback) | no registered domain matched | `Skill(skill="plan-domain-dynamic")` | Domain best-practices section (practice→step mapping) |
+| frontend | UX/UI — components, pages, styles, layout, design systems, theming, responsive | `Skill(skill="mentor:plan-domain-frontend")` | ASCII wireframes + delta/token tables; live mockups only in an HTML zoom combo (Step 5) |
+| backend-api | API/endpoint/route/handler/schema/DTO/contract | `Skill(skill="mentor:plan-domain-backend-api")` | Before/after contract diff tables + schema diffs + Mermaid sequence flow |
+| architecture (C4) | Structural change — new/changed/removed service, container, datastore, queue, external integration, component, or data flow (NOT pure content/config/doc/style/refactor) | `Skill(skill="mentor:plan-domain-architecture")` | Diff-highlighted C4-style Mermaid flowcharts, only the levels that change |
+| dynamic (fallback) | no registered domain matched | `Skill(skill="mentor:plan-domain-dynamic")` | Domain best-practices section (practice→step mapping) |
 
 Each matched domain skill returns directives you fold into the research prompts
 and the plan body.
@@ -131,10 +132,16 @@ Required sections, in order:
    either point at the plan change that resolves it or record an explicit,
    justified deviation. If a principle can only be honored by amending the
    constitution, say so and stop short of encoding the violation as the plan.
-6. `## Implementation steps` — numbered, concrete. If the work will fan out to
-   subagents after approval, annotate steps per `Skill(skill="dispatch-agents")`
-   (`[role: … · model: … · effort: …]`, grouped `Run in parallel:` /
-   `Sequential:`) — optional, self-serve.
+6. `## Implementation steps` — numbered, concrete, and **dispatch-annotated by
+   default** (subagents-driven development: the main thread orchestrates,
+   subagents implement — each agent gets one narrow, focused step, and the
+   main context stays lean). Before writing this section, invoke
+   `Skill(skill="mentor:dispatch-agents")` and annotate every implementation
+   step per its grammar (`[role: … · model: … · effort: …]`, grouped
+   `Run in parallel:` / `Sequential:`) — one plan step = one dispatch.
+   **Escape hatch:** when the implementation meets the dispatch-agents skill's
+   skip rule, omit the annotations, but the section MUST then open with one
+   line: `Dispatch: skipped — <reason>`. No line, no skip.
 7. `## Critical files`
 8. `## Out of scope`
 9. `## Verification` — how to test end-to-end.
@@ -280,11 +287,17 @@ on success deletes the marker — the gate OPENS. On failure it prints the probl
 keeps the gate closed, and exits non-zero: fix the plan (re-write per Step 4) and
 re-ask. On success, implement the plan.
 
-**Executing dispatch annotations after approval:** if the plan carries
-`[role: …]` annotations, dispatch each `Run in parallel:` group's agents in ONE
-message (multiple `Agent` calls), run `Sequential:` steps one at a time, and
-verify each step's `Done when:` before starting the next. Do not busy-poll
-background agents — end the turn and let the harness re-invoke you.
+**Executing the implementation after approval (SDD):** implementation is
+subagents-first. Invoke `Skill(skill="mentor:dispatch-agents")` first (skip the
+re-invocation only if it is already loaded in this session), then follow its
+"Executing the dispatches" section: read the approved plan file, dispatch each
+`Run in parallel:` group's agents in ONE message (multiple `Agent` calls), run
+`Sequential:` steps one at a time, and verify each step's `Done when:` before
+starting the next. Mark each step done in the plan file as it passes. Do not
+busy-poll background agents — end the turn and let the harness re-invoke you.
+The main thread orchestrates and verifies; it does not re-do or re-read the
+work it delegated. Only when the plan opens its Implementation steps with
+`Dispatch: skipped — <reason>` does the main thread implement directly.
 
 On **Deliver plan only**, run:
 

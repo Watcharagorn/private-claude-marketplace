@@ -1,25 +1,68 @@
 ---
 name: dispatch-agents
-description: Annotate plan steps as subagent dispatches — role, model, effort, parallel/sequential grouping — and execute them after approval. Invoked when a plan will fan out to subagents, or the user explicitly asks to "dispatch agents" / "fan out" / "parallelize" a task.
+description: >
+  The default implementation path for mentor plans (subagents-driven
+  development) — annotate every plan's implementation steps as subagent
+  dispatches and execute them after approval; the main thread orchestrates,
+  subagents implement. Invoked by plan Steps 4 and 6, or when the user says
+  "dispatch agents" / "fan out" / "parallelize". Trivial work may skip with a
+  stated `Dispatch: skipped` reason.
 ---
 
 # Dispatch Agents
 
 This skill defines the annotation grammar for plan steps that fan out to
-subagents, and how to execute them. It is the shared reference used by
-`plan` (Step 4 dispatch annotations) and `plan-review`.
+subagents, and how to execute them. It is the default implementation path for
+mentor plans, used by `plan` (Step 4 annotation, Step 6 execution) and
+referenced by `plan-review` and `handoff`.
 
 ## When to use
 
-- The plan's implementation steps carry (or should carry) dispatch annotations.
-- The user explicitly says "dispatch agents", "fan out", "use subagents", "parallelize this".
-- A task spans multiple disjoint areas, would blow the main context, or has clearly independent sub-tasks worth running concurrently.
+This is the DEFAULT for every mentor plan: `plan` Step 4 invokes this skill to
+annotate the implementation steps, and Step 6 invokes it again to execute them
+after approval. Also invoked when the user explicitly says "dispatch agents",
+"fan out", "use subagents", "parallelize this".
 
-## When NOT to use
+## Escape hatch — when a plan may skip annotation
 
-- Single-file edits the main thread can do directly.
-- Tasks where the main thread already has all the context loaded — dispatching just adds round-trips.
-- Anything requiring tight back-and-forth with the user.
+Skip dispatch annotation ONLY when one of these branches holds:
+
+- **Trivial:** the whole implementation is a small mechanical change (roughly
+  ≤ ~20 changed lines) AND the main thread already holds everything needed
+  from planning — implementing requires no new file reading; or
+- **Interactive:** the work needs tight mid-implementation back-and-forth with
+  the user.
+
+A skipping plan MUST open its `## Implementation steps` section with one line —
+`Dispatch: skipped — <one-line reason>` — so the skip is visible and reviewable
+at approval. No line, no skip. If a skipped implementation turns out
+non-trivial mid-flight, stop and dispatch normally per this skill.
+
+## Context efficiency — the orchestrator contract
+
+The point of SDD: quality through narrow focus, and a lean main thread.
+
+- **The main thread MUST NOT read the implementation files a step delegates** —
+  that context belongs to the dispatched agent. Verify `Done when:` with
+  observable checks instead; the step's `git diff` and a failing command's
+  output are always in-bounds as diagnostics.
+- **Prefer executable pass/fail `Done when:` criteria** (the named test /
+  typecheck / lint command) over presence checks; use grep/ls checks only when
+  no runnable check exists.
+- **On a failed `Done when:`**, re-dispatch the same role once with the failure
+  evidence (diff + command output) as inputs. If it fails again, surface to the
+  user — only then may the main thread read the files and take over.
+- **Track progress in the plan file:** as each step's `Done when:` passes, mark
+  its line in `plan.md` (append `✅`), so a resumed or handed-off session knows
+  exactly what already ran.
+- **Prompt sketches must be self-contained.** Each agent starts with zero
+  memory of this conversation: give exact file paths, the approved plan path,
+  the distilled facts it needs from research or prior steps (paste result
+  lines, not files), and its `Done when:` verbatim.
+- **Return contract:** agents return a short summary, file paths touched, and
+  verification output — never full file bodies.
+- **No nested fan-out:** dispatched agents cannot dispatch further agents —
+  size each step so one agent completes it alone.
 
 ## Per-step output shape
 
@@ -69,11 +112,12 @@ Effort and model are independent levers: a `low`-effort `opus` step is fine, and
 1. **List the work.** Write the bare task list before assigning roles.
 2. **Find the critical path.** Which steps must finish before others can start? Those are sequential.
 3. **Find independent steps.** Disjoint files/areas, separate research questions, parallel verifications — group these for fan-out.
-4. **Assign roles.** Smallest specialist that covers the work.
-5. **Assign models.** Default `sonnet`; upgrade only with a reason.
-6. **Assign effort.** Default `medium`; upgrade for design/cross-cutting, downgrade for trivial.
-7. **Write prompt sketches.** Each agent has zero memory of this conversation — the brief must stand alone.
-8. **State done-when.** Observable, verifiable, no "looks good".
+4. **Collapse small dependent steps.** Adjacent `Sequential:` steps that are individually small (combined ≤ ~40 changed lines) and suit the same role/model collapse into ONE dispatch — don't pay agent startup per tiny step.
+5. **Assign roles.** Smallest specialist that covers the work.
+6. **Assign models.** Default `sonnet`; upgrade only with a reason.
+7. **Assign effort.** Default `medium`; upgrade for design/cross-cutting, downgrade for trivial.
+8. **Write prompt sketches.** Each agent has zero memory of this conversation — the brief must stand alone.
+9. **State done-when.** Observable, verifiable, no "looks good".
 
 ## Example
 
@@ -102,7 +146,9 @@ Sequential:
 ## Executing the dispatches (after plan approval)
 
 Dispatch implementation/editing agents **only after the plan is approved**
-(`approve-plan.sh` released the gate). Then:
+(`approve-plan.sh` released the gate). Every implementation dispatch in a
+mentor session routes through this skill — callers load it (once per session)
+before issuing `Agent` calls. Then:
 
 1. **Read the approved plan file** (`<repo>/.mentor/plans/<slug>/plan.md`) — do not work from memory.
 2. **Dispatch "Run in parallel:" groups** — issue ALL `Agent()` calls for each parallel group in a **single message** so they run concurrently. After dispatching, do not busy-poll with `sleep`/no-op Bash calls; stop and let the harness re-invoke you when agents complete.

@@ -49,7 +49,7 @@ domain detection — every plan is reviewed against these same four dimensions.
 
 ## When NOT to use
 
-- After approval — the plan is released; use `dispatch-agents` to execute it.
+- After approval — the plan is released; use `mentor:dispatch-agents` to execute it.
 - No plan file in the mentor plans dir.
 - Single-file typo fixes or trivial edits where review costs more than the change.
 - The user explicitly asked you NOT to invoke sub-agents.
@@ -149,7 +149,10 @@ must contain:
 5. **Detection categories:**
    - `coverage-gap` — a scenario/requirement/edge case with no implementation
      step; a step tracing to no stated need; Verification not exercising a
-     scenario; Critical files mismatch (listed-but-unused, or touched-but-unlisted).
+     scenario; Critical files mismatch (listed-but-unused, or touched-but-unlisted);
+     an `## Implementation steps` section carrying neither `[role:` dispatch
+     annotations nor a `Dispatch: skipped —` opening line (plans are
+     dispatch-annotated by default — a plan with neither made no explicit choice).
    - `contradiction` — sections that disagree; step ordering vs a stated dependency.
    - `terminology-drift` — the same concept named differently across sections.
    - `ambiguity` — vague adjectives (fast/scalable/secure/simple) with no

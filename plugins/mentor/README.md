@@ -28,7 +28,9 @@ review and are the single source of truth for implementation, handoff, and revie
    chosen approval runs `approve-plan.sh`, which validates the plan (non-empty,
    and newer than the marker, so a stale plan from a prior session can never
    release the gate) and deletes the marker. The gate opens; the chosen outcome
-   follows.
+   follows. On Proceed, implementation is **subagents-first**: the plan's steps
+   are dispatch-annotated by default and executed per `dispatch-agents` — the
+   main thread orchestrates, subagents implement.
 
 > `/mentor:plan` is **namespaced** — it cannot collide with Claude Code's native
 > reserved `/plan` command.
@@ -44,8 +46,11 @@ review and are the single source of truth for implementation, handoff, and revie
 | `/mentor:grill [topic]` | One-question-at-a-time interview that sharpens a design's open decisions before you build. Conversation only; no repo edits. |
 | `/mentor:handoff "<focus>"` | Compact the session into a handoff document (in `.mentor/handoffs/`, gitignored) for a fresh agent. Also offered as **Hand off to next agent** at the approval gate — leading the options when the context gate warns. |
 | `/mentor:resume [slug\|number]` | List this repo's handoff notes and continue the chosen one. |
-| `/plan-review` | Fixed 4-topic review (practicality, comprehensiveness, cleanliness, and a spec-kit-`analyze`-style **consistency** check across the plan + related artifacts) of the current plan; also offered as **Review the plan (light)** at the proceed gate. |
-| `/dispatch-agents` | The annotation grammar for fanning a plan out to subagents, and how to execute the dispatches after approval. |
+| `/plan-review`* | Fixed 4-topic review (practicality, comprehensiveness, cleanliness, and a spec-kit-`analyze`-style **consistency** check across the plan + related artifacts) of the current plan; also offered as **Review the plan (light)** at the proceed gate. |
+| `/dispatch-agents`* | The **default implementation path** (subagents-driven development): every plan's steps are dispatch-annotated unless the plan states a `Dispatch: skipped` reason, and executed as subagent dispatches after approval. |
+
+\* skill trigger phrases, not registered slash commands — typing them (or the
+matching natural language) invokes the skill.
 
 ## Repo modes (`/mentor:mode`)
 
@@ -208,6 +213,35 @@ extra deliverable. Instruction-only — no hooks.
 | `plan-domain-backend-api` | API/endpoint/route/handler/schema/DTO/contract | Before/after contract diff tables, schema diffs, Mermaid sequence flows. |
 | `plan-domain-architecture` | Structural change — services, containers, datastores, integrations | Diff-highlighted C4-style Mermaid flowcharts, only the levels that change. |
 | `plan-domain-dynamic` | No registered domain matched (fallback) | A dispatched domain-definer names the domain and returns a best-practices brief; the plan gains a practice→step mapping. |
+
+## Changes in v2.3.0
+
+Subagents-driven development (SDD): approved plans now execute **subagents-first**
+by default — the main thread orchestrates and verifies, dispatched agents
+implement. Each agent gets one narrow, focused step (quality through focus) and
+the main context stays lean (no implementation files loaded). This extends the
+existing inline per-step `[role: … · model: … · effort: …]` grammar — it is NOT
+a revival of the v1.0.0-removed `dispatch-agents:` footer-line mechanism, and
+nothing is hook-enforced:
+
+- **Dispatch-annotated by default:** `plan` Step 4 now invokes
+  `mentor:dispatch-agents` and annotates every implementation step (one step =
+  one dispatch). Skipping requires the plan to open its Implementation steps
+  with `Dispatch: skipped — <reason>` — visible and reviewable at approval.
+- **Escape hatch:** trivial work (roughly ≤ ~20 changed lines, nothing new to
+  read) or work needing tight user back-and-forth may skip; if a skipped task
+  turns out non-trivial mid-flight, stop and dispatch normally.
+- **Orchestrator contract:** the main thread never reads delegated files —
+  it verifies via executable `Done when:` checks, `git diff`, and failing
+  command output; one remediation re-dispatch, then escalate to the user.
+  Progress is checked off in `plan.md` (✅) so resumed sessions know what ran.
+- **Sequential-collapse rule:** adjacent small dependent steps (combined
+  ≤ ~40 lines, same role/model) merge into one dispatch — no agent-startup tax
+  per tiny step.
+- **Backstops:** `plan-review`'s consistency reviewer flags plans with neither
+  annotations nor a skip line; `approve-plan.sh` (Proceed) prints an
+  informational SDD directive. In-plugin `Skill()` references are now uniformly
+  `mentor:`-namespaced.
 
 ## Changes in v2.2.0
 
