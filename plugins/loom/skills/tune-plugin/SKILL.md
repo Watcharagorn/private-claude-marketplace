@@ -50,6 +50,10 @@ echo "${common:-NO_COMMON}"
 - **The redundancy isn't plugin-shaped** (belongs in a user/project artifact, not inside any one
   plugin) → use `harvest-automations` (a sibling skill in this plugin), which works over the whole session and does not publish.
 - The target plugin lives outside this marketplace repo (the publish step assumes `plugins/<name>/`).
+- **You want to learn from ALL sessions machine-wide that used a plugin**, not one named session → use
+  `learn` (`/loom:learn <plugin>`). It discovers every unanalyzed session across all project folders,
+  analyzes each in its own agent, ledgers/watermarks them so they're never redone, and ships one
+  consolidated release — reusing this skill's two lenses per session.
 
 ## Inputs
 

@@ -189,3 +189,139 @@ materialized", create/change nothing, do **not** publish. This is a valid no-op 
 checks hook paths, and commits + pushes to the repo's default branch. Let it own that; let the commit
 body enumerate the changes. Report the **new version** and the `old..new` push line, and advise the user to
 run **`/reload-plugins`** so the plugin loads. One plugin per publish.
+
+---
+
+## §K — Multi-session discovery, usage tracking + learning ledger
+
+The steps `learn` (analyze **every** session that used plugin X) and `track` (opt-in usage indexer)
+share below. `tune-plugin`/`harvest-*` work on **one** session (§A); `learn` works on **the whole
+history** for one plugin, so it needs a marker pattern, a machine-wide scan, a per-plugin ledger +
+watermark, and — when `track` is set up — a usage index that lets it skip most scanning.
+
+> **Config-dir root — do NOT reuse §A's `$HOME/.claude`.** §A hardcodes `~/.claude/projects`; this
+> machine's real transcripts live under `${CLAUDE_CONFIG_DIR}`. Everywhere in §K:
+> `cfg="${CLAUDE_CONFIG_DIR:-$HOME/.claude}"` and scan `"$cfg/projects"`.
+
+### §K.1 — Usage-marker pattern
+
+A session "used plugin X" if its transcript carries any marker: a namespaced Skill call
+(`"skill":"<plugin>:<skill>"`), a namespaced command marker (`<command-name>/<plugin>:<cmd>`), a
+**bare** skill name (`"skill":"publish-plugin"` — real transcripts drop the namespace), or an
+**unqualified command marker** (`<command-name>/plan` — the *dominant* form for command-driven plugins
+like mentor: verified 5 unqualified vs 2 namespaced hits). Bare/unqualified markers admit false
+positives (a `/plan` from another source); that is acceptable — the per-session agent returns
+`NO USAGE FOUND` → ledgered `no-usage`, never rescanned. Order namespaced hits ahead of bare-only ones
+(K.3) so false positives never crowd real sessions out of a capped run.
+
+The builder takes a **surface root** so it works from either caller: the marketplace repo's `plugins/`
+(when `learn` runs, cwd = repo), or a marketplace **install location** (when the hook runs, any cwd):
+
+```bash
+cfg="${CLAUDE_CONFIG_DIR:-$HOME/.claude}"
+sroot="$1"                             # "$repo/plugins"  OR  "$cfg/plugins/marketplaces/<mkt>/plugins"
+plugin="$2"
+pat="\"skill\":\"${plugin}:|<command-name>/${plugin}:"
+bare="$(ls "$sroot/${plugin}/skills" 2>/dev/null | paste -sd'|' -)"
+[ -n "$bare" ] && pat="${pat}|\"skill\":\"(${bare})\""
+cmds="$(ls "$sroot/${plugin}/commands" 2>/dev/null | sed 's/\.md$//' | paste -sd'|' -)"
+[ -n "$cmds" ] && pat="${pat}|<command-name>/(${plugin}:)?(${cmds})<"   # unqualified commands too
+```
+
+### §K.2 — Scan pipeline (backfill path)
+
+The full machine-wide scan — used by `learn` for sessions the index has never seen (pre-hook history,
+or projects where loom isn't enabled). `command grep` **throughout**: interactive `grep` here is a
+ugrep wrapper (`--ignore-files -I`) that silently skips `.jsonl` as "binary".
+
+```bash
+main=$(find "$cfg/projects" -maxdepth 2 -name '*.jsonl' -print0 \
+       | xargs -0 command grep -lE -m1 "$pat" 2>/dev/null)
+side=$(find "$cfg/projects" -mindepth 4 -maxdepth 4 -path '*/subagents/agent-*.jsonl' -print0 \
+       | xargs -0 command grep -lE -m1 "$pat" 2>/dev/null \
+       | sed 's|/subagents/agent-[^/]*\.jsonl$|.jsonl|')     # sidecar → parent transcript
+
+# dedupe + one TSV row per candidate:  tx  sid  proj  endTs  markerCount  viaSubagent
+printf '%s\n%s\n' "$main" "$side" | command grep . | sort -u | while read -r tx; do
+  [ -e "$tx" ] || { echo "WARN: sidecar parent missing: $tx" >&2; continue; }   # orphan sidecar → skip
+  sid=$(basename "$tx" .jsonl); proj=$(basename "$(dirname "$tx")")
+  end=$(tail -n 50 "$tx" | command grep -o '"timestamp":"[^"]*"' | tail -1 | cut -d'"' -f4)
+  [ -z "$end" ] && end="$(date -u -r "$(stat -f %m "$tx")" +%Y-%m-%dT%H:%M:%SZ)"   # mtime fallback (macOS)
+  n=$(command grep -cE "$pat" "$tx" 2>/dev/null); n=${n:-0}   # NOT `|| echo 0`: grep -c prints 0 AND exits 1
+  if printf '%s\n' "$side" | command grep -qxF "$tx"; then sub=1; else sub=0; fi   # exact-line match
+  printf '%s\t%s\t%s\t%s\t%s\t%s\n' "$tx" "$sid" "$proj" "$end" "$n" "$sub"
+done
+```
+
+Notes: the first/last physical lines can lack `timestamp` (hence `tail -n 50` + the mtime fallback — an
+**empty endTs must never reach the watermark comparison**). Z-suffixed UTC ISO-8601 → lexicographic
+compare is valid. `markers=0 & viaSub=1` = "used only inside a spawned agent". When a usage index exists
+(K.5), restrict the `find` set to sessionIds **absent from the index OR present without the target key**
+before grepping — that is the whole speedup.
+
+### §K.3 — Filter + ordering
+
+Pipe candidates (index hits ∪ scan hits) through `python3`. **Eligibility is ledger-outcome-first** —
+this ordering is what makes re-eligibility work; the watermark applies **only** to un-ledgered sessions:
+
+1. `sessionId ∈ analyzed[]` → keep **iff** `outcome ∈ {error, skipped-cap}`; else drop. ("never
+   re-analyze" must not become "never analyze": errors and capped remainders come back.)
+2. Not in ledger → keep iff `endTs > watermark` (or no watermark yet).
+3. Drop the **active session** — newest `.jsonl` under `"$cfg/projects/<hashed-cwd>"` (hash = the cwd
+   with `/` and `.` → `-`). Restate this with `$cfg`; never cite §A verbatim (its `$HOME/.claude` dir
+   exists here and is the WRONG one).
+4. Drop transcripts with mtime < 5 min (possibly still being written) — excluded, **not** ledgered,
+   eligible next run.
+
+Survivors sort newest-first by mtime; namespaced-marker candidates ahead of bare/unqualified-only ones.
+
+### §K.4 — Ledger schema + watermark semantics
+
+`$cfg/loom/learning/<plugin>.json`:
+
+```json
+{ "schemaVersion": 1, "plugin": "mentor",
+  "watermark": "2026-07-14T04:08:24.718Z",
+  "lastRun": { "at": "…", "sessionsAnalyzed": 3, "sessionsSkippedCap": 0,
+               "findingsProposed": 7, "findingsAccepted": 2,
+               "publishedVersion": "0.46.0", "report": "reports/mentor-20260716-091200.md" },
+  "analyzed": [
+    { "sessionId": "0e7b241f-…", "transcriptPath": "/…/projects/…/0e7b241f-….jsonl",
+      "project": "-Users-…-poc-eks-argo-workflow", "sessionEndTs": "2026-07-14T08:49:17.483Z",
+      "lineCount": 1487, "markerHits": 2, "viaSubagent": false,
+      "analyzedAt": "2026-07-16T09:05:11Z", "findings": 3, "outcome": "analyzed" } ] }
+```
+
+`outcome` enum: `analyzed` · `no-usage` · `skipped-cap` · `error`. **`error` AND `skipped-cap` are
+re-eligible** (K.3 rule 1). Watermark rule (verbatim): `watermark = max(old, max sessionEndTs over
+sessions disposed this run)` — **never `now()`** (that would permanently skip the excluded active
+session and in-flight sessions on other terminals); never moves backwards; sound because every matching
+session older than it is already in `analyzed[]`. Grown-after-analysis sessions are not auto-re-analyzed
+in v1 (`lineCount` recorded; a run prints "N previously-analyzed sessions have grown — remove their
+ledger entries to re-learn"). Unknown/newer `schemaVersion` → treat as corrupt (move aside, warn,
+start fresh). Escape hatches: delete the ledger (full reset), or
+`jq 'del(.analyzed[] | select(.sessionId=="<sid>"))'` (targeted re-learn).
+
+### §K.5 — Usage index (hook-written)
+
+`$cfg/loom/learning/usage-index.jsonl` — one line per finished session, appended by the SessionEnd hook:
+
+```json
+{ "sessionId": "…", "tx": "/…/projects/…/<id>.jsonl", "endTs": "2026-07-16T11:32:04Z",
+  "cwd": "/Users/…/project/x", "plugins": { "mentor": 14, "sdlc-mini": 0, "ntbx-infra": 3 } }
+```
+
+One line carries **one count per tracked plugin across every marketplace**. **Written even when all
+counts are 0** (`"plugins": {}`): a line records exactly which plugins the hook *evaluated* for that
+session. Reading: skip malformed lines; **last line per sessionId wins** (duplicate SessionEnd firings
+are harmless). `learn` consumes it **per target key**, not per line:
+
+- `plugins[target] > 0` → candidate, **no scan**.
+- line has key `target` with value `0` → skip, **no scan** (the hook scanned; target wasn't used).
+- line present but **missing** key `target` → **must K.2-scan** — the hook never evaluated `target`
+  for this session (it ended before `target` was tracked). Missing key ≠ zero.
+- line absent entirely → **must K.2-scan**.
+
+So K.2 restricts its `find` set to sessionIds that are either absent from the index **or** present
+without the target key. The index is disposable — deleting it only means the next `learn` run scans
+more.
