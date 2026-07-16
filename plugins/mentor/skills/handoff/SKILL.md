@@ -6,8 +6,8 @@ description: >
   the conversation and progress, recommends which mentor commands the next agent
   should run, references existing artifacts (the plan file, PRDs, ADRs, issues,
   commits, diffs) by path/URL instead of duplicating them, and redacts secrets.
-  Saved outside the workspace, under the per-repo mentor dir, so it never pollutes
-  the repo or `git status`.
+  Saved under the repo's gitignored .mentor/handoffs/ dir, so it never pollutes
+  `git status`.
 version: 0.1.0
 ---
 
@@ -15,7 +15,7 @@ version: 0.1.0
 
 This skill turns the current conversation into a **self-contained handoff document** a fresh agent
 can use to continue the work — without re-reading this entire session. The document is saved
-**outside the repo working tree**, so it never pollutes the workspace or shows up in `git status`.
+under the repo's **gitignored `.mentor/handoffs/` dir**, so it never shows up in `git status`.
 
 It is the bridge between two sessions: it captures *what happened*, *where things stand*, and
 *what to do next* — pointing the next agent at the right mentor commands rather than restating
@@ -86,7 +86,8 @@ Write a Markdown document with these sections (skip a section only if genuinely 
 - **Current state** — branch, what is done vs pending, any failing checks or known-broken bits.
 - **Recommended mentor commands for the next agent** — see the mapping below.
 - **Referenced artifacts (do not duplicate)** — link by **path/URL**, never paste the contents:
-  - the current mentor plan file at `<repo>/.mentor/plans/<slug>.md` (if one exists),
+  - the current mentor plan file at `<repo>/.mentor/plans/<slug>/plan.md` (if one exists),
+    plus its `zoom/*.html` visual aids when relevant,
   - PRDs / ADRs / design docs by path,
   - issue / PR / MR URLs,
   - key commit SHAs (`git rev-parse --short HEAD`, relevant ancestors),
@@ -116,14 +117,14 @@ Before reporting, **verify the written path is under the `handoffs/` dir and its
 `<YYYYMMDD-HHMMSS>-<slug>.md`** (the exact pattern `/mentor:resume` lists). If it is not, you used
 the wrong path — recompute via the Step 2 snippet and re-write there.
 
-Write the file, then tell the user the **absolute path** and note that it is **outside the repo**
+Write the file, then tell the user the **absolute path** and note that it is **gitignored**
 (so `git status` stays clean). Offer a one-line summary of what the next agent should do first.
 Mention that a fresh session can load this note with **`/mentor:resume`** (it lists this repo's
 handoff notes and continues the chosen one).
 
 ## Done when
 
-- The document is written **outside the workspace**, under the per-repo mentor `handoffs/` dir.
+- The document is written under the per-repo, **gitignored** `.mentor/handoffs/` dir.
 - Existing artifacts are referenced by path/URL, **not duplicated**.
 - Secrets are redacted.
 - The content is tailored to the next-session focus.
@@ -131,7 +132,7 @@ handoff notes and continues the chosen one).
 
 ### Do NOT
 
-- Do **not** write the handoff into the repo working tree.
+- Do **not** write the handoff anywhere in the repo outside `.mentor/handoffs/`.
 - Do **not** save it anywhere but the Step 2 `handoffs/` path, or under a non-timestamped name —
   `/mentor:resume` only finds `handoffs/<YYYYMMDD-HHMMSS>-<slug>.md`.
 - Do **not** read a prior handoff to copy its path/naming — compute the path in Step 2.

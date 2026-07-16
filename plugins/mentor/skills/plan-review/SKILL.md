@@ -60,7 +60,8 @@ domain detection — every plan is reviewed against these same four dimensions.
 git_common=$(git rev-parse --git-common-dir 2>/dev/null) && \
   repo_root=$(cd "$(dirname "$git_common")" && pwd) && \
   d="$repo_root/.mentor/plans"
-primary=$(ls -t "$d"/*.md 2>/dev/null | head -1)   # the PRIMARY plan — subject for all 4 reviewers
+primary=$(ls -t "$d"/*/plan.md 2>/dev/null | head -1)   # the PRIMARY plan — subject for all 4 reviewers
+plan_dir=$(dirname "$primary")                          # the primary plan's own <slug>/ folder
 echo "$primary"
 ```
 
@@ -73,8 +74,8 @@ planning artifacts so the consistency reviewer can check cross-artifact
 coherence — the first three reviewers only ever see the primary plan:
 
 ```bash
-ls -t "$d"/*.md   2>/dev/null                        # all plan .md files (siblings of primary)
-ls    "$d"/*.html 2>/dev/null                         # supplementary <slug>-*.html zoom artifacts
+ls -t "$d"/*/plan.md 2>/dev/null                      # all plans (one <slug>/ dir each)
+ls    "$plan_dir"/zoom/*.html 2>/dev/null             # the primary plan's supplementary zoom artifacts
 [ -f "$repo_root/.mentor/constitution.md" ] && echo "$repo_root/.mentor/constitution.md"
 ```
 
@@ -139,9 +140,10 @@ must contain:
 
 1. `Act as a spec-consistency analyzer. You analyze the plan (and its related planning artifacts) for internal and cross-artifact consistency. You are NOT implementing it, and NOT judging whether the approach is good.`
 2. The primary plan path with `Read this file first.`, then the related-artifact
-   list from Step 1 (other plan `.md`s, `<slug>-*.html` zooms,
+   list from Step 1 (other plans' `plan.md`s, the primary plan's `zoom/*.html`,
    `.mentor/constitution.md`) with `Read the ones that appear related to the
-   primary plan (shared slug stem, or referenced by it); ignore unrelated plans.`
+   primary plan (inside the primary plan's folder, or referenced by it); ignore
+   unrelated plans.`
 3. **Lane guard:** `Judge only coherence, traceability, and agreement — not feasibility, requirement coverage vs reality, or design cleanliness. If a finding is really one of those, DROP it; another reviewer owns it.`
 4. **Method:** `Inventory (a) the needs stated in Context, (b) the numbered Use case scenarios incl. edge cases, (c) the Implementation steps, (d) the Critical files. Then run the detection passes across sections — and across artifacts when more than one is related.`
 5. **Detection categories:**

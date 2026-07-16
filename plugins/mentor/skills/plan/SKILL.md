@@ -3,7 +3,8 @@ name: plan
 description: >
   The mentor planning workflow. Invoked by /mentor:plan after begin-plan.sh arms
   the edit gate. Guides research, domain routing, writing a Mermaid-first
-  Markdown plan outside the repo, and the approval that releases the gate.
+  Markdown plan into the gate-exempt .mentor/ tree, and the approval that
+  releases the gate.
 ---
 
 # mentor Plan
@@ -15,9 +16,9 @@ topic × perspective HTML zooms on request) → approve & release.
 
 While the `.planning` marker is armed, `plan-gate.sh` blocks every
 Write/Edit/MultiEdit/NotebookEdit inside the repo working tree — the only files
-written during planning are the plan and its opt-in zoom artifacts, all outside
-the repo. Do not run repo-mutating shell commands during planning either; Bash
-is not enforced, but the rule is the same.
+written during planning are the plan and its opt-in zoom artifacts, all inside
+the gate-exempt `.mentor/` tree. Do not run repo-mutating shell commands during
+planning either; Bash is not enforced, but the rule is the same.
 
 ## Step 0 — Mode & constitution {#mode}
 
@@ -94,18 +95,18 @@ Compute the path (substituting a kebab-case `<slug>` derived from the request �
 slug="<slug>"
 git_common="$(git rev-parse --git-common-dir 2>/dev/null)"
 repo_root="$(cd "$(dirname "$git_common")" && pwd)"
-plans_dir="$repo_root/.mentor/plans"
-mkdir -p -m 700 "$plans_dir"   # 700: plans may contain sensitive paths/snippets
-echo "${plans_dir}/${slug}.md"   # slug-derived, NO timestamp — stable across revisions
+plan_dir="$repo_root/.mentor/plans/$slug"
+mkdir -p -m 700 "$plan_dir"   # 700: plans may contain sensitive paths/snippets
+echo "${plan_dir}/plan.md"   # fixed name inside the slug dir, NO timestamp — stable across revisions
 ```
 
-Write the plan there with the `Write` tool. The path is outside the repo, so the
-edit gate allows it; `plan-open.sh` auto-opens it for review the first time
+Write the plan there with the `Write` tool. The path is inside the gate-exempt
+`.mentor/` tree, so the edit gate allows it; `plan-open.sh` auto-opens it for review the first time
 (VSCode tab when available — toggle preview with ⇧⌘V; opener configurable via
 `MENTOR_PLAN_OPENER`, disable with `MENTOR_PLAN_OPEN=off`, both under `env` in
 `~/.claude/settings.json`). **Keep it current:** on every revision re-write this
 SAME file in place — never create a second timestamped copy. Never write the
-plan inside the repo or to the harness-native `~/.claude/plans/` dir.
+plan anywhere else in the repo or to the harness-native `~/.claude/plans/` dir.
 
 ### Content spec
 
@@ -204,7 +205,7 @@ Issue one `Agent` call per combo (`subagent_type: general-purpose`,
 combo is dispatched, keeping one contract and keeping HTML out of the main
 context. Each agent's prompt carries: the plan path (the agent `Read`s it), its
 topic, its perspective row from the catalog above, the output path
-`${plans_dir}/<slug>-<topic>-<perspective>.html`, the spec below, and the
+`${plan_dir}/zoom/<topic>-<perspective>.html`, the spec below, and the
 delivery prohibition: *"Do NOT call the `Artifact` tool and do NOT return any
 hosted URL. Return ONLY the file path + a one-line summary — never the HTML
 body."* Perspective-conditional inputs: **Reviewer/Architect** combos also get
@@ -222,21 +223,24 @@ Mermaid via CDN
 the assigned perspective only**, never the whole plan; readable — body text
 ≥15px-equivalent, WCAG-AA contrast, monospace for code; authored in a
 **single `Write` call** (no skeleton-then-`Edit` — plan-open.sh opens the file
-on first Write and must never show a half-built page). The path is outside the
-repo, so the edit gate allows the Write; plan-open.sh auto-opens each file
-once. Stable names — a re-zoom of the same combo overwrites in place. Zoom
+on first Write and must never show a half-built page). The path is inside the
+gate-exempt `.mentor/` tree, so the edit gate allows the Write; plan-open.sh
+auto-opens each file once. Stable names — a re-zoom of the same combo
+overwrites in place. Zoom
 artifacts are throwaway visual aids; **the `.md` stays the source of truth** —
 no sync contract, no finalize step.
 
-**Completion check.** After the agents return, `ls` the expected paths; report
-any missing combo file and re-dispatch it once before giving up.
+**Completion check.** After the agents return, `ls "$plan_dir"/zoom` against the
+expected combo files; report any missing combo file and re-dispatch it once
+before giving up.
 
 ## Step 6 — Approve & release {#approve}
 
 > **🚫 No edits or implementation until the plan is APPROVED.** During planning,
 > only read-only agents (Explore, Plan, plan-review reviewers) may be
 > dispatched — the sole exception is Step 5's zoom combo agents, which write
-> ONLY zoom artifacts beside the plan (outside the repo), never repo files.
+> ONLY zoom artifacts into the plan's `zoom/` dir (gate-exempt `.mentor/`
+> tree), never repo source files.
 > Every editing/implementation agent comes AFTER approval.
 
 First **surface the complete plan body** in your message — plain markdown,

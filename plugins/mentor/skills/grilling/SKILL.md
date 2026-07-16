@@ -52,7 +52,7 @@ Figure out *what* you are grilling, in this order:
    git_common=$(git rev-parse --git-common-dir 2>/dev/null) && \
      repo_root=$(cd "$(dirname "$git_common")" && pwd) && \
      d="$repo_root/.mentor/plans"
-   ls -t "$d"/*.md 2>/dev/null | head -1
+   ls -t "$d"/*/plan.md 2>/dev/null | head -1
    ```
    If a plan file is found, `Read` it (the `.md` is canonical) and grill it. Do **not** edit it.
 3. **The conversation.** If there is no argument and no plan, grill the design described in the conversation so far.

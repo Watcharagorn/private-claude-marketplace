@@ -87,8 +87,8 @@ plan is approved through the plan skill (approve-plan.sh validates the plan,
 then releases the gate). This holds even under bypassPermissions.
 
 During planning the ONLY file you write is the persisted Markdown plan under
-  ${plans_dir}/<slug>.md
-(outside the repo — always allowed). Finish the plan, choose "Proceed" (which runs
-approve-plan.sh), and edit/implement only AFTER approval.
+  ${plans_dir}/<slug>/plan.md
+(inside the gate-exempt .mentor/ tree — always allowed). Finish the plan, choose
+"Proceed" (which runs approve-plan.sh), and edit/implement only AFTER approval.
 EOF
 exit 2

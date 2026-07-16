@@ -23,7 +23,7 @@ never forces itself — a plan may deviate, but only with an explicit, justified
 note (or by amending the constitution first).
 
 It is committed to the repo at **`.mentor/constitution.md`** so the whole team
-shares one rulebook — unlike plans/handoffs, which live outside the repo.
+shares one rulebook — unlike plans/handoffs, which are gitignored transient state.
 
 The flow: guard → load any existing constitution → collect/derive principles →
 version & date → assemble (sync-impact report + body) → confirm → write → report.

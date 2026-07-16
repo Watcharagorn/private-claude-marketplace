@@ -21,10 +21,11 @@ git init -q -b main "$REPO" >/dev/null 2>&1
 git_common="$(git -C "$REPO" rev-parse --git-common-dir)"
 case "$git_common" in /*) common_abs="$git_common";; *) common_abs="$REPO/$git_common";; esac
 repo_root="$(cd "$(dirname "$common_abs")" && pwd)"
-PLANS_DIR="$repo_root/.mentor/plans"   # project-scoped, in-repo (v2.0.0)
-mkdir -p "$PLANS_DIR"
-PLAN="$PLANS_DIR/sample-plan-202606-1200.html"
-MARKER="$PLAN.opened"
+PLANS_DIR="$repo_root/.mentor/plans"   # project-scoped, in-repo; per-plan dirs since v2.2.0
+PLAN_DIR="$PLANS_DIR/sample-plan"
+mkdir -p "$PLAN_DIR/zoom"
+PLAN="$PLAN_DIR/zoom/checkout-end-user.html"
+MARKER="$PLAN_DIR/zoom/.checkout-end-user.html.opened"
 : > "$PLAN"
 
 trap 'rm -rf "$ROOT"' EXIT   # .mentor/ lives inside $ROOT, so this cleans everything
@@ -42,7 +43,7 @@ run() {
 }
 check() { # expect desc filepath [env=val ...]
   local expect="$1" desc="$2" fp="$3"; shift 3
-  rm -f "${fp}.opened"   # clear the open-once sidecar for THIS file (handles .html and .md)
+  rm -f "$(dirname "$fp")/.$(basename "$fp").opened"   # clear the dot-hidden open-once sidecar for THIS file
   local got; got="$(run "$fp" "$@")"
   if [ "$got" = "$expect" ]; then PASS=$((PASS+1)); printf "  ok   [%s] %s\n" "${expect:-<none>}" "$desc"
   else FAIL=$((FAIL+1)); printf "  FAIL want=%q got=%q: %s\n" "$expect" "$got" "$desc"; fi
@@ -62,18 +63,27 @@ echo "== C. No-op cases (no opener selected) =="
 check "" "off-switch MENTOR_PLAN_OPEN=off -> no-op"   "$PLAN" MENTOR_PLAN_OPEN=off
 check "" "non-plan path -> no-op"                     "$ROOT/random.html"
 
-echo "== C2. Path patterns: .mentor/plans/ layout =="
-check chrome "plans layout path matches" "$PLAN"
+echo "== C2. Path patterns: per-plan <slug>/ layout only =="
+check chrome "zoom html inside <slug>/zoom/ matches" "$PLAN"
+LEGACY_HTML="$PLANS_DIR/legacy-flat.html"; : > "$LEGACY_HTML"
+check "" "legacy flat html in plans/ -> no-op"        "$LEGACY_HTML"
+LEGACY_MD="$PLANS_DIR/legacy-flat.md"; : > "$LEGACY_MD"
+check "" "legacy flat md in plans/ -> no-op"          "$LEGACY_MD"
+STRAY_HTML="$PLAN_DIR/stray.html"; : > "$STRAY_HTML"
+check "" "html beside plan.md (not in zoom/) -> no-op" "$STRAY_HTML"
+STRAY_MD="$PLAN_DIR/notes.md"; : > "$STRAY_MD"
+check "" "non-plan.md md inside <slug>/ -> no-op"      "$STRAY_MD"
+rm -f "$LEGACY_HTML" "$LEGACY_MD" "$STRAY_HTML" "$STRAY_MD"
 
 echo "== E. Markdown (.md) plans: prefer a VSCode tab, never raw-text Chrome =="
-MD="$PLANS_DIR/sample-plan.md"; : > "$MD"
+MD="$PLAN_DIR/plan.md"; : > "$MD"
 check vscode "md auto (not in VSCode) -> vscode (prefer tab, not Chrome)" "$MD"
 check vscode "md auto + VSCODE_PID -> vscode"                            "$MD" VSCODE_PID=123
 check vscode "md forced vscode -> vscode"                                "$MD" MENTOR_PLAN_OPENER=vscode
 check system "md forced chrome -> system (Chrome can't render raw .md)"   "$MD" MENTOR_PLAN_OPENER=chrome
 check system "md forced system -> system"                                "$MD" MENTOR_PLAN_OPENER=system
 check ""     "md off-switch -> no-op"                                    "$MD" MENTOR_PLAN_OPEN=off
-rm -f "$MD" "$MD.opened"
+rm -f "$MD" "$PLAN_DIR/.plan.md.opened"
 
 echo "== D. Open-once: marker present -> no-op =="
 : > "$MARKER"

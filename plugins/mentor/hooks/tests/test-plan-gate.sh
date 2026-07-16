@@ -60,7 +60,7 @@ run block "$REPO" Edit         "Edit repo source"            "$REPO/src/app.ts"
 run block "$REPO" MultiEdit    "MultiEdit repo source"       "$REPO/src/app.ts"
 run block "$REPO" Write        "Write new repo file"         "$REPO/NEWFILE"
 run block "$REPO" NotebookEdit "NotebookEdit in repo"        "$REPO/nb.ipynb"
-run allow "$REPO" Write        "Write the plan .md (.mentor/ exempt)" "$PLANS_DIR/plan.md"
+run allow "$REPO" Write        "Write the plan .md (.mentor/ exempt)" "$PLANS_DIR/myplan/plan.md"
 run allow "$REPO" Write        "Write to scratch (outside)"  "$ROOT/scratch.txt"
 
 echo "== B2. Marker present → mentor's own .mentor/ tree is EXEMPT (always writable) =="

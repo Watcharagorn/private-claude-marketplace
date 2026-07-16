@@ -54,10 +54,10 @@ Three global rules govern everything in this domain (restated as hard rules in �
 
 1. The official frontend-design skill controls design and review decisions — invoke it first.
 2. All design work derives from **REAL front-end source files** — never invented structure.
-3. **Never create mockup HTML files inside the repo** (`docs/`, `mockups/`, or any documentation
-   directory). The opt-in zoom html lives beside the plan at
-   `<repo>/.mentor/plans/…` (exempt from the plan gate, so the write is allowed) — so that is
-   the one compliant place for mockup markup.
+3. **Never create mockup HTML files inside the repo source tree** (`docs/`, `mockups/`, or any
+   documentation directory). The opt-in zoom html lives in the plan's own zoom dir at
+   `<repo>/.mentor/plans/<slug>/zoom/…` (exempt from the plan gate, so the write is allowed) —
+   so that is the one compliant place for mockup markup.
 
 ## 1 — Shape the research (`plan` Step 2)
 
@@ -181,5 +181,5 @@ The zoom file follows `plan` Step 5's constraints (single self-contained file au
 1. Invoke `frontend-design:frontend-design` once before writing the plan; distill, don't skip.
 2. Delta renderings, mockups, and implementation steps derive ONLY from real front-end source
    files.
-3. No mockup files inside the repo, ever — the opt-in zoom html (outside the repo) is the only
-   mockup surface.
+3. No mockup files inside the repo source tree, ever — the opt-in zoom html (in the gate-exempt
+   `.mentor/plans/<slug>/zoom/` dir) is the only mockup surface.

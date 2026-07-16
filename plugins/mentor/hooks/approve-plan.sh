@@ -11,8 +11,9 @@
 #                /mentor:handoff doc for the next agent and STOP.
 #   anything else — usage error, exit 1, marker untouched.
 #
-# Validation (only while the gate is armed): the newest Markdown plan must be
-# non-empty AND newer than the `.planning` marker (the marker's mtime is the
+# Validation (only while the gate is armed): the newest Markdown plan
+# (plans/<slug>/plan.md) must be non-empty AND newer than the `.planning`
+# marker (the marker's mtime is the
 # session start — begin-plan.sh — so a stale plan from a prior session can
 # never release the gate). On failure the marker stays (gate CLOSED), exit 1.
 #
@@ -44,12 +45,12 @@ fi
 plans_dir="$(mentor_plans_dir "$repo_root")"
 marker="${plans_dir}/.planning"
 
-newest_plan="$(ls -t "${plans_dir}/"*.md 2>/dev/null | head -1 || true)"
+newest_plan="$(mentor_newest_plan "$plans_dir")"
 
 if [ -f "$marker" ]; then
   if [ -z "$newest_plan" ] || [ ! -s "$newest_plan" ]; then
     echo "[mentor approve-plan] No Markdown plan found in ${plans_dir}." >&2
-    echo "Write the plan (<slug>.md) before approving — the gate stays CLOSED." >&2
+    echo "Write the plan (<slug>/plan.md) before approving — the gate stays CLOSED." >&2
     exit 1
   fi
 

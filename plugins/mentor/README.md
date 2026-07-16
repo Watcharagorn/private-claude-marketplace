@@ -22,7 +22,7 @@ review and are the single source of truth for implementation, handoff, and revie
    the edit gate**. From here, repo source edits are blocked until approval.
 2. Follows the `plan` skill: optional clarify (grilling), research
    (subagent delegation suggested for big tasks), domain routing, then a
-   Markdown plan written to `<repo>/.mentor/plans/<slug>.md` (in-repo, gitignored).
+   Markdown plan written to `<repo>/.mentor/plans/<slug>/plan.md` (in-repo, gitignored).
 3. At approval you choose the outcome — **Proceed** (implement), **Deliver plan
    only** (the plan file is the deliverable), review, or keep planning. The
    chosen approval runs `approve-plan.sh`, which validates the plan (non-empty,
@@ -60,14 +60,16 @@ which is listed first. It is never asked for upfront — an unset mode behaves a
 | `plan` (or unset) | **Proceed** listed first — plan, then implement on approval. |
 | `plan-only` | **Deliver plan only** listed first — the plan file is the deliverable. A default, not a lock: picking Proceed still implements. |
 
-State-dir layout (**project-scoped** — `<repo>/.mentor/`, since v2.0.0):
+State-dir layout (**project-scoped** — `<repo>/.mentor/`; per-plan dirs since v2.2.0):
 
 ```
 <repo>/.mentor/
 ├── .gitignore       # commits config.json + constitution.md; ignores the rest
 ├── config.json      # {"mode": "plan|plan-only", + context-gate keys}   ← committed
 ├── constitution.md  # governing principles (/mentor:constitution)        ← committed
-├── plans/           # <slug>.md plan + the .planning marker (+ *.opened) ← gitignored
+├── plans/           # the .planning marker + one dir per plan            ← gitignored
+│   └── <slug>/      #   plan.md (+ hidden .plan.md.opened sidecar)
+│       └── zoom/    #   <topic>-<perspective>.html opt-in zoom artifacts
 └── handoffs/        # handoff notes (/mentor:handoff → /mentor:resume)   ← gitignored
 ```
 
@@ -174,9 +176,9 @@ never renders the whole plan as one file — it first resolves **topic(s) ×
 perspective(s)** (end user / implementor / reviewer-architect / QA-tester),
 asking for whichever dimension your request didn't name, then dispatches one
 agent per topic × perspective combination. Each writes its own supplementary
-`<slug>-<topic>-<perspective>.html` next to the `.md` — a throwaway,
-self-contained visual aid for that topic through that lens. The `.md` stays the
-source of truth.
+`plans/<slug>/zoom/<topic>-<perspective>.html` inside the plan's own dir — a
+throwaway, self-contained visual aid for that topic through that lens. The `.md`
+stays the source of truth.
 
 ### Viewing the plan
 
@@ -206,6 +208,26 @@ extra deliverable. Instruction-only — no hooks.
 | `plan-domain-backend-api` | API/endpoint/route/handler/schema/DTO/contract | Before/after contract diff tables, schema diffs, Mermaid sequence flows. |
 | `plan-domain-architecture` | Structural change — services, containers, datastores, integrations | Diff-highlighted C4-style Mermaid flowcharts, only the levels that change. |
 | `plan-domain-dynamic` | No registered domain matched (fallback) | A dispatched domain-definer names the domain and returns a best-practices brief; the plan gains a practice→step mapping. |
+
+## Changes in v2.2.0
+
+One plan = one directory. Previously a single zoom-reviewed plan could leave
+30+ flat files in `.mentor/plans/` (the `.md`, up to 16 `<slug>-<topic>-<perspective>.html`
+zooms, and a visible `.opened` sidecar for each). Now:
+
+- **Per-plan dirs:** the plan lives at `plans/<slug>/plan.md` (fixed name); zoom
+  artifacts live in `plans/<slug>/zoom/<topic>-<perspective>.html` (the `<slug>-`
+  filename prefix is gone — the dir carries it).
+- **Hidden sidecars:** the open-once markers are dot-hidden
+  (`.plan.md.opened`), so `ls .mentor/plans/<slug>/` shows just the plan and its
+  `zoom/` dir.
+- **Silent migration:** the next `/mentor:plan` run migrates any old flat layout
+  in place (`<slug>.md` → `<slug>/plan.md`, `<slug>-*.html` → `<slug>/zoom/`,
+  longest slug first so prefix-colliding plans keep their own zooms). Old flat
+  `.opened` sidecars are swept; orphan `.html` files without a matching `.md`
+  are left where they are (gitignored, harmless).
+- **Note:** handoff notes written before v2.2.0 may reference the old flat plan
+  path — the plan now lives at `…/<slug>/plan.md`.
 
 ## Changes in v2.1.0
 

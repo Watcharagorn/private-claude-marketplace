@@ -1,5 +1,5 @@
 ---
-description: Start a mentor plan session (marker-driven edit gate, Markdown plan outside the repo)
+description: Start a mentor plan session (marker-driven edit gate, Markdown plan under .mentor/plans/<slug>/)
 argument-hint: [what to plan]
 allowed-tools: [Bash, Read, Grep, Glob, Skill, Task, AskUserQuestion, Write, Edit]
 ---
@@ -20,8 +20,8 @@ Do these in order:
 
    This writes the `.planning` marker. From this point, `plan-gate.sh` blocks every
    repo source edit until the plan is approved. The only file you write during
-   planning is the Markdown plan under `<repo>/.mentor/plans/` (inside the repo, but the
-   `.mentor/` tree is exempt from the gate). Read the script's stdout — it carries the
+   planning is the Markdown plan at `<repo>/.mentor/plans/<slug>/plan.md` (inside the
+   repo, but the `.mentor/` tree is exempt from the gate). Read the script's stdout — it carries the
    `MODE:` line (plan / plan-only / UNSET — only sets which approval option is listed
    first; NEVER ask the user to pick a mode upfront) and, when the session context is
    large, a `CONTEXT:` line:

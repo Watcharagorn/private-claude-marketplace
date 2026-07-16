@@ -76,14 +76,38 @@ rm -f "$CONF"
 out="$( cd "$REPO" && HOME="$SANDBOX" MENTOR_CONTEXT_GATE=off bash "$BEGIN" 2>&1 )"
 chk "unset → UNSET defaults to plan"   sh -c "printf '%s' \"\$0\" | grep -qF 'MODE: UNSET (default: plan)'" "$out"
 chk "unset → no upfront ask"           sh -c "! printf '%s' \"\$0\" | grep -qE 'AskUserQuestion|set-mode.sh'" "$out"
-# .opened sidecars are cleared on arm.
-: > "$PLANS_DIR/some-plan.md.opened"
+# .opened sidecars are cleared on arm — recursively (dot-hidden in plan dirs) + legacy flat.
+mkdir -p "$PLANS_DIR/some-plan/zoom"
+: > "$PLANS_DIR/some-plan/.plan.md.opened"
+: > "$PLANS_DIR/some-plan/zoom/.checkout-end-user.html.opened"
+: > "$PLANS_DIR/legacy-flat.md.opened"
 ( cd "$REPO" && HOME="$SANDBOX" MENTOR_CONTEXT_GATE=off bash "$BEGIN" >/dev/null 2>&1 )
-chk ".opened sidecars cleared on arm"  test ! -f "$PLANS_DIR/some-plan.md.opened"
+chk "nested .opened sidecar cleared"      test ! -f "$PLANS_DIR/some-plan/.plan.md.opened"
+chk "nested zoom .opened sidecar cleared" test ! -f "$PLANS_DIR/some-plan/zoom/.checkout-end-user.html.opened"
+chk "legacy flat .opened sidecar cleared" test ! -f "$PLANS_DIR/legacy-flat.md.opened"
 # Outside a repo: fail-soft (exit 0, notice printed, no marker anywhere).
 out="$( cd "$NONGIT" && HOME="$SANDBOX" MENTOR_CONTEXT_GATE=off bash "$BEGIN" 2>&1 )"; rc=$?
 chk "non-repo begin-plan exits 0"      test "$rc" = "0"
 chk "non-repo → NOT-armed notice"      sh -c "printf '%s' \"\$0\" | grep -q 'NOT armed'" "$out"
+
+echo "== C. Flat-layout migration on arm (v2.2.0) =="
+rm -rf "$PLANS_DIR"; mkdir -p "$PLANS_DIR"
+printf '# Demo\n'      > "$PLANS_DIR/demo.md"
+: > "$PLANS_DIR/demo-checkout-end-user.html"
+# prefix collision: "auth-retry"'s zoom must not be captured by the shorter "auth" plan
+printf '# Auth\n'      > "$PLANS_DIR/auth.md"
+printf '# AuthRetry\n' > "$PLANS_DIR/auth-retry.md"
+: > "$PLANS_DIR/auth-retry-x-y.html"
+( cd "$REPO" && HOME="$SANDBOX" MENTOR_CONTEXT_GATE=off bash "$BEGIN" >/dev/null 2>&1 )
+chk "demo.md → demo/plan.md"                       test -f "$PLANS_DIR/demo/plan.md"
+chk "demo zoom → demo/zoom/checkout-end-user.html" test -f "$PLANS_DIR/demo/zoom/checkout-end-user.html"
+chk "auth.md → auth/plan.md"                       test -f "$PLANS_DIR/auth/plan.md"
+chk "auth-retry.md → auth-retry/plan.md"           test -f "$PLANS_DIR/auth-retry/plan.md"
+chk "collision zoom → auth-retry/zoom/x-y.html"    test -f "$PLANS_DIR/auth-retry/zoom/x-y.html"
+chk "auth/ has no captured zoom"                   test ! -e "$PLANS_DIR/auth/zoom"
+chk "no flat .md left"                             test -z "$(ls "$PLANS_DIR"/*.md 2>/dev/null)"
+chk "no flat .html left"                           test -z "$(ls "$PLANS_DIR"/*.html 2>/dev/null)"
+chk "marker armed after migration"                 test -f "$PLANS_DIR/.planning"
 
 echo
 echo "RESULT: PASS=$PASS FAIL=$FAIL"

@@ -29,19 +29,19 @@ file=$(printf '%s' "$input" | jq -r '.tool_input.file_path // ""' 2>/dev/null)
 # Off-switch: set MENTOR_PLAN_OPEN=off in ~/.claude/settings.json env to disable auto-open.
 case "${MENTOR_PLAN_OPEN:-}" in off|0|false|no) exit 0 ;; esac
 
-# Only act on the plugin's own plan files: the canonical Markdown plan, or an
-# opt-in HTML zoom artifact written beside it.
+# Only act on the plugin's own plan files: the canonical Markdown plan
+# (plans/<slug>/plan.md), or an opt-in HTML zoom artifact in its zoom/ subdir.
 case "$file" in
-  */.mentor/plans/*.html) ;;
-  */.mentor/plans/*.md) ;;
+  */.mentor/plans/*/zoom/*.html) ;;
+  */.mentor/plans/*/plan.md) ;;
   *) exit 0 ;;
 esac
 
 [ -f "$file" ] || exit 0
 
-# Open-once: don't re-open the same plan on every later Write/Edit (sidecar marker lives beside
-# the plan file under <repo>/.mentor/plans/, gitignored). The open tab/preview self-refreshes.
-marker="${file}.opened"
+# Open-once: don't re-open the same plan on every later Write/Edit (dot-hidden sidecar marker
+# lives beside the opened file inside the plan's dir, gitignored). The tab/preview self-refreshes.
+marker="$(dirname "$file")/.$(basename "$file").opened"
 [ -e "$marker" ] && exit 0
 
 # --- openers ---------------------------------------------------------------

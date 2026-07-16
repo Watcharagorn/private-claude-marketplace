@@ -3,13 +3,16 @@
 # Source from a hook (hooks.json invokes hooks by absolute path, so this resolves):
 #   . "$(dirname "${BASH_SOURCE[0]}")/lib/state.sh"
 #
-# Layout (v2.0.0 — project-scoped, inside the repo):
+# Layout (v2.2.0 — project-scoped, one directory per plan):
 #   <repo_root>/.mentor/
 #   ├── .gitignore        # commit config.json + constitution.md; ignore transient state
 #   ├── config.json       # {"mode": "plan|plan-only", "context_gate", "context_*_tokens" ...}
 #   ├── constitution.md   # governing principles (committed; managed by /mentor:constitution)
-#   ├── plans/            # <slug>.md plan file + the .planning marker (+ *.opened sidecars)
-#   └── handoffs/         # <ts>-<slug>.md  (+ .context-warned-<session_id> markers)
+#   ├── plans/            # the .planning marker + one <slug>/ dir per plan:
+#   │   └── <slug>/       #   plan.md (+ hidden .plan.md.opened sidecar)
+#   │       └── zoom/     #   <topic>-<perspective>.html (+ hidden .*.opened sidecars)
+#   └── handoffs/         # <ts>-<slug>.md
+#   (.context-warned-<session_id> markers live at the .mentor/ root.)
 #   Not inside a git repo → callers fall back to ~/.claude/mentor/_no-repo/.
 #
 # CONTRACT: callers run under `set -euo pipefail`. Every function here exits with
@@ -45,6 +48,16 @@ mentor_plans_dir() {
   state_dir="$(mentor_state_dir "${1:-}")"
   if [ -z "$state_dir" ]; then echo ""; return 0; fi
   echo "${state_dir}/plans"
+  return 0
+}
+
+# mentor_newest_plan <plans_dir> — echo the current plan file: the mtime-newest
+# <plans_dir>/<slug>/plan.md, or empty when none exist. Legacy flat
+# <plans_dir>/*.md files are ignored (begin-plan.sh migrates them on arm).
+mentor_newest_plan() {
+  local plans_dir="${1:-}"
+  if [ -z "$plans_dir" ]; then echo ""; return 0; fi
+  ls -t "${plans_dir}"/*/plan.md 2>/dev/null | head -1 || true
   return 0
 }
 

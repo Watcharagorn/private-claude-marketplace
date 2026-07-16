@@ -40,25 +40,27 @@ chk() { local desc="$1"; shift
 ap() { ( cd "$REPO" && HOME="$SANDBOX" bash "$APPROVE" "$@" 2>&1 ); }
 sm() { ( cd "$REPO" && HOME="$SANDBOX" bash "$SETMODE" "$@" >/dev/null 2>&1 ); }
 arm() { : > "$MARKER"; }
-fresh_plan() { sleep 1; printf '# Plan\n\n1. Do the thing.\n' > "$PLANS_DIR/fixture-plan.md"; }
+fresh_plan() { sleep 1; mkdir -p "$PLANS_DIR/fixture-plan"; printf '# Plan\n\n1. Do the thing.\n' > "$PLANS_DIR/fixture-plan/plan.md"; }
+stale_plan() { mkdir -p "$PLANS_DIR/fixture-plan"; printf '# Old plan\n\nfrom last session\n' > "$PLANS_DIR/fixture-plan/plan.md"; }
+clear_plans() { rm -rf "$PLANS_DIR"/*/ 2>/dev/null; rm -f "$PLANS_DIR"/*.md; }
 
 echo "== A. No plan → gate stays closed =="
 sm plan
-rm -f "$PLANS_DIR"/*.md; arm
+clear_plans; arm
 out="$(ap)"; rc=$?
 chk "no plan → exit 1"                 test "$rc" = "1"
 chk "no plan → marker kept"            test -f "$MARKER"
 chk "no plan → error message"          sh -c "printf '%s' \"\$0\" | grep -q 'No Markdown plan found'" "$out"
 
 echo "== B. Empty plan → gate stays closed =="
-arm; : > "$PLANS_DIR/fixture-plan.md"
+arm; mkdir -p "$PLANS_DIR/fixture-plan"; : > "$PLANS_DIR/fixture-plan/plan.md"
 out="$(ap)"; rc=$?
 chk "empty plan → exit 1"              test "$rc" = "1"
 chk "empty plan → marker kept"         test -f "$MARKER"
 
 echo "== C. Stale prior-session plan (older than marker) → gate stays closed =="
-rm -f "$PLANS_DIR"/*.md
-printf '# Old plan\n\nfrom last session\n' > "$PLANS_DIR/fixture-plan.md"
+clear_plans
+stale_plan
 sleep 1; arm   # marker is now NEWER than the plan
 out="$(ap)"; rc=$?
 chk "stale plan → exit 1"              test "$rc" = "1"
@@ -71,7 +73,16 @@ out="$(ap)"; rc=$?
 chk "fresh plan → exit 0"              test "$rc" = "0"
 chk "fresh plan → marker gone"         test ! -f "$MARKER"
 chk "fresh plan → APPROVED message"    sh -c "printf '%s' \"\$0\" | grep -q 'Plan APPROVED'" "$out"
-chk "fresh plan → plan path printed"   sh -c "printf '%s' \"\$0\" | grep -q 'fixture-plan.md'" "$out"
+chk "fresh plan → plan path printed"   sh -c "printf '%s' \"\$0\" | grep -q 'fixture-plan/plan.md'" "$out"
+
+echo "== D2. Legacy flat <slug>.md is ignored by the resolver =="
+sleep 1; arm                                                # marker now NEWER than the nested plan
+sleep 1; printf '# Flat legacy plan\n' > "$PLANS_DIR/legacy-flat.md"   # newer than marker, but flat
+out="$(ap)"; rc=$?
+chk "flat newer → still exit 1"        test "$rc" = "1"
+chk "flat newer → marker kept"         test -f "$MARKER"
+chk "flat newer → staleness message"   sh -c "printf '%s' \"\$0\" | grep -q 'predates this planning session'" "$out"
+rm -f "$PLANS_DIR/legacy-flat.md" "$MARKER"
 
 echo "== E. Idempotency: gate already open → exit 0, directives still print =="
 out="$(ap)"; rc=$?
@@ -92,8 +103,8 @@ chk "handoff → exit 0"                 test "$rc" = "0"
 chk "handoff → marker gone"            test ! -f "$MARKER"
 chk "handoff → sentinel + skill ref"   sh -c "printf '%s' \"\$0\" | grep -q 'HAND-OFF REQUESTED' && printf '%s' \"\$0\" | grep -q 'mentor:handoff'" "$out"
 # handoff with a stale plan: validation precedes the hand-off branch.
-rm -f "$PLANS_DIR"/*.md
-printf '# Old\n' > "$PLANS_DIR/fixture-plan.md"; sleep 1; arm
+clear_plans
+stale_plan; sleep 1; arm
 out="$(ap --handoff)"; rc=$?
 chk "handoff(stale) → exit 1"          test "$rc" = "1"
 chk "handoff(stale) → marker kept"     test -f "$MARKER"
@@ -107,8 +118,8 @@ chk "deliver → exit 0"                 test "$rc" = "0"
 chk "deliver → marker gone"            test ! -f "$MARKER"
 chk "deliver → DELIVER-ONLY directive" sh -c "printf '%s' \"\$0\" | grep -q 'DELIVER-ONLY'" "$out"
 # deliver with a stale plan: validation precedes the directive.
-rm -f "$PLANS_DIR"/*.md
-printf '# Old\n' > "$PLANS_DIR/fixture-plan.md"; sleep 1; arm
+clear_plans
+stale_plan; sleep 1; arm
 out="$(ap --deliver)"; rc=$?
 chk "deliver(stale) → exit 1"          test "$rc" = "1"
 chk "deliver(stale) → marker kept"     test -f "$MARKER"

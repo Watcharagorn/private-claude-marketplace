@@ -5,7 +5,7 @@ description: >
   Lists ONLY the current repo's saved handoff notes (newest first), lets the user pick one —
   from a slug/number argument or interactively — then loads the chosen note and resumes the
   work per its recommended mentor commands. The consume side of /mentor:handoff (which writes
-  the notes). Strictly repo-scoped: the handoffs dir is derived from this repo's root + hash,
+  the notes). Strictly repo-scoped: the handoffs dir lives under this repo's .mentor/ tree,
   so notes from other repos never appear. Scans the note for secrets before surfacing it.
 version: 0.1.0
 ---
@@ -13,11 +13,12 @@ version: 0.1.0
 # Resume — Browse & Continue a Handoff Note
 
 This skill is the **consume** side of `/mentor:handoff`. `/mentor:handoff` compacts a session into a
-self-contained handoff document saved **outside the repo**; `/mentor:resume` lists those documents
-**for this repo only**, lets the user pick one, and continues the work from it in a fresh session.
+self-contained handoff document saved under the repo's gitignored `.mentor/handoffs/` dir;
+`/mentor:resume` lists those documents **for this repo only**, lets the user pick one, and continues
+the work from it in a fresh session.
 
-It reads notes; it never writes them. It is strictly **repo-scoped** — the handoffs dir is derived
-from this repo's root + hash (the same key `/mentor:handoff` writes under), so notes saved for other
+It reads notes; it never writes them. It is strictly **repo-scoped** — the handoffs dir lives under
+this repo's `.mentor/` tree (the same place `/mentor:handoff` writes), so notes saved for other
 repositories cannot appear here.
 
 ## When to use
@@ -126,7 +127,8 @@ Print the full numbered list (newest first) so the user can see every note, then
    what the note recommends. If the note recommends `/mentor:plan <focus>`, run that; if it says resume
    implementation of an approved plan, do that.
 
-Do **not** copy or duplicate the note into the repo working tree — it lives outside the repo by design.
+Do **not** copy or duplicate the note into the repo source tree — it lives in the gitignored
+`.mentor/handoffs/` dir by design.
 
 ## Done when
 

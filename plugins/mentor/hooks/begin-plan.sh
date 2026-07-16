@@ -73,10 +73,27 @@ fi
 mkdir -p -m 700 "$plans_dir"
 mentor_ensure_gitignore "$(mentor_state_dir "$repo_root")"
 
-# Clear per-plan ".opened" sidecars: plan paths are slug-derived, so a stale
-# "<slug>.md.opened" from a prior session would suppress plan-open.sh's
-# first-creation open for the same slug.
-rm -f "${plans_dir}"/*.opened 2>/dev/null || true
+# One-shot migration (v2.2.0): flat <slug>.md + <slug>-*.html → <slug>/plan.md +
+# <slug>/zoom/<topic>-<perspective>.html. Longest slug first, so "auth-retry"'s
+# zooms are never captured by a shorter "auth" plan. Orphan html with no matching
+# .md is left in place (harmless, gitignored).
+while IFS= read -r f; do
+  [ -f "$f" ] || continue
+  slug="$(basename "$f" .md)"
+  mkdir -p -m 700 "${plans_dir}/${slug}"
+  mv -n "$f" "${plans_dir}/${slug}/plan.md" 2>/dev/null || true
+  for h in "${plans_dir}/${slug}-"*.html; do
+    [ -f "$h" ] || continue
+    mkdir -p -m 700 "${plans_dir}/${slug}/zoom"
+    base="${h##*/}"
+    mv -n "$h" "${plans_dir}/${slug}/zoom/${base#"$slug"-}" 2>/dev/null || true
+  done
+done < <(ls "${plans_dir}"/*.md 2>/dev/null | awk '{ print length, $0 }' | sort -rn | cut -d' ' -f2- || true)
+
+# Clear per-plan ".opened" sidecars (dot-hidden inside each <slug>/ dir; legacy
+# flat ones swept too): plan paths are slug-derived, so a stale sidecar from a
+# prior session would suppress plan-open.sh's first-creation open for the same slug.
+find "$plans_dir" \( -name '*.opened' -o -name '.*.opened' \) -delete 2>/dev/null || true
 
 : > "${plans_dir}/.planning"
 

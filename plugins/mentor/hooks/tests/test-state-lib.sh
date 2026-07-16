@@ -68,6 +68,21 @@ chk "mentor_cwd on empty input"           libsh 'c="$(mentor_cwd "")"; [ -n "$c"
 chk "mentor_cwd on garbage input"         libsh 'c="$(mentor_cwd "not json")"; [ -n "$c" ]'
 chk "mentor_cwd extracts cwd"             libsh 'c="$(mentor_cwd "{\"cwd\":\"/tmp/x\"}")"; [ "$c" = "/tmp/x" ]'
 
+echo "== B2. mentor_newest_plan (per-plan <slug>/plan.md dirs) =="
+PLANS="$expect_root/.mentor/plans"
+mkdir -p "$PLANS"
+chk "empty plans dir → empty"        test -z "$(libsh "mentor_newest_plan '$PLANS'")"
+chk "empty arg → empty"              test -z "$(libsh "mentor_newest_plan ''")"
+mkdir -p "$PLANS/older-plan" "$PLANS/newer-plan"
+printf '# old\n' > "$PLANS/older-plan/plan.md"
+sleep 1
+printf '# new\n' > "$PLANS/newer-plan/plan.md"
+chk "newest of several wins"         test "$(libsh "mentor_newest_plan '$PLANS'")" = "$PLANS/newer-plan/plan.md"
+sleep 1
+printf '# flat legacy\n' > "$PLANS/legacy-flat.md"   # newer mtime, but flat → ignored
+chk "legacy flat .md ignored"        test "$(libsh "mentor_newest_plan '$PLANS'")" = "$PLANS/newer-plan/plan.md"
+rm -rf "$PLANS"
+
 echo "== D. mentor_get_mode / mentor_config_get =="
 STATE="$expect_root/.mentor"
 RCONF="$STATE/config.json"
