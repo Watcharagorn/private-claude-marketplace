@@ -1,6 +1,0 @@
-{
-  "name": "db-tools",
-  "description": "Postgres database maintenance helpers: vacuum/analyze routines to reclaim space and refresh planner stats.",
-  "version": "0.2.0",
-  "author": { "name": "NTBX" }
-}

@@ -2,11 +2,13 @@
 
 **Purpose.** The steps every *session-driven plugin* skill shares — transcript resolution, the
 plugin-purpose map, the artifact catalog, per-type write safety, validation, expert review, the
-user-confirmation card, and the publish handoff. `tune-plugin` (audit/enhance an **existing** plugin)
-and `harvest-to-plugin` (package a **new** plugin) both read this file so the mechanics live in **one**
-place. Each skill keeps only its **distinct lens** (what to look for) and points here for the rest.
+user-confirmation card, and the publish handoff. `audit-plugin` (fix how an **existing** plugin
+misbehaved, from one session) and `learn` (audit + enhance a plugin across its sessions) both read this
+file so the mechanics live in **one** place. Each skill keeps only its **distinct lens** (what to look
+for — the AUDIT/ENHANCE briefs live in `references/analysis-lenses.md`) and points here for the rest.
 `learn`/`track` additionally share **§K** (multi-session discovery, usage tracking + the learning
-ledger); `harvest-automations` registers its project-scoped ledger there at **§K.6**.
+ledger); `harvest-automations` shares **§K** too and owns its project-scoped harvest ledger there at
+**§K.6/§K.7**.
 
 Read this once at the start of a run; reference its sections by letter (§A … §K). Do **not** re-narrate
 these mechanics inside a skill.
@@ -198,10 +200,11 @@ run **`/reload-plugins`** so the plugin loads. One plugin per publish.
 ## §K — Multi-session discovery, usage tracking + learning ledger
 
 The steps `learn` (analyze **every** session that used plugin X) and `track` (opt-in usage indexer)
-share below. `tune-plugin`/`harvest-to-plugin` work on **one** session (§A); `harvest-automations`
-adds a **project-scoped sweep** (registered at §K.6); `learn` works on **the whole history** for one
-plugin, so it needs a marker pattern, a machine-wide scan, a per-plugin ledger + watermark, and —
-when `track` is set up — a usage index that lets it skip most scanning.
+share below. `audit-plugin` and single-session `learn` work on **one** session (§A);
+`harvest-automations` adds a **project-scoped sweep** (its harvest-ledger spec + persistence recipe live
+at §K.6/§K.7); batch `learn` works on **the whole history** for one plugin, so it needs a marker
+pattern, a machine-wide scan, a per-plugin ledger + watermark, and — when `track` is set up — a usage
+index that lets it skip most scanning.
 
 Everywhere in §K, `cfg="${CLAUDE_CONFIG_DIR:-$HOME/.claude}"` and scan `"$cfg/projects"` — §A now
 resolves the same `$cfg`, so there is no §A/§K divergence to guard against.
@@ -329,19 +332,68 @@ So K.2 restricts its `find` set to sessionIds that are either absent from the in
 without the target key. The index is disposable — deleting it only means the next `learn` run scans
 more.
 
-### §K.6 — `harvest-automations` project-scoped ledger (registration)
+### §K.6 — `harvest-automations` project-scoped harvest ledger (authoritative)
 
-`harvest-automations`' project-wide mode keeps its own ledger + watermark, keyed by **project** (not
-by plugin like §K.4). Its state lives at:
+`harvest-automations`' project-wide mode keeps its own ledger + watermark, keyed by **project** (a
+project hash, not a plugin name like §K.4). This section is the **single source of truth** for its
+schema and eligibility; `references/project-wide.md` owns only the orchestration (discovery loop, lock,
+batching, cross-session merge) and points here for the state rules. It does not consume §K.1/§K.2/§K.5
+(those are the machine-wide, per-plugin discovery path — harvest's sweep is per-project).
+
+**State location:**
 
 - `$cfg/loom/harvest/<hashed-project>.json` — per-project analyzed ledger + watermark;
 - `$cfg/loom/harvest/reports/` — consolidated + raw project-wide reports.
 
-The **semantics are owned by `harvest-automations/SKILL.md`** and its
-`references/project-wide.md` (deliberately chassis-free — the sweep is per-project, not per-plugin, so
-it does not consume §K.1/K.2/K.5). This entry only registers the namespace so nothing else claims
-`$cfg/loom/harvest/`. Deviations from §K.3/§K.4, by design: the **active** session is analyzed but
-**never** ledgered and never advances the watermark; **single-session** runs ledger their session
-**without** moving the watermark; the cap counts **non-active** sessions only; the `outcome` enum
-differs (`harvested | no-opportunities | skipped-cap | error`) — only `skipped-cap`/`error`
-re-eligibility is shared with §K.3 rule 1.
+**Ledger schema** (`$cfg/loom/harvest/<hash>.json`):
+
+```json
+{ "schemaVersion": 1, "projectRoot": "/Users/…",
+  "watermark": "2026-07-14T04:08:24.718Z",
+  "lastRun": { "at": "…", "mode": "project-wide", "sessionsAnalyzed": 5, "sessionsSkippedCap": 0,
+               "usagesProposed": 4, "usagesAccepted": 2, "report": "reports/<hash>-<ts>.md" },
+  "analyzed": [ { "sessionId": "…", "transcriptPath": "…", "sessionEndTs": "…", "lineCount": 1487,
+                  "analyzedAt": "…", "opportunities": 3, "outcome": "harvested" } ] }
+```
+
+`outcome` enum: `harvested | no-opportunities | skipped-cap | error` — only `skipped-cap`/`error` are
+re-eligible (as §K.3 rule 1). The filename carries the hash (no `project` field); there is no per-entry
+`mode`. `analyzedAt` matches §K.4 naming. Corrupt / unknown-`schemaVersion` → move aside
+(`<ledger>.bak-<ts>`), warn, re-init fresh.
+
+**Eligibility** — §K.3 rule 1 (ledger-outcome-first: `error`/`skipped-cap` come back; `harvested`/
+`no-opportunities` do not) and rule 2 (un-ledgered → eligible iff `endTs > watermark`), with these
+**harvest-specific deltas**:
+
+- The **active** session (newest `.jsonl` under the project dir) is **always analyzed but never
+  ledgered** and never advances the watermark — harvest's core value is the session you just finished.
+- Any **other** live transcript (mtime < 5 min) is excluded this run and left un-ledgered (eligible
+  next run).
+- **Single-session** runs (a session id/path) ledger their one session **without** moving the watermark
+  (one run does not establish that everything older was analyzed).
+- The **cap counts non-active sessions only** (= 12 per run; the active session always rides along).
+
+**Watermark** — the §K.4 rule verbatim (`watermark = max(old, max sessionEndTs over sessions disposed
+this run)`, never `now()`, never backwards); the active session is excluded by construction and
+single-session runs never advance it. Grown-after-analysis handling is §K.4's (recorded `lineCount`; a
+run prints "N previously-harvested sessions have grown — remove their ledger entries to re-harvest" with
+the `jq 'del(.analyzed[] | select(.sessionId=="<sid>"))'` escape hatch).
+
+### §K.7 — Ledger persistence: del-then-append recipe
+
+Appending entries to an `analyzed[]` array must **never** use §E's merge-json `. * $frag` deep-merge —
+jq's `*` **replaces** arrays, so a deep-merge would drop every prior entry. Use del-then-append inside
+§E's backup → validate → restore-on-failure envelope (delete any existing entry with the same
+`sessionId`, then append the batch — so re-runs **replace** rather than duplicate):
+
+```bash
+cp "$ledger" "$ledger.bak.$(date +%s)"
+jq --argjson batch "$entries" \
+  '.analyzed = ([.analyzed[] | select([.sessionId] | inside($batch | map(.sessionId)) | not)] + $batch)' \
+  "$ledger" > "$ledger.tmp" && jq empty "$ledger.tmp" && mv "$ledger.tmp" "$ledger" \
+  || { echo "INVALID — restoring"; rm -f "$ledger.tmp"; cp "$ledger".bak.* "$ledger"; }
+```
+
+`$entries` is the batch's array of `analyzed[]` objects. **Consumers:** `learn` Step 5 (per-batch ledger
+append, per-plugin ledger at §K.4), `harvest-automations` project-wide Phase B (per-batch) and
+single-mode (one entry, §K.6). This is the one place the recipe lives.

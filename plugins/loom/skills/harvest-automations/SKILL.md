@@ -2,15 +2,17 @@
 name: harvest-automations
 description: >
   Analyzes Claude Code session transcripts, detects repeated manual prompts and multi-step work you
-  keep doing by hand, then CREATES or UPDATES reusable artifacts across the full customization surface
-  — skills, commands, subagents, hooks, permissions, CLAUDE.md/memory, rules, MCP servers, output
-  styles — so future sessions need less manual prompting (right artifact type per Claude best
-  practice; create new or merge into existing). With NO argument it harvests ALL un-harvested sessions
-  of the current project at once — a per-project ledger + watermark skip ones already done (like
-  loom:learn), --dry-run previews; a session id or transcript path harvests that ONE session. Invoked
-  via "/harvest", "harvest automations", "harvest this session", "harvest this project", "harvest all
-  sessions", "harvest session <id>", "turn this session into reusable artifacts / a skill / a command
-  / an agent", "automate what I keep doing by hand", or "what could I have automated".
+  keep doing by hand, then CREATES or UPDATES loose reusable artifacts at USER or PROJECT scope across
+  the full customization surface — skills, commands, subagents, hooks, permissions, CLAUDE.md/memory,
+  rules, MCP servers, output styles — so future sessions need less manual prompting (right artifact
+  type per Claude best practice; create new or merge into existing). It never packages, registers, or
+  publishes a plugin — to improve an EXISTING plugin from a session use audit-plugin or learn. With NO
+  argument it harvests ALL un-harvested sessions of the current project at once — a per-project ledger
+  + watermark skip ones already done, --dry-run previews; a session id or transcript path harvests that
+  ONE session. Invoked via "/harvest", "harvest", "harvest automations", "harvest this session",
+  "harvest this project", "harvest all sessions", "harvest session <id>", "turn this session into
+  reusable artifacts / a skill / a command / an agent", "automate what I keep doing by hand", or "what
+  could I have automated".
 version: 0.4.0
 ---
 
@@ -34,11 +36,11 @@ It runs in one of two **modes**, chosen by `$ARGUMENTS`:
 The authoritative best-practice rubric (which pattern maps to which artifact), the per-type templates,
 and the merge recipes live in **[`../../references/artifact-catalog.md`](../../references/artifact-catalog.md)**.
 Read it before deciding artifact types and before writing any file. **Project-wide mode** adds a
-multi-session layer — ledger, discovery, batched dispatch, watermark, cross-session merge — kept in
+multi-session layer — discovery, batched dispatch, cross-session merge — orchestrated in
 **[`references/project-wide.md`](references/project-wide.md)** so this file stays focused on the
-single-session and shared flow. That machinery deliberately mirrors chassis **§K** (`loom:learn`) and
-its state map is registered at chassis **§K.6**; inline copies tagged "mirrors chassis §K.N" must be
-kept in sync.
+single-session and shared flow. The harvest **ledger schema, eligibility, watermark rule, and the
+del-then-append persistence recipe** are the single source of truth in chassis **§K.6/§K.7** — this
+skill and `project-wide.md` reference them rather than keeping their own copies.
 
 ## When to use
 
@@ -177,10 +179,10 @@ The single-mode subagent returns **ONLY** this JSON (full `draft_spec` per artif
 
 **Single-mode ledgering.** After the agent returns, record the session in the harvest ledger so a
 later project-wide run skips it — but only for **this project's own** transcripts (a transcript
-outside `$cfg/projects/` is "analyzed but not ledgered"). Use the **del-then-append** recipe and the
-`analyzed[]` entry shape in [`references/project-wide.md`](references/project-wide.md); single mode
-writes only the entry (`outcome` ∈ `harvested | no-opportunities | error`) and **never** touches the
-watermark — one run does not establish that everything older has been analyzed. Take `projectRoot`
+outside `$cfg/projects/` is "analyzed but not ledgered"). Use the **§K.7 del-then-append recipe** and the
+`analyzed[]` entry shape in **§K.6**; single mode writes only the entry (`outcome` ∈ `harvested |
+no-opportunities | error`) and **never** touches the watermark — one run does not establish that
+everything older has been analyzed. Take `projectRoot`
 from the transcript tail's `cwd` (never un-hash a dir name — lossy); skip the write when the
 transcript is live relative to its own dir (newest there, or mtime < 5 min).
 

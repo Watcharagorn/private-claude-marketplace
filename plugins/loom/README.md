@@ -1,50 +1,48 @@
 # loom
 
 Session-driven harvesting and plugin lifecycle tools: **harvest** a working session into reusable
-Claude Code artifacts or a new packaged plugin, **tune** (audit/enhance) an existing plugin from a
-real session, **learn** from every session that ever used a plugin in one command, **track** plugin
-usage so that learning is instant, and **publish** releases with the plugin manifest, marketplace
-catalog, README, and git kept in sync.
+Claude Code artifacts, **audit** an existing plugin from a session to find & fix how it misbehaved,
+**learn** from every session that ever used a plugin (or from one named session) with both audit +
+enhance lenses, **track** plugin usage so learning is instant, and **publish** releases with the plugin
+manifest, marketplace catalog, README, and git kept in sync.
 
 ## Scope
 
-The plugin-lifecycle skills (`harvest-to-plugin`, `tune-plugin`, `learn`, `publish-plugin`) operate
-**on this marketplace repo** — they write `plugins/<name>/`, edit `.claude-plugin/marketplace.json`,
-and commit/push this repo; run them with **cwd = this repo**. `learn` **discovers** sessions
-machine-wide (across every project folder, from the active config dir) but its implement + publish
-tail is repo-scoped like the others. `harvest-automations` and `track` are the exceptions: both work
-in **any** repo (or none) — `harvest-automations` harvests a session (or, with no argument, **every
-un-harvested session of the current project**) into user/project artifacts, keeping a per-project
-ledger + watermark in the config dir; `track` only touches config-dir state. Enable
-`loom@private-marketplace` wherever you want `/harvest` or usage tracking.
+The plugin-lifecycle skills (`audit-plugin`, `learn`, `publish-plugin`) operate **on this marketplace
+repo** — they write `plugins/<name>/`, edit `.claude-plugin/marketplace.json`, and commit/push this
+repo; run them with **cwd = this repo**. `learn` **discovers** sessions machine-wide (across every
+project folder, from the active config dir) but its implement + publish tail is repo-scoped like the
+others. `harvest-automations` and `track` are the exceptions: both work in **any** repo (or none) —
+`harvest-automations` harvests a session (or, with no argument, **every un-harvested session of the
+current project**) into user/project artifacts, keeping a per-project ledger + watermark in the config
+dir; `track` only touches config-dir state. Enable `loom@private-marketplace` wherever you want
+`/harvest` or usage tracking.
 
 ## Commands
 
 | Command | Args | Does |
 |---|---|---|
-| `/loom:harvest` | `[session-id \| transcript.jsonl \| --dry-run]` | No arg: harvest **every un-harvested session of the current project** (per-project ledger + watermark skip done ones; `--dry-run` previews). Id/path: harvest that **one** session. Creates/updates reusable artifacts (skills, commands, agents, hooks, permissions, rules, …) at user/project scope — works in any repo (moved from `mentor` v0.45.0) |
-| `/loom:harvest-to-plugin` | `[session-id \| transcript.jsonl]` | Analyze a session, package repeated work as a **new** plugin (or merge into an existing one), register it, offer to publish |
-| `/loom:tune-plugin` | `<session> [plugin]` | Improve an existing plugin from a session — **both** lenses (audit + enhance), one consolidated release |
-| `/loom:audit-plugin` | `<session> [plugin]` | `tune-plugin` with **lens = audit** — find & fix misbehavior only |
-| `/loom:enhance-plugin` | `<session> [plugin]` | `tune-plugin` with **lens = enhance** — eliminate redundant manual work only |
-| `/loom:learn` | `<plugin> [--dry-run]` | Learn from **every** unanalyzed session that used a plugin (machine-wide) — one agent per session, merged findings, one consolidated release; a per-plugin ledger + watermark means sessions are never re-analyzed |
+| `/loom:harvest` | `[session-id \| transcript.jsonl \| --dry-run]` | No arg: harvest **every un-harvested session of the current project** (per-project ledger + watermark skip done ones; `--dry-run` previews). Id/path: harvest that **one** session. Creates/updates loose reusable artifacts (skills, commands, agents, hooks, permissions, rules, …) at user/project scope — works in any repo; never packages or publishes a plugin |
+| `/loom:audit-plugin` | `[session] [plugin]` | Audit an existing plugin from **one** session (the active one if none named) — find how it misbehaved (gate false-positives, wrong-skill calls, retries, post-run surprises) and ship the fixes; one release |
+| `/loom:learn` | `<plugin> [session-id] [--dry-run]` | Bare `<plugin>`: learn from **every** unanalyzed session that used it (machine-wide) — one agent per session, both lenses, merged findings, one release; a per-plugin ledger + watermark means sessions are never re-analyzed. With a session id: analyze just that **one** session (both lenses; ledger/watermark untouched) |
 | `/loom:track` | `[plugin \| marketplace …] [--stop]` | Opt in to usage tracking so `/loom:learn`'s discovery is instant — records which **enabled** plugins loom indexes at session end; no args = status |
 
-Unqualified forms (`/harvest-to-plugin`, `/tune-plugin`, `/learn`, `/track`, …) also resolve while no
-other enabled plugin ships a same-named command.
+Unqualified forms (`/harvest`, `/audit-plugin`, `/learn`, `/track`, …) also resolve while no other
+enabled plugin ships a same-named command.
 
 ## Skills
 
 | Skill | Version | Role |
 |---|---|---|
-| `harvest-automations` | 0.4.0 | Session(s) → reusable user/project artifacts across the full customization surface (any repo); with no arg, a **project-wide sweep** of all un-harvested sessions via a per-project ledger + watermark |
-| `harvest-to-plugin` | 0.1.0 | Session → new plugin (analysis, GAP scan, materialize, register) |
-| `tune-plugin` | 0.2.0 | Session → fixes/enhancements for an existing plugin (audit / enhance / both) |
-| `learn` | 0.1.0 | **All** unanalyzed sessions that used a plugin → one plugin (per-session agents, ledger + watermark, one release) |
+| `harvest-automations` | 0.5.0 | Session(s) → loose reusable user/project artifacts across the full customization surface (any repo); with no arg, a **project-wide sweep** of all un-harvested sessions via a per-project ledger + watermark. Never packages or publishes a plugin |
+| `audit-plugin` | 1.0.0 | One session → fixes for how an existing plugin misbehaved (AUDIT lens; select → review → implement → one release) |
+| `learn` | 0.2.0 | A plugin's sessions → one plugin, both audit + enhance lenses. Bare: **all** unanalyzed sessions (per-session agents, ledger + watermark, one release); with a session id: that **one** session |
 | `track` | 0.1.0 | Opt-in usage tracking of enabled plugins (any marketplace) → the index that makes `learn` fast |
 | `publish-plugin` | 1.2.0 | Release: semver bump, manifest + README sync, validation, commit + push |
 
-Skill frontmatter versions are independent of the plugin version (publish-plugin's own rule).
+Skill frontmatter versions are independent of the plugin version (publish-plugin's own rule). The AUDIT
+and ENHANCE analysis briefs are shared by `audit-plugin` and `learn` via
+`references/analysis-lenses.md` (one wording, read at heading anchors).
 
 ## Tracking (opt-in) — making `learn` instant
 
@@ -68,16 +66,17 @@ automatically — the hook re-checks effective enablement per session.
 
 - `references/session-plugin-common.md` — the shared **§A–§K chassis** (transcript resolution,
   plugin-purpose map, catalog resolution, write safety, validation, expert review, confirmation
-  card, publish handoff, and **§K** multi-session discovery + usage tracking + the learning ledger).
+  card, publish handoff, and **§K** multi-session discovery + usage tracking + the learning ledger,
+  including **§K.6/§K.7** the authoritative harvest-ledger spec + del-then-append persistence recipe).
   Every session-driven skill resolves it **by glob at runtime**
   (`*/references/session-plugin-common.md`) — no other plugin should ever ship a copy.
+- `references/analysis-lenses.md` — the shared **AUDIT / ENHANCE** analysis briefs, read at heading
+  anchors by `audit-plugin` (AUDIT only) and `learn` (both). One wording, never re-inlined.
 - `references/artifact-catalog.md` — pattern → artifact-type authority, shared by
-  `harvest-automations`, `harvest-to-plugin`, and `tune-plugin` (single copy at plugin root;
-  formerly duplicated in mentor).
+  `harvest-automations`, `audit-plugin`, and `learn` (single copy at plugin root; formerly duplicated
+  in mentor).
 - `hooks/hooks.json` + `hooks/track-usage.sh` — loom's only hook: the opt-in SessionEnd usage
   indexer behind `track` / `learn` (§F path rule; fail-soft, every exit is `exit 0`).
-- `skills/harvest-to-plugin/references/plugin-packaging.md` — valid-plugin assembly spec.
-- `skills/harvest-to-plugin/evals/` — manual smoke-test scenarios + fixtures (see `evals.json`).
 
 Runtime state (created on demand; **never** committed to any repo):
 

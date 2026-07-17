@@ -1,23 +1,25 @@
 ---
 name: learn
-description: Learn from EVERY unanalyzed session that used one plugin, machine-wide, in a single command — the multi-session counterpart to tune-plugin. Discovers matching sessions across all project folders (usage-index fast path + transcript-scan backfill), filters out already-analyzed ones via a per-plugin ledger + watermark, dispatches ONE deep-analysis agent per session (both audit + enhance lenses), merges findings cross-session, then runs one review → one confirm → one implement → ONE publish of the target plugin. Invoke for "learn <plugin>", "learn from all sessions that used <plugin>", "audit/enhance <plugin> across every session", or "/learn <plugin> [--dry-run]". Marks analyzed sessions so future runs never redo them.
+description: Learn from EVERY unanalyzed session that used one plugin, machine-wide — or from ONE named session — improving the plugin with both audit + enhance lenses. With just <plugin>, discovers matching sessions across all project folders (usage-index fast path + transcript-scan backfill), filters already-analyzed ones via a per-plugin ledger + watermark, and analyzes each in its own agent; with <plugin> <session-id>, analyzes only that one session (skips discovery, leaves the ledger/watermark untouched). Merges findings, runs one review → one confirm → one implement → ONE publish. Invoke for "learn <plugin>", "learn from all sessions that used <plugin>", "audit and enhance <plugin> from session <id>", or "/learn <plugin> [session-id] [--dry-run]". For a quick misbehavior-only pass on one session, use audit-plugin.
 version: 0.1.0
 ---
 
-# learn — audit + enhance one plugin from EVERY session that used it
+# learn — audit + enhance one plugin from its sessions
 
 Three related skills, one job each:
 
-- **`tune-plugin`** — ONE known session → one plugin. You name the session.
-- **`learn`** (this skill) — **ALL unanalyzed sessions** that ever used a plugin → one plugin. You
-  name only the plugin; it finds the sessions across every project folder, analyzes each in its own
-  agent, and never re-analyzes one it has already seen.
+- **`audit-plugin`** — ONE session → one plugin, **AUDIT lens only** (a quick misbehavior-only fix pass).
+- **`learn`** (this skill) — a plugin's sessions → one plugin, **both audit + enhance lenses**. Name only
+  the plugin and it sweeps **every unanalyzed session** across all project folders, analyzing each in its
+  own agent and never re-analyzing one it has seen; name a plugin **and a session id** and it analyzes
+  just that **one** session (skipping discovery and the ledger/watermark).
 - **`track`** — the opt-in indexer that makes `learn`'s discovery instant (works fully without it —
   just slower).
 
-`learn` reuses `tune-plugin`'s two analysis lenses **by reference** (never re-inlined): each
-per-session agent reads them straight from `tune-plugin`'s SKILL.md at heading anchors. The mechanics
-— marker pattern, machine-wide scan, ledger + watermark, usage index — live in chassis **§K**.
+`learn` reuses the two analysis lenses **by reference** (never re-inlined): each per-session agent reads
+them straight from **`references/analysis-lenses.md`** at heading anchors — the same file `audit-plugin`
+reads, so the AUDIT and ENHANCE briefs have one wording. The multi-session mechanics — marker pattern,
+machine-wide scan, ledger + watermark, usage index — live in chassis **§K**.
 
 Read the shared chassis first (resolve by glob, then reference §A … §K):
 
@@ -28,8 +30,9 @@ echo "${common:-NO_COMMON}"
 
 ## When NOT to invoke
 
-- **A single known session** → `tune-plugin` / `audit-plugin` / `enhance-plugin` (you already have the
-  id; no discovery needed).
+- **A quick misbehavior-only pass on one session** (the AUDIT lens alone, no enhance) → `audit-plugin`
+  (`/audit-plugin <session-id> [plugin]`). Reach for `learn <plugin> <session-id>` instead when you want
+  **both** lenses on that one session.
 - **Run from outside this marketplace repo.** Discovery is marketplace-agnostic, but the implement +
   publish tail writes `plugins/<plugin>/` and publishes **this** repo — run `learn` with cwd = this
   repo. A plugin tracked from another marketplace is named explicitly (Step 1) with where to run it.
@@ -38,10 +41,24 @@ echo "${common:-NO_COMMON}"
 ## Inputs
 
 - **`$1` — plugin name** (required, e.g. `mentor`). Unqualified — the marketplace is this repo.
-- **`--dry-run`** — Steps 1–4 only: discover + present candidates, **no agents, no writes** (no ledger,
-  no reports). For previewing what a real run would analyze.
+- **`$2` — session id / transcript path** (optional). Present → **single-session mode**: analyze only
+  that one session (both lenses), **skipping discovery and leaving the ledger/watermark untouched**.
+  Absent → **batch mode**: sweep every unanalyzed session (the default flow).
+- **`--dry-run`** — batch mode only, Steps 1–4: discover + present candidates, **no agents, no writes**
+  (no ledger, no reports). For previewing what a real run would analyze. (In single-session mode there is
+  no discovery to preview, so `--dry-run` doesn't apply.)
 
 `cfg="${CLAUDE_CONFIG_DIR:-$HOME/.claude}"` throughout — **not** §A's `$HOME/.claude` (see §K).
+
+## Mode fork (read `$2` first)
+
+- **`$2` present → single-session mode.** Do **Step 1** (validate the plugin + resolve the chassis), then
+  jump to **Step 5-single** below (resolve that one transcript via §A, run one both-lens agent, merge as
+  a passthrough), then **Steps 8–9** (report → review → confirm → implement → publish). **Skip** Steps 2–4
+  (ledger load, discovery, cap) and **Step 6** (watermark) entirely — a single named run must never move
+  the machine-wide watermark or write the ledger, mirroring how `harvest-automations` single-mode leaves
+  the watermark alone.
+- **`$2` absent → batch mode.** Run Steps 1–10 in order, as written.
 
 ---
 
@@ -107,12 +124,19 @@ written.
 
 ## Step 5 — Dispatch ONE analysis agent per session (batches of 4, persist per batch)
 
+Resolve the shared lens reference once (the same file `audit-plugin` reads):
+
+```bash
+lenses="$(find .claude/skills plugins -path '*/references/analysis-lenses.md' 2>/dev/null | head -1)"
+echo "${lenses:-NO_LENSES}"
+```
+
 One `Explore` agent (sonnet) **per session** — **paths only, never transcript contents** (§C). Give
 each:
 
 - the **main transcript PATH** and the **subagents dir PATH** (§A) for that session;
 - the target plugin root `plugins/<plugin>/` and the §B purpose line;
-- the **PATH of `tune-plugin`'s SKILL.md** plus the three heading anchors to read its lens briefs
+- the **PATH of `references/analysis-lenses.md`** plus the three heading anchors to read its lens briefs
   from — the literal strings **`Agent A — AUDIT lens`**, **`Agent B — ENHANCE lens`**, and
   **`Common parse brief`**. The agent locates each by text (never by step number) and **fails loud**
   if an anchor is missing — never guesses the brief.
@@ -131,11 +155,25 @@ or the single token **`NO USAGE FOUND`** (marker was a false positive → ledger
 
 **Batches of 4** parallel agents per message. **After EACH batch** (crash safety — a failure in batch
 3 must not lose batches 1–2): append the raw returns to `reports/<plugin>-<ts>-raw.md` **and** append
-that batch's `analyzed[]` entries to the ledger under §E discipline. Per entry record `sessionId,
-transcriptPath, project, sessionEndTs, lineCount, markerHits, viaSubagent, analyzedAt, findings,
-outcome` (`analyzed` · `no-usage` · malformed return → `error`).
+that batch's `analyzed[]` entries to the ledger via the **§K.7 del-then-append recipe** (under §E's
+backup/validate/restore envelope — §E's `. * $frag` deep-merge would *replace* the `analyzed[]` array,
+not extend it). Per entry record `sessionId, transcriptPath, project, sessionEndTs, lineCount,
+markerHits, viaSubagent, analyzedAt, findings, outcome` (`analyzed` · `no-usage` · malformed return →
+`error`).
 
-## Step 6 — Advance the watermark
+### Step 5-single — single-session mode (`$2` given)
+
+When a session id/path was supplied, there is no discovery, batching, or ledger. Resolve **that one
+transcript** via chassis **§A** (plus its subagents dir), then dispatch **one** `Explore` agent (sonnet)
+with the **exact per-agent brief above** (both lenses, briefs read from `analysis-lenses.md` at the three
+anchors, PROPOSALS ONLY, same return contract). Hold its return in memory and go straight to **Step 7**
+(merge is a passthrough for one session — just order the findings). **Do not** write the ledger, touch
+the usage index, or advance the watermark; **skip Step 6**. Note in the final summary that this was a
+single-session run and the ledger/watermark were left untouched.
+
+## Step 6 — Advance the watermark (batch mode only)
+
+*Single-session mode (`$2` given) skips this step entirely — see the Mode fork and Step 5-single.*
 
 After all batches: `watermark = max(old, max sessionEndTs over sessions disposed this run)` — **never
 `now()`** (§K.4). Update `lastRun` counts (`sessionsAnalyzed`, `sessionsSkippedCap`). The ledger is now
@@ -143,29 +181,35 @@ complete and correct **regardless of whether the user accepts anything below** �
 
 ## Step 7 — Merge / dedupe across sessions
 
-Hold only the distilled returns in the main thread. Apply `tune-plugin` Step 3's merge/dedupe rules
-(same file/root issue → merge; subset/superset → keep superset; independent → separate; tag by lens),
-**plus cross-session aggregation**: the same root cause seen in **k** of **N** sessions collapses to
-**one** item labelled `seen in k/N sessions`; **recurrence sorts first**. Fork/resume dedupe: identical
-findings with identical transcript timestamps across sessions are copied history → count **once**. Run
-`tune-plugin`'s composing-entry-point self-notice over the merged set; enforce MINIMALITY.
+Hold only the distilled returns in the main thread. Apply these merge/dedupe rules (same file/root
+issue → merge; subset/superset → keep superset; independent → separate; tag by lens), **plus
+cross-session aggregation**: the same root cause seen in **k** of **N** sessions collapses to **one**
+item labelled `seen in k/N sessions`; **recurrence sorts first**. Fork/resume dedupe: identical findings
+with identical transcript timestamps across sessions are copied history → count **once**. Then run the
+**composing-entry-point self-notice** over the merged set (would the result still be manual stitching
+unless one command/skill drove the pieces end to end, where none exists today? if yes, add one thin
+entry point; if no, add nothing); enforce MINIMALITY. *Single-session mode: merge is a passthrough — just
+order the one session's findings and run the same self-notice.*
 
 ## Step 8 — Consolidated report, then expert review
 
 Write `reports/<plugin>-<ts>.md` (the merged, ranked set with per-item recurrence + evidence) and point
 `lastRun.report` at it **before** reviewing — findings are preserved even if review or the user aborts.
-Then review the set **once** per chassis **§H**. The trio escalation triggers here by default
-(multi-session, typically multi-artifact; and a hook/settings merge if the proposed changes include
-one). State the target plugin's design philosophy to the reviewer(s); fold verdicts back in.
+*Single-session mode still writes the report file (useful evidence), but does **not** touch `lastRun` or
+the ledger.* Then review the set **once** per chassis **§H**. The trio escalation triggers here by
+default (multi-session, typically multi-artifact; and a hook/settings merge if the proposed changes
+include one; a single session with one small fix may stay at one reviewer). State the target plugin's
+design philosophy to the reviewer(s); fold verdicts back in.
 
 ## Step 9 — Confirm → implement → publish ONCE
 
 Chassis **§I**: print one compact card per merged item (tagged by lens; show `×k/N` recurrence), then
 **immediately** call **one** `AskUserQuestion` multi-select in the same turn.
 
-- **Zero selection** → clean **no-op**: create/change/publish nothing. Say so explicitly — **the
-  ledger, watermark, and reports are already written** (Steps 5–8), so the analysis is not lost and
-  these sessions won't be re-analyzed. This is a valid outcome.
+- **Zero selection** → clean **no-op**: create/change/publish nothing. Say so explicitly. In **batch
+  mode** the ledger, watermark, and report are already written (Steps 5–8), so the analysis is not lost
+  and these sessions won't be re-analyzed. In **single-session mode** only the report was written (no
+  ledger/watermark), so re-running the same session id re-analyzes it. This is a valid outcome.
 - **Selection** → implement the chosen items into `plugins/<plugin>/` per §D (catalog) / §E (write
   safety) / §F (`${CLAUDE_PLUGIN_ROOT}` hooks) / §G (validate + grep-confirm). Then **publish exactly
   once** via §J — the plugin being published is the **analyzed target plugin**, which is **loom itself
@@ -173,11 +217,15 @@ Chassis **§I**: print one compact card per merged item (tagged by lens; show `�
 
 ## Step 10 — Finalize
 
-Update `lastRun` (findings proposed/accepted, published version, report path) and each `analyzed[]`
-entry's `findings`/`outcome`. Print a summary: sessions analyzed, findings, what shipped, and "next run
-only sees sessions newer than `<watermark>` plus any `skipped-cap`/`error` remainders." If `<plugin>`
-isn't tracked, add: "Tip: `/loom:track <plugin>` indexes future sessions at session-end, making
-discovery instant."
+**Batch mode:** update `lastRun` (findings proposed/accepted, published version, report path) and each
+`analyzed[]` entry's `findings`/`outcome`. Print a summary: sessions analyzed, findings, what shipped,
+and "next run only sees sessions newer than `<watermark>` plus any `skipped-cap`/`error` remainders." If
+`<plugin>` isn't tracked, add: "Tip: `/loom:track <plugin>` indexes future sessions at session-end,
+making discovery instant."
+
+**Single-session mode:** no ledger/watermark to finalize. Print a summary: the one session analyzed, the
+findings, what shipped, and an explicit note that the ledger/watermark were left untouched (a later batch
+`learn <plugin>` will still consider this session).
 
 ---
 
@@ -195,7 +243,7 @@ discovery instant."
   durable before the interactive tail; a mid-run crash loses nothing already batched.
 - **Paths only to subagents** (§C); subagents return **PROPOSALS ONLY** (no `Skill()`, no
   `AskUserQuestion`, no implementing, no publishing).
-- **Lens briefs read by each agent from `tune-plugin`'s SKILL.md at heading anchors** — never
+- **Lens briefs read by each agent from `references/analysis-lenses.md` at heading anchors** — never
   duplicated into this skill or the prompts; fail loud if an anchor is missing.
 - **Ledger + report written before the confirm** — the watermark advances over every disposed session
   regardless of acceptance; "never re-analyze" excludes `error`/`skipped-cap` (they come back).
