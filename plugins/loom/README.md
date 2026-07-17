@@ -13,15 +13,16 @@ The plugin-lifecycle skills (`harvest-to-plugin`, `tune-plugin`, `learn`, `publi
 and commit/push this repo; run them with **cwd = this repo**. `learn` **discovers** sessions
 machine-wide (across every project folder, from the active config dir) but its implement + publish
 tail is repo-scoped like the others. `harvest-automations` and `track` are the exceptions: both work
-in **any** repo (or none) — `harvest-automations` harvests any session into user/project artifacts,
-and `track` only touches config-dir state. Enable `loom@private-marketplace` wherever you want
-`/harvest` or usage tracking.
+in **any** repo (or none) — `harvest-automations` harvests a session (or, with no argument, **every
+un-harvested session of the current project**) into user/project artifacts, keeping a per-project
+ledger + watermark in the config dir; `track` only touches config-dir state. Enable
+`loom@private-marketplace` wherever you want `/harvest` or usage tracking.
 
 ## Commands
 
 | Command | Args | Does |
 |---|---|---|
-| `/loom:harvest` | `[session-id \| transcript.jsonl]` | Analyze a session and create/update reusable Claude Code artifacts (skills, commands, agents, hooks, permissions, rules, …) at user/project scope — works in any repo (moved from `mentor` v0.45.0) |
+| `/loom:harvest` | `[session-id \| transcript.jsonl \| --dry-run]` | No arg: harvest **every un-harvested session of the current project** (per-project ledger + watermark skip done ones; `--dry-run` previews). Id/path: harvest that **one** session. Creates/updates reusable artifacts (skills, commands, agents, hooks, permissions, rules, …) at user/project scope — works in any repo (moved from `mentor` v0.45.0) |
 | `/loom:harvest-to-plugin` | `[session-id \| transcript.jsonl]` | Analyze a session, package repeated work as a **new** plugin (or merge into an existing one), register it, offer to publish |
 | `/loom:tune-plugin` | `<session> [plugin]` | Improve an existing plugin from a session — **both** lenses (audit + enhance), one consolidated release |
 | `/loom:audit-plugin` | `<session> [plugin]` | `tune-plugin` with **lens = audit** — find & fix misbehavior only |
@@ -36,7 +37,7 @@ other enabled plugin ships a same-named command.
 
 | Skill | Version | Role |
 |---|---|---|
-| `harvest-automations` | 0.3.0 | Session → reusable user/project artifacts across the full customization surface (any repo) |
+| `harvest-automations` | 0.4.0 | Session(s) → reusable user/project artifacts across the full customization surface (any repo); with no arg, a **project-wide sweep** of all un-harvested sessions via a per-project ledger + watermark |
 | `harvest-to-plugin` | 0.1.0 | Session → new plugin (analysis, GAP scan, materialize, register) |
 | `tune-plugin` | 0.2.0 | Session → fixes/enhancements for an existing plugin (audit / enhance / both) |
 | `learn` | 0.1.0 | **All** unanalyzed sessions that used a plugin → one plugin (per-session agents, ledger + watermark, one release) |
@@ -59,8 +60,9 @@ sessions that used a plugin. `track` makes that instant.
 3. **`/loom:learn mentor`** reads the index and only scans sessions it hasn't already indexed.
 
 `/loom:track` (no args) shows status; `/loom:track --stop mentor` stops tracking (the index is kept).
-All tracking state lives in the config dir (`$cfg/loom/learning/`), never in a repo. Disabling a
-plugin pauses its tracking automatically — the hook re-checks effective enablement per session.
+All loom runtime state lives in the config dir (`$cfg/loom/` — `learning/` for track + learn,
+`harvest/` for project-wide harvest), never in a repo. Disabling a plugin pauses its tracking
+automatically — the hook re-checks effective enablement per session.
 
 ## Architecture
 
@@ -80,11 +82,15 @@ plugin pauses its tracking automatically — the hook re-checks effective enable
 Runtime state (created on demand; **never** committed to any repo):
 
 ```
-$cfg/loom/learning/          # cfg = ${CLAUDE_CONFIG_DIR:-$HOME/.claude}
-├── config.json              # track opt-in: which plugins to index
-├── usage-index.jsonl        # one line per finished session (hook-written)
-├── <plugin>.json            # per-plugin analyzed ledger + watermark (learn-written)
-└── reports/                 # consolidated + raw learn findings
+$cfg/loom/                     # cfg = ${CLAUDE_CONFIG_DIR:-$HOME/.claude}
+├── learning/                  # track + learn state
+│   ├── config.json            # track opt-in: which plugins to index
+│   ├── usage-index.jsonl      # one line per finished session (hook-written)
+│   ├── <plugin>.json          # per-plugin analyzed ledger + watermark (learn-written)
+│   └── reports/               # consolidated + raw learn findings
+└── harvest/                   # harvest-automations project-wide state
+    ├── <hashed-project>.json  # per-project analyzed ledger + watermark (harvest-written)
+    └── reports/               # consolidated + raw project-wide harvest findings
 ```
 
 ## Developing these skills

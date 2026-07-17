@@ -1,7 +1,7 @@
 {
   "name": "loom",
   "description": "Session harvesting and plugin lifecycle tools: turn sessions into reusable artifacts or a plugin, tune or learn from a plugin's real usage (opt-in tracking makes learning instant), and publish releases with synced manifests.",
-  "version": "2.1.0",
+  "version": "2.2.0",
   "author": {
     "name": "NTBX"
   }

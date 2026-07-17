@@ -1,36 +1,51 @@
 ---
 name: harvest-automations
 description: >
-  Analyzes a Claude Code session transcript — the active session by default, or any session given
-  its session id or transcript path — detects repeated manual prompts and
-  multi-step work you keep doing by hand, and then CREATES or UPDATES reusable Claude Code
-  artifacts across the full customization surface — skills, commands, subagents, hooks,
-  permissions, CLAUDE.md/memory, rules, MCP servers, and output styles — so future similar
-  sessions need less manual prompting. It picks the right artifact type per Claude best practice
-  and can both create new artifacts and merge into existing ones. Invoked via "/harvest",
-  "harvest automations", "harvest this session", "harvest session <id>", "turn this session into
-  reusable artifacts / a skill / a command / an agent", "automate what I keep doing by hand", or
-  "what could I have automated".
-version: 0.3.0
+  Analyzes Claude Code session transcripts, detects repeated manual prompts and multi-step work you
+  keep doing by hand, then CREATES or UPDATES reusable artifacts across the full customization surface
+  — skills, commands, subagents, hooks, permissions, CLAUDE.md/memory, rules, MCP servers, output
+  styles — so future sessions need less manual prompting (right artifact type per Claude best
+  practice; create new or merge into existing). With NO argument it harvests ALL un-harvested sessions
+  of the current project at once — a per-project ledger + watermark skip ones already done (like
+  loom:learn), --dry-run previews; a session id or transcript path harvests that ONE session. Invoked
+  via "/harvest", "harvest automations", "harvest this session", "harvest this project", "harvest all
+  sessions", "harvest session <id>", "turn this session into reusable artifacts / a skill / a command
+  / an agent", "automate what I keep doing by hand", or "what could I have automated".
+version: 0.4.0
 ---
 
 # Harvest Automations
 
-Turn the work you just did by hand into reusable Claude Code customizations. This skill reads the
-**current session transcript**, finds patterns that repeated (>=2 near-identical asks, or a stable
-multi-tool macro), and designs each one as a complete **usage/workflow** — how you'll trigger it,
-what happens end to end, what you get. You choose the usages you want (never raw artifact types);
-each accepted usage is delivered by the smallest artifact bundle per Claude guidance — **creating
-new** artifacts or **merging into existing** ones across the whole customization surface.
+Turn the work you did by hand into reusable Claude Code customizations. This skill reads session
+transcripts, finds patterns that repeated (>=2 near-identical asks, or a stable multi-tool macro),
+and designs each one as a complete **usage/workflow** — how you'll trigger it, what happens end to
+end, what you get. You choose the usages you want (never raw artifact types); each accepted usage is
+delivered by the smallest artifact bundle per Claude guidance — **creating new** artifacts or
+**merging into existing** ones across the whole customization surface.
 
-The authoritative best-practice rubric (which pattern maps to which artifact), the per-type
-templates, and the merge recipes live in **[`../../references/artifact-catalog.md`](../../references/artifact-catalog.md)**.
-Read it before deciding artifact types and before writing any file.
+It runs in one of two **modes**, chosen by `$ARGUMENTS`:
+
+- **project-wide** (no argument) — harvest **every un-harvested session of the current project** at
+  once. A per-project **ledger + watermark** (the same mechanism `loom:learn` uses) skip sessions
+  already harvested, so re-runs only pick up new work. `--dry-run` previews what would be analyzed.
+- **single-session** (a session id or a transcript `.jsonl` path) — harvest that ONE session, and
+  record it in the ledger so a later project-wide run skips it.
+
+The authoritative best-practice rubric (which pattern maps to which artifact), the per-type templates,
+and the merge recipes live in **[`../../references/artifact-catalog.md`](../../references/artifact-catalog.md)**.
+Read it before deciding artifact types and before writing any file. **Project-wide mode** adds a
+multi-session layer — ledger, discovery, batched dispatch, watermark, cross-session merge — kept in
+**[`references/project-wide.md`](references/project-wide.md)** so this file stays focused on the
+single-session and shared flow. That machinery deliberately mirrors chassis **§K** (`loom:learn`) and
+its state map is registered at chassis **§K.6**; inline copies tagged "mirrors chassis §K.N" must be
+kept in sync.
 
 ## When to use
 
 - After a session where you repeated the same kind of request, or walked Claude through the same
   multi-step procedure more than once.
+- When you want to sweep a **whole project's** sessions for everything worth automating — "harvest
+  this project", "harvest all sessions", "what could I have automated across this repo".
 - When you say "automate what I keep doing by hand" or "what could I have automated here".
 - When you want this session's manual work distilled into a skill, command, subagent, hook,
   permission, CLAUDE.md entry, rule, MCP server, or output style.
@@ -43,87 +58,101 @@ Read it before deciding artifact types and before writing any file.
 - When the user wants a one-time artifact for a specific known need — just create it directly; you
   do not need transcript analysis for that.
 
+`cfg="${CLAUDE_CONFIG_DIR:-$HOME/.claude}"` throughout — this machine's real transcripts and state
+live under `$cfg`, **never** a hardcoded `$HOME/.claude`.
+
 ---
 
-## Step 1 — Resolve the session transcript
+## Step 1 — Resolve mode + transcript(s)
 
-`$ARGUMENTS` (the optional token passed to `/harvest`) selects **which** session to analyze. It may be:
+`$ARGUMENTS` selects the mode and which session(s) to analyze:
 
-- **empty** — analyze the **active** session (auto-discover the newest JSONL under the hashed cwd),
-- a **session id** — a UUID like `e05bde45-3ed9-458d-9a2e-ba6744d64a18` (e.g. copied from another
-  session, a worktree, or `/status`) — resolved to that session's transcript anywhere under
-  `~/.claude/projects/`,
-- an explicit **path** to a transcript `.jsonl` — used directly.
-
-Resolve the input to a single transcript PATH (`tx`):
+- **empty** → **project-wide** mode (all un-harvested sessions of this project),
+- **`--dry-run`** → project-wide **discovery-only preview** (nothing written, no agents),
+- a **session id** (a UUID like `e05bde45-3ed9-458d-9a2e-ba6744d64a18`) → **single** mode,
+- an explicit **path** to a transcript `.jsonl` → **single** mode.
 
 ```bash
+cfg="${CLAUDE_CONFIG_DIR:-$HOME/.claude}"
 arg="$ARGUMENTS"
 arg="$(printf '%s' "$arg" | sed 's/^[[:space:]]*//; s/[[:space:]]*$//')"   # trim
+dry=0; [ "$arg" = "--dry-run" ] && { dry=1; arg=""; }
 
 if [ -z "$arg" ]; then
-  # (a) no argument — auto-discover the active session under the hashed cwd
+  # PROJECT-WIDE — compute the project's hashed transcript dir + the active (live) session
   root="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
   hash="$(printf '%s' "$root" | sed 's/[/.]/-/g')"
-  tx="$(ls -t "$HOME/.claude/projects/$hash"/*.jsonl 2>/dev/null | head -1)"
+  pdir="$cfg/projects/$hash"
+  active="$(ls -t "$pdir"/*.jsonl 2>/dev/null | head -1)"   # newest = live session (zsh-safe: no bare glob left to expand)
+  echo "MODE=project-wide dry=$dry pdir=$pdir active=$active"
 elif printf '%s' "$arg" | grep -Eq '(/|\.jsonl$)'; then
-  # (b) looks like a path (has a slash or ends in .jsonl) — use directly
-  tx="$arg"
+  tx="$arg"; echo "MODE=single tx=$tx"                      # looks like a path — use directly
 else
-  # (c) a session id — find <id>.jsonl. -maxdepth 2 keeps it to top-level main
-  #     transcripts (projects/<hash>/<id>.jsonl), excluding .../<id>/subagents/
-  tx="$(find "$HOME/.claude/projects" -maxdepth 2 -name "${arg}.jsonl" 2>/dev/null | head -1)"
+  # a session id — find <id>.jsonl. -maxdepth 2 keeps it to top-level main
+  #   transcripts (projects/<hash>/<id>.jsonl), excluding .../<id>/subagents/
+  tx="$(find "$cfg/projects" -maxdepth 2 -name "${arg}.jsonl" 2>/dev/null | head -1)"
+  echo "MODE=single tx=$tx"
 fi
-[ -n "$tx" ] && [ -e "$tx" ] && echo "$tx ($(wc -l <"$tx") lines)" || echo "NO_TRANSCRIPT"
 ```
 
 The cwd is hashed by replacing every `/` and `.` with `-`. `ls -t` picks the most recently written
 JSONL — the live session. A session id is unique per session, so the `find` resolves to exactly one
 top-level transcript.
 
-**If the block prints `NO_TRANSCRIPT`:**
+**Mode map.** single mode runs **Step 1 → Steps 2–6**. **Project-wide mode**, at the fork below, hands
+off to **[`references/project-wide.md`](references/project-wide.md)** for the discover → dispatch →
+merge machinery, then rejoins this file at **Step 3 (rubric)**; the rest (rubric, cards, apply,
+report) is shared by both modes. `--dry-run` stops inside that file, right after discovery.
+
+**Project-wide mode — read [`references/project-wide.md`](references/project-wide.md) now** and follow
+its three phases (Discover & ledger → Dispatch → Watermark & merge). Its Dispatch phase reuses the
+analysis brief in **Step 2** below (with a slimmer return contract). Return here at **Step 3** with the
+merged opportunity set.
+
+**Single mode — confirm the transcript.** If `tx` is empty or missing, treat it as `NO_TRANSCRIPT`:
 
 1. A supplied **session id or path that didn't resolve** — tell the user it wasn't found (the id may
    belong to a different machine or have been cleaned up) and use `AskUserQuestion` to ask for a
    correct session id or path.
-2. **No argument and nothing auto-discovered** — use `AskUserQuestion` to ask for the transcript path
-   or session id.
+2. Otherwise confirm it is the intended session by reading only the **tail**, never the whole file:
 
-Confirm it is the intended session by reading only the **tail**, never the whole file:
+   ```bash
+   tail -n 5 "$tx"
+   ```
 
-```bash
-tail -n 5 "$tx"
-```
+   The transcript may be an older, different-cwd session, so sanity-check it parses and note its
+   `cwd`/timestamp rather than expecting them to match the current repo.
 
-For the **active** session (case a) the tail's `cwd` should match `root` and its timestamp be
-recent. For a **session id or path** (cases b/c) the transcript is an arbitrary — possibly older,
-possibly different-cwd — session, so just sanity-check it parses and note its `cwd`/timestamp rather
-than expecting them to match the current repo. **NEVER read the whole transcript into the main
-context** — only its PATH is passed onward to the analysis subagent.
+**NEVER read a whole transcript into the main context** — only PATHs are passed onward to the analysis
+subagents (chassis §C).
 
 ## Step 2 — Delegate analysis to a subagent
 
-Dispatch **one** `Explore` (or `general-purpose`) subagent on **sonnet** with the transcript
-**PATH** — not its contents. Brief it to:
+Dispatch **one** `Explore` (or `general-purpose`) subagent on **sonnet** per session, with the
+transcript **PATH** — not its contents (chassis §C). Brief each to:
 
-- Stream the JSONL with `jq -c` (do not load it whole), cluster by **user intent / usage** — what
-  the user kept asking for and what end-to-end workflow served it — not by artifact type.
-- Score recurrence: >=2 near-identical asks, or a stable multi-tool macro repeated across the
-  session.
-- For each opportunity, design the **usage** first (how the user will trigger it, what happens end
-  to end, what they get), then choose the **smallest set of artifacts** that delivers that usage —
-  types, scopes, and create/update modes per the rubric in `../../references/artifact-catalog.md`. One
-  usage may bundle multiple artifacts (e.g. a command + the permission it needs).
+- Stream the JSONL with `jq -c` (do not load it whole), cluster by **user intent / usage** — what the
+  user kept asking for and what end-to-end workflow served it — not by artifact type.
+- Score recurrence: >=2 near-identical asks, or a stable multi-tool macro repeated across the session.
+- For each opportunity, design the **usage** first (how the user triggers it, what happens end to end,
+  what they get), then choose the **smallest set of artifacts** that delivers it — types, scopes,
+  create/update modes per the rubric in `../../references/artifact-catalog.md`. One usage may bundle
+  multiple artifacts (e.g. a command + the permission it needs).
 - For huge transcripts (>~20k lines), **sample by intent-cluster** rather than full read.
 - **Never paste raw transcript content back** — evidence is line numbers / short quote refs only.
 
-It must return **ONLY** this JSON, capped at the **top 4** opportunities by impact
-(impact = recurrence x manual effort saved). If more than 4 survive, the extras go in the
-top-level `also_noticed` array (titles only) — the main agent mentions them in chat as
-"also noticed, not offered":
+Cap each agent's return at the **top 4** opportunities by impact (recurrence × manual effort saved);
+extras go in a top-level `also_noticed` array (titles only), which the main agent mentions in chat as
+"also noticed, not offered".
+
+**Single mode** uses the **full contract** below. **Project-wide mode** uses this same brief but a
+**slim** return contract plus per-batch persistence — see
+[`references/project-wide.md`](references/project-wide.md) → **Dispatch**.
+
+The single-mode subagent returns **ONLY** this JSON (full `draft_spec` per artifact):
 
 ```json
-{ "also_noticed": ["one-line titles of opportunities beyond the top 4, or empty"],
+{ "also_noticed": ["one-line titles beyond the top 4, or empty"],
   "opportunities": [ {
   "title": "string — named after the USAGE, not the artifact",
   "usage": {
@@ -146,12 +175,21 @@ top-level `also_noticed` array (titles only) — the main agent mentions them in
 } ] }
 ```
 
+**Single-mode ledgering.** After the agent returns, record the session in the harvest ledger so a
+later project-wide run skips it — but only for **this project's own** transcripts (a transcript
+outside `$cfg/projects/` is "analyzed but not ledgered"). Use the **del-then-append** recipe and the
+`analyzed[]` entry shape in [`references/project-wide.md`](references/project-wide.md); single mode
+writes only the entry (`outcome` ∈ `harvested | no-opportunities | error`) and **never** touches the
+watermark — one run does not establish that everything older has been analyzed. Take `projectRoot`
+from the transcript tail's `cwd` (never un-hash a dir name — lossy); skip the write when the
+transcript is live relative to its own dir (newest there, or mtime < 5 min).
+
 ## Step 3 — Apply the decision rubric
 
 Read **[`../../references/artifact-catalog.md`](../../references/artifact-catalog.md)** for the authoritative
-best-practice rubric (which pattern -> which artifact), the per-type templates, and the merge
-recipes. Validate **every entry in each opportunity's `artifacts[]`** — `artifact_type` / `mode` /
-`merge_strategy` — against the catalog before proposing.
+best-practice rubric (which pattern -> which artifact), the per-type templates, and the merge recipes.
+Validate **every entry in each opportunity's `artifacts[]`** — `artifact_type` / `mode` /
+`merge_strategy` — against the catalog before proposing (over the **merged** set in project-wide mode).
 
 Also enforce **minimality**: a bundle must be the **smallest set of artifacts that delivers the
 usage**. Do not accept skill + command + agent when one artifact serves the workflow; a
@@ -173,8 +211,8 @@ Rubric headline (full detail in the catalog):
 
 ## Step 4 — Propose usages to the user
 
-The user chooses a **usage/workflow**, never an artifact type. Each choice is one complete
-usage; the artifacts behind it are implementation detail.
+The user chooses a **usage/workflow**, never an artifact type. Each choice is one complete usage; the
+artifacts behind it are implementation detail.
 
 1. **Print a usage card per opportunity** in chat (markdown), then **immediately** call
    `AskUserQuestion` in the same turn — never end the turn on the cards alone. Card format:
@@ -186,10 +224,13 @@ usage; the artifacts behind it are implementation detail.
    **What happens:**
    1. <end-to-end workflow steps, user-visible>
    **You get:** <outcome / manual work removed>
+   **Seen in:** 4/7 sessions (×9)          ← project-wide only; omit in single mode
    **Behind it:** creates `commands/deploy-ticket.md` + `agents/ticket-runner.md` (recurrence x4)
    ```
 
-   The "Behind it" line is a footnote — paths + recurrence count only; the card sells the usage.
+   The "Seen in" line shows cross-session reach (`k/N sessions (×<summed recurrence>)`) and is
+   project-wide only. The "Behind it" line is a footnote — paths + recurrence count only; the card
+   sells the usage.
 
 2. `AskUserQuestion` **multi-select**, one option per usage:
 
@@ -198,17 +239,23 @@ usage; the artifacts behind it are implementation detail.
    - `description` = `<invocation> — <outcome one-liner, <=~80 chars> (creates 2, updates 1)` —
      spell out create vs update counts when a bundle mixes modes.
 
-3. **Zero selection** — if the user selects no usages (or interrupts), report "nothing
-   materialized" and stop. Never re-ask, never materialize anything anyway.
+3. **Zero selection** — if the user selects no usages (or interrupts), report "nothing materialized"
+   and stop; in project-wide mode add that the ledger, watermark, and report are already written (this
+   run's analysis is not lost). Never re-ask, never materialize anything anyway.
 
 4. **Scope confirmation** is ask-each-time per accepted **usage** — batch all scope confirmations
    into **one** `AskUserQuestion` call (<=4 accepted usages = <=4 questions, header = usage
    handle). One scope applies to every artifact in the bundle, with this fallback: settings-based
    artifacts (permission, hook, mcp-server) have **no plugin scope** — if the user picks plugin,
    those artifacts fall to **project** scope (or **user** when not a git repo, same fallback as
-   the edge cases below), and the diff/confirm in Step 5 must say so.
+   the edge cases below), and the diff/confirm in the apply step must say so.
 
 ## Step 5 — Resolve create vs update, then apply (with safety)
+
+**Project-wide only — hydrate first.** The slim contract omitted full `draft_spec`s. For each
+**accepted** usage (≤4), dispatch **one** short follow-up `Explore` subagent (sonnet) given the usage,
+the contributing transcript PATHs, and the evidence line refs, to return the full `draft_spec` (steps,
+tools, `json_fragment`, …) for its artifacts. Single mode already has them from Step 2.
 
 For each accepted **usage**, loop over every artifact in its `artifacts[]`:
 
@@ -275,19 +322,41 @@ Then add a **LOAD note**:
 If anything was **deferred** (plugins, keybindings, monitors, status line), list it as a
 suggestion rather than applying it.
 
+**Project-wide — state block.** Finalize `lastRun` (usages proposed/accepted, report path) and each
+`analyzed[]` entry's `opportunities`/`outcome`, then **release the lock** (`rmdir "$ledger.lock"`).
+Print:
+
+```
+harvested N (+ active) · no-opportunities M · skipped-cap K · watermark now <ts>
+next run sees only sessions newer than <ts>, plus any skipped-cap/error remainders
+usages you declined may reappear while this session stays active — there is no rejection memory
+```
+
+**Single mode — state line.** "session `<sid-8>` ledgered (`<outcome>`); watermark unchanged." (Or,
+for an external transcript, "analyzed but not ledgered".)
+
 ---
 
 ## Edge cases
 
 - **Nothing recurring** — if no pattern repeats >=2x, report "nothing to harvest (needs >=2
-  repeats)" and create nothing.
-- **Not a git repo** — `git rev-parse` fails, so the discovery uses the plain `pwd` hash; for
-  artifact scope, **project** falls back to **user** scope (there is no repo `.claude/` to write
-  into).
-- **Re-runs are safe** — the existence check + diff-before-apply means running `/harvest` again on
-  the same session updates rather than duplicates.
-- **settings / MCP merges** — always **backup + validate + abort-on-invalid**; never partial-write
-  a settings or `.mcp.json` file.
+  repeats)" and create nothing (in project-wide mode the ledger/watermark are still written).
+- **Empty project dir / all sessions already harvested** — discovery finds nothing eligible; degrade
+  cleanly to "analyzing the active session only".
+- **Corrupt / unknown-`schemaVersion` ledger** — moved aside to `<ledger>.bak-<ts>` and re-initialized
+  fresh (project-wide.md's init check).
+- **Cap overflow** — remainders are ledgered `skipped-cap` and re-offered next run.
+- **Concurrent harvest** — the `$ledger.lock` dir makes a second same-project run abort (or steal a
+  >30-min-stale lock).
+- **Idle-but-open second session** — a second session left open but idle can be ledgered mid-life; if
+  you later do more work in it, use the grown-session `jq del` escape hatch to re-harvest (accepted
+  v1 limitation, same as `loom:learn`).
+- **External transcript (single mode)** — a transcript outside `$cfg/projects/` is analyzed but never
+  ledgered.
+- **Not a git repo** — discovery uses the plain `pwd` hash; for artifact scope, **project** falls
+  back to **user** scope (there is no repo `.claude/` to write into).
+- **settings / MCP merges** — always **backup + validate + abort-on-invalid**; never partial-write a
+  settings or `.mcp.json` file.
 - **Huge transcripts** — the analysis subagent samples by intent-cluster (>~20k lines) and never
   pastes raw transcript content back.
 
@@ -295,20 +364,29 @@ suggestion rather than applying it.
 
 ## Done when
 
-- The transcript PATH was resolved from `$ARGUMENTS` (per Step 1, or supplied via fallback) and
-  only its tail was read in the main context — never the whole file.
-- A single analysis subagent returned **usage-centric** opportunities with `artifacts[]`, capped
-  at 4 (no raw transcript content leaked back); extras beyond 4 were listed as "also noticed".
-- Every artifact in every bundle was checked against `../../references/artifact-catalog.md` AND the
-  minimality rule.
-- Usage cards were printed, the user multi-selected **usages** (never artifact types), and scope
-  was confirmed per accepted usage in one batched question — settings-based artifacts fell back
-  from plugin scope where needed.
-- Zero selection ended with "nothing materialized"; partial rejections applied the rest of the
-  bundle and were noted (with an incomplete-usage warning when load-bearing).
-- For every artifact in every accepted usage, create-vs-update was resolved by an existence check;
-  updates showed a diff and were confirmed; settings/MCP merges were backed up, deep-merged,
-  validated, and aborted on invalid JSON; secrets were left as `<PLACEHOLDER>`.
-- Frontmatter `name` matches the dir/file kebab name on all file-based artifacts.
-- A final table grouped artifacts by usage (usage · how-to-invoke · path · type · create/update),
-  plus the LOAD note and any deferred suggestions.
+- The mode was resolved from `$ARGUMENTS` (empty → project-wide · `--dry-run` → preview · id/path →
+  single); **zero** hardcoded `$HOME/.claude` anywhere.
+- **Project-wide** (per [`references/project-wide.md`](references/project-wide.md)): the ledger was
+  loaded or initialized (first-run + corrupt + unknown-schema all handled); transcripts were discovered
+  via `find` (no bare glob); eligibility was ledger-outcome-first then watermark; the live-transcript
+  rule applied (active analyzed, never ledgered; other live transcripts excluded); the
+  cap-12-non-active question fired only on overflow.
+- Analysis ran in a subagent per session (paths only, sonnet), capped at the top 4 (extras listed as
+  "also noticed"), with the slim contract in project-wide mode.
+- **Project-wide:** ledger entries were persisted per batch via **del-then-append** (backup / validate
+  / restore); the watermark was advanced (`max` sessionEndTs, never `now()`) after the batches and
+  **before** the confirm; the consolidated report was written and `lastRun.report` set; the k/N merge
+  ran with a top-4 re-cap; accepted usages were hydrated to full `draft_spec`s before apply.
+- **Single mode** ledgered the session (own-project transcripts only) **without** moving the watermark;
+  an external transcript was "analyzed but not ledgered".
+- **`--dry-run`** presented discovery + eligibility + cap outcome and wrote nothing.
+- Usage cards were printed (with `Seen in: k/N` in project-wide mode), the user multi-selected
+  **usages** (never artifact types), and scope was confirmed per accepted usage in one batched
+  question — settings-based artifacts fell back from plugin scope where needed.
+- Zero selection ended with "nothing materialized" (project-wide: noting the ledger/report are already
+  durable); partial rejections applied the rest of the bundle and were noted.
+- For every artifact, create-vs-update was resolved by an existence check; updates showed a diff and
+  were confirmed; settings/MCP merges were backed up, deep-merged, validated, and aborted on invalid
+  JSON; secrets were left as `<PLACEHOLDER>`; frontmatter `name` matched the dir/file kebab name.
+- A final table grouped artifacts by usage, plus the LOAD note; the project-wide state block (or
+  single-mode state line) printed and the lock was released.

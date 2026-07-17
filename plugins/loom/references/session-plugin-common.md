@@ -5,8 +5,10 @@ plugin-purpose map, the artifact catalog, per-type write safety, validation, exp
 user-confirmation card, and the publish handoff. `tune-plugin` (audit/enhance an **existing** plugin)
 and `harvest-to-plugin` (package a **new** plugin) both read this file so the mechanics live in **one**
 place. Each skill keeps only its **distinct lens** (what to look for) and points here for the rest.
+`learn`/`track` additionally share **§K** (multi-session discovery, usage tracking + the learning
+ledger); `harvest-automations` registers its project-scoped ledger there at **§K.6**.
 
-Read this once at the start of a run; reference its sections by letter (§A … §J). Do **not** re-narrate
+Read this once at the start of a run; reference its sections by letter (§A … §K). Do **not** re-narrate
 these mechanics inside a skill.
 
 ---
@@ -14,27 +16,28 @@ these mechanics inside a skill.
 ## §A — Resolve the session transcript (+ subagents)
 
 The input selects **which** session to analyze: **empty** = the active session; a **session id**
-(UUID) = resolved under `~/.claude/projects/`; a **path** to a `.jsonl` = used directly.
+(UUID) = resolved under `$cfg/projects/` (see the `cfg` line below); a **path** to a `.jsonl` = used directly.
 
 ```bash
+cfg="${CLAUDE_CONFIG_DIR:-$HOME/.claude}"                     # real transcripts live under $cfg, not a hardcoded ~/.claude
 arg="$1"                                                       # UUID · path · empty
 arg="$(printf '%s' "$arg" | sed 's/^[[:space:]]*//; s/[[:space:]]*$//')"   # trim
 
 if [ -z "$arg" ]; then                                        # active session under hashed cwd
   root="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
   hash="$(printf '%s' "$root" | sed 's/[/.]/-/g')"
-  tx="$(ls -t "$HOME/.claude/projects/$hash"/*.jsonl 2>/dev/null | head -1)"
+  tx="$(ls -t "$cfg/projects/$hash"/*.jsonl 2>/dev/null | head -1)"
 elif printf '%s' "$arg" | grep -Eq '(/|\.jsonl$)'; then
   tx="$arg"                                                    # looks like a path
 else
-  tx="$(find "$HOME/.claude/projects" -maxdepth 2 -name "${arg}.jsonl" 2>/dev/null | head -1)"
+  tx="$(find "$cfg/projects" -maxdepth 2 -name "${arg}.jsonl" 2>/dev/null | head -1)"
 fi
 [ -n "$tx" ] && [ -e "$tx" ] && echo "$tx ($(wc -l <"$tx") lines)" || echo "NO_TRANSCRIPT"
 
 # Subagents dir (sidechain meta + jsonl) — evidence + a fallback when attribution is sparse:
 if [ -n "$tx" ] && [ -e "$tx" ]; then
   sid="$(basename "$tx" .jsonl)"
-  find "$HOME/.claude/projects" -type d -path "*/${sid}/subagents" 2>/dev/null
+  find "$cfg/projects" -type d -path "*/${sid}/subagents" 2>/dev/null
 fi
 ```
 
@@ -195,13 +198,13 @@ run **`/reload-plugins`** so the plugin loads. One plugin per publish.
 ## §K — Multi-session discovery, usage tracking + learning ledger
 
 The steps `learn` (analyze **every** session that used plugin X) and `track` (opt-in usage indexer)
-share below. `tune-plugin`/`harvest-*` work on **one** session (§A); `learn` works on **the whole
-history** for one plugin, so it needs a marker pattern, a machine-wide scan, a per-plugin ledger +
-watermark, and — when `track` is set up — a usage index that lets it skip most scanning.
+share below. `tune-plugin`/`harvest-to-plugin` work on **one** session (§A); `harvest-automations`
+adds a **project-scoped sweep** (registered at §K.6); `learn` works on **the whole history** for one
+plugin, so it needs a marker pattern, a machine-wide scan, a per-plugin ledger + watermark, and —
+when `track` is set up — a usage index that lets it skip most scanning.
 
-> **Config-dir root — do NOT reuse §A's `$HOME/.claude`.** §A hardcodes `~/.claude/projects`; this
-> machine's real transcripts live under `${CLAUDE_CONFIG_DIR}`. Everywhere in §K:
-> `cfg="${CLAUDE_CONFIG_DIR:-$HOME/.claude}"` and scan `"$cfg/projects"`.
+Everywhere in §K, `cfg="${CLAUDE_CONFIG_DIR:-$HOME/.claude}"` and scan `"$cfg/projects"` — §A now
+resolves the same `$cfg`, so there is no §A/§K divergence to guard against.
 
 ### §K.1 — Usage-marker pattern
 
@@ -268,8 +271,8 @@ this ordering is what makes re-eligibility work; the watermark applies **only** 
    re-analyze" must not become "never analyze": errors and capped remainders come back.)
 2. Not in ledger → keep iff `endTs > watermark` (or no watermark yet).
 3. Drop the **active session** — newest `.jsonl` under `"$cfg/projects/<hashed-cwd>"` (hash = the cwd
-   with `/` and `.` → `-`). Restate this with `$cfg`; never cite §A verbatim (its `$HOME/.claude` dir
-   exists here and is the WRONG one).
+   with `/` and `.` → `-`). Restate this with `$cfg` (a hardcoded `~/.claude` would be the wrong dir
+   on a machine that sets `CLAUDE_CONFIG_DIR`).
 4. Drop transcripts with mtime < 5 min (possibly still being written) — excluded, **not** ledgered,
    eligible next run.
 
@@ -325,3 +328,20 @@ are harmless). `learn` consumes it **per target key**, not per line:
 So K.2 restricts its `find` set to sessionIds that are either absent from the index **or** present
 without the target key. The index is disposable — deleting it only means the next `learn` run scans
 more.
+
+### §K.6 — `harvest-automations` project-scoped ledger (registration)
+
+`harvest-automations`' project-wide mode keeps its own ledger + watermark, keyed by **project** (not
+by plugin like §K.4). Its state lives at:
+
+- `$cfg/loom/harvest/<hashed-project>.json` — per-project analyzed ledger + watermark;
+- `$cfg/loom/harvest/reports/` — consolidated + raw project-wide reports.
+
+The **semantics are owned by `harvest-automations/SKILL.md`** and its
+`references/project-wide.md` (deliberately chassis-free — the sweep is per-project, not per-plugin, so
+it does not consume §K.1/K.2/K.5). This entry only registers the namespace so nothing else claims
+`$cfg/loom/harvest/`. Deviations from §K.3/§K.4, by design: the **active** session is analyzed but
+**never** ledgered and never advances the watermark; **single-session** runs ledger their session
+**without** moving the watermark; the cap counts **non-active** sessions only; the `outcome` enum
+differs (`harvested | no-opportunities | skipped-cap | error`) — only `skipped-cap`/`error`
+re-eligibility is shared with §K.3 rule 1.
