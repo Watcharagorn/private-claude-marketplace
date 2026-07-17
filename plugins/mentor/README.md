@@ -46,6 +46,7 @@ review and are the single source of truth for implementation, handoff, and revie
 | `/mentor:grill [topic]` | One-question-at-a-time interview that sharpens a design's open decisions before you build. Conversation only; no repo edits. |
 | `/mentor:handoff "<focus>"` | Compact the session into a handoff document (in `.mentor/handoffs/`, gitignored) for a fresh agent. Also offered as **Hand off to next agent** at the approval gate — leading the options when the context gate warns. |
 | `/mentor:resume [slug\|number]` | List this repo's handoff notes and continue the chosen one. |
+| `/mentor:tour [user\|dev\|both] [subject]` | **Post-approval acceptance review**: an editable guided-tour artifact — scenario cards with pass/not-pass toggles, feedback capture, and MD/JSON report export — published to a stable URL that revisions republish in place. Subject defaults to the newest plan; artifacts live in `.mentor/tours/` (gitignored). |
 | `/plan-review`* | Fixed 4-topic review (practicality, comprehensiveness, cleanliness, and a spec-kit-`analyze`-style **consistency** check across the plan + related artifacts) of the current plan; also offered as **Review the plan (light)** at the proceed gate. |
 | `/dispatch-agents`* | The **default implementation path** (subagents-driven development): every plan's steps are dispatch-annotated unless the plan states a `Dispatch: skipped` reason, and executed as subagent dispatches after approval. |
 
@@ -75,11 +76,12 @@ State-dir layout (**project-scoped** — `<repo>/.mentor/`; per-plan dirs since 
 ├── plans/           # the .planning marker + one dir per plan            ← gitignored
 │   └── <slug>/      #   plan.md (+ hidden .plan.md.opened sidecar)
 │       └── zoom/    #   <topic>-<perspective>.html opt-in zoom artifacts
-└── handoffs/        # handoff notes (/mentor:handoff → /mentor:resume)   ← gitignored
+├── handoffs/        # handoff notes (/mentor:handoff → /mentor:resume)   ← gitignored
+└── tours/           # /mentor:tour review artifacts (<slug>-<audience>.html) ← gitignored
 ```
 
-Only `config.json` and `constitution.md` are committed (team-shared); plans, handoffs
-and the transient markers are gitignored. Un-ignore `plans/` if you want plans
+Only `config.json` and `constitution.md` are committed (team-shared); plans, handoffs,
+tours and the transient markers are gitignored. Un-ignore `plans/` if you want plans
 version-controlled. **Not in a git repo?** handoff/resume and the context gate fall
 back to `~/.claude/mentor/_no-repo/`.
 

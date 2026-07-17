@@ -154,5 +154,6 @@ before issuing `Agent` calls. Then:
 2. **Dispatch "Run in parallel:" groups** — issue ALL `Agent()` calls for each parallel group in a **single message** so they run concurrently. After dispatching, do not busy-poll with `sleep`/no-op Bash calls; stop and let the harness re-invoke you when agents complete.
 3. **Dispatch "Sequential:" steps one at a time** — wait for the prior step's result before issuing the next call.
 4. **Verify each `Done when:` criterion** before moving to the next step — agents describe what they intended; trust but verify.
+5. **When every step has completed and verified** — offer a hands-on acceptance pass: `/mentor:tour` builds an editable guided-tour review artifact (pass/not-pass scenarios) of what shipped. One line; do not auto-run it.
 
 Do NOT paraphrase the plan or summarize what you're about to do. Dispatch immediately.
