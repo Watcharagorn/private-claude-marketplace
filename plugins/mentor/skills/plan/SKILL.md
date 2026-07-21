@@ -262,7 +262,7 @@ same turn, ask via `AskUserQuestion`:
   "options": [
     { "label": "Proceed", "description": "Validate the plan, release the edit gate, and begin implementation." },
     { "label": "Deliver plan only", "description": "Validate the plan and release the gate; the plan file is the deliverable — no implementation, no dispatch. (/mentor:handoff can brief a fresh agent afterwards.)" },
-    { "label": "Review the plan (light)", "description": "Run plan-review — fan out 4 read-only reviewers over this plan (incl. a spec-kit-analyze-style consistency check). Stays in planning; surfaces findings, then asks again." },
+    { "label": "Review the plan (light)", "description": "Run plan-review — 3 read-only light reviewers, then a spec-kit-analyze-style consistency check once they return. Stays in planning; surfaces findings, then asks again." },
     { "label": "Keep planning", "description": "Do not release — keep refining. Re-write the plan file and ask again when ready." }
   ]
 }
@@ -321,8 +321,8 @@ invoke the handoff skill for this approved plan and stop. Do not implement and
 do not dispatch in this session.
 
 On **Review the plan (light)**, invoke `Skill(skill="mentor:plan-review")` and
-prepend: *"The user selected 'Review the plan (light)' — skip the Run/Pass gate
-and dispatch the reviewers directly."* Its reviewers are read-only, so the gate
+prepend: *"The user selected 'Review the plan (light)' — skip the Step 2 gate
+and start the staged review directly."* Its reviewers are read-only, so the gate
 stays closed. Surface their findings; if the user wants any folded in, revise
 and re-write the plan file; then re-ask this same question — this option never
 releases the gate by itself.

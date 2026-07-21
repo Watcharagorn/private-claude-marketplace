@@ -22,7 +22,7 @@ It is a **conversation**, not an implementation. It makes **no repo edits** and 
 **How this differs from `/plan-review`** (so you always know which to reach for):
 
 > **`/mentor:grill`** sharpens the *decisions* — an interactive interview with you, before the plan is locked.
-> **`/plan-review`** audits the *finished plan* — four read-only reviewer agents at the approve gate, no human interview.
+> **`/plan-review`** audits the *finished plan* — staged read-only reviewer agents (three light, then a consistency pass) at the approve gate, no human interview.
 
 Grilling resolves "have we actually thought this through?"; plan-review answers "is the written plan any good?". They are complementary, run at different moments, and never replace each other.
 

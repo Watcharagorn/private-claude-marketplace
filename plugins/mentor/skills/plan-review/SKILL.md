@@ -1,20 +1,29 @@
 ---
 name: plan-review
 description: |
-  Pre-approval light plan reviewer. Trigger phrases: `/plan-review`,
-  "review this plan", "review the plan", "send the plan to reviewers".
-  Reads the current mentor plan (.md) and reviews it against four fixed
-  dimensions — practicality, comprehensiveness, cleanliness, and consistency —
-  by fanning out four read-only general-purpose reviewers in a single
-  parallel Agent() batch, while the edit gate stays closed.
+  Pre-approval plan reviewer. Trigger phrases: `/plan-review`,
+  "review this plan", "review the plan", "send the plan to reviewers" —
+  or, for the consistency check alone: "check plan consistency",
+  "consistency review", "analyze the plan for consistency".
+  Reads the current mentor plan (.md) and, with the edit gate closed, runs
+  a light review (three read-only reviewers: practicality,
+  comprehensiveness, cleanliness), then a spec-kit-analyze-style
+  consistency check over the plan and its related artifacts once the
+  light review returns. The consistency check is also invocable on its
+  own.
 ---
 
-# Plan Review — Fixed 4-Topic Light Review
+# Plan Review — Light Review, then Consistency
 
-A pre-approval review pass: it reads the current plan, asks the user Run vs
-Pass, then fans out **four** `Agent()` calls — one per fixed dimension — in a
-**single message**. The `.planning` gate stays closed throughout; reviewers are
-read-only.
+A pre-approval review pass in **two stages**: it reads the current plan,
+confirms at the Step 2 gate, then fans out the **three light reviewers**
+(practicality, comprehensiveness, cleanliness) — one `Agent()` call per
+dimension in a **single message**. Once all three have returned, it dispatches
+the **consistency** reviewer as an automatic follow-up stage. Sequencing keeps
+the heavier cross-artifact consistency analysis from racing the light pass and
+lets its findings land after the solution-level ones. The `.planning` gate
+stays closed throughout; reviewers are read-only. The consistency stage can
+also be invoked **on its own** (see Consistency-only mode below).
 
 The four fixed dimensions are:
 
@@ -40,11 +49,12 @@ The lanes are exclusive so the reviewers don't overlap:
 The boundary that matters: a **comprehensiveness gap** = the plan omits
 something the *real requirement* needs; a **consistency coverage-gap** = the plan
 *states* something (a scenario) but no step carries it through. There is no
-domain detection — every plan is reviewed against these same four dimensions.
+domain detection — the full pass always reviews these same four dimensions.
 
 ## When to use
 
-- The user typed `/plan-review` (or "review this plan"), or chose "Review the plan (light)" at the `plan` approval step.
+- The user typed `/plan-review` (or "review this plan"), or chose "Review the plan (light)" at the `plan` approval step — run both stages.
+- The user asked for the consistency check alone ("check plan consistency", "consistency review") — run Consistency-only mode.
 - A mentor plan `.md` exists in the plans dir and the user wants feedback before approving.
 
 ## When NOT to use
@@ -60,7 +70,7 @@ domain detection — every plan is reviewed against these same four dimensions.
 git_common=$(git rev-parse --git-common-dir 2>/dev/null) && \
   repo_root=$(cd "$(dirname "$git_common")" && pwd) && \
   d="$repo_root/.mentor/plans"
-primary=$(ls -t "$d"/*/plan.md 2>/dev/null | head -1)   # the PRIMARY plan — subject for all 4 reviewers
+primary=$(ls -t "$d"/*/plan.md 2>/dev/null | head -1)   # the PRIMARY plan — the subject every reviewer reads
 plan_dir=$(dirname "$primary")                          # the primary plan's own <slug>/ folder
 echo "$primary"
 ```
@@ -86,23 +96,30 @@ cross-artifact comparisons).
 ## Step 2 — User confirmation gate (AskUserQuestion)
 
 **Skip this step** if the calling context explicitly instructs you to (e.g. the
-user already chose "Review the plan (light)" at the approval step). Otherwise
-ask one Run-vs-Pass question:
+user already chose "Review the plan (light)" at the approval step), or if the
+user explicitly asked for the consistency check alone — that ask is the
+confirmation; go straight to Consistency-only mode. Otherwise ask one
+question:
 
 ```
-Question — header "Plan review", single-select, 2 options:
-  1. "Run light review"   (Recommended)
-     description: "Review the solution on practicality, comprehensiveness, and cleanliness, and check internal + cross-artifact consistency."
-  2. "Pass (skip)"
+Question — header "Plan review", single-select, 3 options:
+  1. "Run review"   (Recommended)
+     description: "Light review first (practicality, comprehensiveness, cleanliness), then the internal + cross-artifact consistency check once it completes."
+  2. "Consistency only"
+     description: "Skip the light review; run just the spec-kit-analyze-style consistency check."
+  3. "Pass (skip)"
      description: "Return to planning without dispatching."
 ```
 
 On "Pass (skip)": print `Plan review: skipped by user.` and return — no dispatch.
+On "Consistency only": jump to Consistency-only mode.
 
-## Step 3 — Fan out the four reviewers
+## Step 3 — Fan out the three light reviewers
 
-Issue **one `Agent()` call per topic in a single assistant message** so they run
-concurrently. Each call uses `subagent_type: general-purpose`, `model: sonnet`,
+Issue **one `Agent()` call per topic in a single assistant message** so the
+three run concurrently — the consistency reviewer is not in this batch; it
+dispatches in Step 4. Each call uses
+`subagent_type: general-purpose`, `model: sonnet`,
 `description: "Review plan: <topic>"`. Every reviewer must stay in its own lane
 (see the table above) — drop any finding another reviewer owns.
 
@@ -132,11 +149,16 @@ Each `prompt` must contain:
    is absent — do not add a separate constitution reviewer; the check stays folded
    into all reviewers.
 
-### Reviewer 4 — consistency (spec-kit-`analyze`-style)
+## Step 4 — The consistency reviewer (spec-kit-`analyze`-style)
+
+This step owns the dispatch timing: send this reviewer **only after all three
+light reviewers have returned** — automatically, in the same turn you surface
+their findings, with no extra confirmation gate. If a light reviewer dies,
+note it and dispatch this one anyway; the lanes are independent.
 
 A distinct contract: a structured, severity-tagged consistency analysis rather
-than the prose block. `description: "Review plan: consistency"`. Its `prompt`
-must contain:
+than the prose block. `subagent_type: general-purpose`, `model: sonnet`,
+`description: "Review plan: consistency"`. Its `prompt` must contain:
 
 1. `Act as a spec-consistency analyzer. You analyze the plan (and its related planning artifacts) for internal and cross-artifact consistency. You are NOT implementing it, and NOT judging whether the approach is good.`
 2. The primary plan path with `Read this file first.`, then the related-artifact
@@ -186,16 +208,30 @@ must contain:
    plan's `## Constitution Check` table is internally consistent (every principle
    has a row; every ⚠️ verdict has a resolving or explicitly-justified note).
 
-## Step 4 — Surface findings
+## Step 5 — Surface findings
 
-When the reviewers return, surface their findings grouped by dimension —
-reviewers 1-3 as their `Strengths/Risks/Gaps/Recommended plan edits` blocks, and
-the consistency reviewer's findings table + coverage map + metrics **as-is**. If
-the user wants any folded in, revise and re-write the plan file (`plan` Step 4),
-then return to the approval question.
+Surface findings as each batch returns, grouped by dimension:
+
+- **When the light reviewers return:** surface reviewers 1-3 as their
+  `Strengths/Risks/Gaps/Recommended plan edits` blocks, then dispatch the
+  consistency reviewer per Step 4.
+- **When the consistency reviewer returns:** surface its findings table +
+  coverage map + metrics **as-is**.
+
+If the user wants any finding folded in, revise and re-write the plan file
+(`plan` Step 4), then return to the approval question.
+
+## Consistency-only mode
+
+Entered by a direct consistency ask or the "Consistency only" gate choice
+(see When to use / Step 2). Ensure Step 1 has run — it is the shared
+prerequisite of every mode — then skip the light reviewers and dispatch
+**only** the Step 4 consistency reviewer, immediately. Surface its output per
+Step 5's second bullet. Everything else holds: gate closed, read-only, no
+plan edits from inside this skill.
 
 ### Do NOT
 
 - Do **not** run `approve-plan.sh` from inside this skill — review never releases the gate.
 - Do **not** edit any plan file or artifact from inside `/plan-review`. Surface findings; let the user decide.
-- Do **not** detect domains or ask the user to select domains — this is a fixed 4-topic pass.
+- Do **not** detect domains or ask the user to select topics — the review topics are fixed (see the dimension table above).
