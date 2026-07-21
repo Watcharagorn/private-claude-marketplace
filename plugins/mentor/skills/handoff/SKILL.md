@@ -7,7 +7,8 @@ description: >
   should run, references existing artifacts (the plan file, PRDs, ADRs, issues,
   commits, diffs) by path/URL instead of duplicating them, and redacts secrets.
   Saved under the repo's gitignored .mentor/handoffs/ dir, so it never pollutes
-  `git status`.
+  `git status`. Ends by printing a copy-paste resume prompt so the next session
+  can continue instantly.
 ---
 
 # Handoff — Compact the Session for the Next Agent
@@ -74,7 +75,9 @@ git repo, the snippet falls back to `$HOME/.claude/mentor/_no-repo/handoffs/`.)
 > need a sample to imitate. **Discoverability contract:** `/mentor:resume` lists ONLY notes under the
 > `handoffs/` dir whose name matches `^[0-9]{8}-[0-9]{6}-.+\.md$`. A note saved in any other directory
 > — or named differently (e.g. `HANDOFF-<slug>.md`) — is **invisible to `/mentor:resume`**; the next
-> agent will never find it. Write exactly the path the snippet echoes.
+> agent will never find it. Write exactly the path the snippet echoes, and run the snippet **once**,
+> reusing that path — re-running it mints a new timestamp, and a note written to a second path
+> strands the first.
 
 ## Step 3 — Author the handoff document
 
@@ -102,13 +105,14 @@ Pick the entries that fit the current state, tailored to the next-session focus:
 - **Approved plan, ready to build** → resume implementation — execute the plan's dispatch annotations via `Skill(skill="mentor:dispatch-agents")`; `/mentor:ship` when done.
 - **Repeated manual work worth capturing** → `/loom:harvest`.
 - **Heavy multi-area work** → dispatch subagents per `mentor:dispatch-agents`.
-- If a mode is persisted (`/mentor:mode status`), cite the repo's approval-gate default so the next agent knows whether "Proceed" or "Deliver plan only" is listed first at plan approval.
+- If `.mentor/config.json` exists (a persisted mode — `/mentor:mode status` shows it), cite the repo's approval-gate default so the next agent knows whether "Proceed" or "Deliver plan only" is listed first at plan approval.
 
 ## Step 4 — Redact secrets
 
 Before writing, scrub the document of **API keys, passwords, tokens, connection strings, and PII**.
 Replace any such value with `<REDACTED>`. This is a hard requirement — never carry a live secret into
-a handoff file. Never invent or guess secret values.
+a handoff file. Never invent or guess secret values. Redact actual secret **values**, not vocabulary —
+prose that merely mentions words like "token" or "password" (e.g. "fixing auth token retry") is fine.
 
 ## Step 5 — Report
 
@@ -116,10 +120,33 @@ Before reporting, **verify the written path is under the `handoffs/` dir and its
 `<YYYYMMDD-HHMMSS>-<slug>.md`** (the exact pattern `/mentor:resume` lists). If it is not, you used
 the wrong path — recompute via the Step 2 snippet and re-write there.
 
-Write the file, then tell the user the **absolute path** and note that it is **gitignored**
-(so `git status` stays clean). Offer a one-line summary of what the next agent should do first.
-Mention that a fresh session can load this note with **`/mentor:resume`** (it lists this repo's
-handoff notes and continues the chosen one).
+Write the file, then tell the user the **absolute path** and note that it is **gitignored**.
+If the Step 2 snippet just created `.mentor/.gitignore`, that file itself shows as untracked —
+don't claim `git status` is clean; instead suggest committing it once (it is designed to be
+committed, alongside `config.json`/`constitution.md`), after which the `.mentor/` tree stays out
+of `git status` for good. Offer a one-line summary of what the next agent should do first.
+
+**End the report with a copy-paste resume prompt** — the very last thing on screen, so the user
+can grab it without scrolling. Print a fenced code block containing exactly:
+
+```
+/mentor:resume <slug>
+```
+
+with `<slug>` replaced by the **actual slug from Step 2**. The slug uniquely matches the note's
+filename, so `/mentor:resume` selects it directly — no picker, no re-typing; pasting this one line
+into a fresh session resumes the work instantly. Below it, print a second fenced block with a
+plain-prompt alternative for a next agent **without** the mentor plugin (a teammate's setup, a
+cloud agent). Keep it to a **single line** — however long the path makes it — so it pastes as one
+prompt:
+
+```
+Read <absolute note path> and continue the work it describes, following its "Recommended mentor commands for the next agent" section.
+```
+
+Both blocks must be **literal and complete** — real slug, real absolute path, never a `<…>`
+placeholder left for the user to fill in. A prompt that needs editing before pasting defeats the
+point.
 
 ## Done when
 
@@ -128,6 +155,8 @@ handoff notes and continues the chosen one).
 - Secrets are redacted.
 - The content is tailored to the next-session focus.
 - The recommended next-step mentor commands are listed.
+- The report **ends with literal copy-paste resume prompts** (`/mentor:resume <slug>` + the
+  plugin-free alternative) — real values filled in, no placeholders.
 
 ### Do NOT
 
