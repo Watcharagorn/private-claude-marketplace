@@ -97,7 +97,9 @@ cannot fit a 400-word summary contract without truncating coverage):
 - Plus **OPEN QUESTIONS** (anything unverifiable). No raw file dumps beyond the per-card snippets.
 
 The main thread holds only this manifest — it does not re-read the repo (the same orchestrator
-contract `dispatch-agents` enforces for implementation).
+contract `dispatch-agents` enforces for implementation). This dispatch also follows the
+`dispatch-agents` **"Async runtime & lifecycle"** rules: the prompt requires delivery before idling,
+idle-with-no-manifest gets one nudge, and the agent is stopped/released once the manifest is consumed.
 
 ## Step 3 — Coverage cross-check (before any rendering)
 

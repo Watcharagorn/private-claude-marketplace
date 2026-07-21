@@ -43,16 +43,19 @@ pad identical panes):
 6. **Token swatch strip** — the actual colors/fonts introduced or changed, as swatches.
 7. **A11y deltas** — contrast or focus-order changes called out when relevant.
 
-## Preflight — invoke the official frontend-design skill
+## Preflight — invoke a design skill (runtime discovery, never hardcoded)
 
-When this domain matches, the main thread invokes `Skill(skill="frontend-design:frontend-design")`
-**once**, before writing the plan, and distills its design principles for the plan body (§2) and
-any later UI combo-agent prompt (§4). If that skill is unavailable in the session, degrade
-gracefully — proceed without it and note the omission in the plan's Context.
+When this domain matches, the main thread invokes ONE design/UX skill **once**, before writing the
+plan, and distills its design principles for the plan body (§2) and any later UI combo-agent prompt
+(§4). Pick it by **runtime discovery** (the same idiom `tour` uses): read the most recent
+active-skills system-reminder and pick the strongest design/UX skill present —
+`frontend-design:frontend-design` when installed, else the strongest alternative (e.g.
+`ui-ux-pro-max`), else the built-in `artifact-design`. If none is listed, degrade gracefully —
+proceed without it and note the omission in the plan's Context.
 
 Three global rules govern everything in this domain (restated as hard rules in §Constraints):
 
-1. The official frontend-design skill controls design and review decisions — invoke it first.
+1. The discovered design skill controls design and review decisions — invoke it first.
 2. All design work derives from **REAL front-end source files** — never invented structure.
 3. **Never create mockup HTML files inside the repo source tree** (`docs/`, `mockups/`, or any
    documentation directory). The opt-in zoom html lives in the plan's own zoom dir at
@@ -81,7 +84,7 @@ Apply these requirements when writing the plan:
 
 - Implementation steps target **REAL component files** (from research EVIDENCE) — never repo
   mockup files, never new files in documentation directories.
-- Apply the distilled frontend-design principles from the Preflight.
+- Apply the distilled design principles from the Preflight's discovered design skill.
 - Emit an itemized **`## Proposed UI changes per surface`** section — one entry per changed
   surface, each naming the surface, its source file(s), and the concrete visual deltas. This
   section drives the delta rendering (§3) and is the zoom combo agent's mockup spec if a zoom is
@@ -135,9 +138,12 @@ Rules:
   authored `Proposed UI changes per surface` spec.
 - **Skip when there is no visual delta** (e.g. a pure component refactor): the zoom notes
   "no visual change" instead. Never force identical before/after panes.
-- **Regenerate on revision.** If the `Proposed UI changes per surface` section changes during a
-  Keep-planning iteration and a zoom is being refreshed, re-dispatch that combo with the updated
-  spec — never ship stale panes.
+- **Regenerate on revision — completeness-checked, not memory-driven.** If the
+  `Proposed UI changes per surface` section changes during a Keep-planning iteration (or a global
+  product decision invalidates prior visuals), `grep -l` the invalidated term/content across EVERY
+  existing `zoom/*.html` in the plan's zoom dir and re-dispatch ALL matching combos in one batched
+  message with the updated spec — never just "that combo" from memory, and never ship stale panes.
+  Wait for the re-dispatches to complete before any `plan-review` dispatch reads the zoom files.
 - **Inline panes only — never a hosted Artifact.** The panes are embedded **inline** as
   `<iframe srcdoc>` in the combo's single self-contained zoom html file; the agent must **not**
   call the `Artifact` tool or return a claude.ai-hosted URL — a published artifact would be a
@@ -151,7 +157,7 @@ inputs (so pane fidelity never depends on the agent re-researching):
 1. The changed-surface list (scoped to the combo's topic) with the real component / token /
    font **file paths** from research EVIDENCE.
 2. The plan's `Proposed UI changes per surface` entries relevant to the topic, verbatim.
-3. The distilled frontend-design principles from the Preflight.
+3. The distilled design principles from the Preflight's discovered design skill.
 4. The instruction: *"Read the real source files yourself. The BEFORE pane must faithfully
    reproduce the current UI; the AFTER pane the proposed UI. Invent nothing — every color, font,
    spacing value, and structural element comes from the project's actual source or the
@@ -179,7 +185,9 @@ The zoom file follows `plan` Step 5's constraints (single self-contained file au
 
 ## Constraints recap (hard rules)
 
-1. Invoke `frontend-design:frontend-design` once before writing the plan; distill, don't skip.
+1. Invoke ONE design skill once before writing the plan — discovered at runtime per the Preflight
+   (`frontend-design:frontend-design` when installed, else the strongest present alternative, else
+   `artifact-design`); distill, don't skip.
 2. Delta renderings, mockups, and implementation steps derive ONLY from real front-end source
    files.
 3. No mockup files inside the repo source tree, ever — the opt-in zoom html (in the gate-exempt

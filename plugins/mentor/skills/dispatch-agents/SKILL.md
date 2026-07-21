@@ -154,6 +154,43 @@ before issuing `Agent` calls. Then:
 2. **Dispatch "Run in parallel:" groups** — issue ALL `Agent()` calls for each parallel group in a **single message** so they run concurrently. After dispatching, do not busy-poll with `sleep`/no-op Bash calls; stop and let the harness re-invoke you when agents complete.
 3. **Dispatch "Sequential:" steps one at a time** — wait for the prior step's result before issuing the next call.
 4. **Verify each `Done when:` criterion** before moving to the next step — agents describe what they intended; trust but verify.
-5. **When every step has completed and verified** — offer a hands-on acceptance pass: `/mentor:tour` builds an editable guided-tour review artifact (pass/not-pass scenarios) of what shipped. One line; do not auto-run it.
+5. **CLOSING CHECKLIST — always, after the last step verifies:**
+   - **Close out finished agents** — stop/release any still-resident dispatches (see "Async runtime & lifecycle" below).
+   - **Offer `/mentor:tour`** — one line: a hands-on acceptance pass building an editable guided-tour review artifact (pass/not-pass scenarios) of what shipped. Do not auto-run it.
 
 Do NOT paraphrase the plan or summarize what you're about to do. Dispatch immediately.
+
+## Async runtime & lifecycle
+
+Dispatched agents run as background teammates: they can signal **idle** before
+(or instead of) delivering, die mid-flight on infra errors, and stay resident
+after finishing. These rules govern every dispatch surface in mentor — this
+skill, plus the dispatches in `plan` Steps 2/5, `plan-review`, `tour`, and
+`grilling` (each cross-references this section):
+
+- **Deliver before idling.** End every prompt sketch with a delivery directive:
+  "Deliver your full result (final text / message per your runtime) BEFORE
+  going idle — an idle signal with no delivered result is a contract
+  violation." Verdict- or report-producing agents (reviewers, verifiers)
+  additionally **Write a durable copy** to `<repo>/.mentor/plans/<slug>/`
+  (e.g. `step-N-review.md`) before returning — a dropped notification must
+  never be the only copy of completed work.
+- **Idle-before-report race.** An idle notification can arrive before the
+  agent's actual report. On idle with no report in hand: check the message
+  backlog, then send ONE nudge requesting the result — only if that fails,
+  fall back to independent re-verification. Never re-run expensive
+  verification (full builds, E2E suites) while the agent's own report may
+  still be in flight.
+- **Agent died (infra/API error).** Don't reinvent recovery glue: wait with
+  escalating patience (minutes-scale, roughly doubling — this sanctioned wait
+  for a *dead* agent is not the busy-polling of a healthy one forbidden
+  above), then send a resume message: "You died on an infra error mid-step.
+  Resume Step N where you left off. Already applied: <paste state>. Your
+  `Done when:` <verbatim>." Two failed resumes → fresh re-dispatch of the role.
+- **Follow-up vs re-dispatch.** A small fix or clarification on work an idle
+  agent already owns → message that same agent (its context is warm). A failed
+  `Done when:` needing a clean rebrief → re-dispatch the role once (per the
+  orchestrator contract above).
+- **Close out.** Once a dispatch's output is consumed and its `Done when:`
+  verified, stop/release the agent — finished agents left idling interrupt
+  the session with stray notifications and pile up until manually killed.

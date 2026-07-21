@@ -16,7 +16,11 @@
 #
 # Staleness: a marker older than 8h is treated as released (a crashed planning
 # session must never permanently lock out editing) — the marker is removed and
-# the call allowed.
+# the call allowed. Checked ONLY for writes the gate would otherwise DENY: a
+# gate-exempt .mentor/ write (an ordinary plan.md revision hours into a live
+# session) must never silently release the gate as a side effect. When the
+# self-heal fires it prints a stdout notice — a silent release is later
+# indistinguishable from an approval.
 #
 # No marker → exit 0 (not planning). Cannot resolve the repo/marker → exit 0
 # (nothing to protect). Exit 2 = block (stderr shown to the agent).
@@ -44,12 +48,6 @@ marker="${plans_dir}/.planning"
 # No marker → not planning → allow.
 [ -f "$marker" ] || exit 0
 
-# Stale marker (>8h) → treat as released; self-heal and allow.
-if [ -n "$(find "$marker" -mmin +480 2>/dev/null)" ]; then
-  rm -f "$marker" 2>/dev/null || true
-  exit 0
-fi
-
 # The working-tree root to protect (writes anywhere inside it are denied while planning).
 REPO_WT="$(git -C "$CWD" rev-parse --show-toplevel 2>/dev/null || true)"
 [ -z "$REPO_WT" ] && REPO_WT="$repo_root_common"
@@ -70,10 +68,19 @@ FILE_PATH="$(printf '%s' "$INPUT" | jq -r '.tool_input.file_path // .tool_input.
 if [ -n "$FILE_PATH" ]; then
   FILE_CANON="$(_canon "$FILE_PATH")"
   case "$FILE_CANON" in
-    "${REPO_CANON}/.mentor"|"${REPO_CANON}/.mentor/"*) exit 0 ;;  # mentor's own state (plan file, markers) → always allow
+    "${REPO_CANON}/.mentor"|"${REPO_CANON}/.mentor/"*) exit 0 ;;  # mentor's own state (plan file, markers) → always allow, staleness never evaluated
     "$REPO_CANON"|"${REPO_CANON}/"*) ;;   # else inside repo → deny (fall through)
     *) exit 0 ;;                          # outside repo (/tmp, …) → allow
   esac
+fi
+
+# Stale marker (>8h) → treat as released; self-heal and allow. Reached only for
+# writes the gate would otherwise deny (exempt paths exited above), so an
+# ordinary .mentor/ write can never disarm the gate as a side effect.
+if [ -n "$(find "$marker" -mmin +480 2>/dev/null)" ]; then
+  rm -f "$marker" 2>/dev/null || true
+  echo "[mentor] Stale planning marker (>8h) released — the plan gate is no longer armed. If planning is still active, re-arm it by re-running /mentor:plan (begin-plan.sh)."
+  exit 0
 fi
 
 # empty path (unresolvable) OR inside-repo → deny (fail-closed).

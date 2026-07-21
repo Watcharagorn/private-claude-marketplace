@@ -24,9 +24,14 @@ note (or by amending the constitution first).
 
 It is committed to the repo at **`.mentor/constitution.md`** so the whole team
 shares one rulebook — unlike plans/handoffs, which are gitignored transient state.
+A repo that already keeps its rulebook elsewhere (e.g. `docs/constitution.md`)
+can instead **adopt it by reference** (Step 3a): `constitution_path` in
+`.mentor/config.json` points at it, and every consumer (`plan` Step 0,
+`plan-review`, zoom combos) resolves that path and reads the real file live.
 
-The flow: guard → load any existing constitution → collect/derive principles →
-version & date → assemble (sync-impact report + body) → confirm → write → report.
+The flow: guard → load any existing constitution → collect/derive principles
+(or adopt an external file by reference) → version & date → assemble
+(sync-impact report + body) → confirm → write → report.
 
 ## Step 1 — Guard {#guard}
 
@@ -45,8 +50,11 @@ else
   else
     echo "PLANNING-IDLE"
   fi
-  echo "CONSTITUTION=$repo_root/.mentor/constitution.md"
-  [ -f "$repo_root/.mentor/constitution.md" ] && echo "EXISTS" || echo "NEW"
+  const_rel="$(jq -r '.constitution_path // empty' "$repo_root/.mentor/config.json" 2>/dev/null)"
+  const_path="${repo_root}/${const_rel:-.mentor/constitution.md}"
+  echo "CONSTITUTION=$const_path"
+  [ -n "$const_rel" ] && echo "ADOPTED-BY-REFERENCE"
+  [ -f "$const_path" ] && echo "EXISTS" || echo "NEW"
   echo "TODAY=$(date +%F)"
 fi
 ```
@@ -62,10 +70,14 @@ fi
 
 ## Step 2 — Load the existing constitution {#load}
 
-If `EXISTS`, `Read` `.mentor/constitution.md` and note its current **version**,
-**ratification date**, and the **set of principles** (names + rules). This is an
-**amendment**; the ratification date is preserved. If `NEW`, this is the first
-**ratification** — version starts at `1.0.0` and the ratification date is `TODAY`.
+If `EXISTS`, `Read` the resolved `CONSTITUTION` file and note its current
+**version**, **ratification date**, and the **set of principles** (names +
+rules). This is an **amendment**; the ratification date is preserved. If `NEW`,
+this is the first **ratification** — version starts at `1.0.0` and the
+ratification date is `TODAY`. When the guard printed `ADOPTED-BY-REFERENCE`,
+the constitution is an external file the repo already owns: amendments edit
+THAT file in place, and only when the user asks — never rewrite an adopted
+document into mentor's template uninvited.
 
 **Read-only shortcut:** if the user only wants to *see* the current constitution
 (e.g. "show me our principles", "what governs this repo") and requested no change,
@@ -94,6 +106,34 @@ A good principle is:
 Keep the whole document short and high-signal (typically 3–7 principles). Add an
 optional extra section (Constraints / Security / Workflow) only if the user has
 rules that are not principles.
+
+### Step 3a — Adopt an existing external constitution (by reference) {#adopt}
+
+When the user points at a governing doc the repo **already has** ("use
+`docs/constitution.md`", "this existing constitution …"), do **not** duplicate
+or re-author its content. Adopt it by reference instead:
+
+1. Confirm the file exists and skim it so you can summarize what was adopted.
+2. Write only the pointer into `.mentor/config.json` (merge-json safely —
+   backup, edit with `jq`, validate, restore on failure):
+
+   ```bash
+   cfg="$REPO_ROOT/.mentor/config.json"
+   mkdir -p "$REPO_ROOT/.mentor"
+   [ -f "$cfg" ] || echo '{}' > "$cfg"
+   cp "$cfg" "$cfg.bak"
+   jq --arg p "docs/constitution.md" '.constitution_path = $p' "$cfg" > "$cfg.tmp" \
+     && jq empty "$cfg.tmp" && mv "$cfg.tmp" "$cfg" && rm -f "$cfg.bak" \
+     || { mv "$cfg.bak" "$cfg"; rm -f "$cfg.tmp"; echo "config write FAILED — restored"; }
+   ```
+
+3. Report: the adopted path, that every `/mentor:plan` Constitution Check and
+   `/plan-review` will now `Read` that file live (they resolve
+   `constitution_path`), and commit guidance for `.mentor/config.json` (it is a
+   committed file per `.mentor/.gitignore`).
+4. **Skip Steps 4–7 entirely** — no version bump, no template, no
+   `.mentor/constitution.md` is written. The external file stays exactly as the
+   repo owns it.
 
 ## Step 4 — Version & dates {#version}
 
@@ -195,7 +235,9 @@ Write the assembled document to `$REPO_ROOT/.mentor/constitution.md`. Then repor
 
 ### Do NOT
 - Do **not** run `begin-plan.sh` or arm the plan gate — this is not a plan session.
-- Do **not** write the constitution anywhere but `$REPO_ROOT/.mentor/constitution.md`.
+- Do **not** write the constitution anywhere but `$REPO_ROOT/.mentor/constitution.md` —
+  with ONE exception: the adopt-by-reference branch (Step 3a), which writes only the
+  `constitution_path` key into `.mentor/config.json` and never a second constitution file.
 - Do **not** invent principles the user did not ask for and cannot be grounded in
   the repo — when unsure, propose and let Step 6 confirm.
 - Do **not** leave placeholder brackets or a stale version/date in the written file.

@@ -93,6 +93,16 @@ run allow "$REPO" Write "Write repo file (stale marker)" "$REPO/src/app.ts"
 if [ ! -f "$MARKER" ]; then PASS=$((PASS+1)); echo "  ok   stale marker self-healed (removed)"
 else FAIL=$((FAIL+1)); echo "  FAIL stale marker still present"; fi
 
+echo "== F2. Stale marker + gate-EXEMPT write → ALLOW, marker KEPT (no side-effect release) =="
+: > "$MARKER"
+touch -t "$(date -v-9H +%Y%m%d%H%M 2>/dev/null || date -d '9 hours ago' +%Y%m%d%H%M)" "$MARKER" 2>/dev/null || true
+run allow "$REPO" Write "Write plan.md (stale marker, exempt path)" "$PLANS_DIR/myplan/plan.md"
+if [ -f "$MARKER" ]; then PASS=$((PASS+1)); echo "  ok   exempt write did not release the stale marker"
+else FAIL=$((FAIL+1)); echo "  FAIL exempt write released the marker"; fi
+run allow "$REPO" Write "Write outside repo (stale marker)" "$ROOT/scratch2.txt"
+if [ -f "$MARKER" ]; then PASS=$((PASS+1)); echo "  ok   outside-repo write did not release the stale marker"
+else FAIL=$((FAIL+1)); echo "  FAIL outside-repo write released the marker"; fi
+
 echo
 echo "RESULT: PASS=$PASS FAIL=$FAIL"
 [ "$FAIL" = "0" ]

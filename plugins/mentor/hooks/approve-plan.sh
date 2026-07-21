@@ -73,6 +73,7 @@ else
   # Idempotency: gate already open (already approved, or never armed). Skip
   # validation/release but still honor the flag directive below.
   echo "[mentor approve-plan] Gate is already open — nothing to release."
+  echo "  (No approval this session? An 8h-stale marker may have self-released — plan-gate prints a notice when that happens.)"
   [ -n "$newest_plan" ] && echo "  plan: ${newest_plan}"
 fi
 

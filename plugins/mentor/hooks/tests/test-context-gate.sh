@@ -109,6 +109,18 @@ chk "same session → still exit 0"  test "$RC" = "0"
 run "hello" warnsess2 "$TX_WARN"
 chk "new session → warns again"    contains "getting large" "$OUT"
 
+echo "== B2. Warn-high tier (near-limit, re-fires) =="
+TX_HIGH="$ROOT/high.jsonl"; mktx "$TX_HIGH" usage:250000   # ≥ 243000 (90% of 270k), < 270000
+run "hello" hi1 "$TX_HIGH"
+chk "250k → exit 0"                          test "$RC" = "0"
+chk "250k → near-limit notice"               contains "close to the BLOCK" "$OUT"
+run "hello again" hi1 "$TX_HIGH"
+chk "same session → re-fires (no marker)"    contains "close to the BLOCK" "$OUT"
+printf '{"context_warn_high_tokens":100000}\n' > "$CONF"
+run "hello" hi2 "$TX_UNDER"
+chk "config context_warn_high_tokens honored (150k ≥ 100k)" contains "close to the BLOCK" "$OUT"
+rm -f "$CONF"
+
 echo "== C. Block tier =="
 run "please do a thing" blk1 "$TX_BLOCK"
 chk "285k plain prompt → exit 2"   test "$RC" = "2"
@@ -120,6 +132,14 @@ run "/compact" blk3 "$TX_BLOCK"
 chk "slash /compact passes"        test "$RC" = "0"
 run "" blk4 "$TX_BLOCK"
 chk "empty prompt passes"          test "$RC" = "0"
+# Harness-synthetic prompts at block level: measured but NEVER erased.
+run "<task-notification>reviewer finished: verdict Approved</task-notification>" blk5 "$TX_BLOCK"
+chk "synthetic task-notification at 285k → exit 0 (never erased)" test "$RC" = "0"
+chk "synthetic at 285k → loud advisory on stdout" contains "NOT blocked" "$OUT"
+run "<agent-message from=\"step6-docs\">fix summary body</agent-message>" blk6 "$TX_BLOCK"
+chk "synthetic agent-message at 285k → exit 0"    test "$RC" = "0"
+run "<teammate-message>idle ping</teammate-message>" blk7 "$TX_BLOCK"
+chk "synthetic teammate-message at 285k → exit 0" test "$RC" = "0"
 
 echo "== D. Kill switch =="
 run "do thing" ks1 "$TX_BLOCK" MENTOR_CONTEXT_GATE=off

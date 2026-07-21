@@ -67,7 +67,7 @@ Interview the user relentlessly about every aspect of this plan until you reach 
 
 - **Ask the questions one at a time**, waiting for feedback on each question before continuing. Asking multiple questions at once is bewildering — favor `AskUserQuestion` with a single focused question (your recommended option first).
 - **Order by dependency.** Resolve the decisions that other decisions hang off of first; let each answer narrow the next question.
-- **If a question can be answered by exploring the codebase, explore the codebase instead of asking.** Prefer dispatching an `Explore` subagent for anything beyond a few orienting reads — then fold what it finds into your next question.
+- **If a question can be answered by exploring the codebase, explore the codebase instead of asking.** Prefer dispatching an `Explore` subagent for anything beyond a few orienting reads — then fold what it finds into your next question. (Dispatches follow `dispatch-agents`' "Async runtime & lifecycle" rules: deliver-before-idle, one nudge on a silent idle, close out when consumed.)
 - Keep going until the material decisions are resolved or explicitly deferred — do not stop at the first easy answer.
 
 ---

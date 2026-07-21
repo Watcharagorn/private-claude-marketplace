@@ -86,7 +86,9 @@ coherence — the first three reviewers only ever see the primary plan:
 ```bash
 ls -t "$d"/*/plan.md 2>/dev/null                      # all plans (one <slug>/ dir each)
 ls    "$plan_dir"/zoom/*.html 2>/dev/null             # the primary plan's supplementary zoom artifacts
-[ -f "$repo_root/.mentor/constitution.md" ] && echo "$repo_root/.mentor/constitution.md"
+const_rel="$(jq -r '.constitution_path // empty' "$repo_root/.mentor/config.json" 2>/dev/null)"
+const_path="${repo_root}/${const_rel:-.mentor/constitution.md}"
+[ -f "$const_path" ] && echo "$const_path"            # the resolved constitution (default or constitution_path)
 ```
 
 Pass the primary plan plus this list to the consistency reviewer. If the only
@@ -121,7 +123,11 @@ three run concurrently — the consistency reviewer is not in this batch; it
 dispatches in Step 4. Each call uses
 `subagent_type: general-purpose`, `model: sonnet`,
 `description: "Review plan: <topic>"`. Every reviewer must stay in its own lane
-(see the table above) — drop any finding another reviewer owns.
+(see the table above) — drop any finding another reviewer owns. Reviewer
+dispatches follow `dispatch-agents`' **"Async runtime & lifecycle"** rules —
+in particular, verdict-producing reviewers write a durable copy of their
+verdict under `.mentor/plans/<slug>/` before returning, and finished reviewers
+are closed out once their findings are consumed.
 
 ### Reviewers 1-3 — practicality, comprehensiveness, cleanliness
 
@@ -142,9 +148,11 @@ Each `prompt` must contain:
    ```
 5. Word cap: `Cap your reply at 400 words.`
 6. Anti-recursion: `Do not invoke /plan-review or any planning skill.`
-7. **Constitution (conditional)** — if `.mentor/constitution.md` exists at the
-   repo root, add its path to every reviewer's prompt with:
-   `Also read .mentor/constitution.md and flag, under Risks, any place this plan
+7. **Constitution (conditional)** — if the resolved constitution exists (the
+   `$const_path` from Step 1 — default `.mentor/constitution.md`, or the file
+   `constitution_path` in `.mentor/config.json` points at), add its path to
+   every reviewer's prompt with:
+   `Also read <const_path> and flag, under Risks, any place this plan
    violates a stated principle (name the principle).` Skip this line when the file
    is absent — do not add a separate constitution reviewer; the check stays folded
    into all reviewers.
@@ -163,7 +171,7 @@ than the prose block. `subagent_type: general-purpose`, `model: sonnet`,
 1. `Act as a spec-consistency analyzer. You analyze the plan (and its related planning artifacts) for internal and cross-artifact consistency. You are NOT implementing it, and NOT judging whether the approach is good.`
 2. The primary plan path with `Read this file first.`, then the related-artifact
    list from Step 1 (other plans' `plan.md`s, the primary plan's `zoom/*.html`,
-   `.mentor/constitution.md`) with `Read the ones that appear related to the
+   the resolved constitution `$const_path`) with `Read the ones that appear related to the
    primary plan (inside the primary plan's folder, or referenced by it); ignore
    unrelated plans.`
 3. **Lane guard:** `Judge only coherence, traceability, and agreement — not feasibility, requirement coverage vs reality, or design cleanliness. If a finding is really one of those, DROP it; another reviewer owns it.`
@@ -203,7 +211,8 @@ than the prose block. `subagent_type: general-purpose`, `model: sonnet`,
    Metrics: <N scenarios> · <req coverage %> · <artifacts checked> · <critical count>
    ```
 8. Read-only + anti-recursion: `Do not edit any file. Do not invoke /plan-review or any planning skill.`
-9. **Constitution (conditional):** if `.mentor/constitution.md` exists, read it —
+9. **Constitution (conditional):** if the resolved constitution `$const_path`
+   exists (Step 1), read it —
    a MUST-principle violation is a CRITICAL finding, and additionally verify the
    plan's `## Constitution Check` table is internally consistent (every principle
    has a row; every ⚠️ verdict has a resolving or explicitly-justified note).

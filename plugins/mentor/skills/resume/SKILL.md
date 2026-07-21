@@ -100,10 +100,16 @@ Print the full numbered list (newest first) so the user can see every note, then
 
 - **From the argument** (`$ARGUMENTS`) or from an `AskUserQuestion` "Other" free-text answer:
   - A **bare integer** → a **1-based ordinal** into the printed list (1 = newest).
+  - The **keywords `latest` / `newest` / `last`** (any casing, alone or with filler like
+    "latest handoff") → **ordinal 1** (the newest note).
   - **Otherwise** → a **case-insensitive substring match against the slug** (the filename part after
     the timestamp).
   - A **unique** match is selected directly. If the input is **ambiguous** (matches >1 note) or
-    **matches nothing**, **never auto-pick** — re-print the list and re-ask.
+    **matches nothing**, **never auto-pick** — re-print the list and re-ask. **Mechanical
+    self-check before proceeding:** the selection must have resolved through one of the three
+    literal rules above (ordinal, keyword alias, slug substring). "It obviously meant the latest
+    one" is not a rule — a typo or free phrase that matches nothing (e.g. "lastest hand-off"
+    against slugs it doesn't substring-match) is a NO-match: re-print and re-ask.
 - **With no argument**, call `AskUserQuestion` (single-select) with the **4 newest** notes as quick
   options — `label` = the slug, `description` = the human date + focus preview. Older notes are
   reachable through the always-present **"Other"** free-text (resolved by the rule above). This
@@ -122,10 +128,16 @@ Print the full numbered list (newest first) so the user can see every note, then
    **Current state** and **Open questions / risks** sections so the user sees where things stand.
 4. **Reference artifacts by their paths** — the plan file, PRDs/ADRs, issue/PR URLs, commit SHAs as
    the note lists them. Do **not** paste their contents; open/read them only as needed to act.
-5. **Act on the note's "Recommended mentor commands for the next agent."** **Bound "act":** invoke the
+5. **Verify the gate state on disk — never trust the note's claim.** A note may say the plan gate is
+   released (or armed); check the actual marker before acting:
+   `test -f "$repo_root/.mentor/plans/.planning" && echo ARMED || echo RELEASED`. If the marker state
+   contradicts the note, say so and follow the marker, not the note.
+6. **Act on the note's "Recommended mentor commands for the next agent."** **Bound "act":** invoke the
    listed mentor command(s) **exactly as the note states** — do not infer extra steps or expand beyond
-   what the note recommends. If the note recommends `/mentor:plan <focus>`, run that; if it says resume
-   implementation of an approved plan, do that.
+   what the note recommends. If the note recommends `/mentor:plan <focus>`, run that. If it recommends
+   resuming implementation of an **approved plan**, implementation is subagents-first: invoke
+   `Skill(skill="mentor:dispatch-agents")` and follow its "Executing the dispatches" section (the same
+   SDD path plan Step 6 and handoff prescribe).
 
 Do **not** copy or duplicate the note into the repo source tree — it lives in the gitignored
 `.mentor/handoffs/` dir by design.

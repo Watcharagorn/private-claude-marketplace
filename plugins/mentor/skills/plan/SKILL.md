@@ -37,12 +37,24 @@ and use the WARN option set at Step 6 (it leads with **"Hand off to next
 agent"**). (A **`CONTEXT: BLOCKED`** never reaches this skill — begin-plan refuses to
 arm and the command stops before invoking the skill; noted here for completeness.)
 
-**Load the constitution.** Check for `.mentor/constitution.md` at the repo root
-(`git rev-parse --show-toplevel`). If it exists, `Read` it now — its principles
-are governing rules for this repo. Keep them in mind through research and design,
-and prove compliance in the plan's **Constitution Check** section (Step 4). If it
-is absent, no constitution governs this repo; skip the Constitution Check (you may
-mention `/mentor:constitution` once if the user seems to want project-wide rules).
+**Load the constitution.** Resolve the constitution path (a repo may keep its
+governing doc outside `.mentor/` — `constitution_path` in `.mentor/config.json`
+points at it; see `/mentor:constitution`'s adopt-by-reference branch):
+
+```bash
+repo_root="$(git rev-parse --show-toplevel 2>/dev/null)"
+const_rel="$(jq -r '.constitution_path // empty' "$repo_root/.mentor/config.json" 2>/dev/null)"
+const_path="${repo_root}/${const_rel:-.mentor/constitution.md}"
+```
+
+If the resolved file exists, `Read` it now — its principles are governing rules
+for this repo. Keep them in mind through research and design, and prove
+compliance in the plan's **Constitution Check** section (Step 4). If it is
+absent but `docs/constitution.md` or `CONSTITUTION.md` exists at the repo root,
+surface that once: the repo appears to have a governing doc mentor is not
+reading — suggest `/mentor:constitution` to adopt it by reference. Otherwise no
+constitution governs this repo; skip the Constitution Check (you may mention
+`/mentor:constitution` once if the user seems to want project-wide rules).
 
 ## Step 1 — Clarify (optional) {#clarify}
 
@@ -56,6 +68,8 @@ For multi-area or unfamiliar tasks, prefer dispatching **1–3 read-only `Explor
 agents** over disjoint areas (issue the `Agent` calls in one message) — it keeps
 the main conversation lean. For small, well-scoped tasks, read the files and
 draft directly in the main thread. Nothing enforces delegation; use judgment.
+(Research dispatches follow `dispatch-agents`' "Async runtime & lifecycle"
+rules: deliver-before-idle, one nudge on a silent idle, close out when consumed.)
 
 **Research return contract — put this in every research agent's prompt.** Each
 agent returns, and nothing more:
@@ -126,8 +140,9 @@ Required sections, in order:
    can verify your understanding at a glance.
 4. `## Approach` — the recommended design, with one visualization per
    significant change/decision realized inline under its owning topic.
-5. `## Constitution Check` — **include only when `.mentor/constitution.md` exists**
-   (Step 0). A GFM table with one row per principle: `Principle | Verdict | Notes`,
+5. `## Constitution Check` — **include only when the constitution resolved in
+   Step 0 exists** (default `.mentor/constitution.md`, or the file
+   `constitution_path` points at). A GFM table with one row per principle: `Principle | Verdict | Notes`,
    verdict = ✅ complies / ⚠️ deviates / ➖ N/A. For every ⚠️, the Notes cell must
    either point at the plan change that resolves it or record an explicit,
    justified deviation. If a principle can only be honored by amending the
@@ -178,6 +193,14 @@ scoped to one **topic × perspective** pair. A whole-plan ask ("preview the plan
 as HTML") does not bypass the gate below — it is exactly the case the gate
 exists for.
 
+**Sticky re-entry rule.** EVERY zoom ask re-enters this step's contract — the
+first one, the Nth one, a free-text follow-up ("update the review artifact",
+"add a zoom for X"), a mid-revision regeneration, at any point in the plan
+lifecycle. Run the Selection gate (skipping questions the ask already answers)
+and generate via dispatched agents. **Never hand-edit or hand-write a zoom file
+in the main thread** — least of all late in a session, when context is already
+large.
+
 ### Selection gate
 
 Resolve two dimensions before generating anything:
@@ -214,9 +237,10 @@ context. Each agent's prompt carries: the plan path (the agent `Read`s it), its
 topic, its perspective row from the catalog above, the output path
 `${plan_dir}/zoom/<topic>-<perspective>.html`, the spec below, and the
 delivery prohibition: *"Do NOT call the `Artifact` tool and do NOT return any
-hosted URL. Return ONLY the file path + a one-line summary — never the HTML
+hosted URL. Return ONLY the file path + a `Self-check:` line — sections
+rendered, diagram count, tags balanced, spec constraints met — never the HTML
 body."* Perspective-conditional inputs: **Reviewer/Architect** combos also get
-the `.mentor/constitution.md` path when it exists; a **UI-surface topic** gets
+the resolved constitution path (Step 0) when that file exists; a **UI-surface topic** gets
 the mockup contract inputs from `plan-domain-frontend` §4 whenever the
 perspective needs to *see* the surface to do its job — End user,
 Reviewer/Architect, and QA/Tester (the tester must see the states they verify) —
@@ -233,13 +257,26 @@ the assigned perspective only**, never the whole plan; readable — body text
 on first Write and must never show a half-built page). The path is inside the
 gate-exempt `.mentor/` tree, so the edit gate allows the Write; plan-open.sh
 auto-opens each file once. Stable names — a re-zoom of the same combo
-overwrites in place. Zoom
+overwrites in place. Zooms whose content is primarily visual (mockups,
+diagrams) SHOULD ship lightweight pan/zoom affordances on the outer page
+(fullscreen toggle ⛶, overlay scrim, +/−/reset, wheel-zoom — inline JS in the
+outer file only; iframe `srcdoc` panes stay no-JS per `plan-domain-frontend`
+§4). Zoom
 artifacts are throwaway visual aids; **the `.md` stays the source of truth** —
 no sync contract, no finalize step.
 
 **Completion check.** After the agents return, `ls "$plan_dir"/zoom` against the
-expected combo files; report any missing combo file and re-dispatch it once
-before giving up.
+expected combo files and read each agent's `Self-check:` line (do not re-derive
+ad-hoc grep probes); report any missing combo file and re-dispatch it once
+before giving up. Zoom dispatches follow `dispatch-agents`' "Async runtime &
+lifecycle" rules — close out finished combo agents after this check.
+
+**Revision completeness.** When a plan revision or a product decision
+invalidates prior zooms, `grep -l` the invalidated term across every existing
+`${plan_dir}/zoom/*.html` and re-dispatch EVERY matching combo in one batched
+message — not just the combo you remember changing. Wait for those agents to
+complete before dispatching `plan-review`, so a reviewer never reads a zoom
+mid-write.
 
 ## Step 6 — Approve & release {#approve}
 
