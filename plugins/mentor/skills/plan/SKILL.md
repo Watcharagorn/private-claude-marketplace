@@ -2,15 +2,17 @@
 name: plan
 description: >
   The mentor planning workflow. Invoked by /mentor:plan after begin-plan.sh arms
-  the edit gate. Guides research, domain routing, writing a Mermaid-first
-  Markdown plan into the gate-exempt .mentor/ tree, and the approval that
-  releases the gate.
+  the edit gate. Guides research, domain routing, resolving open decisions with
+  the user one at a time (AskUserQuestion with decision support), writing a
+  Mermaid-first Markdown plan into the gate-exempt .mentor/ tree, and the
+  approval that releases the gate.
 ---
 
 # mentor Plan
 
 The flow: resolve the mode & load the constitution → clarify if needed →
-research (delegation suggested) → domain routing → write the Markdown plan
+research (delegation suggested) → domain routing → resolve open decisions
+with the user → write the Markdown plan
 (with a Constitution Check when a constitution exists) → (optional
 topic × perspective HTML zooms on request) → approve & release →
 subagents-first implementation (dispatch-agents).
@@ -76,11 +78,14 @@ agent returns, and nothing more:
 
 - **FINDINGS** — conclusions only, ≤ ~400 words.
 - **EVIDENCE** — `file:line` references only. No file dumps, no pasted source blocks.
-- **OPEN QUESTIONS** — anything blocking, as a short list.
+- **OPEN QUESTIONS** — anything blocking, as a short list. (These feed
+  Step 3.5's triage — they are never silently dropped.)
 
 For a large plan you may additionally dispatch one `Plan` agent to author the
-plan body: hand it the distilled research and the content spec below (Step 4);
-its return is the plan body you persist. For most plans, author it yourself.
+plan body — but only AFTER Step 3.5 has resolved the open decisions: hand it
+the distilled research, the resolved decisions, and the content spec below
+(Step 4); its return is the plan body you persist. For most plans, author it
+yourself.
 
 If a domain matched (Step 3), fold that domain skill's research directives into
 the research prompts.
@@ -100,6 +105,65 @@ Multiple domains may match; if none match, invoke the dynamic fallback.
 
 Each matched domain skill returns directives you fold into the research prompts
 and the plan body.
+
+## Step 3.5 — Resolve open questions & decisions (one at a time) {#decisions}
+
+Before writing the plan, drain every open question so the plan encodes
+decisions, not question marks. Collect them from all sources: the research
+agents' **OPEN QUESTIONS** returns (Step 2), directives from matched domain
+skills (Step 3), and any design fork you noticed yourself (approach A vs B,
+scope boundary, acceptance criteria, naming).
+
+Triage each item into exactly one bucket:
+
+- **Codebase-answerable** — the code, config, git history, or docs can settle
+  it. Answer it yourself (dispatch a read-only `Explore` agent, or read
+  directly for a quick check); never ask the user what the repo can answer.
+  (Explore dispatches follow `dispatch-agents`' "Async runtime & lifecycle"
+  rules, same as Step 2's research agents.)
+- **User decision** — preference, product direction, scope, priorities, a
+  trade-off with no objectively right answer. Queue it for the user.
+- **Immaterial** — the plan comes out the same whichever way it lands. Drop
+  it, or record it as a flagged assumption in the plan.
+
+Resolve the queued user decisions via `AskUserQuestion` — **one call, one
+question, one decision at a time**. Batching decisions into one call produces
+rushed, lower-quality answers. Order by dependency: resolve the decision other
+decisions hang off first, and let each answer narrow the next question.
+
+**Every question ships with decision support** — the user must be able to
+decide from your message alone, without re-reading the codebase:
+
+- In the message text **before** the tool call, give a compact decision brief:
+  what the decision is, why it matters to this plan, and the relevant evidence
+  from research (`file:line` references, observed behavior, constraints).
+- `AskUserQuestion` needs 2–4 options per question. For open-ended decisions
+  (naming, free-form scope), synthesize 2–4 concrete candidates from the
+  research — the tool adds a free-text "Other" automatically, so a candidate
+  list never traps the user. Only when you truly cannot form two sensible
+  candidates, ask in plain prose instead.
+- Put your **recommended option first** with "(Recommended)" appended to its
+  label (a convention for decision questions like these — fixed workflow gates
+  such as Step 6's approval order by position alone), and make each option's
+  `description` carry its concrete consequence or trade-off — not a
+  restatement of the label.
+- When options are competing shapes (schemas, layouts, flows, wording), use
+  the `preview` field so the user compares them side by side.
+
+Each answer becomes a plan input. An "Other" answer may open new questions —
+triage those through the same buckets. If the user explicitly defers a
+decision, record the deferral in the plan (as a flagged assumption or under
+Out of scope) rather than silently choosing for them.
+
+**Skip condition:** no open questions survived triage → proceed straight to
+Step 4. Never manufacture questions to fill the step — a well-specified task
+with clean research needs zero.
+
+This step resolves *post-research* decisions with evidence in hand; Step 1's
+grilling handles *pre-research* ambiguity in the request itself. An earlier
+grill session does not skip this step — research may have surfaced new forks —
+but a decision already resolved anywhere in the conversation is never
+re-asked.
 
 ## Step 4 — Write the Markdown plan {#write-the-plan}
 

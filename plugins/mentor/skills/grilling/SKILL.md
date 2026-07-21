@@ -26,6 +26,8 @@ It is a **conversation**, not an implementation. It makes **no repo edits** and 
 
 Grilling resolves "have we actually thought this through?"; plan-review answers "is the written plan any good?". They are complementary, run at different moments, and never replace each other.
 
+Within the plan flow itself, `plan` Step 3.5 owns *post-research* decision resolution — the same one-question-at-a-time, recommended-first protocol, run with research evidence in hand. Grilling owns *pre-research* ambiguity in the request; a decision resolved in either place is never re-asked by the other.
+
 ## When to use
 
 - The user typed `/mentor:grill`, or used a grill trigger ("grill me", "grill this plan", "stress-test this", "poke holes in this approach").

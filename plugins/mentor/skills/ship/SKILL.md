@@ -49,12 +49,12 @@ quick review of the branch diff yourself instead). After it returns:
      prompting** — `chore(simplify): refactor before ship` — and surface
      `git diff HEAD~1 --stat` in the ship summary.
    - If any file is OUTSIDE the scope: show the list and ask via
-     `AskUserQuestion`: include all / include in-scope only (default) / abort.
+     `AskUserQuestion`: include in-scope only (Recommended) / include all / abort.
 
 ## Step 4 — Conditional test step
 
 Ask via `AskUserQuestion`: "Run the test suite before shipping?" —
-Yes (recommended) / No.
+Yes (Recommended) / No.
 
 **Auto-detect the command from the repo root:**
 

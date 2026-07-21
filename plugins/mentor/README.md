@@ -21,7 +21,10 @@ review and are the single source of truth for implementation, handoff, and revie
 1. Runs `begin-plan.sh`, which writes the repo-scoped `.planning` marker — **arming
    the edit gate**. From here, repo source edits are blocked until approval.
 2. Follows the `plan` skill: optional clarify (grilling), research
-   (subagent delegation suggested for big tasks), domain routing, then a
+   (subagent delegation suggested for big tasks), domain routing, open-decision
+   resolution (every open question or decision that needs the user is asked via
+   `AskUserQuestion`, one at a time, each with evidence and a recommended
+   option), then a
    Markdown plan written to `<repo>/.mentor/plans/<slug>/plan.md` (in-repo, gitignored).
 3. At approval you choose the outcome — **Proceed** (implement), **Deliver plan
    only** (the plan file is the deliverable), review, or keep planning. The
@@ -215,6 +218,20 @@ extra deliverable. Instruction-only — no hooks.
 | `plan-domain-backend-api` | API/endpoint/route/handler/schema/DTO/contract | Before/after contract diff tables, schema diffs, Mermaid sequence flows. |
 | `plan-domain-architecture` | Structural change — services, containers, datastores, integrations | Diff-highlighted C4-style Mermaid flowcharts, only the levels that change. |
 | `plan-domain-dynamic` | No registered domain matched (fallback) | A dispatched domain-definer names the domain and returns a best-practices brief; the plan gains a practice→step mapping. |
+
+## Changes in v2.7.0
+
+The plan flow now **resolves open questions & decisions with the user before
+the plan is written** (`plan` Step 3.5). Open questions from research, domain
+directives, and the planner's own design forks are triaged — codebase-answerable
+ones are explored (never asked), immaterial ones flagged — and every genuine
+user decision is asked via `AskUserQuestion`, **one question at a time**, each
+with an evidence brief, a recommended option listed first, trade-off-carrying
+option descriptions, and side-by-side previews for competing shapes. Grilling
+documents its boundary with the new step (pre-research ambiguity vs
+post-research decisions). Also two AskUserQuestion contract fixes: tour's
+header chip exceeded the 12-char cap, and ship's recommended-option markers
+drifted from the plugin-wide recommended-first "(Recommended)" convention.
 
 ## Changes in v2.5.0
 
