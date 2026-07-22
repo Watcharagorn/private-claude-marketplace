@@ -36,8 +36,13 @@ always offered there, and you never ask the user to pick a mode upfront:
 `begin-plan.sh` may also print a **`CONTEXT:`** line (the context gate). A
 **`CONTEXT: WARN`** means the session is getting large — surface it to the user
 and use the WARN option set at Step 6 (it leads with **"Hand off to next
-agent"**). (A **`CONTEXT: BLOCKED`** never reaches this skill — begin-plan refuses to
-arm and the command stops before invoking the skill; noted here for completeness.)
+agent"**). A **`CONTEXT: HANDOFF`** means the session is critically large and
+the user already chose to proceed (gate bypassed): planning continues, but keep
+it lean — skip the optional zoom offer and do not offer plan-review (both
+inflate the very context that is running out) — and use the Step 6
+handoff-leading set with its first option labeled **(Recommended)**. (A
+**`CONTEXT: ASK`** never reaches this skill — the command layer resolves it
+with the user before invoking the skill; noted here for completeness.)
 
 **Load the constitution.** Resolve the constitution path (a repo may keep its
 governing doc outside `.mentor/` — `constitution_path` in `.mentor/config.json`
@@ -371,11 +376,13 @@ same turn, ask via `AskUserQuestion`:
 
 **Ordering:** when Step 0 resolved the default to `plan-only`, swap the first
 two options ("Deliver plan only" first). When Step 0 reported
-**`CONTEXT: WARN`**, use this fixed option set instead, regardless of mode:
-**Hand off to next agent** (first) / **Deliver plan only** / **Proceed** /
-**Keep planning** — a large session should hand implementation to a fresh
-agent, and plan-review would inflate the context further (it stays reachable
-via "Other").
+**`CONTEXT: WARN` or `CONTEXT: HANDOFF`**, use this fixed option set instead,
+regardless of mode: **Hand off to next agent** (first) / **Deliver plan only** /
+**Proceed** / **Keep planning** — a large session should hand implementation
+to a fresh agent, and plan-review would inflate the context further (it stays
+reachable via "Other"). Under `CONTEXT: HANDOFF`, label the first option
+**"Hand off to next agent (Recommended)"** and note in the question text that
+the session is critically large.
 
 On **Proceed**, run:
 

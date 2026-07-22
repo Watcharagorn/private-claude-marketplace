@@ -165,3 +165,20 @@ mentor_context_gate_state() {
   echo "on"
   return 0
 }
+
+# mentor_latest_handoff <repo_root> — echo the mtime-newest conforming handoff note
+# (<state_dir>/handoffs/<YYYYMMDD-HHMMSS>-<slug>.md — the only pattern /mentor:resume
+# lists), or empty when none exist. Non-conforming files are skipped.
+mentor_latest_handoff() {
+  local state_dir f
+  state_dir="$(mentor_state_dir "${1:-}")"
+  if [ -z "$state_dir" ]; then echo ""; return 0; fi
+  while IFS= read -r f; do
+    case "${f##*/}" in
+      [0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9]-[0-9][0-9][0-9][0-9][0-9][0-9]-*.md)
+        echo "$f"; return 0 ;;
+    esac
+  done < <(ls -t "${state_dir}/handoffs"/*.md 2>/dev/null || true)
+  echo ""
+  return 0
+}

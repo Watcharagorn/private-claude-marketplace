@@ -41,7 +41,9 @@ bash "${CLAUDE_PLUGIN_ROOT}/hooks/begin-plan.sh"
 ```
 
 Read its stdout first (it carries the mode-aware instructions). **If that stdout contains
-`CONTEXT: BLOCKED`**, STOP: do **not** invoke the plan skill — relay the printed instructions
-(hand off or `/compact`, then re-run `/mentor:plan`) and end your turn. If it contains
-`CONTEXT: WARN`, mention it and continue. Otherwise invoke
-`Skill(skill="mentor:plan", args="<the co-submitted request>")`.
+`CONTEXT: ASK`**, do **not** invoke the plan skill yet — the user decides first: follow the
+printed directive and ask via AskUserQuestion; on "Hand off & plan in a fresh session"
+invoke `Skill(skill="mentor:handoff")` and STOP, on "Proceed anyway" run the printed bypass
+script, re-run `begin-plan.sh`, then continue. If it contains `CONTEXT: HANDOFF` (armed,
+critically large), surface it and keep the plan lean; if `CONTEXT: WARN`, mention it and
+continue. Then invoke `Skill(skill="mentor:plan", args="<the co-submitted request>")`.

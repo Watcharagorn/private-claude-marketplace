@@ -26,8 +26,10 @@ fi
 plans_dir="$(mentor_plans_dir "$repo_root")"
 
 # --- context gate (plan start) ---------------------------------------------
-# begin-plan gets no hook stdin, so locate the session transcript ourselves and
-# refuse to ARM the gate when the session is already too large for a reliable plan.
+# begin-plan gets no hook stdin, so locate the session transcript ourselves. Over
+# the ask threshold the USER decides first: without a session bypass marker we print
+# a CONTEXT: ASK directive (AskUserQuestion — hand off, or bypass and plan lean) and
+# do NOT arm yet; with the marker the gate arms with a CONTEXT: HANDOFF advisory.
 # The UserPromptSubmit gate never sees /mentor:plan (slash passthrough), so we check
 # here. Fail-soft: unmeasurable → skip silently (like the not-a-repo grace above).
 context_warn=""
@@ -50,21 +52,29 @@ if [ "$(mentor_context_gate_state "$repo_root")" = "on" ]; then
   fi
   tokens="$(mentor_context_tokens "$tx")"
   if [ -n "$tokens" ]; then
-    block_at="$(mentor_context_threshold "$repo_root" "${MENTOR_CONTEXT_BLOCK_TOKENS:-}" context_block_tokens 270000)"
+    ask_at="$(mentor_context_threshold "$repo_root" "${MENTOR_CONTEXT_BLOCK_TOKENS:-}" context_block_tokens 350000)"
     warn_at="$(mentor_context_threshold "$repo_root" "${MENTOR_CONTEXT_WARN_TOKENS:-}" context_warn_tokens 200000)"
-    if [ "$tokens" -ge "$block_at" ]; then
-      cat <<EOF
-CONTEXT: BLOCKED (~${tokens} tokens ≥ ${block_at})
-[mentor] Plan gate NOT armed — this session's context is too large for a reliable plan.
-STOP: do NOT invoke the plan skill. Tell the user to run one of:
-  • /mentor:handoff "<focus>"   then  /mentor:resume   in a fresh session, or
-  • /compact
-and then re-run /mentor:plan. Override for this session with
-MENTOR_CONTEXT_BLOCK_TOKENS=<n> (or "context_block_tokens" in .mentor/config.json).
+    if [ "$tokens" -ge "$ask_at" ]; then
+      if [ -e "$(mentor_state_dir "$repo_root")/.context-bypass-${CLAUDE_CODE_SESSION_ID:-nosession}" ]; then
+        context_warn="CONTEXT: HANDOFF (~${tokens} tokens ≥ ${ask_at}) — critically large (gate bypassed this session): keep planning lean (skip optional zooms and plan-review); at the approval step lead with \"Hand off to next agent (Recommended)\"."
+      else
+        hook_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+        cat <<EOF
+CONTEXT: ASK (~${tokens} tokens ≥ ${ask_at})
+[mentor] Plan gate NOT armed yet — the user decides first. Do NOT invoke the plan
+skill yet; ask via AskUserQuestion (header "Context", two options):
+  1. "Hand off & plan in a fresh session (Recommended)" — invoke
+     Skill(skill="mentor:handoff") with the plan request as the focus, write the
+     handoff doc, print its copy-paste /mentor:resume prompt, and STOP.
+  2. "Proceed anyway (bypass + lean plan)" — run \`bash ${hook_dir}/bypass-context.sh\`,
+     re-run \`bash ${hook_dir}/begin-plan.sh\`, then invoke the plan skill and keep the
+     plan lean (skip optional zooms and plan-review).
+(Threshold: "context_block_tokens" in .mentor/config.json or MENTOR_CONTEXT_BLOCK_TOKENS;
+disable entirely with MENTOR_CONTEXT_GATE=off.)
 EOF
-      exit 0
-    fi
-    if [ "$tokens" -ge "$warn_at" ]; then
+        exit 0
+      fi
+    elif [ "$tokens" -ge "$warn_at" ]; then
       context_warn="CONTEXT: WARN (~${tokens} tokens ≥ ${warn_at}) — surface to the user; prefer \"Hand off to next agent\" at the approval step."
     fi
   fi

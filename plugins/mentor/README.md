@@ -47,7 +47,7 @@ review and are the single source of truth for implementation, handoff, and revie
 | `/mentor:mode [plan\|plan-only\|status]` | Get/set the persisted approval-gate default (which approval option is listed first). |
 | `/mentor:ship` | Finish the current branch: clean-check → `/simplify` → optional tests → push + auto-open PR/MR (or push to upstream). Never force-pushes. |
 | `/mentor:grill [topic]` | One-question-at-a-time interview that sharpens a design's open decisions before you build. Conversation only; no repo edits. |
-| `/mentor:handoff "<focus>"` | Compact the session into a handoff document (in `.mentor/handoffs/`, gitignored) for a fresh agent; ends with copy-paste resume prompts (`/mentor:resume <slug>` + a plugin-free alternative). Also offered as **Hand off to next agent** at the approval gate — leading the options when the context gate warns. |
+| `/mentor:handoff "<focus>"` | Compact the session into a handoff document (in `.mentor/handoffs/`, gitignored) for a fresh agent; ends with copy-paste resume prompts (`/mentor:resume <slug>` + a plugin-free alternative). Also offered as **Hand off to next agent** at the approval gate — leading the options (marked **(Recommended)**) when the context gate warns or asks. |
 | `/mentor:resume [slug\|number]` | List this repo's handoff notes and continue the chosen one. |
 | `/mentor:tour [user\|dev\|both] [subject]` | **Post-approval acceptance review**: an editable guided-tour artifact — scenario cards with pass/not-pass toggles, feedback capture, and MD/JSON report export — published to a stable URL that revisions republish in place. Subject defaults to the newest plan; artifacts live in `.mentor/tours/` (gitignored). |
 | `/plan-review`* | Staged review of the current plan: a light pass (practicality, comprehensiveness, cleanliness), then — automatically once it returns — a spec-kit-`analyze`-style **consistency** check across the plan + related artifacts. The consistency stage is also invocable alone ("check plan consistency"). Also offered as **Review the plan (light)** at the proceed gate. |
@@ -122,13 +122,24 @@ records a justified exception, or the constitution is amended first.
 
 A long-running session's context can balloon to the point where plan and answer
 quality degrade. The **context gate** (`hooks/context-gate.sh`, a `UserPromptSubmit`
-hook) measures the live context size from the session transcript and acts in two tiers:
+hook) measures the live context size from the session transcript and acts in three
+tiers — it **never blocks or erases a prompt**; it warns, then asks:
 
 - **Warn** (default **200000** tokens) — a one-time-per-session notice suggesting
   `/mentor:handoff` (→ `/mentor:resume` in a fresh session) or `/compact`.
-- **Block** (default **270000** tokens) — plain prompts are refused (the prompt is
-  erased) until you shrink the context. `/mentor:plan` additionally refuses to arm a
-  plan in an already-over-block session (`begin-plan.sh`).
+- **Warn-high** (default **90% of the ask threshold**, i.e. 315000) — a near-limit
+  nudge that re-fires on every prompt: wrap the current unit of work and steer toward
+  a natural handoff boundary; avoid opening new large workstreams.
+- **Ask** (default **350000** tokens) — the agent must **ask you first** before acting
+  on the prompt: **Hand off to next agent (Recommended)** writes the handoff doc right
+  there and stops; **Proceed anyway** bypasses the gate for this session (a
+  `.context-bypass-<session_id>` marker — warnings continue, and a fresh session
+  re-arms the gate) and your original request runs immediately in the same turn.
+  A fresh handoff note (<30 min old) suppresses the question — the advisory just
+  points at `/mentor:resume`. Harness-synthetic prompts (subagent reports) get a loud
+  advisory instead of a question, so autonomous flows are never stalled.
+  `/mentor:plan` gets the same treatment: over the threshold `begin-plan.sh` asks
+  first (hand off & plan fresh, or bypass + lean plan) before arming.
 
 Escape hatches always pass: an empty prompt and any slash command (`/mentor:handoff`,
 `/compact`, `/mentor:mode`, …) are never gated, so you can always reach the tools that
@@ -137,7 +148,7 @@ transcript simply lets the prompt through.
 
 > **Note:** the gate is a **long-context / 1M-window backstop**. On a standard 200k
 > window with auto-compact enabled it may never fire (auto-compact triggers ~155–165k,
-> below the 200k warn default). Raise `context_block_tokens` per-repo when you
+> below the 200k warn default). Tune `context_block_tokens` per-repo when you
 > intentionally run long-context sessions.
 
 Knobs — env vars under `env` in `~/.claude/settings.json` (or the project's
@@ -148,7 +159,8 @@ Knobs — env vars under `env` in `~/.claude/settings.json` (or the project's
 |---|---|---|---|
 | `MENTOR_CONTEXT_GATE=off` | `"context_gate": "off"` | on | Disable the gate entirely (`off\|0\|false\|no`). |
 | `MENTOR_CONTEXT_WARN_TOKENS` | `"context_warn_tokens"` | `200000` | Warn threshold (tokens). |
-| `MENTOR_CONTEXT_BLOCK_TOKENS` | `"context_block_tokens"` | `270000` | Block threshold (tokens). |
+| `MENTOR_CONTEXT_WARN_HIGH_TOKENS` | `"context_warn_high_tokens"` | 90% of ask | Warn-high threshold (tokens). |
+| `MENTOR_CONTEXT_BLOCK_TOKENS` | `"context_block_tokens"` | `350000` | Ask threshold (tokens; key name kept for compatibility). |
 | `MENTOR_CONTEXT_TAIL_LINES` | — | `400` | Transcript tail window scanned for the measurement. |
 
 ## How it works
@@ -156,12 +168,13 @@ Knobs — env vars under `env` in `~/.claude/settings.json` (or the project's
 | Piece | Role |
 |---|---|
 | `commands/plan.md` | The `/mentor:plan` trigger. |
-| `hooks/begin-plan.sh` | Arms the `.planning` marker (closes the gate); prints the `MODE:` line (the approval-gate default) — and a `CONTEXT:` line, refusing to arm when the session is already over the block threshold. |
+| `hooks/begin-plan.sh` | Arms the `.planning` marker (closes the gate); prints the `MODE:` line (the approval-gate default) — and a `CONTEXT:` line: over the ask threshold it asks the user first (hand off, or bypass + lean plan) before arming. |
 | `hooks/plan-gate.sh` | **The one gate.** Fail-closed `PreToolUse` on Write/Edit/MultiEdit/NotebookEdit — denies in-repo writes while the marker exists, even under `bypassPermissions`. Mentor's own `.mentor/` tree (where the plan file lives) is exempt, so the plan is always writable. Stale markers (>8h) self-heal. |
 | `hooks/approve-plan.sh` | Validates the plan (non-empty `.md` **newer than the marker**), releases the gate. Mode-agnostic — flags map to the approval options: no-arg implements, `--deliver` prints the deliverable soft-stop, `--handoff` the hand-off directive (both directives also print on a re-run when the gate is already open); unknown flags are rejected. |
 | `hooks/plan-open.sh` | Auto-opens the plan for review the first time it is written (VSCode tab / OS default; HTML zoom artifacts open in the browser). |
 | `hooks/set-mode.sh` | Get/set the approval-gate default. |
-| `hooks/context-gate.sh` | **Context gate.** `UserPromptSubmit` — measures live context from the transcript and warns once (~200k) then blocks plain prompts (~270k), steering to `/mentor:handoff` or `/compact`. Fail-soft; slash commands always pass. |
+| `hooks/context-gate.sh` | **Context gate.** `UserPromptSubmit` — measures live context from the transcript: warns once (~200k), re-warns near the limit (~315k), and above ~350k asks the user — hand off (recommended) or bypass for the session. Never blocks or erases prompts. Fail-soft; slash commands always pass. |
+| `hooks/bypass-context.sh` | Writes the session-scoped `.context-bypass-<session_id>` marker when the user answers "Proceed anyway" — degrades the ask tier to a one-line advisory for the rest of the session. |
 
 ### Known limitations
 
@@ -218,6 +231,22 @@ extra deliverable. Instruction-only — no hooks.
 | `plan-domain-backend-api` | API/endpoint/route/handler/schema/DTO/contract | Before/after contract diff tables, schema diffs, Mermaid sequence flows. |
 | `plan-domain-architecture` | Structural change — services, containers, datastores, integrations | Diff-highlighted C4-style Mermaid flowcharts, only the levels that change. |
 | `plan-domain-dynamic` | No registered domain matched (fallback) | A dispatched domain-definer names the domain and returns a best-practices brief; the plan gains a practice→step mapping. |
+
+## Changes in v2.8.0
+
+The context gate **no longer blocks** — the exit-2 tier that erased prompts is
+gone. The top tier (default raised **270k → 350k**) is now **ask-first**: the
+agent must ask via `AskUserQuestion` — **Hand off to next agent (Recommended)**
+writes the handoff doc and stops, while **Proceed anyway** runs the new
+`bypass-context.sh` (a session-scoped `.context-bypass-<session_id>` marker) and
+fulfills the original prompt in the same turn; warnings continue and a fresh
+session re-arms the gate. A handoff note written in the last 30 minutes
+suppresses re-asking, and synthetic subagent reports get an advisory instead of
+a question so autonomous flows never stall. `begin-plan.sh` asks the same way
+instead of refusing to arm — after a bypass it arms with `CONTEXT: HANDOFF`
+(lean planning, handoff-leading approval marked "(Recommended)"). Warn-high
+(90% of the ask threshold) steers toward a natural handoff boundary. Knob names
+are unchanged (`context_block_tokens` is now the ask threshold).
 
 ## Changes in v2.7.0
 

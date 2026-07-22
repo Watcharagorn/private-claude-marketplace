@@ -1,11 +1,13 @@
 #!/usr/bin/env bash
-# test-context-gate.sh — regression tests for context-gate.sh (UserPromptSubmit) and
-# begin-plan.sh's plan-start context check (v2.0.0).
+# test-context-gate.sh — regression tests for context-gate.sh (UserPromptSubmit),
+# begin-plan.sh's plan-start context check, and bypass-context.sh (v2.8.0: the gate
+# never blocks/erases — the top tier ASKS the user, with a session bypass marker).
 #
 # Builds a real git repo (project-scoped .mentor/ state) and a set of transcript
 # fixtures, then drives the hook with UserPromptSubmit JSON across the full tier
 # matrix: passthroughs, kill switch, threshold precedence, once-per-session warn,
-# block, transcript extraction edge cases, and fail-soft robustness.
+# the ask tier and its degradations, transcript extraction edge cases, and
+# fail-soft robustness.
 set -uo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
@@ -56,7 +58,7 @@ mktx() { python3 "$BUILDER" "$1" "$2"; }
 # Standard fixtures.
 TX_UNDER="$ROOT/under.jsonl";  mktx "$TX_UNDER" usage:150000
 TX_WARN="$ROOT/warn.jsonl";    mktx "$TX_WARN"  usage:215000
-TX_BLOCK="$ROOT/block.jsonl";  mktx "$TX_BLOCK" usage:285000
+TX_ASK="$ROOT/ask.jsonl";      mktx "$TX_ASK"   usage:365000
 TX_NONE="$ROOT/missing.jsonl"  # deliberately not created
 
 PASS=0; FAIL=0
@@ -110,84 +112,112 @@ run "hello" warnsess2 "$TX_WARN"
 chk "new session → warns again"    contains "getting large" "$OUT"
 
 echo "== B2. Warn-high tier (near-limit, re-fires) =="
-TX_HIGH="$ROOT/high.jsonl"; mktx "$TX_HIGH" usage:250000   # ≥ 243000 (90% of 270k), < 270000
+TX_HIGH="$ROOT/high.jsonl"; mktx "$TX_HIGH" usage:320000   # ≥ 315000 (90% of 350k), < 350000
 run "hello" hi1 "$TX_HIGH"
-chk "250k → exit 0"                          test "$RC" = "0"
-chk "250k → near-limit notice"               contains "close to the BLOCK" "$OUT"
+chk "320k → exit 0"                          test "$RC" = "0"
+chk "320k → near-limit notice"               contains "nearing the handoff" "$OUT"
 run "hello again" hi1 "$TX_HIGH"
-chk "same session → re-fires (no marker)"    contains "close to the BLOCK" "$OUT"
+chk "same session → re-fires (no marker)"    contains "nearing the handoff" "$OUT"
 printf '{"context_warn_high_tokens":100000}\n' > "$CONF"
 run "hello" hi2 "$TX_UNDER"
-chk "config context_warn_high_tokens honored (150k ≥ 100k)" contains "close to the BLOCK" "$OUT"
+chk "config context_warn_high_tokens honored (150k ≥ 100k)" contains "nearing the handoff" "$OUT"
 rm -f "$CONF"
 
-echo "== C. Block tier =="
-run "please do a thing" blk1 "$TX_BLOCK"
-chk "285k plain prompt → exit 2"   test "$RC" = "2"
-chk "285k → stderr names /mentor:handoff" contains "/mentor:handoff" "$ERR"
-chk "285k → nothing on stdout"     test -z "$OUT"
-run "/mentor:handoff \"x\"" blk2 "$TX_BLOCK"
-chk "slash /mentor:handoff passes" test "$RC" = "0"
-run "/compact" blk3 "$TX_BLOCK"
-chk "slash /compact passes"        test "$RC" = "0"
-run "" blk4 "$TX_BLOCK"
-chk "empty prompt passes"          test "$RC" = "0"
-# Harness-synthetic prompts at block level: measured but NEVER erased.
-run "<task-notification>reviewer finished: verdict Approved</task-notification>" blk5 "$TX_BLOCK"
-chk "synthetic task-notification at 285k → exit 0 (never erased)" test "$RC" = "0"
-chk "synthetic at 285k → loud advisory on stdout" contains "NOT blocked" "$OUT"
-run "<agent-message from=\"step6-docs\">fix summary body</agent-message>" blk6 "$TX_BLOCK"
-chk "synthetic agent-message at 285k → exit 0"    test "$RC" = "0"
-run "<teammate-message>idle ping</teammate-message>" blk7 "$TX_BLOCK"
-chk "synthetic teammate-message at 285k → exit 0" test "$RC" = "0"
+echo "== C. Ask tier (top tier — never blocks) =="
+run "please do a thing" ask1 "$TX_ASK"
+chk "365k plain prompt → exit 0"          test "$RC" = "0"
+chk "365k → CONTEXT: ASK directive"       contains "CONTEXT: ASK" "$OUT"
+chk "365k → names AskUserQuestion"        contains "AskUserQuestion" "$OUT"
+chk "365k → names bypass script"          contains "bypass-context.sh" "$OUT"
+chk "365k → nothing on stderr"            test -z "$ERR"
+run "and again" ask1 "$TX_ASK"
+chk "same session → re-asks (no marker)"  contains "CONTEXT: ASK" "$OUT"
+# Bypass marker degrades the ask to a one-line advisory.
+: > "$STATE/.context-bypass-askbp"
+run "do a thing" askbp "$TX_ASK"
+chk "bypassed session → exit 0"           test "$RC" = "0"
+chk "bypassed → one-line advisory"        contains "bypassed for this session" "$OUT"
+chk "bypassed → no ask directive"         sh -c '! printf "%s" "$1" | grep -q "CONTEXT: ASK"' _ "$OUT"
+rm -f "$STATE/.context-bypass-askbp"
+# A fresh handoff note (<30 min) suppresses the question and points at /mentor:resume.
+mkdir -p "$STATE/handoffs"
+: > "$STATE/handoffs/20260722-101500-test-focus.md"
+run "do a thing" askh "$TX_ASK"
+chk "fresh handoff note → exit 0"         test "$RC" = "0"
+chk "fresh handoff → resume pointer"      contains "/mentor:resume test-focus" "$OUT"
+chk "fresh handoff → no ask directive"    sh -c '! printf "%s" "$1" | grep -q "CONTEXT: ASK"' _ "$OUT"
+rm -rf "$STATE/handoffs"
+run "/mentor:handoff \"x\"" ask2 "$TX_ASK"
+chk "slash /mentor:handoff passes"        test "$RC" = "0"
+chk "slash /mentor:handoff → silent"      test -z "$OUT$ERR"
+run "/compact" ask3 "$TX_ASK"
+chk "slash /compact passes"               test "$RC" = "0"
+chk "slash /compact → silent"             test -z "$OUT$ERR"
+run "" ask4 "$TX_ASK"
+chk "empty prompt passes"                 test "$RC" = "0"
+chk "empty prompt → silent"               test -z "$OUT$ERR"
+# Harness-synthetic prompts at ask level: measured, advised loudly, never questioned.
+run "<task-notification>reviewer finished: verdict Approved</task-notification>" ask5 "$TX_ASK"
+chk "synthetic task-notification at 365k → exit 0" test "$RC" = "0"
+chk "synthetic at 365k → loud advisory"   contains "agent report" "$OUT"
+chk "synthetic → never AskUserQuestion"   sh -c '! printf "%s" "$1" | grep -q "AskUserQuestion"' _ "$OUT"
+run "<agent-message from=\"step6-docs\">fix summary body</agent-message>" ask6 "$TX_ASK"
+chk "synthetic agent-message at 365k → exit 0"    test "$RC" = "0"
+run "<teammate-message>idle ping</teammate-message>" ask7 "$TX_ASK"
+chk "synthetic teammate-message at 365k → exit 0" test "$RC" = "0"
 
 echo "== D. Kill switch =="
-run "do thing" ks1 "$TX_BLOCK" MENTOR_CONTEXT_GATE=off
+run "do thing" ks1 "$TX_ASK" MENTOR_CONTEXT_GATE=off
 chk "env MENTOR_CONTEXT_GATE=off → exit 0" test "$RC" = "0"
 chk "env off → silent"                     test -z "$OUT$ERR"
 printf '{"context_gate":"off"}\n' > "$CONF"
-run "do thing" ks2 "$TX_BLOCK"
+run "do thing" ks2 "$TX_ASK"
 chk "config context_gate=off → exit 0"     test "$RC" = "0"
 rm -f "$CONF"
 
 echo "== E. Threshold precedence (env > config > default) =="
 run "do thing" p1 "$TX_UNDER" MENTOR_CONTEXT_BLOCK_TOKENS=1000
-chk "env lowers block → 2"                 test "$RC" = "2"
+chk "env lowers ask threshold → CONTEXT: ASK" contains "CONTEXT: ASK" "$OUT"
+chk "env lowers → still exit 0"            test "$RC" = "0"
 printf '{"context_block_tokens":1000}\n' > "$CONF"
 run "do thing" p2 "$TX_UNDER"
-chk "config lowers block → 2"              test "$RC" = "2"
+chk "config lowers → CONTEXT: ASK"         contains "CONTEXT: ASK" "$OUT"
 printf '{"context_block_tokens":999999999}\n' > "$CONF"
 run "do thing" p3 "$TX_UNDER" MENTOR_CONTEXT_BLOCK_TOKENS=1000
-chk "env beats config → 2"                 test "$RC" = "2"
+chk "env beats config → CONTEXT: ASK"      contains "CONTEXT: ASK" "$OUT"
 rm -f "$CONF"
 run "do thing" p4 "$TX_UNDER" MENTOR_CONTEXT_BLOCK_TOKENS=abc
-chk "non-numeric env → default (150k<270k, no block)" test "$RC" = "0"
+chk "non-numeric env → default (150k<350k, no ask)" test "$RC" = "0"
+chk "non-numeric env → silent"             test -z "$OUT$ERR"
 
-echo "== F. Transcript extraction edge cases (block-level unless noted) =="
-mktx "$ROOT/sm.jsonl" sidechain_mask:285000
+echo "== F. Transcript extraction edge cases (ask-level unless noted) =="
+mktx "$ROOT/sm.jsonl" sidechain_mask:365000
 run "do thing" f1 "$ROOT/sm.jsonl"
-chk "trailing sidechain doesn't mask 285k → 2" test "$RC" = "2"
+chk "trailing sidechain doesn't mask 365k → asks" contains "CONTEXT: ASK" "$OUT"
+chk "trailing sidechain → exit 0"              test "$RC" = "0"
 mktx "$ROOT/as.jsonl" all_sidechain
 run "do thing" f2 "$ROOT/as.jsonl"
 chk "all-sidechain → unmeasurable → exit 0"    test "$RC" = "0"
-mktx "$ROOT/ca.jsonl" compact_after:285000:5000
+chk "all-sidechain → silent"                   test -z "$OUT$ERR"
+mktx "$ROOT/ca.jsonl" compact_after:365000:5000
 run "do thing" f3 "$ROOT/ca.jsonl"
-chk "compact_boundary(5000) after 285k → exit 0" test "$RC" = "0"
-mktx "$ROOT/uac.jsonl" usage_after_compact:285000
+chk "compact_boundary(5000) after 365k → exit 0" test "$RC" = "0"
+chk "compact_boundary(5000) → silent"          test -z "$OUT$ERR"
+mktx "$ROOT/uac.jsonl" usage_after_compact:365000
 run "do thing" f4 "$ROOT/uac.jsonl"
-chk "usage after compact → 2"                  test "$RC" = "2"
-mktx "$ROOT/gb.jsonl" garbage:285000
+chk "usage after compact → asks"               contains "CONTEXT: ASK" "$OUT"
+mktx "$ROOT/gb.jsonl" garbage:365000
 run "do thing" f5 "$ROOT/gb.jsonl"
-chk "garbage lines interleaved → 2"            test "$RC" = "2"
-mktx "$ROOT/ul.jsonl" usageless:285000
+chk "garbage lines interleaved → asks"         contains "CONTEXT: ASK" "$OUT"
+mktx "$ROOT/ul.jsonl" usageless:365000
 run "do thing" f6 "$ROOT/ul.jsonl"
-chk "usage-less assistant skipped → 2"         test "$RC" = "2"
-mktx "$ROOT/syn.jsonl" synthetic_trailing:285000
+chk "usage-less assistant skipped → asks"      contains "CONTEXT: ASK" "$OUT"
+mktx "$ROOT/syn.jsonl" synthetic_trailing:365000
 run "do thing" f7 "$ROOT/syn.jsonl"
-chk "trailing <synthetic> all-zero after 285k → 2" test "$RC" = "2"
+chk "trailing <synthetic> all-zero after 365k → asks" contains "CONTEXT: ASK" "$OUT"
 
 echo "== G. Robustness =="
-run_nojq "do thing" g1 "$TX_BLOCK"
+run_nojq "do thing" g1 "$TX_ASK"
 chk "no jq on PATH → exit 0"        test "$RC" = "0"
 chk "no jq → silent"               test -z "$OUT$ERR"
 # 25h-old warn marker is pruned → warn re-fires.
@@ -208,16 +238,42 @@ bp() { # <transcript-tokens|none> → sets RC/OUT; cleans marker first
   OUT="$( cd "$REPO" && env -u MENTOR_CONTEXT_GATE -u MENTOR_CONTEXT_BLOCK_TOKENS -u MENTOR_CONTEXT_WARN_TOKENS \
       CLAUDE_CONFIG_DIR="$CFG" CLAUDE_CODE_SESSION_ID="$SESS" bash "$BEGIN" 2>&1 )" || RC=$?
 }
-bp 300000
-chk "over-block → CONTEXT: BLOCKED printed"  contains "CONTEXT: BLOCKED" "$OUT"
-chk "over-block → .planning NOT created"     test ! -f "$STATE/plans/.planning"
-chk "over-block → not armed"                 sh -c '! printf "%s" "$1" | grep -q "Plan phase ARMED"' _ "$OUT"
+bp 400000
+chk "over-ask, no bypass → CONTEXT: ASK printed" contains "CONTEXT: ASK" "$OUT"
+chk "over-ask → names bypass script"         contains "bypass-context.sh" "$OUT"
+chk "over-ask → .planning NOT created"       test ! -f "$STATE/plans/.planning"
+chk "over-ask → not armed"                   sh -c '! printf "%s" "$1" | grep -q "Plan phase ARMED"' _ "$OUT"
+: > "$STATE/.context-bypass-$SESS"
+bp 400000
+chk "bypassed over-ask → armed"              contains "Plan phase ARMED" "$OUT"
+chk "bypassed over-ask → CONTEXT: HANDOFF"   contains "CONTEXT: HANDOFF" "$OUT"
+chk "bypassed over-ask → .planning created"  test -f "$STATE/plans/.planning"
+rm -f "$STATE/.context-bypass-$SESS"
 bp 230000
 chk "warn → armed + CONTEXT: WARN"           contains "CONTEXT: WARN" "$OUT"
 chk "warn → .planning created"               test -f "$STATE/plans/.planning"
 bp none
 chk "no transcript → arms silently (no CONTEXT line)" sh -c '! printf "%s" "$1" | grep -q "CONTEXT:"' _ "$OUT"
 chk "no transcript → armed"                  test -f "$STATE/plans/.planning"
+
+echo "== I. bypass-context.sh =="
+BYPASS="$HOOKS/bypass-context.sh"
+[ -f "$BYPASS" ] || { echo "FATAL: not found: $BYPASS" >&2; exit 1; }
+rm -f "$STATE"/.context-bypass-*
+RC=0; OUT="$( cd "$REPO" && CLAUDE_CODE_SESSION_ID=bysess bash "$BYPASS" 2>&1 )" || RC=$?
+chk "bypass → exit 0"                        test "$RC" = "0"
+chk "bypass → confirmation printed"          contains "bypassed for this session" "$OUT"
+chk "bypass → marker created"                test -e "$STATE/.context-bypass-bysess"
+RC=0; OUT="$( cd "$REPO" && CLAUDE_CODE_SESSION_ID=bysess bash "$BYPASS" 2>&1 )" || RC=$?
+chk "bypass re-run (idempotent) → exit 0"    test "$RC" = "0"
+: > "$STATE/.context-bypass-old"
+touch -t "$(date -v-25H +%Y%m%d%H%M 2>/dev/null || date -d '25 hours ago' +%Y%m%d%H%M)" "$STATE/.context-bypass-old" 2>/dev/null || true
+RC=0; OUT="$( cd "$REPO" && CLAUDE_CODE_SESSION_ID=bysess2 bash "$BYPASS" 2>&1 )" || RC=$?
+chk "25h-old bypass marker pruned"           test ! -e "$STATE/.context-bypass-old"
+RC=0; OUT="$( cd "$REPO" && env -u CLAUDE_CODE_SESSION_ID bash "$BYPASS" 2>&1 )" || RC=$?
+chk "no session id → exit 0 (nosession)"     test "$RC" = "0"
+chk "no session id → nosession marker"       test -e "$STATE/.context-bypass-nosession"
+rm -f "$STATE"/.context-bypass-*
 
 echo
 echo "RESULT: PASS=$PASS FAIL=$FAIL"
