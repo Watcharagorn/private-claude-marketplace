@@ -139,13 +139,26 @@ chk "bypassed session → exit 0"           test "$RC" = "0"
 chk "bypassed → one-line advisory"        contains "bypassed for this session" "$OUT"
 chk "bypassed → no ask directive"         sh -c '! printf "%s" "$1" | grep -q "CONTEXT: ASK"' _ "$OUT"
 rm -f "$STATE/.context-bypass-askbp"
-# A fresh handoff note (<30 min) suppresses the question and points at /mentor:resume.
-mkdir -p "$STATE/handoffs"
-: > "$STATE/handoffs/20260722-101500-test-focus.md"
+# A fresh handoff note (<30 min, in its plan-topic dir) suppresses the question and
+# points at /mentor:resume.
+mkdir -p "$STATE/plans/test-topic/handoffs"
+: > "$STATE/plans/test-topic/handoffs/20260722-101500-test-focus.md"
 run "do a thing" askh "$TX_ASK"
 chk "fresh handoff note → exit 0"         test "$RC" = "0"
 chk "fresh handoff → resume pointer"      contains "/mentor:resume test-focus" "$OUT"
 chk "fresh handoff → no ask directive"    sh -c '! printf "%s" "$1" | grep -q "CONTEXT: ASK"' _ "$OUT"
+# Once the note is stamped resolved (work done / superseded), the suppression stops applying.
+mkdir -p "$STATE/plans/test-topic/handoffs/resolved"
+mv "$STATE/plans/test-topic/handoffs/20260722-101500-test-focus.md" \
+   "$STATE/plans/test-topic/handoffs/resolved/"
+run "do a thing" askr "$TX_ASK"
+chk "resolved handoff → ask returns"      contains "CONTEXT: ASK" "$OUT"
+rm -rf "$STATE/plans/test-topic"
+# Legacy flat-dir notes (pre-v2.10) still suppress the ask.
+mkdir -p "$STATE/handoffs"
+: > "$STATE/handoffs/20260722-101500-legacy-focus.md"
+run "do a thing" askl "$TX_ASK"
+chk "legacy flat-dir note → resume pointer" contains "/mentor:resume legacy-focus" "$OUT"
 rm -rf "$STATE/handoffs"
 run "/mentor:handoff \"x\"" ask2 "$TX_ASK"
 chk "slash /mentor:handoff passes"        test "$RC" = "0"

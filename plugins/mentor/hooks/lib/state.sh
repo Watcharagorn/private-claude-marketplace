@@ -3,15 +3,16 @@
 # Source from a hook (hooks.json invokes hooks by absolute path, so this resolves):
 #   . "$(dirname "${BASH_SOURCE[0]}")/lib/state.sh"
 #
-# Layout (v2.2.0 — project-scoped, one directory per plan):
+# Layout (v2.10.0 — project-scoped, one directory per plan topic; handoffs live inside it):
 #   <repo_root>/.mentor/
 #   ├── .gitignore        # commit config.json + constitution.md; ignore transient state
 #   ├── config.json       # {"mode": "plan|plan-only", "context_gate", "context_*_tokens" ...}
 #   ├── constitution.md   # governing principles (committed; managed by /mentor:constitution)
-#   ├── plans/            # the .planning marker + one <slug>/ dir per plan:
+#   ├── plans/            # the .planning marker + one <slug>/ dir per plan topic:
 #   │   └── <slug>/       #   plan.md (+ hidden .plan.md.opened sidecar)
-#   │       └── zoom/     #   <topic>-<perspective>.html (+ hidden .*.opened sidecars)
-#   └── handoffs/         # <ts>-<slug>.md
+#   │       ├── zoom/     #   <topic>-<perspective>.html (+ hidden .*.opened sidecars)
+#   │       └── handoffs/ #   <ts>-<slug>.md; solved/superseded notes → handoffs/resolved/
+#   └── handoffs/         # legacy flat notes (pre-v2.10 — still read, never written)
 #   (.context-warned-<session_id> markers live at the .mentor/ root.)
 #   Not inside a git repo → callers fall back to ~/.claude/mentor/_no-repo/.
 #
@@ -167,18 +168,22 @@ mentor_context_gate_state() {
 }
 
 # mentor_latest_handoff <repo_root> — echo the mtime-newest conforming handoff note
-# (<state_dir>/handoffs/<YYYYMMDD-HHMMSS>-<slug>.md — the only pattern /mentor:resume
-# lists), or empty when none exist. Non-conforming files are skipped.
+# (<YYYYMMDD-HHMMSS>-<slug>.md under plans/*/handoffs/ or the legacy flat handoffs/ —
+# the exact locations /mentor:resume lists), or empty when none exist. Non-conforming
+# names are skipped; notes stamped resolved (moved into a handoffs/resolved/ subdir on
+# completion or supersession) never match the globs, so solved notes stop counting as fresh.
+# With no repo_root, falls back to ~/.claude/mentor/_no-repo — the dir the handoff skill
+# writes to outside a git repo — so no-repo sessions get the same freshness handling.
 mentor_latest_handoff() {
   local state_dir f
   state_dir="$(mentor_state_dir "${1:-}")"
-  if [ -z "$state_dir" ]; then echo ""; return 0; fi
+  if [ -z "$state_dir" ]; then state_dir="${HOME}/.claude/mentor/_no-repo"; fi
   while IFS= read -r f; do
     case "${f##*/}" in
       [0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9]-[0-9][0-9][0-9][0-9][0-9][0-9]-*.md)
         echo "$f"; return 0 ;;
     esac
-  done < <(ls -t "${state_dir}/handoffs"/*.md 2>/dev/null || true)
+  done < <(ls -t "${state_dir}"/plans/*/handoffs/*.md "${state_dir}/handoffs"/*.md 2>/dev/null || true)
   echo ""
   return 0
 }

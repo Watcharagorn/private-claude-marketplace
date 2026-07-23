@@ -1,6 +1,6 @@
 ---
 name: ship
-description: Finish the current branch — clean-check, run /simplify, optionally run tests, then ship to a user-chosen target (push + auto-open PR/MR, or push to the branch's upstream). Never force-pushes; never pushes to a protected source branch without an explicit choice. Invoked by /mentor:ship, "ship this", "merge and push", "finish and ship".
+description: Finish the current branch — clean-check, run /simplify, optionally run tests, then ship to a user-chosen target (push + auto-open PR/MR, or push to the branch's upstream), then retire the plan topic's live handoff notes (stamped resolved — the work is done). Never force-pushes; never pushes to a protected source branch without an explicit choice. Invoked by /mentor:ship, "ship this", "merge and push", "finish and ship".
 ---
 
 # ship — Ship the current branch
@@ -127,6 +127,42 @@ git -C "$repo_root" push -u origin "$branch"
 **Either target:** if the push is rejected (remote moved), surface the error and
 ask whether to `git pull --rebase origin "$branch"` and retry, or stop.
 **Never force-push.**
+
+## Step 6 — Retire the topic's handoff notes (post-ship)
+
+A successful ship means the plan's tasks are done — any handoff note still live
+for this work is solved, and leaving it listed invites a later `/mentor:resume`
+to re-open finished work. Resolve `<topic>` from what **this session actually
+worked on**: the plan file it followed (`.mentor/plans/<topic>/plan.md`) or the
+handoff note it resumed from (the note's grandparent dir — the `<topic>` above
+its `handoffs/` — names it; this also covers focus-slug topics that never got a
+`plan.md`). If the session touched notes in more than one topic dir, run the
+snippet once per topic. **If you cannot name the topic from this session's own
+work, skip this step entirely — never guess** (e.g. from the newest `plan.md`
+on disk: it may belong to a different, unfinished workstream, and stamping its
+notes would bury live work). Resume Step 7 and the next `/mentor:handoff` still
+stamp on their own triggers.
+
+```bash
+# Re-derive here (shell vars don't survive between Bash calls) via git-common-dir —
+# the same derivation handoff/resume use: from a linked worktree it resolves to the
+# MAIN repo's .mentor, where the notes actually live (show-toplevel would miss them).
+git_common="$(git rev-parse --git-common-dir)"
+mentor_root="$(cd "$(dirname "$git_common")" && pwd)"
+hand_dir="$mentor_root/.mentor/plans/<topic>/handoffs"   # ← REPLACE <topic> per the rule above
+find "$hand_dir" -maxdepth 1 -type f -name '*.md' 2>/dev/null | while IFS= read -r n; do
+  case "$(basename "$n")" in
+    [0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9]-[0-9][0-9][0-9][0-9][0-9][0-9]-*.md)  # conforming notes only
+      mkdir -p -m 700 "$hand_dir/resolved"
+      mv "$n" "$hand_dir/resolved/$(basename "$n")"
+      echo "work shipped → resolved: $(basename "$n")" ;;
+  esac
+done
+```
+
+Run this only after the push actually succeeded. Skip silently when there are no
+live notes (`find` yields nothing) — this step never blocks the ship report. A
+stamp is reversible by moving the file back up one directory.
 
 ## Failure modes
 

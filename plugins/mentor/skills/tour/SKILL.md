@@ -150,8 +150,8 @@ tour_file="$state_dir/tours/<slug>-<audience>.html"
 [ -f "$tour_file" ] && echo "EXISTS"    # decides the mechanics note below
 ```
 
-- Write the HTML to `tour_file` — **`tours/` is a sibling of `plans/` and `handoffs/`, never inside
-  `plans/`** (the plan resolution helpers glob `plans/*/plan.md` and must never see tour files; the
+- Write the HTML to `tour_file` — **`tours/` is a sibling of `plans/`, never inside `plans/`**
+  (the plan resolution helpers glob `plans/*/plan.md` and must never see tour files; the
   `.mentor/.gitignore` whitelist keeps `tours/` out of git automatically).
 - Publish via the **Artifact tool** with a stable `<title>` and a stable favicon. Same file path →
   same URL on every republish. For a tour first published in an *earlier* session, pass the existing

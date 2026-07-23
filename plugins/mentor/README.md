@@ -47,8 +47,8 @@ review and are the single source of truth for implementation, handoff, and revie
 | `/mentor:mode [plan\|plan-only\|status]` | Get/set the persisted approval-gate default (which approval option is listed first). |
 | `/mentor:ship` | Finish the current branch: clean-check → `/simplify` → optional tests → push + auto-open PR/MR (or push to upstream). Never force-pushes. |
 | `/mentor:grill [topic]` | One-question-at-a-time interview that sharpens a design's open decisions before you build. Conversation only; no repo edits. |
-| `/mentor:handoff "<focus>"` | Compact the session into a handoff document (in `.mentor/handoffs/`, gitignored) for a fresh agent; ends with copy-paste resume prompts (`/mentor:resume <slug>` + a plugin-free alternative). Also offered as **Hand off to next agent** at the approval gate — leading the options (marked **(Recommended)**) when the context gate warns or asks. |
-| `/mentor:resume [slug\|number]` | List this repo's handoff notes and continue the chosen one. |
+| `/mentor:handoff "<focus>"` | Compact the session into a handoff document (in its plan-topic folder, `.mentor/plans/<topic>/handoffs/`, gitignored) for a fresh agent; ends with copy-paste resume prompts (`/mentor:resume <slug>` + a plugin-free alternative). Also offered as **Hand off to next agent** at the approval gate — leading the options (marked **(Recommended)**) when the context gate warns or asks. |
+| `/mentor:resume [slug\|number]` | List this repo's live handoff notes (across all plan topics) and continue the chosen one. A note is stamped **resolved** (moved to a `resolved/` subdir, never re-listed) only when its work completes per the plan file (`/mentor:ship` stamps too) or a nested `/mentor:handoff` supersedes it — unfinished work stays resumable. |
 | `/mentor:tour [user\|dev\|both] [subject]` | **Post-approval acceptance review**: an editable guided-tour artifact — scenario cards with pass/not-pass toggles, feedback capture, and MD/JSON report export — published to a stable URL that revisions republish in place. Subject defaults to the newest plan; artifacts live in `.mentor/tours/` (gitignored). |
 | `/plan-review`* | Staged review of the current plan: a judgment pass (practicality, comprehensiveness) with a **fold gate** where you pick the edits to apply, then — against the updated plan — a mechanical pass (cleanliness + spec-kit-`analyze`-style **consistency** across related artifacts) whose safe fixes **auto-fold**; decision-level findings are surfaced, never auto-applied. The mechanical stage is invocable alone ("check plan consistency"). Also offered as **Review the plan (staged)** at the proceed gate. |
 | `/dispatch-agents`* | The **default implementation path** (subagents-driven development): every plan's steps are dispatch-annotated unless the plan states a `Dispatch: skipped` reason, and executed as subagent dispatches after approval. |
@@ -69,17 +69,20 @@ which is listed first. It is never asked for upfront — an unset mode behaves a
 | `plan` (or unset) | **Proceed** listed first — plan, then implement on approval. |
 | `plan-only` | **Deliver plan only** listed first — the plan file is the deliverable. A default, not a lock: picking Proceed still implements. |
 
-State-dir layout (**project-scoped** — `<repo>/.mentor/`; per-plan dirs since v2.2.0):
+State-dir layout (**project-scoped** — `<repo>/.mentor/`; per-plan-topic dirs since
+v2.2.0, handoffs inside them since v2.10.0):
 
 ```
 <repo>/.mentor/
 ├── .gitignore       # commits config.json + constitution.md; ignores the rest
 ├── config.json      # {"mode": "plan|plan-only", + context-gate keys}   ← committed
 ├── constitution.md  # governing principles (/mentor:constitution)        ← committed
-├── plans/           # the .planning marker + one dir per plan            ← gitignored
+├── plans/           # the .planning marker + one dir per plan topic      ← gitignored
 │   └── <slug>/      #   plan.md (+ hidden .plan.md.opened sidecar)
-│       └── zoom/    #   <topic>-<perspective>.html opt-in zoom artifacts
-├── handoffs/        # handoff notes (/mentor:handoff → /mentor:resume)   ← gitignored
+│       ├── zoom/    #   <topic>-<perspective>.html opt-in zoom artifacts
+│       └── handoffs/ #  handoff notes (/mentor:handoff → /mentor:resume);
+│           └── resolved/ # solved/superseded notes (stamped on completion or nested handoff)
+├── handoffs/        # legacy flat notes (pre-v2.10 — still listed, never written)
 └── tours/           # /mentor:tour review artifacts (<slug>-<audience>.html) ← gitignored
 ```
 

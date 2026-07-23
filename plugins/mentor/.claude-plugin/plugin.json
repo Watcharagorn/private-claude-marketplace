@@ -1,7 +1,7 @@
 {
   "name": "mentor",
   "description": "A lean planning harness for Claude Code: an edit gate keeps the repo read-only until the plan is approved, a staged review folds accepted fixes into the plan, and implementation runs subagents-first (SDD).",
-  "version": "2.9.0",
+  "version": "2.10.0",
   "author": {
     "name": "NTBX"
   }

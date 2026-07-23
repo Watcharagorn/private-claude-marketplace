@@ -153,6 +153,31 @@ chk "compact_boundary postTokens wins after usage" test "$(libsh "mentor_context
 printf 'not json\n{"type":"user"}\n' > "$TX"
 chk "no usage record → empty" test -z "$(libsh "mentor_context_tokens '$TX'")"
 
+echo "== I. mentor_latest_handoff (plan-topic + legacy flat; resolved stamped notes skipped) =="
+HAND_T="$STATE/plans/some-topic/handoffs"
+HAND_L="$STATE/handoffs"
+mkdir -p "$HAND_T" "$HAND_L"
+chk "no notes → empty"            test -z "$(libsh "mentor_latest_handoff '$expect_root'")"
+: > "$HAND_L/20260101-000000-legacy-note.md"
+chk "legacy flat note found"      test "$(libsh "mentor_latest_handoff '$expect_root'")" = "$HAND_L/20260101-000000-legacy-note.md"
+sleep 1
+: > "$HAND_T/20260102-000000-topic-note.md"
+chk "newest wins across locations" test "$(libsh "mentor_latest_handoff '$expect_root'")" = "$HAND_T/20260102-000000-topic-note.md"
+sleep 1
+: > "$HAND_T/not-a-handoff.md"    # newest mtime, but non-conforming name → skipped
+chk "non-conforming name skipped" test "$(libsh "mentor_latest_handoff '$expect_root'")" = "$HAND_T/20260102-000000-topic-note.md"
+mkdir -p "$HAND_T/resolved"
+mv "$HAND_T/20260102-000000-topic-note.md" "$HAND_T/resolved/"   # the resolve stamp
+chk "resolved-stamped note skipped" test "$(libsh "mentor_latest_handoff '$expect_root'")" = "$HAND_L/20260101-000000-legacy-note.md"
+rm -rf "$STATE/plans" "$HAND_L"
+# No repo → falls back to ~/.claude/mentor/_no-repo (where the handoff skill writes no-repo notes).
+chk "no repo + no _no-repo notes → empty" test -z "$(libsh "mentor_latest_handoff ''")"
+NR="$SANDBOX/.claude/mentor/_no-repo/plans/nr-topic/handoffs"
+mkdir -p "$NR"
+: > "$NR/20260103-000000-nr-note.md"
+chk "no repo → _no-repo fallback note found" test "$(libsh "mentor_latest_handoff ''")" = "$NR/20260103-000000-nr-note.md"
+rm -rf "$SANDBOX/.claude/mentor"
+
 echo
 echo "RESULT: PASS=$PASS FAIL=$FAIL"
 [ "$FAIL" = "0" ]
