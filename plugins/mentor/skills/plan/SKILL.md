@@ -368,7 +368,7 @@ same turn, ask via `AskUserQuestion`:
   "options": [
     { "label": "Proceed", "description": "Validate the plan, release the edit gate, and begin implementation." },
     { "label": "Deliver plan only", "description": "Validate the plan and release the gate; the plan file is the deliverable — no implementation, no dispatch. (/mentor:handoff can brief a fresh agent afterwards.)" },
-    { "label": "Review the plan (light)", "description": "Run plan-review — 3 read-only light reviewers, then a spec-kit-analyze-style consistency check once they return. Stays in planning; surfaces findings, then asks again." },
+    { "label": "Review the plan (staged)", "description": "Run plan-review — a judgment pass (practicality, comprehensiveness) with a fold gate for the edits you pick, then a mechanical pass (cleanliness, consistency) whose safe fixes auto-fold. Stays in planning; ends back at this question." },
     { "label": "Keep planning", "description": "Do not release — keep refining. Re-write the plan file and ask again when ready." }
   ]
 }
@@ -428,12 +428,14 @@ Same validation + release, then **follow the hand-off directive it prints** —
 invoke the handoff skill for this approved plan and stop. Do not implement and
 do not dispatch in this session.
 
-On **Review the plan (light)**, invoke `Skill(skill="mentor:plan-review")` and
-prepend: *"The user selected 'Review the plan (light)' — skip the Step 2 gate
-and start the staged review directly."* Its reviewers are read-only, so the gate
-stays closed. Surface their findings; if the user wants any folded in, revise
-and re-write the plan file; then re-ask this same question — this option never
-releases the gate by itself.
+On **Review the plan (staged)**, invoke `Skill(skill="mentor:plan-review")` and
+prepend: *"The user selected 'Review the plan (staged)' — skip the Step 2 gate
+and start Stage 1 directly."* Its reviewers are read-only and the gate stays
+closed; the skill itself folds the Stage 1 edits the user picks at its fold
+gate and auto-folds MECHANICAL Stage 2 findings into the plan file
+(gate-exempt `.mentor/` writes), surfaces DECISION-REQUIRED findings, then
+returns to this same question — this option never releases the gate by
+itself.
 
 On **Keep planning**, do not run the script; return to planning.
 

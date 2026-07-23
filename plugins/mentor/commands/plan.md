@@ -40,7 +40,7 @@ Do these in order:
    to end** (after resolving a `CONTEXT: ASK` per step 1) — do **NOT** call
    `mentor:plan` (that would reload this command).
    At the approval step, ask **Proceed / Deliver plan only / Review the plan
-   (light) / Keep planning** (the `MODE:` line decides whether Proceed or
+   (staged) / Keep planning** (the `MODE:` line decides whether Proceed or
    Deliver is listed first; under `CONTEXT: WARN` or `CONTEXT: HANDOFF`,
    **Hand off to next agent** replaces Review and leads — labeled
    **(Recommended)** under HANDOFF); on Proceed run `approve-plan.sh` (no-arg), on

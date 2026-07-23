@@ -1,7 +1,7 @@
 {
   "name": "mentor",
-  "description": "A lean planning harness for Claude Code: an edit gate keeps the repo read-only until the plan is approved, implementation runs subagents-first (SDD), and an ask-first context gate steers long sessions to a clean hand-off.",
-  "version": "2.8.0",
+  "description": "A lean planning harness for Claude Code: an edit gate keeps the repo read-only until the plan is approved, a staged review folds accepted fixes into the plan, and implementation runs subagents-first (SDD).",
+  "version": "2.9.0",
   "author": {
     "name": "NTBX"
   }

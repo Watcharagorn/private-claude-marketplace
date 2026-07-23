@@ -37,7 +37,7 @@ not the plan, not a zoom, and never lives in `plans/`.
 
 - A mentor planning session is active (a fresh `.planning` marker) — approve or abandon the plan
   first; Step 0 enforces this.
-- The user wants the **plan content** reviewed — that is `/plan-review` (the staged 4-topic
+- The user wants the **plan content** reviewed — that is `/plan-review` (the two-stage 4-topic
   pre-approval review) or `/mentor:grill` (decision interview), not a tour.
 - The user wants a **visual preview of a plan topic during planning** — that is the plan skill's
   HTML **zoom** (`plans/<slug>/zoom/`, local-open only, explicitly never published). A tour is the

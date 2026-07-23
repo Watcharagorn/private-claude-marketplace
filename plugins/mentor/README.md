@@ -50,7 +50,7 @@ review and are the single source of truth for implementation, handoff, and revie
 | `/mentor:handoff "<focus>"` | Compact the session into a handoff document (in `.mentor/handoffs/`, gitignored) for a fresh agent; ends with copy-paste resume prompts (`/mentor:resume <slug>` + a plugin-free alternative). Also offered as **Hand off to next agent** at the approval gate — leading the options (marked **(Recommended)**) when the context gate warns or asks. |
 | `/mentor:resume [slug\|number]` | List this repo's handoff notes and continue the chosen one. |
 | `/mentor:tour [user\|dev\|both] [subject]` | **Post-approval acceptance review**: an editable guided-tour artifact — scenario cards with pass/not-pass toggles, feedback capture, and MD/JSON report export — published to a stable URL that revisions republish in place. Subject defaults to the newest plan; artifacts live in `.mentor/tours/` (gitignored). |
-| `/plan-review`* | Staged review of the current plan: a light pass (practicality, comprehensiveness, cleanliness), then — automatically once it returns — a spec-kit-`analyze`-style **consistency** check across the plan + related artifacts. The consistency stage is also invocable alone ("check plan consistency"). Also offered as **Review the plan (light)** at the proceed gate. |
+| `/plan-review`* | Staged review of the current plan: a judgment pass (practicality, comprehensiveness) with a **fold gate** where you pick the edits to apply, then — against the updated plan — a mechanical pass (cleanliness + spec-kit-`analyze`-style **consistency** across related artifacts) whose safe fixes **auto-fold**; decision-level findings are surfaced, never auto-applied. The mechanical stage is invocable alone ("check plan consistency"). Also offered as **Review the plan (staged)** at the proceed gate. |
 | `/dispatch-agents`* | The **default implementation path** (subagents-driven development): every plan's steps are dispatch-annotated unless the plan states a `Dispatch: skipped` reason, and executed as subagent dispatches after approval. |
 
 \* skill trigger phrases, not registered slash commands — typing them (or the
@@ -231,6 +231,22 @@ extra deliverable. Instruction-only — no hooks.
 | `plan-domain-backend-api` | API/endpoint/route/handler/schema/DTO/contract | Before/after contract diff tables, schema diffs, Mermaid sequence flows. |
 | `plan-domain-architecture` | Structural change — services, containers, datastores, integrations | Diff-highlighted C4-style Mermaid flowcharts, only the levels that change. |
 | `plan-domain-dynamic` | No registered domain matched (fallback) | A dispatched domain-definer names the domain and returns a best-practices brief; the plan gains a practice→step mapping. |
+
+## Changes in v2.9.0
+
+`/plan-review` is restructured around **who decides each fix**. Stage 1
+dispatches the two judgment reviewers (practicality, comprehensiveness) and
+ends at a **fold gate**: recommended edits get stable IDs (`P1…`, `C1…`) and a
+multi-select question lets you pick exactly which to fold into the plan —
+declined IDs are not re-offered when the review re-runs in the same session.
+Stage 2 then runs the two mechanical reviewers (cleanliness moved here,
+joining the spec-kit-`analyze`-style consistency check) against the **updated**
+plan; their findings arrive tagged `MECHANICAL` or `DECISION-REQUIRED`, safe
+MECHANICAL fixes **auto-fold** (guarded by a demote-on-doubt rule and a
+cross-reviewer conflict rule), and decision-level findings are surfaced, never
+auto-applied. "Consistency only" becomes **Stage-2-only mode** — auto-fold
+included, with a write confirm on direct consistency asks — and the
+approval-gate option is renamed **Review the plan (staged)**.
 
 ## Changes in v2.8.0
 
