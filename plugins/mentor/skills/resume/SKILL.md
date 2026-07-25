@@ -38,6 +38,9 @@ writes), so notes saved for other repositories cannot appear here.
 ## When NOT to use
 
 - You want to **create** a handoff note for the next agent — that is `/mentor:handoff`, not this skill.
+- You want to pick the next **plan** to build, or see which plans are already built — that is
+  `/mentor:track`. This skill resumes a *session* from a note someone wrote; plan state is a
+  different question with a different answer.
 - This repo has no handoff notes — there is nothing to resume (Step 3 handles this and points you at
   `/mentor:handoff`).
 

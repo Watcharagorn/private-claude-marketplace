@@ -83,6 +83,89 @@ printf '# flat legacy\n' > "$PLANS/legacy-flat.md"   # newer mtime, but flat →
 chk "legacy flat .md ignored"        test "$(libsh "mentor_newest_plan '$PLANS'")" = "$PLANS/newer-plan/plan.md"
 rm -rf "$PLANS"
 
+echo "== B3. Plan state: the sidecar is a cache, the ✅ ticks are the backstop (v2.4.0) =="
+mkdir -p "$PLANS/alpha" "$PLANS/beta" "$PLANS/gamma"
+printf '# a\n## Implementation steps\n1. one ✅\n2. two ✅\n## Verification\n1. not a step\n' > "$PLANS/alpha/plan.md"
+printf '# b\n## Implementation steps\n1. one ✅\n2. two\n'                                    > "$PLANS/beta/plan.md"
+printf '# g\n## Context\nnothing tickable here ✅\n'                                          > "$PLANS/gamma/plan.md"
+chk "all steps ticked → implemented"   test "$(libsh "mentor_plan_tick_state '$PLANS/alpha/plan.md'")" = "implemented"
+chk "some steps ticked → in_progress"  test "$(libsh "mentor_plan_tick_state '$PLANS/beta/plan.md'")" = "in_progress"
+chk "ticks outside the section ignored" test -z "$(libsh "mentor_plan_tick_state '$PLANS/gamma/plan.md'")"
+chk "missing plan file → empty"        test -z "$(libsh "mentor_plan_tick_state '/nope.md'")"
+chk "empty arg → empty"                test -z "$(libsh "mentor_plan_tick_state ''")"
+chk "no sidecar, no ticks → unknown"   test "$(libsh "mentor_plan_effective_state '$PLANS/gamma'")" = "unknown"
+chk "no sidecar + ticks → implemented" test "$(libsh "mentor_plan_effective_state '$PLANS/alpha'")" = "implemented"
+chk "empty dir arg → unknown"          test "$(libsh "mentor_plan_effective_state ''")" = "unknown"
+chk "state file path derivation"       test "$(libsh "mentor_plan_state_file '$PLANS/alpha'")" = "$PLANS/alpha/.state.json"
+chk "empty arg → empty state path"     test -z "$(libsh "mentor_plan_state_file ''")"
+chk "valid state accepted"             libsh "mentor_plan_state_valid approved"
+chk "invalid state rejected"           libsh "! mentor_plan_state_valid bogus"
+chk "empty state rejected"             libsh "! mentor_plan_state_valid ''"
+# set -e caller safety: a write must never abort the hook that called it.
+chk "write on a missing dir is safe"   libsh "mentor_plan_state_write /nope/nope approved; echo ok >/dev/null"
+chk "write with a bad state is safe"   libsh "mentor_plan_state_write '$PLANS/gamma' bogus; echo ok >/dev/null"
+chk "bad state wrote nothing"          test ! -f "$PLANS/gamma/.state.json"
+chk "field read with no sidecar"       test -z "$(libsh "mentor_plan_state_field '$PLANS/gamma' state")"
+libsh "mentor_plan_state_write '$PLANS/gamma' draft grp 3 'a note'"
+chk "write stores state"               test "$(libsh "mentor_plan_state_field '$PLANS/gamma' state")" = "draft"
+chk "write stores group"               test "$(libsh "mentor_plan_state_field '$PLANS/gamma' group")" = "grp"
+chk "write stores order"               test "$(libsh "mentor_plan_state_field '$PLANS/gamma' order")" = "3"
+libsh "mentor_plan_state_write '$PLANS/gamma' approved '' '' ''"
+chk "group persists across a plain write" test "$(libsh "mentor_plan_state_field '$PLANS/gamma' group")" = "grp"
+chk "order persists across a plain write" test "$(libsh "mentor_plan_state_field '$PLANS/gamma' order")" = "3"
+chk "note is replaced, never merged"      test -z "$(libsh "mentor_plan_state_field '$PLANS/gamma' note")"
+printf 'not json' > "$PLANS/gamma/.state.json"
+chk "corrupt sidecar reads unknown"    test "$(libsh "mentor_plan_effective_state '$PLANS/gamma'")" = "unknown"
+libsh "mentor_plan_state_write '$PLANS/gamma' draft"
+chk "corrupt sidecar is repaired, not stuck" test "$(libsh "mentor_plan_effective_state '$PLANS/gamma'")" = "draft"
+# Rank: the derived state wins only when it is strictly more advanced.
+libsh "mentor_plan_state_write '$PLANS/beta' failed"
+chk "failed survives a tick-derived in_progress" test "$(libsh "mentor_plan_effective_state '$PLANS/beta'")" = "failed"
+libsh "mentor_plan_state_write '$PLANS/alpha' superseded"
+chk "superseded outranks all-ticked"             test "$(libsh "mentor_plan_effective_state '$PLANS/alpha'")" = "superseded"
+libsh "mentor_plan_state_write '$PLANS/beta' draft"
+chk "stale draft loses to tick-derived progress" test "$(libsh "mentor_plan_effective_state '$PLANS/beta'")" = "in_progress"
+# mentor_newest_plan must skip superseded — a split parent is not "the current plan".
+sleep 1; touch "$PLANS/alpha/plan.md"     # newest by mtime, but superseded
+chk "newest_plan skips superseded"     test "$(libsh "mentor_newest_plan '$PLANS'")" != "$PLANS/alpha/plan.md"
+libsh "mentor_plan_state_write '$PLANS/beta' superseded"
+libsh "mentor_plan_state_write '$PLANS/gamma' superseded"
+chk "all superseded → still returns one (never empty)" test -n "$(libsh "mentor_newest_plan '$PLANS'")"
+rm -rf "$PLANS"
+
+echo "== B4. The isolation header is the recovery path when a sidecar is lost =="
+# /plan-split writes group + order into the child's header as well as its sidecar.
+# Losing the sidecar must not silently drop a child out of its group — that would make
+# "the current plan" start picking finished work.
+mkdir -p "$PLANS/kid" "$PLANS/plain"
+cat > "$PLANS/kid/plan.md" <<'MD'
+# Child
+
+> [!NOTE]
+> **Plan 3 of 5** · group `multi-tenant-billing` · depends on `tenant-data-isolation`
+> **Owns:** src/billing/invoice/**
+> **Does NOT touch:** metering → `metering-pipeline`
+
+## Implementation steps
+1. **step**
+MD
+printf '# Plain\n\n## Implementation steps\n1. **step**\n' > "$PLANS/plain/plan.md"
+chk "header group parsed"            test "$(libsh "mentor_plan_header_field '$PLANS/kid/plan.md' group")" = "multi-tenant-billing"
+chk "header order parsed"            test "$(libsh "mentor_plan_header_field '$PLANS/kid/plan.md' order")" = "3"
+chk "no header → empty group"        test -z "$(libsh "mentor_plan_header_field '$PLANS/plain/plan.md' group")"
+chk "no header → empty order"        test -z "$(libsh "mentor_plan_header_field '$PLANS/plain/plan.md' order")"
+chk "missing file → empty"           test -z "$(libsh "mentor_plan_header_field '/nope.md' group")"
+chk "unknown key → empty"            test -z "$(libsh "mentor_plan_header_field '$PLANS/kid/plan.md' note")"
+# With no sidecar at all, the resolvers fall back to the header.
+chk "no sidecar → group from header" test "$(libsh "mentor_plan_group '$PLANS/kid'")" = "multi-tenant-billing"
+chk "no sidecar → order from header" test "$(libsh "mentor_plan_order '$PLANS/kid'")" = "3"
+chk "no sidecar, no header → empty"  test -z "$(libsh "mentor_plan_group '$PLANS/plain'")"
+# The sidecar still wins when it has a value — a user who re-grouped by hand keeps it.
+libsh "mentor_plan_state_write '$PLANS/kid' approved regrouped 9 ''"
+chk "sidecar group beats the header" test "$(libsh "mentor_plan_group '$PLANS/kid'")" = "regrouped"
+chk "sidecar order beats the header" test "$(libsh "mentor_plan_order '$PLANS/kid'")" = "9"
+rm -rf "$PLANS"
+
 echo "== D. mentor_get_mode / mentor_config_get =="
 STATE="$expect_root/.mentor"
 RCONF="$STATE/config.json"
@@ -177,6 +260,52 @@ mkdir -p "$NR"
 : > "$NR/20260103-000000-nr-note.md"
 chk "no repo → _no-repo fallback note found" test "$(libsh "mentor_latest_handoff ''")" = "$NR/20260103-000000-nr-note.md"
 rm -rf "$SANDBOX/.claude/mentor"
+echo "== J. mentor_find_transcript / mentor_context_verdict (the shared ask-first check) =="
+# One implementation, two callers: begin-plan.sh at arm time and `plan-state.sh
+# context`, which /mentor:track runs before it dispatches. The tiers mirror the gate's
+# own policy — over the ask threshold the USER decides (ASK), unless they already chose
+# to continue this session (HANDOFF). A caller must never be stricter than the gate.
+CFG="$ROOT/cfg"; mkdir -p "$CFG/projects/proj"
+mkverdict_tx() { python3 - "$CFG/projects/proj/sess.jsonl" "$1" <<'PY'
+import json,sys
+open(sys.argv[1],"w").write(json.dumps({"type":"assistant","message":{"usage":{
+  "input_tokens":10,"cache_read_input_tokens":int(sys.argv[2])-10,
+  "cache_creation_input_tokens":0}}})+"\n")
+PY
+}
+# Pin the environment: a developer's own MENTOR_CONTEXT_* must not move an assertion.
+CLEAN="unset MENTOR_CONTEXT_GATE MENTOR_CONTEXT_BLOCK_TOKENS MENTOR_CONTEXT_WARN_TOKENS CLAUDE_CODE_SESSION_ID || true;"
+chk "no transcript → empty path" \
+  test -z "$(libsh "$CLEAN CLAUDE_CONFIG_DIR='$CFG' mentor_find_transcript '$expect_root'")"
+V="CLAUDE_CONFIG_DIR='$CFG' CLAUDE_CODE_SESSION_ID=sess"
+BYPASS="$STATE/.context-bypass-sess"
+mkverdict_tx 400000
+chk "session id locates the transcript exactly" \
+  test "$(libsh "$CLEAN $V mentor_find_transcript '$expect_root'")" = "$CFG/projects/proj/sess.jsonl"
+chk "over ask, no bypass → ASK (user decides)" \
+  test "$(libsh "$CLEAN $V mentor_context_verdict '$expect_root'")" = "ASK 400000 200000 350000"
+: > "$BYPASS"
+chk "over ask, bypassed → HANDOFF, never a refusal" \
+  test "$(libsh "$CLEAN $V mentor_context_verdict '$expect_root'")" = "HANDOFF 400000 200000 350000"
+chk "bypass predicate true with the marker"  libsh "$CLEAN $V mentor_context_bypassed '$expect_root'"
+rm -f "$BYPASS"
+# `!` cannot follow env assignments, so negate a subshell instead of `VAR=x ! cmd`.
+chk "bypass predicate false without it"      libsh "$CLEAN ! ( $V mentor_context_bypassed '$expect_root' )"
+chk "bypass predicate false with no repo"    libsh "$CLEAN ! ( $V mentor_context_bypassed '' )"
+mkverdict_tx 230000
+chk "between warn and ask → WARN" \
+  test "$(libsh "$CLEAN $V mentor_context_verdict '$expect_root'")" = "WARN 230000 200000 350000"
+mkverdict_tx 50000
+chk "under warn → OK" \
+  test "$(libsh "$CLEAN $V mentor_context_verdict '$expect_root'")" = "OK 50000 200000 350000"
+chk "env threshold override honored" \
+  test "$(libsh "$CLEAN $V MENTOR_CONTEXT_BLOCK_TOKENS=1000 mentor_context_verdict '$expect_root'")" = "ASK 50000 200000 1000"
+chk "kill switch → empty verdict" \
+  test -z "$(libsh "$CLEAN $V MENTOR_CONTEXT_GATE=off mentor_context_verdict '$expect_root'")"
+chk "unmeasurable → empty verdict" \
+  test -z "$(libsh "$CLEAN CLAUDE_CONFIG_DIR='$ROOT/nothing' mentor_context_verdict '$expect_root'")"
+chk "verdict is set -e safe with no repo" \
+  libsh "$CLEAN CLAUDE_CONFIG_DIR='$ROOT/nothing' v=\"\$(mentor_context_verdict '')\"; echo ok >/dev/null"
 
 echo
 echo "RESULT: PASS=$PASS FAIL=$FAIL"

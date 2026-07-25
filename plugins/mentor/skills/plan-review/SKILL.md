@@ -1,10 +1,12 @@
 ---
 name: plan-review
 description: |
-  Pre-approval plan reviewer. Trigger phrases: `/plan-review`,
-  "review this plan", "review the plan", "send the plan to reviewers" —
-  or, for the mechanical pass alone: "check plan consistency",
-  "consistency review", "analyze the plan for consistency".
+  Pre-approval plan reviewer — judges a written plan's QUALITY before you approve
+  it, not whether it has been built (that is /mentor:track). Trigger phrases:
+  `/plan-review`, "review this plan", "review the plan", "is this plan any good",
+  "send the plan to reviewers" — or, for the mechanical pass alone:
+  "check plan consistency", "consistency review",
+  "analyze the plan for consistency".
   Reads the current mentor plan (.md) and, with the edit gate closed, runs a
   staged review: Stage 1 judgment reviewers (practicality,
   comprehensiveness), then a fold gate where the user picks which
@@ -67,6 +69,11 @@ domain detection — the full pass always reviews these same four dimensions.
 ## When NOT to use
 
 - After approval — the plan is released; use `mentor:dispatch-agents` to execute it.
+- The user wants their own **open design decisions** interactively pressure-tested,
+  one question at a time — that is `/mentor:grill`. This skill audits a written
+  document with fixed lenses; grilling interrogates the person.
+- The user is asking **whether a plan has been built**, not whether it is any good —
+  that is `/mentor:track`.
 - No plan file in the mentor plans dir.
 - Single-file typo fixes or trivial edits where review costs more than the change.
 - The user explicitly asked you NOT to invoke sub-agents.
@@ -74,17 +81,18 @@ domain detection — the full pass always reviews these same four dimensions.
 ## Step 1 — Resolve the plan file(s)
 
 ```bash
-git_common=$(git rev-parse --git-common-dir 2>/dev/null) && \
-  repo_root=$(cd "$(dirname "$git_common")" && pwd) && \
-  d="$repo_root/.mentor/plans"
-primary=$(ls -t "$d"/*/plan.md 2>/dev/null | head -1)   # the PRIMARY plan — the subject every reviewer reads
-plan_dir=$(dirname "$primary")                          # the primary plan's own <slug>/ folder
-echo "$primary"
+bash "${CLAUDE_PLUGIN_ROOT}/hooks/plan-state.sh" current
 ```
 
-If `$primary` is empty, print `Plan review aborted: no plan file found.` and
-stop. Then `Read` the primary plan — it IS its own canonical source. Do **not**
-edit it yet — plan edits happen only at Step 5 (fold) and Step 7 (auto-fold).
+The `PLAN:` line is the **primary** plan — the subject every reviewer reads — and its
+directory is `plan_dir`. If nothing is printed, say `Plan review aborted: no plan file
+found.` and stop. Then `Read` the primary plan — it IS its own canonical source. Do
+**not** edit it yet — plan edits happen only at Step 5 (fold) and Step 7 (auto-fold).
+
+**When `GROUP:` is not `-`**, the primary plan is one slice of a `/plan-split` group,
+and the script prints its siblings. Reviewing an arbitrary slice is rarely what the
+user wants, so ask which sibling to review — or all of them, which means running this
+whole skill once per sibling. Do not silently pick one.
 
 **Related artifact set (consistency reviewer only).** Also enumerate the other
 planning artifacts so the consistency reviewer can check cross-artifact
@@ -92,12 +100,25 @@ coherence — the Stage 1 reviewers and the cleanliness reviewer only ever see
 the primary plan:
 
 ```bash
-ls -t "$d"/*/plan.md 2>/dev/null                      # all plans (one <slug>/ dir each)
+plan_dir="<the dirname of the PLAN: path above>"
+plans_dir="$(dirname "$plan_dir")"
+repo_root="$(cd "$plans_dir/../.." && pwd)"
+ls -t "$plans_dir"/*/plan.md 2>/dev/null              # ALL plans, incl. superseded — see below
 ls    "$plan_dir"/zoom/*.html 2>/dev/null             # the primary plan's supplementary zoom artifacts
 const_rel="$(jq -r '.constitution_path // empty' "$repo_root/.mentor/config.json" 2>/dev/null)"
 const_path="${repo_root}/${const_rel:-.mentor/constitution.md}"
 [ -f "$const_path" ] && echo "$const_path"            # the resolved constitution (default or constitution_path)
 ```
+
+This enumeration deliberately stays a raw `ls` rather than `plan-state.sh current` —
+`current` answers "which ONE plan is the subject", while this needs **every** artifact
+that might contradict it, superseded parents very much included.
+
+When the primary plan belongs to a group, its **siblings and the superseded parent are
+the most related artifacts there are** — they were sliced from one document and their
+isolation headers are supposed to partition the work between them. Put them at the
+front of the consistency reviewer's list: a `cross-overlap` between two siblings, or a
+parent requirement that landed in no child, is a split that failed.
 
 Pass the primary plan plus this list to the consistency reviewer. If the only
 entry is the primary plan itself, it runs an internal-only pass (no

@@ -49,14 +49,14 @@ Within the plan flow itself, `plan` Step 3.5 owns *post-research* decision resol
 Figure out *what* you are grilling, in this order:
 
 1. **Explicit argument.** If the user passed a topic (via `/mentor:grill <topic>` or in the message), grill that design.
-2. **Current mentor plan.** Otherwise, find the newest mentor plan for this repo:
+2. **Current mentor plan.** Otherwise, ask mentor which plan is current:
    ```bash
-   git_common=$(git rev-parse --git-common-dir 2>/dev/null) && \
-     repo_root=$(cd "$(dirname "$git_common")" && pwd) && \
-     d="$repo_root/.mentor/plans"
-   ls -t "$d"/*/plan.md 2>/dev/null | head -1
+   bash "${CLAUDE_PLUGIN_ROOT}/hooks/plan-state.sh" current
    ```
-   If a plan file is found, `Read` it (the `.md` is canonical) and grill it. Do **not** edit it.
+   `Read` the `PLAN:` path it prints (the `.md` is canonical) and grill it. Do **not** edit it.
+   If `GROUP:` is not `-`, the plan is one slice of a `/plan-split` group and the script
+   lists its siblings — ask which slice to grill rather than picking one, since grilling
+   the wrong slice wastes the whole interview.
 3. **The conversation.** If there is no argument and no plan, grill the design described in the conversation so far.
 
 If there is genuinely nothing to grill, say so in one line and stop.

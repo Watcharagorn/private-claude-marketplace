@@ -23,6 +23,22 @@ annotate the implementation steps, and Step 6 invokes it again to execute them
 after approval. Also invoked when the user explicitly says "dispatch agents",
 "fan out", "use subagents", "parallelize this".
 
+## When NOT to use — starting from a plan this session didn't write
+
+If you are picking up a plan that already exists — a fresh session, a handoff, or
+one of a `/plan-split` group — go through **`/mentor:track`** instead of invoking
+this skill directly. It answers two things this skill cannot:
+
+- **Which plan, and how far did it get?** Track reads each plan's state and re-enters
+  an interrupted run at the first unticked step, rather than rebuilding from step 1.
+  It also refuses `draft` plans, which the approval gate never released.
+- **Is this session big enough to finish the job?** Track runs a context check first
+  (its Step 0 explains why nothing else covers this path). Dispatching straight from
+  here is the one route into a full implementation with nothing measuring the session.
+
+When `mentor:plan` Step 6 or `mentor:plan-track` invokes this skill, those checks
+already ran; carry on.
+
 ## Escape hatch — when a plan may skip annotation
 
 Skip dispatch annotation ONLY when one of these branches holds:
@@ -54,7 +70,21 @@ The point of SDD: quality through narrow focus, and a lean main thread.
   user — only then may the main thread read the files and take over.
 - **Track progress in the plan file:** as each step's `Done when:` passes, mark
   its line in `plan.md` (append `✅`), so a resumed or handed-off session knows
-  exactly what already ran.
+  exactly what already ran. These ticks are also what makes plan state
+  self-healing — mentor derives `in_progress` / `implemented` from them, so a
+  forgotten state write below costs nothing, but a missing tick costs the next
+  session its picture of what landed.
+- **Move the plan's state as you go**, so `/mentor:track` can answer "what is
+  built?" in a fresh session without re-reading anything:
+  ```bash
+  bash "${CLAUDE_PLUGIN_ROOT}/hooks/plan-state.sh" set <slug> in_progress    # before the first dispatch
+  bash "${CLAUDE_PLUGIN_ROOT}/hooks/plan-state.sh" set <slug> implemented    # every Done when: passed
+  bash "${CLAUDE_PLUGIN_ROOT}/hooks/plan-state.sh" set <slug> failed --note "<what broke>"
+  ```
+  `<slug>` is the plan's directory name. Set `failed` at the escalate-to-user
+  point — after the one remediation re-dispatch has also failed. That one is
+  worth remembering, because unlike the others it cannot be derived from ticks,
+  and the note is what makes the retry cheap.
 - **Prompt sketches must be self-contained.** Each agent starts with zero
   memory of this conversation: give exact file paths, the approved plan path,
   the distilled facts it needs from research or prior steps (paste result

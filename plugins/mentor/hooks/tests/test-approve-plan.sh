@@ -14,7 +14,8 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 HOOKS="$(dirname "$SCRIPT_DIR")"
 APPROVE="$HOOKS/approve-plan.sh"
 SETMODE="$HOOKS/set-mode.sh"
-for f in "$APPROVE" "$SETMODE"; do
+PLANSTATE="$HOOKS/plan-state.sh"
+for f in "$APPROVE" "$SETMODE" "$PLANSTATE"; do
   [ -f "$f" ] || { echo "FATAL: not found: $f" >&2; exit 1; }
 done
 
@@ -146,6 +147,48 @@ echo "== I. Non-repo cwd → exit 1 =="
 NONGIT="$ROOT/plain"; mkdir -p "$NONGIT"
 rc=0; ( cd "$NONGIT" && HOME="$SANDBOX" bash "$APPROVE" >/dev/null 2>&1 ) || rc=$?
 chk "non-repo → exit 1"                test "$rc" = "1"
+
+echo "== J. Plan state: only a no-arg approve promotes, and only THIS session's plans =="
+# The bug this section guards: approve-plan.sh deletes the marker, and both
+# `[ a -nt b ]` and `find -newer b` are TRUE when b is gone. Asking "which plans are
+# newer than the marker" AFTER the release would stamp every plan dir in the repo.
+psq() { ( cd "$REPO" && HOME="$SANDBOX" bash "$PLANSTATE" "$@" 2>/dev/null ); }
+st()  { psq list | awk -v s="$1" '$3 == s { print $2 }'; }   # $2 STATE · $3 PLAN
+newplan() { sleep 1; mkdir -p "$PLANS_DIR/$1"; printf '# %s\n' "$1" > "$PLANS_DIR/$1/plan.md"; psq init "$1" >/dev/null; }
+
+clear_plans; rm -f "$MARKER"
+# A months-old plan dir. It must survive every approve below untouched.
+mkdir -p "$PLANS_DIR/ancient"; printf '# ancient\n' > "$PLANS_DIR/ancient/plan.md"
+touch -t 202501010000 "$PLANS_DIR/ancient/plan.md"
+
+arm; newplan this-session
+out="$(ap)"
+chk "no-arg approve promotes this session's plan" test "$(st this-session)" = "approved"
+chk "months-old plan NOT promoted"                test "$(st ancient)" = "unknown"
+chk "approve reports the promotion"    sh -c "printf '%s' \"\$0\" | grep -q 'state: approved'" "$out"
+
+# A split parent's plan.md is ALSO newer than the marker — it must not flip back.
+arm; newplan split-parent; newplan split-kid
+psq set split-parent superseded >/dev/null
+psq init split-kid --group split-parent --order 1 >/dev/null
+ap >/dev/null
+chk "superseded parent not flipped back"          test "$(st split-parent)" = "superseded"
+chk "split child promoted"                        test "$(st split-kid)" = "approved"
+
+# --deliver / --handoff mean "no implementation in this session" → mark nothing.
+arm; newplan delivered
+ap --deliver >/dev/null
+chk "--deliver marks nothing"                     test "$(st delivered)" = "draft"
+arm; newplan handed-off
+ap --handoff >/dev/null
+chk "--handoff marks nothing"                     test "$(st handed-off)" = "draft"
+
+# No marker → no snapshot → nothing to promote. This is what stops a re-run from
+# stamping the whole repo.
+rm -f "$MARKER"; newplan gate-open
+ap >/dev/null
+chk "gate already open → nothing promoted"        test "$(st gate-open)" = "draft"
+chk "months-old plan still untouched at the end"  test "$(st ancient)" = "unknown"
 
 echo
 echo "RESULT: PASS=$PASS FAIL=$FAIL"

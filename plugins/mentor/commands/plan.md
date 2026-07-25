@@ -39,13 +39,14 @@ Do these in order:
 2. **Immediately call `Skill({"skill": "mentor:plan"})` and follow it end
    to end** (after resolving a `CONTEXT: ASK` per step 1) — do **NOT** call
    `mentor:plan` (that would reload this command).
-   At the approval step, ask **Proceed / Deliver plan only / Review the plan
-   (staged) / Keep planning** (the `MODE:` line decides whether Proceed or
-   Deliver is listed first; under `CONTEXT: WARN` or `CONTEXT: HANDOFF`,
-   **Hand off to next agent** replaces Review and leads — labeled
-   **(Recommended)** under HANDOFF); on Proceed run `approve-plan.sh` (no-arg), on
-   Deliver `approve-plan.sh --deliver` — both validate the plan and release
-   the gate.
+   At the approval step, take the option list from the **option-set table** in the
+   skill's `{#approve}` section — it fixes the precedence between the `MODE:`
+   default, `CONTEXT: WARN` / `CONTEXT: HANDOFF`, and an oversized plan (which leads
+   with **Split into multiple plans**). Do not improvise the list here: one copy of
+   it, in the skill, is the only way it stays right. Each option maps to an
+   `approve-plan.sh` invocation the skill specifies; all of them validate the plan
+   and release the gate except Review, Split, and Keep planning, which stay in
+   planning.
 
 The task to plan:
 

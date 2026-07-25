@@ -26,40 +26,25 @@ fi
 plans_dir="$(mentor_plans_dir "$repo_root")"
 
 # --- context gate (plan start) ---------------------------------------------
-# begin-plan gets no hook stdin, so locate the session transcript ourselves. Over
-# the ask threshold the USER decides first: without a session bypass marker we print
-# a CONTEXT: ASK directive (AskUserQuestion — hand off, or bypass and plan lean) and
-# do NOT arm yet; with the marker the gate arms with a CONTEXT: HANDOFF advisory.
-# The UserPromptSubmit gate never sees /mentor:plan (slash passthrough), so we check
-# here. Fail-soft: unmeasurable → skip silently (like the not-a-repo grace above).
+# begin-plan gets no hook stdin, so mentor_context_verdict locates the session
+# transcript itself and measures it. Over the ask threshold the USER decides first:
+# without a session bypass marker we print a CONTEXT: ASK directive (AskUserQuestion —
+# hand off, or bypass and plan lean) and do NOT arm yet; with the marker the gate arms
+# with a CONTEXT: HANDOFF advisory. The UserPromptSubmit gate never sees /mentor:plan
+# (slash passthrough), so we check here. The same helper backs `plan-state.sh context`,
+# which /mentor:track uses before it dispatches — so both entry points apply one policy.
+# Fail-soft: unmeasurable → empty verdict → skip silently (like the not-a-repo grace).
 context_warn=""
-if [ "$(mentor_context_gate_state "$repo_root")" = "on" ]; then
-  projects_dir="${CLAUDE_CONFIG_DIR:-$HOME/.claude}/projects"
-  tx=""
-  # Primary (exact, race-free): CLAUDE_CODE_SESSION_ID is exported into Bash tool
-  # environments and equals the main-session transcript filename.
-  if [ -n "${CLAUDE_CODE_SESSION_ID:-}" ]; then
-    tx="$(find "$projects_dir" -maxdepth 2 -name "${CLAUDE_CODE_SESSION_ID}.jsonl" 2>/dev/null | head -1 || true)"
-  fi
-  # Fallback (older CC without the env var): newest transcript in the hashed project dir.
-  if [ -z "$tx" ]; then
-    for base in "$(git -C "$(pwd)" rev-parse --show-toplevel 2>/dev/null || true)" "$(pwd)"; do
-      [ -n "$base" ] || continue
-      hash="$(printf '%s' "$base" | sed 's/[^A-Za-z0-9]/-/g')"
-      tx="$(ls -t "${projects_dir}/${hash}"/*.jsonl 2>/dev/null | head -1 || true)"
-      [ -n "$tx" ] && break
-    done
-  fi
-  tokens="$(mentor_context_tokens "$tx")"
-  if [ -n "$tokens" ]; then
-    ask_at="$(mentor_context_threshold "$repo_root" "${MENTOR_CONTEXT_BLOCK_TOKENS:-}" context_block_tokens 350000)"
-    warn_at="$(mentor_context_threshold "$repo_root" "${MENTOR_CONTEXT_WARN_TOKENS:-}" context_warn_tokens 200000)"
-    if [ "$tokens" -ge "$ask_at" ]; then
-      if [ -e "$(mentor_state_dir "$repo_root")/.context-bypass-${CLAUDE_CODE_SESSION_ID:-nosession}" ]; then
-        context_warn="CONTEXT: HANDOFF (~${tokens} tokens ≥ ${ask_at}) — critically large (gate bypassed this session): keep planning lean (skip optional zooms and plan-review); at the approval step lead with \"Hand off to next agent (Recommended)\"."
-      else
-        hook_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-        cat <<EOF
+verdict="$(mentor_context_verdict "$repo_root" "$(pwd)")"
+if [ -n "$verdict" ]; then
+  read -r level tokens warn_at ask_at <<<"$verdict"
+  case "$level" in
+    HANDOFF)
+      context_warn="CONTEXT: HANDOFF (~${tokens} tokens ≥ ${ask_at}) — critically large (gate bypassed this session): keep planning lean (skip optional zooms and plan-review); at the approval step lead with \"Hand off to next agent (Recommended)\"."
+      ;;
+    ASK)
+      hook_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+      cat <<EOF
 CONTEXT: ASK (~${tokens} tokens ≥ ${ask_at})
 [mentor] Plan gate NOT armed yet — the user decides first. Do NOT invoke the plan
 skill yet; ask via AskUserQuestion (header "Context", two options):
@@ -72,12 +57,12 @@ skill yet; ask via AskUserQuestion (header "Context", two options):
 (Threshold: "context_block_tokens" in .mentor/config.json or MENTOR_CONTEXT_BLOCK_TOKENS;
 disable entirely with MENTOR_CONTEXT_GATE=off.)
 EOF
-        exit 0
-      fi
-    elif [ "$tokens" -ge "$warn_at" ]; then
+      exit 0
+      ;;
+    WARN)
       context_warn="CONTEXT: WARN (~${tokens} tokens ≥ ${warn_at}) — surface to the user; prefer \"Hand off to next agent\" at the approval step."
-    fi
-  fi
+      ;;
+  esac
 fi
 
 mkdir -p -m 700 "$plans_dir"

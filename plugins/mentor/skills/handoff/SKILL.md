@@ -102,6 +102,10 @@ Write a Markdown document with these sections (skip a section only if genuinely 
 - **Goal / next-session focus** — from `$ARGUMENTS`; what the next agent should accomplish.
 - **What happened** — a tight summary of the conversation and the progress made. Narrative, not a transcript.
 - **Current state** — branch, what is done vs pending, any failing checks or known-broken bits.
+  When this repo has mentor plans, paste the output of
+  `bash "${CLAUDE_PLUGIN_ROOT}/hooks/plan-state.sh" list` here. A table of real plan states beats
+  a prose recollection of what got built, and it is exactly what the next agent needs before
+  running `/mentor:track`.
 - **Recommended mentor commands for the next agent** — see the mapping below.
 - **Referenced artifacts (do not duplicate)** — link by **path/URL**, never paste the contents:
   - the current mentor plan file at `<repo>/.mentor/plans/<topic>/plan.md` (if one exists —
@@ -119,7 +123,7 @@ Pick the entries that fit the current state, tailored to the next-session focus:
 
 - **Unclear approach / unfinished design** → `/mentor:plan <focus>` (runs the gated plan harness).
 - **A plan exists but its decisions feel shaky** → `/mentor:grill` to pressure-test it, then re-plan / approve.
-- **Approved plan, ready to build** → resume implementation — execute the plan's dispatch annotations via `Skill(skill="mentor:dispatch-agents")`; `/mentor:ship` when done.
+- **Approved plan(s), ready to build** → `/mentor:track` — it lists each plan's state, lets the next agent pick one, and executes it via `mentor:dispatch-agents`; `/mentor:ship` when done. Point there rather than at "resume implementation": the next agent needs to know *which* plan and *how far it got*, and `/mentor:track` is the only thing that answers both.
 - **Repeated manual work worth capturing** → `/loom:harvest`.
 - **Heavy multi-area work** → dispatch subagents per `mentor:dispatch-agents`.
 - If `.mentor/config.json` exists (a persisted mode — `/mentor:mode status` shows it), cite the repo's approval-gate default so the next agent knows whether "Proceed" or "Deliver plan only" is listed first at plan approval.

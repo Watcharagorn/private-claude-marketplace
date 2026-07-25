@@ -21,6 +21,10 @@
 # Idempotent-directive rule: when the gate is already open, validation and
 # release are skipped, but --deliver/--handoff STILL print their directive —
 # a re-run must never silently downgrade a no-implementation instruction.
+#
+# Plan state (v2.4.0): the no-arg approve — and ONLY it — promotes this session's
+# plans to `approved` in their .state.json sidecars. See the promotion block at the
+# bottom for why the candidate set is snapshotted before the marker is deleted.
 
 set -euo pipefail
 
@@ -48,6 +52,13 @@ marker="${plans_dir}/.planning"
 
 newest_plan="$(mentor_newest_plan "$plans_dir")"
 
+# Plans written during THIS planning session — snapshotted BEFORE the marker is
+# removed, because `[ a -nt b ]` and `find -newer b` are both TRUE when b is gone:
+# asking "newer than the marker" after the release would match every plan dir in the
+# repo, including months-old ones. Empty on the gate-already-open branch, which is
+# correct — nothing was planned in this session, so nothing gets promoted.
+newly_planned=""
+
 if [ -f "$marker" ]; then
   if [ -z "$newest_plan" ] || [ ! -s "$newest_plan" ]; then
     echo "[mentor approve-plan] No Markdown plan found in ${plans_dir}." >&2
@@ -64,6 +75,8 @@ if [ -f "$marker" ]; then
     echo "Write the plan for THIS session before approving — the gate stays CLOSED." >&2
     exit 1
   fi
+
+  newly_planned="$(find "$plans_dir" -mindepth 2 -maxdepth 2 -name plan.md -newer "$marker" 2>/dev/null || true)"
 
   # Release the gate.
   rm -f "$marker" 2>/dev/null || true
@@ -101,10 +114,37 @@ EOF
   exit 0
 fi
 
-# No-arg approve: implementation follows. Restate the SDD directive here —
-# informational only, no enforcement — because this is the exact moment the
-# model resumes after the Bash call (printed on re-runs too, mirroring the
-# idempotent-directive rule for the flags above).
+# No-arg approve: implementation follows, so this is the ONE path that promotes plan
+# state to `approved`. --deliver and --handoff explicitly mean "no implementation in
+# this session" and must leave state alone.
+#
+# Only plans from $newly_planned are candidates (see the snapshot above), and only
+# those whose effective state is `draft` or `unknown` — never `superseded` (a split
+# parent's plan.md is also newer than the marker and would otherwise flip back),
+# `implemented`, `failed` or `in_progress`. `unknown` is included because a plan
+# written this session predates nothing: it just means Step 4 never ran `init`, and
+# the approval should still land rather than depend on the model remembering.
+#
+# Fail-soft throughout: every helper here exits 0, so a state-write problem can never
+# turn a successful gate release into an error.
+if [ -n "$newly_planned" ]; then
+  promoted=""
+  while IFS= read -r plan_path; do
+    [ -n "$plan_path" ] || continue
+    plan_dir="$(dirname "$plan_path")"
+    case "$(mentor_plan_effective_state "$plan_dir")" in
+      draft|unknown) ;;
+      *) continue ;;
+    esac
+    mentor_plan_state_write "$plan_dir" approved "" "" ""
+    promoted="${promoted}$(basename "$plan_dir") "
+  done <<<"$newly_planned"
+  if [ -n "$promoted" ]; then echo "  state: approved — ${promoted% }"; fi
+fi
+
+# Restate the SDD directive here — informational only, no enforcement — because this
+# is the exact moment the model resumes after the Bash call (printed on re-runs too,
+# mirroring the idempotent-directive rule for the flags above).
 cat <<EOF
 
 Implementation is subagents-first (SDD) — execute the plan's dispatch

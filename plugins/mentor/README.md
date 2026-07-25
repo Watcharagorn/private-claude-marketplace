@@ -50,6 +50,8 @@ review and are the single source of truth for implementation, handoff, and revie
 | `/mentor:handoff "<focus>"` | Compact the session into a handoff document (in its plan-topic folder, `.mentor/plans/<topic>/handoffs/`, gitignored) for a fresh agent; ends with copy-paste resume prompts (`/mentor:resume <slug>` + a plugin-free alternative). Also offered as **Hand off to next agent** at the approval gate — leading the options (marked **(Recommended)**) when the context gate warns or asks. |
 | `/mentor:resume [slug\|number]` | List this repo's live handoff notes (across all plan topics) and continue the chosen one. A note is stamped **resolved** (moved to a `resolved/` subdir, never re-listed) only when its work completes per the plan file (`/mentor:ship` stamps too) or a nested `/mentor:handoff` supersedes it — unfinished work stays resumable. |
 | `/mentor:tour [user\|dev\|both] [subject]` | **Post-approval acceptance review**: an editable guided-tour artifact — scenario cards with pass/not-pass toggles, feedback capture, and MD/JSON report export — published to a stable URL that revisions republish in place. Subject defaults to the newest plan; artifacts live in `.mentor/tours/` (gitignored). |
+| `/mentor:track [slug\|number\|status]` | List every plan with its state (draft / approved / in progress / implemented / failed), then build the one you pick. The way back into a `/plan-split` group. |
+| `/plan-split`* | Split an oversized plan into independently buildable sibling plans, each with explicit scope isolation; also offered as **Split into multiple plans** at the approval gate when a plan is oversized. |
 | `/plan-review`* | Staged review of the current plan: a judgment pass (practicality, comprehensiveness) with a **fold gate** where you pick the edits to apply, then — against the updated plan — a mechanical pass (cleanliness + spec-kit-`analyze`-style **consistency** across related artifacts) whose safe fixes **auto-fold**; decision-level findings are surfaced, never auto-applied. The mechanical stage is invocable alone ("check plan consistency"). Also offered as **Review the plan (staged)** at the proceed gate. |
 | `/dispatch-agents`* | The **default implementation path** (subagents-driven development): every plan's steps are dispatch-annotated unless the plan states a `Dispatch: skipped` reason, and executed as subagent dispatches after approval. |
 
@@ -79,6 +81,7 @@ v2.2.0, handoffs inside them since v2.10.0):
 ├── constitution.md  # governing principles (/mentor:constitution)        ← committed
 ├── plans/           # the .planning marker + one dir per plan topic      ← gitignored
 │   └── <slug>/      #   plan.md (+ hidden .plan.md.opened sidecar)
+│       ├── .state.json # lifecycle state (v2.11.0) — written only by plan-state.sh
 │       ├── zoom/    #   <topic>-<perspective>.html opt-in zoom artifacts
 │       └── handoffs/ #  handoff notes (/mentor:handoff → /mentor:resume);
 │           └── resolved/ # solved/superseded notes (stamped on completion or nested handoff)
@@ -90,6 +93,87 @@ Only `config.json` and `constitution.md` are committed (team-shared); plans, han
 tours and the transient markers are gitignored. Un-ignore `plans/` if you want plans
 version-controlled. **Not in a git repo?** handoff/resume and the context gate fall
 back to `~/.claude/mentor/_no-repo/`.
+
+## Splitting a big plan (`/plan-split`)
+
+`/mentor:plan` assumes one ask = one plan. When the ask is huge, that plan becomes
+unreviewable, its implementation runs out of context partway through, and nothing
+records what already got built.
+
+`/plan-split` takes the plan mentor just wrote and slices it into **ordinary sibling
+plans** — no hierarchy, no new entity, just peers in `.mentor/plans/` sharing a
+`group` field. It is offered as the leading option at the approval gate whenever a
+plan is oversized (>~12 implementation steps, or independent deliverables that could
+ship separately).
+
+Each child is authored by its own dispatched agent, in parallel, and opens with the
+**isolation header** that makes the siblings safe to build separately and in any
+order:
+
+```
+> [!NOTE]
+> **Plan 3 of 5** · group `multi-tenant-billing` · depends on `tenant-data-isolation`
+> **Owns:** src/billing/invoice/**, the `/v1/invoices` route
+> **Does NOT touch:** metering ingestion → `metering-pipeline` · tenant scoping → `tenant-data-isolation`
+```
+
+Every excluded area names the **sibling that owns it** — "does not touch metering"
+tells an implementation agent nothing; "→ `metering-pipeline`" tells it exactly. The
+header is also the authority on dependency order, and it travels into the
+implementation agents' prompts, so the boundary follows the work.
+
+The parent is marked `superseded` **only after every child is verified to exist** — a
+failed authoring agent can never strand you with a retired parent and no children.
+Splitting never releases the edit gate; when it finishes, you land back at the
+approval question looking at the children's headers, where **Proceed approves the
+whole set** and routes building to `/mentor:track`.
+
+## Plan state (`/mentor:track`)
+
+Every plan dir carries a hidden `.state.json` recording where it stands, so a fresh
+session can answer "which of these five is next?" without re-reading five plans.
+
+| State | Meaning |
+|---|---|
+| `draft` | Written, not yet approved. `/mentor:track` refuses to build it. |
+| `approved` | The gate released it. Ready to build. |
+| `in_progress` | Execution started; some steps are ticked. |
+| `implemented` | Every `Done when:` passed. |
+| `failed` | Escalated after the remediation re-dispatch; the note says what broke. |
+| `superseded` | Replaced by its children via `/plan-split`. Sorted last. |
+| *(no sidecar)* | `unknown` — a pre-2.4.0 plan. Never reported as "never approved". |
+
+**The sidecar is a cache, not the only truth.** Reads take the *more advanced* of the
+stored state and the state derived from the plan's `✅` step ticks — every step ticked
+reads `implemented`, some reads `in_progress`. Since `dispatch-agents` already writes
+those ticks, a forgotten state write costs nothing and old plan dirs read correctly
+with no migration.
+
+Group membership heals the same way: a split child's isolation header carries
+`**Plan 3 of 5** · group \`…\``, and mentor parses `group`/`order` back out of it when
+the sidecar is missing or torn. Delete a `.state.json` outright and the plan still
+lists with the right state, group, and position — a plan dir needs nothing but its
+`plan.md`.
+
+> This is not a return to the v1.0.0 footer markers. Those were in-document contracts
+> the model had to maintain by hand, and they broke when it forgot. The sidecar is
+> written only by `hooks/plan-state.sh` and is *derivable from the plan file*, so
+> forgetting is a no-op rather than a corruption.
+
+```
+/mentor:track            # list every plan + state, pick one, build it
+/mentor:track status     # print state and stop
+/mentor:track 2          # build the 2nd listed plan
+/mentor:track billing    # substring match on the slug
+```
+
+`/mentor:track` runs its own context check before dispatching — the `UserPromptSubmit`
+context gate lets every slash command through, so without it a slash command could
+launch a full implementation in a session already too large to finish it.
+
+> Named `track`, not `plans`, deliberately: `/mentor:plan` and `/mentor:plans` differ
+> by one character and both tab-complete, and the typo would silently start a new
+> planning session and close the edit gate.
 
 ## Constitution (`/mentor:constitution`)
 
@@ -178,6 +262,7 @@ Knobs — env vars under `env` in `~/.claude/settings.json` (or the project's
 | `hooks/set-mode.sh` | Get/set the approval-gate default. |
 | `hooks/context-gate.sh` | **Context gate.** `UserPromptSubmit` — measures live context from the transcript: warns once (~200k), re-warns near the limit (~315k), and above ~350k asks the user — hand off (recommended) or bypass for the session. Never blocks or erases prompts. Fail-soft; slash commands always pass. |
 | `hooks/bypass-context.sh` | Writes the session-scoped `.context-bypass-<session_id>` marker when the user answers "Proceed anyway" — degrades the ask tier to a one-line advisory for the rest of the session. |
+| `hooks/plan-state.sh` | **The one plan-state API** (not a hook — skills call it directly). `init` / `set` / `list` / `current` / `context`. Sole writer of `.state.json`; derives effective state from the plan's ✅ ticks; `current` is group-aware, so after a split it reports the whole group rather than whichever child agent finished last. |
 
 ### Known limitations
 
@@ -234,6 +319,51 @@ extra deliverable. Instruction-only — no hooks.
 | `plan-domain-backend-api` | API/endpoint/route/handler/schema/DTO/contract | Before/after contract diff tables, schema diffs, Mermaid sequence flows. |
 | `plan-domain-architecture` | Structural change — services, containers, datastores, integrations | Diff-highlighted C4-style Mermaid flowcharts, only the levels that change. |
 | `plan-domain-dynamic` | No registered domain matched (fallback) | A dispatched domain-definer names the domain and returns a best-practices brief; the plan gains a practice→step mapping. |
+
+## Changes in v2.11.0
+
+Split an oversized plan into isolated sibling plans, backed by **plan state**. The two
+changes are one feature: splitting a plan into five is only useful if mentor can then
+tell you which of the five are built.
+
+- **`/plan-split`** (new skill) — slices the current plan into N ordinary sibling
+  plans, one dispatched agent per child, each opening with an **isolation header**
+  naming what it owns and which sibling owns everything it does not. Offered at the
+  approval gate when a plan is oversized. Verifies every child before retiring the
+  parent — a failed authoring agent can never strand you with no children — and
+  returns you to the approval question.
+- **Plan state** (new) — a `.state.json` sidecar per plan dir:
+  `draft → approved → in_progress → implemented | failed`, plus `superseded`. Reads
+  take the more advanced of the sidecar and the state derived from the plan's `✅`
+  step ticks, so a forgotten write is a no-op and older plans need no migration. Group
+  and order likewise fall back to parsing the isolation header, so a plan dir survives
+  with nothing in it but `plan.md`. A plan with no sidecar reads `unknown`, never
+  "never approved".
+- **`/mentor:track`** (new command) — lists every plan with its state and builds the
+  one you pick, re-entering an interrupted run at the first unticked step. Refuses
+  `draft` plans (the gate never released them) and runs the shared context check
+  before dispatching, since `context-gate.sh` passes every slash command.
+- **`hooks/plan-state.sh`** (new) — `init`/`set`/`list`/`current`/`context`; the only
+  writer of the sidecar. Its group-aware `current` replaces three hand-rolled
+  `ls -t plans/*/plan.md | head -1` snippets in `plan-review`, `grilling` and
+  `lib/state.sh`, which after a split each resolved to whichever child agent finished
+  writing last.
+- **`approve-plan.sh` promotes state on the no-arg Proceed path only.** The candidate
+  set is snapshotted **before** the marker is deleted: `find -newer <marker>` is true
+  for everything once the marker is gone, so promoting afterwards would have stamped
+  every plan dir in the repo, including months-old ones, and flipped a just-superseded
+  parent back to `approved`. `--deliver` and `--handoff` mark nothing.
+- **The v2.8.0 ask-first context check is now one shared helper**
+  (`mentor_context_verdict`, returning `OK`/`WARN`/`ASK`/`HANDOFF`). `begin-plan.sh`
+  routes through it instead of measuring inline, and `/mentor:track` applies the same
+  policy — including the `.context-bypass-<session_id>` marker, so a user who chose
+  "Proceed anyway" is never then refused by a different entry point.
+- **One approval-option precedence table** in `plan` `{#approve}`, now covering
+  oversized × `WARN`/`HANDOFF`. `commands/plan.md` points at that table instead of
+  keeping a second copy that had already drifted.
+- **Lane fixes:** `resume` and `handoff` used to claim the "pick the next plan to
+  build" lane; both now point at `/mentor:track`. `dispatch-agents` gained a "When NOT
+  to use" so invoking it directly cannot skip the context check.
 
 ## Changes in v2.9.0
 

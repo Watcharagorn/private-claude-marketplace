@@ -184,7 +184,18 @@ mkdir -p -m 700 "$plan_dir"   # 700: plans may contain sensitive paths/snippets
 echo "${plan_dir}/plan.md"   # fixed name inside the slug dir, NO timestamp — stable across revisions
 ```
 
-Write the plan there with the `Write` tool. The path is inside the gate-exempt
+Write the plan there with the `Write` tool, then register it so mentor can track what
+becomes of it:
+
+```bash
+bash "${CLAUDE_PLUGIN_ROOT}/hooks/plan-state.sh" init "$slug"
+```
+
+That records the plan as `draft` in a hidden `.state.json` beside it. Approval, and
+later `/mentor:track`, read that state to know which plans are built and which are
+pending. It is idempotent, so re-running it on a revision is harmless.
+
+The path is inside the gate-exempt
 `.mentor/` tree, so the edit gate allows it; `plan-open.sh` auto-opens it for review the first time
 (VSCode tab when available — toggle preview with ⇧⌘V; opener configurable via
 `MENTOR_PLAN_OPENER`, disable with `MENTOR_PLAN_OPEN=off`, both under `env` in
@@ -359,30 +370,58 @@ mid-write.
 First **surface the complete plan body** in your message — plain markdown,
 verbatim, no commentary around it — so the user can review it in the transcript.
 If the plan is long, let them scroll; do not summarize instead. Then, in the
-same turn, ask via `AskUserQuestion`:
+same turn, ask via `AskUserQuestion` — `header: "Approve"`, question *"The plan is
+ready. What happens next?"* — with the option set the table below selects.
 
-```json
-{
-  "question": "The plan is ready. What happens next?",
-  "header": "Approve",
-  "options": [
-    { "label": "Proceed", "description": "Validate the plan, release the edit gate, and begin implementation." },
-    { "label": "Deliver plan only", "description": "Validate the plan and release the gate; the plan file is the deliverable — no implementation, no dispatch. (/mentor:handoff can brief a fresh agent afterwards.)" },
-    { "label": "Review the plan (staged)", "description": "Run plan-review — a judgment pass (practicality, comprehensiveness) with a fold gate for the edits you pick, then a mechanical pass (cleanliness, consistency) whose safe fixes auto-fold. Stays in planning; ends back at this question." },
-    { "label": "Keep planning", "description": "Do not release — keep refining. Re-write the plan file and ask again when ready." }
-  ]
-}
-```
+### Is the plan oversized?
 
-**Ordering:** when Step 0 resolved the default to `plan-only`, swap the first
-two options ("Deliver plan only" first). When Step 0 reported
-**`CONTEXT: WARN` or `CONTEXT: HANDOFF`**, use this fixed option set instead,
-regardless of mode: **Hand off to next agent** (first) / **Deliver plan only** /
-**Proceed** / **Keep planning** — a large session should hand implementation
-to a fresh agent, and plan-review would inflate the context further (it stays
-reachable via "Other"). Under `CONTEXT: HANDOFF`, label the first option
-**"Hand off to next agent (Recommended)"** and note in the question text that
-the session is critically large.
+Decide this **before** asking, because it changes which options you offer. The plan is
+oversized when any of these holds:
+
+- more than ~12 implementation steps, or
+- it contains independent deliverables that could ship separately, or
+- the user says it is too big.
+
+**Suppressed when this plan already has a `group`** — it is itself a split child, and
+re-slicing a slice usually means the first split drew its lines in the wrong place.
+Typing `/plan-split` still works if the user insists.
+
+### The option set
+
+`AskUserQuestion` caps at 4, and the oversize and context conditions fire together
+constantly — so the precedence is fixed here rather than left to judgment in the
+moment:
+
+| Condition | Options, in order | Yields to "Other" |
+|---|---|---|
+| neither | Proceed · Deliver plan only · Review the plan (staged) · Keep planning | — |
+| `CONTEXT: WARN` only | Hand off to next agent · Deliver plan only · Proceed · Keep planning | Review |
+| `CONTEXT: HANDOFF` only | **Hand off to next agent (Recommended)** · Deliver plan only · Proceed · Keep planning | Review |
+| oversized only | **Split into multiple plans** · Proceed · Review the plan (staged) · Deliver plan only | Keep planning |
+| oversized **and** `CONTEXT: WARN` | **Split into multiple plans** · Hand off to next agent · Deliver plan only · Proceed | Review, Keep planning |
+| oversized **and** `CONTEXT: HANDOFF` | **Hand off to next agent (Recommended)** · Split into multiple plans · Deliver plan only · Proceed | Review, Keep planning |
+
+In the first row only, `MODE: plan-only` swaps the leading two so "Deliver plan only"
+comes first. Anything yielded to "Other" stays reachable — the user can just say it.
+Under `CONTEXT: HANDOFF`, also note in the question text that the session is
+critically large.
+
+Split leads on an oversized plan because handing one off whole only moves the problem
+to the next session, while the split's authoring cost lands in dispatched agents
+rather than in this thread. **`CONTEXT: HANDOFF` outranks even that**: at that size the
+safest possible act is to write the handoff and stop, and the split can happen in the
+fresh session with room to verify it. Review stays visible in the oversized-only row
+because an oversized plan is exactly the kind most worth reviewing; *Keep planning*
+yields instead.
+
+| Label | Description |
+|---|---|
+| Proceed | Validate the plan, release the edit gate, and begin implementation. |
+| Deliver plan only | Validate the plan and release the gate; the plan file is the deliverable — no implementation, no dispatch. (/mentor:handoff can brief a fresh agent afterwards.) |
+| Review the plan (staged) | Run plan-review — a judgment pass (practicality, comprehensiveness) with a fold gate for the edits you pick, then a mechanical pass (cleanliness, consistency) whose safe fixes auto-fold. Stays in planning; ends back at this question. |
+| Keep planning | Do not release — keep refining. Re-write the plan file and ask again when ready. |
+| Split into multiple plans | Slice this plan into independently buildable sibling plans, each with explicit scope isolation. Stays in planning; asks again afterwards. |
+| Hand off to next agent | Approve and release, then write a handoff doc so a fresh agent implements it — this session is getting large. |
 
 On **Proceed**, run:
 
@@ -406,6 +445,23 @@ busy-poll background agents — end the turn and let the harness re-invoke you.
 The main thread orchestrates and verifies; it does not re-do or re-read the
 work it delegated. Only when the plan opens its Implementation steps with
 `Dispatch: skipped — <reason>` does the main thread implement directly.
+
+**Record progress as plan state.** `approve-plan.sh` just marked this session's plans
+`approved`. As implementation runs, move that forward so a later session — or
+`/mentor:track` — knows what actually landed instead of re-reading the plan and
+guessing:
+
+```bash
+bash "${CLAUDE_PLUGIN_ROOT}/hooks/plan-state.sh" set <slug> in_progress            # execution starts
+bash "${CLAUDE_PLUGIN_ROOT}/hooks/plan-state.sh" set <slug> implemented            # every Done when: passed
+bash "${CLAUDE_PLUGIN_ROOT}/hooks/plan-state.sh" set <slug> failed --note "<what broke>"   # escalating to the user
+```
+
+`mentor:dispatch-agents` states this for the dispatch path; it is repeated here
+because the **`Dispatch: skipped`** path never loads that skill, and direct
+implementation must not be the one route that leaves no record. Missing a transition
+is survivable — state also derives from the `✅` step ticks you mark as each step
+passes — but `failed` cannot be derived from ticks, so that one is worth remembering.
 
 On **Deliver plan only**, run:
 
@@ -436,6 +492,15 @@ gate and auto-folds MECHANICAL Stage 2 findings into the plan file
 (gate-exempt `.mentor/` writes), surfaces DECISION-REQUIRED findings, then
 returns to this same question — this option never releases the gate by
 itself.
+
+On **Split into multiple plans**, invoke `Skill(skill="mentor:plan-split")`. It writes
+only under `.mentor/plans/`, so the gate stays closed: it confirms a slice map,
+dispatches one agent per child, retires the parent, and returns here. Then **re-ask
+this same question** against the new sibling set — the oversize condition is now
+false, so the option set comes from the table's first two rows. Say in the question
+that **Proceed now approves the whole set** and routes building to `/mentor:track`;
+otherwise the user is left guessing which child "Proceed" means, and the model is left
+implementing whichever one it happens to remember.
 
 On **Keep planning**, do not run the script; return to planning.
 
