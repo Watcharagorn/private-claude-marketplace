@@ -320,6 +320,29 @@ extra deliverable. Instruction-only — no hooks.
 | `plan-domain-architecture` | Structural change — services, containers, datastores, integrations | Diff-highlighted C4-style Mermaid flowcharts, only the levels that change. |
 | `plan-domain-dynamic` | No registered domain matched (fallback) | A dispatched domain-definer names the domain and returns a best-practices brief; the plan gains a practice→step mapping. |
 
+## Changes in v2.11.1
+
+Closes a hole where planning could run with the **edit gate open**.
+
+- **`mentor:plan` now checks the gate before planning.** The marker-driven gate is
+  armed by `begin-plan.sh`, which only the `/mentor:plan` command runs. Loaded any
+  other way — a conversational "help me plan this" — the skill used to plan anyway,
+  with `plan-gate.sh` finding no marker and allowing every repo edit for the rest of
+  the session, while the approval step still displayed its "no edits until approved"
+  banner. Step 0 now detects the unarmed gate and stops, pointing at the command. It
+  deliberately does not arm the marker itself: on a large session `begin-plan.sh`
+  answers `CONTEXT: ASK` and exits *without* arming, and resolving that with the user
+  belongs to the command layer.
+  - The check resolves the repo via `--git-common-dir`, matching `mentor_repo_root`,
+    so linked worktrees — which share the main repo's `.mentor/` — are read correctly.
+  - Step 0 also no longer reports a missing `MODE:` line as "not in a git repo". That
+    was one of two causes; the other is this bug, and it needed the opposite response.
+- **Trigger evals** (new, `evals/`) — a re-runnable check that a user's phrasing
+  reaches the intended skill and not one of its seven siblings. mentor had eight hook
+  test suites and nothing guarding the descriptions. 36/40 at this version; see
+  `evals/README.md`, including why the fixture must be seeded before the numbers mean
+  anything.
+
 ## Changes in v2.11.0
 
 Split an oversized plan into isolated sibling plans, backed by **plan state**. The two

@@ -1,11 +1,13 @@
 ---
 name: plan
 description: >
-  The mentor planning workflow. Invoked by /mentor:plan after begin-plan.sh arms
-  the edit gate. Guides research, domain routing, resolving open decisions with
-  the user one at a time (AskUserQuestion with decision support), writing a
-  Mermaid-first Markdown plan into the gate-exempt .mentor/ tree, and the
-  approval that releases the gate.
+  The mentor planning workflow — the body of the /mentor:plan command, not a
+  standalone entry point. The command runs begin-plan.sh first to arm the
+  marker-driven edit gate that holds planning read-only; loaded any other way this
+  skill detects the unarmed gate at Step 0 and stops, pointing you at the command.
+  Guides research, domain routing, resolving open decisions with the user one at a
+  time (AskUserQuestion with decision support), writing a Mermaid-first Markdown
+  plan into the gate-exempt .mentor/ tree, and the approval that releases the gate.
 ---
 
 # mentor Plan
@@ -25,13 +27,45 @@ planning either; Bash is not enforced, but the rule is the same.
 
 ## Step 0 — Mode & constitution {#mode}
 
+**First, confirm the edit gate is actually armed.** This skill is the body of the
+`/mentor:plan` command, which runs `begin-plan.sh` before invoking it. If you were
+loaded some other way — most likely a conversational "help me plan this" — that
+never ran:
+
+```bash
+git_common="$(git rev-parse --git-common-dir 2>/dev/null)"
+if [ -n "$git_common" ]; then
+  case "$git_common" in /*) ;; *) git_common="$PWD/$git_common" ;; esac
+  repo_root="$(cd "$(dirname "$git_common")" && pwd)"
+  [ -f "$repo_root/.mentor/plans/.planning" ] || echo "GATE: NOT ARMED"
+fi
+```
+
+(`--git-common-dir`, not `--show-toplevel`: linked worktrees deliberately share the
+main repo's `.mentor/` state dir, so a worktree resolved to its own root would look
+for the marker in the wrong place and refuse to plan while the gate was armed.)
+
+`GATE: NOT ARMED` inside a repo means `plan-gate.sh` has no marker to enforce, so
+every repo edit stays allowed for the whole session while Step 6 goes on showing its
+"no edits until approved" banner. Planning that only *looks* read-only is worse than
+planning that admits it isn't, so do not continue: say so in one line and ask the
+user to run `/mentor:plan <their request>`, which arms the gate and comes back here.
+
+Do **not** run `begin-plan.sh` yourself to patch this up — on a large session it
+answers `CONTEXT: ASK` and exits *without* arming, and resolving that with the user
+is the command's job, not this skill's.
+
+No output means the gate is armed, or you are outside a repo where there is nothing
+to protect. Either way, continue.
+
 `begin-plan.sh` printed a `MODE:` line. The mode is only the **approval-gate
 default** — it decides which option Step 6 lists first; both outcomes are
 always offered there, and you never ask the user to pick a mode upfront:
 
 - **`MODE: plan-only`** — list **"Deliver plan only"** first at Step 6.
 - **`MODE: plan`**, **`MODE: UNSET (default: plan)`**, or no `MODE:` line at
-  all (not in a git repo — the gate was not armed) — list **"Proceed"** first.
+  all (not in a git repo, so there was nothing to arm — distinct from the
+  unarmed-inside-a-repo case the check above catches) — list **"Proceed"** first.
 
 `begin-plan.sh` may also print a **`CONTEXT:`** line (the context gate). A
 **`CONTEXT: WARN`** means the session is getting large — surface it to the user

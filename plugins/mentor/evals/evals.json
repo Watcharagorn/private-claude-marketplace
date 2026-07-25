@@ -1,0 +1,127 @@
+{
+  "eval_name": "mentor-v2.11.0-multi-skill-triggering",
+  "note": "Multi-class: every query is scored on WHICH mentor skill fires, not whether one does. 'none' means no mentor skill should be consulted.",
+  "skills_in_play": ["plan", "plan-split", "plan-track", "plan-review", "grilling", "dispatch-agents", "resume", "handoff"],
+  "evals": [
+    {
+      "id": 1,
+      "expected": "plan-split",
+      "tests": "core trigger",
+      "query": "ok this plan is enormous. .mentor/plans/multi-tenant-billing/plan.md has like 19 implementation steps and it covers metering ingestion, invoicing AND the tenant scoping migration. theres no way i finish that in one sitting. can we make each of those its own plan file?"
+    },
+    {
+      "id": 2,
+      "expected": "plan-split",
+      "tests": "core trigger, casual phrasing, no filename",
+      "query": "break this up into separate plans i can build one session at a time"
+    },
+    {
+      "id": 3,
+      "expected": "none",
+      "tests": "NEAR-MISS vs plan-split: in-document phasing is a plan re-write, not a split",
+      "query": "the implementation steps in the plan are kind of a jumbled mess — can you reorganize them into phase 1 / phase 2 / phase 3 inside the doc so it reads in a sane order?"
+    },
+    {
+      "id": 4,
+      "expected": "plan-track",
+      "tests": "core trigger",
+      "query": "which of these plans have we actually built? ive got like 5 sitting in .mentor/plans and i genuinely cant remember which ones shipped and which are still just written down"
+    },
+    {
+      "id": 5,
+      "expected": "plan-track",
+      "tests": "core trigger, selection by ordinal + group",
+      "query": "pick up plan 2 from the billing group and build it — i think its the invoice one we never got to"
+    },
+    {
+      "id": 6,
+      "expected": "resume",
+      "tests": "NEAR-MISS vs plan-track: 'where were we' is session context, not build status",
+      "query": "where were we on the billing work? i had to stop partway through yesterday afternoon and my head is completely empty on it now"
+    },
+    {
+      "id": 7,
+      "expected": "plan-review",
+      "tests": "NEAR-MISS vs plan-track: 'is it good' (quality) vs 'is it done' (state)",
+      "query": "is the invoice plan any good? id like a second opinion on it before i greenlight the whole thing"
+    },
+    {
+      "id": 8,
+      "expected": "plan-track",
+      "tests": "core trigger, 'has it been implemented' phrasing",
+      "query": "did we ever finish the tenant-data-isolation plan or is it still sitting there unbuilt?"
+    },
+    {
+      "id": 9,
+      "expected": "plan-review",
+      "tests": "core trigger, explicit reviewer language",
+      "query": "send the plan out to reviewers before i approve it please"
+    },
+    {
+      "id": 10,
+      "expected": "grilling",
+      "tests": "NEAR-MISS vs plan-review: interactive interrogation vs automated audit",
+      "query": "poke holes in this approach — im not convinced the queue-based design is right and i want you to challenge me on it one question at a time rather than dumping a wall of text"
+    },
+    {
+      "id": 11,
+      "expected": "dispatch-agents",
+      "tests": "core trigger",
+      "query": "fan out the implementation across subagents instead of doing it all in this thread"
+    },
+    {
+      "id": 12,
+      "expected": "resume",
+      "tests": "core trigger, explicit handoff-note language",
+      "query": "continue from the handoff note from the other session"
+    },
+    {
+      "id": 13,
+      "expected": "handoff",
+      "tests": "core trigger, context-pressure framing",
+      "query": "im at like 300k context and everything is crawling. write up where we are so i can pick this up fresh in a new session tomorrow"
+    },
+    {
+      "id": 14,
+      "expected": "none",
+      "tests": "NEAR-MISS vs plan-split: 'break up' about commits, not plans",
+      "query": "this branch has one giant commit with 40 files in it. can you break this refactor up into smaller commits that each do one thing?"
+    },
+    {
+      "id": 15,
+      "expected": "none",
+      "tests": "NEAR-MISS vs plan-split: 'split' about source code, not plans",
+      "query": "src/components/DashboardShell.tsx is 900 lines and its unmaintainable. can you split it into smaller files?"
+    },
+    {
+      "id": 16,
+      "expected": "none",
+      "tests": "NEAR-MISS vs plan-review: 'review' about a PR, not a plan",
+      "query": "review this PR for me — its the one adding rate limiting to the public api, MR 412 on gitlab"
+    },
+    {
+      "id": 17,
+      "expected": "none",
+      "tests": "NEAR-MISS vs plan-track: 'track' about sprint progress, not plan state",
+      "query": "can you help me track my progress on this sprint? id like to see whats done vs whats still open in jira"
+    },
+    {
+      "id": 18,
+      "expected": "plan-track",
+      "tests": "post-split continuation, the flow plan-split hands into",
+      "query": "we split that thing into 5 plans last week. lets work through them one at a time — start with whichever is first"
+    },
+    {
+      "id": 19,
+      "expected": "grilling",
+      "tests": "core trigger, 'stress-test' phrasing",
+      "query": "before i commit to this design i want you to stress-test it with me. the bit im least sure about is whether we even need the separate metering service"
+    },
+    {
+      "id": 20,
+      "expected": "none",
+      "tests": "DESIGN CHECK: a fresh planning ask must NOT be grabbed by any sibling skill; mentor:plan is deliberately command-only so the gate is armed first",
+      "query": "help me plan the auth refactor — new JWT rotation, a redis session store, and ripping out the old cookie flow. touches api/auth/* and the middleware"
+    }
+  ]
+}
