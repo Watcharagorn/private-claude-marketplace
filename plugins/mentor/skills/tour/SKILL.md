@@ -14,8 +14,9 @@ description: |
   Artifact tool to a stable URL that revisions republish in place. Subject
   defaults to the newest mentor plan (.mentor/plans/<slug>/plan.md) but works
   standalone from any topic. Refuses to run while a fresh .planning marker is
-  armed. Distinct from the plan skill's HTML zoom (pre-approval plan
-  visualization, local-only, never published).
+  armed. Distinct from /mentor:zoom, which renders local-only, never-published
+  visual pages of any subject with no reviewer interaction — a tour is
+  published on purpose and captures pass/not-pass verdicts.
 ---
 
 # Tour — Editable Guided-Review Artifact
@@ -39,9 +40,9 @@ not the plan, not a zoom, and never lives in `plans/`.
   first; Step 0 enforces this.
 - The user wants the **plan content** reviewed — that is `/plan-review` (the two-stage 4-topic
   pre-approval review) or `/mentor:grill` (decision interview), not a tour.
-- The user wants a **visual preview of a plan topic during planning** — that is the plan skill's
-  HTML **zoom** (`plans/<slug>/zoom/`, local-open only, explicitly never published). A tour is the
-  opposite: post-approval, and published on purpose.
+- The user wants a **read-only visual view of a subject** (a plan topic, a subsystem, a design) —
+  that is the `zoom` skill (`.mentor/zooms/<slug>/`, local-open only, explicitly never published,
+  no marks to record). A tour is different: an editable acceptance page, published on purpose.
 - The subject has no walkable behavior (pure docs/config with nothing to exercise).
 
 ---
@@ -179,9 +180,9 @@ tour_file="$state_dir/tours/<slug>-<audience>.html"
 
 - Do **not** run while a fresh `.planning` marker is armed, and do **not** modify the plan file —
   it is a read-only input (the Step 2 dispatched agent reads it; the main thread does not re-read it).
-- Do **not** write anything into `plans/` (tour files live in `tours/`), and do **not** publish the
-  plan or a zoom artifact via the Artifact tool — zoom's local-only prohibition still stands; only
-  the tour page is published.
+- Do **not** write anything into `plans/` or `zooms/` (tour files live in `tours/`), and do **not**
+  publish the plan or a zoom artifact via the Artifact tool — the `zoom` skill's local-only
+  prohibition still stands; only the tour page is published.
 - Do **not** dispatch a rendering agent — the main thread renders; only the scenario inventory is
   delegated.
 - Do **not** hardcode a design plugin name as a dependency — discover at runtime, degrade gracefully.

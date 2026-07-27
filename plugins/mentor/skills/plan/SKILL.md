@@ -16,7 +16,7 @@ The flow: resolve the mode & load the constitution → clarify if needed →
 research (delegation suggested) → domain routing → resolve open decisions
 with the user → write the Markdown plan
 (with a Constitution Check when a constitution exists) → (optional
-topic × perspective HTML zooms on request) → approve & release →
+topic × perspective HTML zooms via `mentor:zoom` on request) → approve & release →
 subagents-first implementation (dispatch-agents).
 
 While the `.planning` marker is armed, `plan-gate.sh` blocks every
@@ -137,7 +137,7 @@ Multiple domains may match; if none match, invoke the dynamic fallback.
 
 | Domain | Trigger signals | Skill to invoke | Extra plan deliverable |
 |---|---|---|---|
-| frontend | UX/UI — components, pages, styles, layout, design systems, theming, responsive | `Skill(skill="mentor:plan-domain-frontend")` | ASCII wireframes + delta/token tables; live mockups only in an HTML zoom combo (Step 5) |
+| frontend | UX/UI — components, pages, styles, layout, design systems, theming, responsive | `Skill(skill="mentor:plan-domain-frontend")` | ASCII wireframes + delta/token tables; live mockups only in an HTML zoom combo (`mentor:zoom`, Step 5) |
 | backend-api | API/endpoint/route/handler/schema/DTO/contract | `Skill(skill="mentor:plan-domain-backend-api")` | Before/after contract diff tables + schema diffs + Mermaid sequence flow |
 | architecture (C4) | Structural change — new/changed/removed service, container, datastore, queue, external integration, component, or data flow (NOT pure content/config/doc/style/refactor) | `Skill(skill="mentor:plan-domain-architecture")` | Diff-highlighted C4-style Mermaid flowcharts, only the levels that change |
 | dynamic (fallback) | no registered domain matched | `Skill(skill="mentor:plan-domain-dynamic")` | Domain best-practices section (practice→step mapping) |
@@ -301,104 +301,39 @@ examples. The plan must be approvable by someone outside the domain.
 
 ## Step 5 — Optional HTML zoom (explicit user opt-in only) {#html-zoom}
 
-Only when the **user asks** for an HTML zoom / visual preview — never by
-default — and **never as one file for the whole plan**. Every zoom artifact is
-scoped to one **topic × perspective** pair. A whole-plan ask ("preview the plan
-as HTML") does not bypass the gate below — it is exactly the case the gate
-exists for.
+The topic × perspective HTML zoom is its own skill — `zoom` — and this step is
+pure delegation. Only when the **user asks** for an HTML zoom / visual preview
+— never by default — invoke `Skill(skill="mentor:zoom")` and follow it end to
+end with the plan as the subject:
 
-**Sticky re-entry rule.** EVERY zoom ask re-enters this step's contract — the
-first one, the Nth one, a free-text follow-up ("update the review artifact",
-"add a zoom for X"), a mid-revision regeneration, at any point in the plan
-lifecycle. Run the Selection gate (skipping questions the ask already answers)
-and generate via dispatched agents. **Never hand-edit or hand-write a zoom file
-in the main thread** — least of all late in a session, when context is already
-large.
+- **Subject = the current plan** (`${plan_dir}/plan.md`), so per the zoom
+  skill's plan-slug contract its artifacts land in
+  `.mentor/zooms/<plan-slug>/<topic>-<perspective>.html`.
+- Candidate **topics** derive from the plan itself — its `## Approach`
+  subsections, `Proposed UI changes per surface` entries, or
+  implementation-step groupings.
+- The constitution path resolved at Step 0 is the one the zoom skill's
+  Reviewer/Architect combos consume.
 
-### Selection gate
-
-Resolve two dimensions before generating anything:
-
-1. Derive up to 4 candidate **topics** from the plan itself — its `## Approach`
-   subsections, `Proposed UI changes per surface` entries, or
-   implementation-step groupings.
-2. Ask ONE `AskUserQuestion` call with two multi-select questions — **Topics**
-   (the derived candidates) and **Perspective** (catalog below). Skip a
-   question only when the user's request already explicitly named that
-   dimension ("zoom into checkout as the end user" skips both). When only one
-   topic is derivable, treat topic as resolved and ask only Perspective
-   (AskUserQuestion needs 2–4 options per question).
-
-| Perspective | The zoom emphasizes |
-|---|---|
-| End user | Journey/scenario walkthroughs, visible states, UI mockups (frontend topics); hides implementation detail |
-| Implementor | File-level touchpoints, sequence diagrams, data structures, step order/dependencies |
-| Reviewer / Architect | Architecture slice, trade-offs, risks, constitution compliance for that topic |
-| QA / Tester | Test scenarios, edge cases, verification steps for that topic |
-
-Combos = selected topics × selected perspectives. If combos > 6, confirm the
-count before dispatching (mention `MENTOR_PLAN_OPEN=off` as the escape hatch —
-every finished file auto-opens). Kebab-sanitize topic and perspective names and
-uniquify colliding topic slugs (append `-2`, `-3`, …) so no two combos share a
-path.
-
-### Generation — one agent per combo, always dispatched
-
-Issue one `Agent` call per combo (`subagent_type: general-purpose`,
-`model: sonnet`, `effort: high`), ALL combos in one message — even a single
-combo is dispatched, keeping one contract and keeping HTML out of the main
-context. Each agent's prompt carries: the plan path (the agent `Read`s it), its
-topic, its perspective row from the catalog above, the output path
-`${plan_dir}/zoom/<topic>-<perspective>.html`, the spec below, and the
-delivery prohibition: *"Do NOT call the `Artifact` tool and do NOT return any
-hosted URL. Return ONLY the file path + a `Self-check:` line — sections
-rendered, diagram count, tags balanced, spec constraints met — never the HTML
-body."* Perspective-conditional inputs: **Reviewer/Architect** combos also get
-the resolved constitution path (Step 0) when that file exists; a **UI-surface topic** gets
-the mockup contract inputs from `plan-domain-frontend` §4 whenever the
-perspective needs to *see* the surface to do its job — End user,
-Reviewer/Architect, and QA/Tester (the tester must see the states they verify) —
-but **not** Implementor, whose zoom is about file wiring and step order, where a
-pixel-faithful mockup is redundant.
-
-Per-file spec: a single self-contained file — inline CSS, no build step;
-Mermaid via CDN
-(`https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.min.js` +
-`<pre class="mermaid">`) is allowed; content for the **assigned topic through
-the assigned perspective only**, never the whole plan; readable — body text
-≥15px-equivalent, WCAG-AA contrast, monospace for code; authored in a
-**single `Write` call** (no skeleton-then-`Edit` — plan-open.sh opens the file
-on first Write and must never show a half-built page). The path is inside the
-gate-exempt `.mentor/` tree, so the edit gate allows the Write; plan-open.sh
-auto-opens each file once. Stable names — a re-zoom of the same combo
-overwrites in place. Zooms whose content is primarily visual (mockups,
-diagrams) SHOULD ship lightweight pan/zoom affordances on the outer page
-(fullscreen toggle ⛶, overlay scrim, +/−/reset, wheel-zoom — inline JS in the
-outer file only; iframe `srcdoc` panes stay no-JS per `plan-domain-frontend`
-§4). Zoom
-artifacts are throwaway visual aids; **the `.md` stays the source of truth** —
-no sync contract, no finalize step.
-
-**Completion check.** After the agents return, `ls "$plan_dir"/zoom` against the
-expected combo files and read each agent's `Self-check:` line (do not re-derive
-ad-hoc grep probes); report any missing combo file and re-dispatch it once
-before giving up. Zoom dispatches follow `dispatch-agents`' "Async runtime &
-lifecycle" rules — close out finished combo agents after this check.
+EVERY zoom ask re-enters the zoom skill's contract (its sticky re-entry rule)
+— the first one, the Nth one, a free-text follow-up ("update the review
+artifact", "add a zoom for X"), a mid-revision regeneration, at any point in
+the plan lifecycle.
 
 **Revision completeness.** When a plan revision or a product decision
-invalidates prior zooms, `grep -l` the invalidated term across every existing
-`${plan_dir}/zoom/*.html` and re-dispatch EVERY matching combo in one batched
-message — not just the combo you remember changing. Wait for those agents to
-complete before dispatching `plan-review`, so a reviewer never reads a zoom
-mid-write.
+invalidates prior zooms, re-enter `mentor:zoom` and follow its re-zoom rule
+(grep the invalidated term across `.mentor/zooms/<plan-slug>/*.html` and
+re-dispatch EVERY matching combo in one batched message). Wait for those
+agents to complete before dispatching `plan-review`, so a reviewer never reads
+a zoom mid-write.
 
 ## Step 6 — Approve & release {#approve}
 
 > **🚫 No edits or implementation until the plan is APPROVED.** During planning,
 > only read-only agents (Explore, Plan, plan-review reviewers) may be
-> dispatched — the sole exception is Step 5's zoom combo agents, which write
-> ONLY zoom artifacts into the plan's `zoom/` dir (gate-exempt `.mentor/`
-> tree), never repo source files.
+> dispatched — the sole exception is `mentor:zoom`'s combo agents (Step 5),
+> which write ONLY zoom artifacts under `.mentor/zooms/` (gate-exempt
+> `.mentor/` tree), never repo source files.
 > Every editing/implementation agent comes AFTER approval.
 
 First **surface the complete plan body** in your message — plain markdown,

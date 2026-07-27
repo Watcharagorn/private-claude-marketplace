@@ -12,8 +12,9 @@
 #   ├── plans/            # the .planning marker + one <slug>/ dir per plan topic:
 #   │   └── <slug>/       #   plan.md (+ hidden .plan.md.opened sidecar)
 #   │       ├── .state.json  # {"state","group","order","note"} — written ONLY via plan-state.sh
-#   │       ├── zoom/     #   <topic>-<perspective>.html (+ hidden .*.opened sidecars)
 #   │       └── handoffs/ #   <ts>-<slug>.md; solved/superseded notes → handoffs/resolved/
+#   ├── zooms/            # mentor:zoom artifacts — <subject-slug>/<topic>-<perspective>.html
+#   │                     #   (+ hidden .*.opened sidecars; pre-v2.12 they lived in plans/<slug>/zoom/)
 #   └── handoffs/         # legacy flat notes (pre-v2.10 — still read, never written)
 #   (.context-warned-<session_id> markers live at the .mentor/ root.)
 #   Not inside a git repo → callers fall back to ~/.claude/mentor/_no-repo/.

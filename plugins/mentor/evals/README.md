@@ -2,13 +2,16 @@
 
 `hooks/tests/` proves the scripts behave. This proves the **descriptions** do: that a
 user's phrasing reaches the skill it should, and — more importantly — not one of its
-seven siblings.
+nine siblings.
 
-mentor ships eight overlapping planning skills (`plan`, `plan-split`, `plan-track`,
-`plan-review`, `grilling`, `dispatch-agents`, `resume`, `handoff`). The risk that
+mentor ships ten overlapping user-facing skills (`plan`, `plan-split`, `plan-track`,
+`plan-review`, `grilling`, `dispatch-agents`, `resume`, `handoff`, `tour`, `zoom`).
+The risk that
 matters is not "does `plan-split` trigger" but "does `plan-split` fire when the user
-meant `plan-track`". A description tuned on its own can score perfectly and still
-collide, so this harness stages **all eight at once** and records which one wins.
+meant `plan-track`" — or, since v2.12.0, "does `zoom` steal `tour`'s acceptance-page
+queries" (both make HTML from any subject; they differ on publication + interaction).
+A description tuned on its own can score perfectly and still
+collide, so this harness stages **all ten at once** and records which one wins.
 
 ## Run it
 
@@ -17,11 +20,13 @@ cd plugins/mentor/evals
 python3 harness.py claude-opus-5 2      # <model> <reps-per-query>
 ```
 
-Needs the `claude` CLI on PATH. ~20 queries × reps, 6 at a time, roughly 10–25s each.
+Needs the `claude` CLI on PATH. ~28 queries × reps, 6 at a time, roughly 10–25s each.
 The scratch project and `results.json` are written to `$TMPDIR/mentor-trigger-eval/`
 (override with `MENTOR_EVAL_WORKDIR`) — never into the repo.
 
-Baseline at v2.11.1: **36/40**, 18 of 20 queries clean on both reps.
+Baseline at v2.11.1: **36/40**, 18 of 20 queries clean on both reps — over 8 staged
+skills and queries 1–20. v2.12.0 stages 10 skills (`tour` and `zoom` joined) and adds
+queries 21–28; re-baseline on the first run.
 
 ## Seed the fixture first — this is not optional
 
@@ -40,7 +45,8 @@ tell is timing — real triggers land in 7–25s, fixture-starved misses run 35�
 a failure is slow, suspect the fixture before the description.
 
 `seed.py` lays down a superseded parent, three split children with isolation headers
-and state sidecars, an implemented standalone plan, and a live handoff note.
+and state sidecars, an implemented standalone plan, a live handoff note, and one
+zoom artifact in the v2.12 `.mentor/zooms/` tree.
 
 ## The eval set
 
@@ -48,10 +54,13 @@ and state sidecars, an implemented standalone plan, and a live handoff note.
 carries the skill that *should* win, or `none`. A binary label cannot express a
 collision, which is the whole point here.
 
-Ten queries are near-misses chosen to be genuinely hard — `resume` vs `plan-track` on
-"where were we", `plan-review` vs `grilling` on "review" vs "poke holes", and four
+Many queries are near-misses chosen to be genuinely hard — `resume` vs `plan-track` on
+"where were we", `plan-review` vs `grilling` on "review" vs "poke holes", `zoom` vs
+`tour` on "a page" (local visual vs published pass/not-pass acceptance), `zoom` vs
+`plan-review` on "a proper look at the plan", and five
 keyword baits (`break up` commits, `split` a component, `review` a PR, `track` a
-sprint) that share vocabulary with a skill but must trigger nothing.
+sprint, `zoom` the video call) that share vocabulary with a skill but must trigger
+nothing.
 
 ## Two known failures, both understood
 
@@ -65,5 +74,6 @@ sprint) that share vocabulary with a skill but must trigger nothing.
   phrase "one session at a time" and gives "break this up" no referent. Tuning a
   description to win it would be overfitting to a bad test.
 
-When you add a ninth planning skill, run this first. A new sibling that quietly steals
-an existing skill's queries is exactly what it is here to catch.
+When you add an eleventh skill, run this first. A new sibling that quietly steals
+an existing skill's queries is exactly what it is here to catch — v2.12.0's `zoom`
+(vs `tour`, vs `plan-review`) is the worked example.

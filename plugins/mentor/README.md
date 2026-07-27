@@ -50,6 +50,7 @@ review and are the single source of truth for implementation, handoff, and revie
 | `/mentor:handoff "<focus>"` | Compact the session into a handoff document (in its plan-topic folder, `.mentor/plans/<topic>/handoffs/`, gitignored) for a fresh agent; ends with copy-paste resume prompts (`/mentor:resume <slug>` + a plugin-free alternative). Also offered as **Hand off to next agent** at the approval gate — leading the options (marked **(Recommended)**) when the context gate warns or asks. |
 | `/mentor:resume [slug\|number]` | List this repo's live handoff notes (across all plan topics) and continue the chosen one. A note is stamped **resolved** (moved to a `resolved/` subdir, never re-listed) only when its work completes per the plan file (`/mentor:ship` stamps too) or a nested `/mentor:handoff` supersedes it — unfinished work stays resumable. |
 | `/mentor:tour [user\|dev\|both] [subject]` | **Post-approval acceptance review**: an editable guided-tour artifact — scenario cards with pass/not-pass toggles, feedback capture, and MD/JSON report export — published to a stable URL that revisions republish in place. Subject defaults to the newest plan; artifacts live in `.mentor/tours/` (gitignored). |
+| `/mentor:zoom [subject] [topic] [perspective]` | **Topic × perspective HTML zoom of any subject** — a repo subsystem, a doc, a mentor plan, or the thing under discussion; no plan file or planning session required. One dispatched agent per combo writes a self-contained page to `.mentor/zooms/<subject-slug>/` (gitignored), auto-opened locally and **never published**. `plan` Step 5 delegates here for in-planning zooms. |
 | `/mentor:track [slug\|number\|status]` | List every plan with its state (draft / approved / in progress / implemented / failed), then build the one you pick. The way back into a `/plan-split` group. |
 | `/plan-split`* | Split an oversized plan into independently buildable sibling plans, each with explicit scope isolation; also offered as **Split into multiple plans** at the approval gate when a plan is oversized. |
 | `/plan-review`* | Staged review of the current plan: a judgment pass (practicality, comprehensiveness) with a **fold gate** where you pick the edits to apply, then — against the updated plan — a mechanical pass (cleanliness + spec-kit-`analyze`-style **consistency** across related artifacts) whose safe fixes **auto-fold**; decision-level findings are surfaced, never auto-applied. The mechanical stage is invocable alone ("check plan consistency"). Also offered as **Review the plan (staged)** at the proceed gate. |
@@ -82,15 +83,16 @@ v2.2.0, handoffs inside them since v2.10.0):
 ├── plans/           # the .planning marker + one dir per plan topic      ← gitignored
 │   └── <slug>/      #   plan.md (+ hidden .plan.md.opened sidecar)
 │       ├── .state.json # lifecycle state (v2.11.0) — written only by plan-state.sh
-│       ├── zoom/    #   <topic>-<perspective>.html opt-in zoom artifacts
 │       └── handoffs/ #  handoff notes (/mentor:handoff → /mentor:resume);
 │           └── resolved/ # solved/superseded notes (stamped on completion or nested handoff)
+├── zooms/           # /mentor:zoom artifacts — <subject-slug>/<topic>-<perspective>.html
+│                    #   (pre-v2.12 they lived in plans/<slug>/zoom/; auto-relocated) ← gitignored
 ├── handoffs/        # legacy flat notes (pre-v2.10 — still listed, never written)
 └── tours/           # /mentor:tour review artifacts (<slug>-<audience>.html) ← gitignored
 ```
 
-Only `config.json` and `constitution.md` are committed (team-shared); plans, handoffs,
-tours and the transient markers are gitignored. Un-ignore `plans/` if you want plans
+Only `config.json` and `constitution.md` are committed (team-shared); plans, zooms,
+handoffs, tours and the transient markers are gitignored. Un-ignore `plans/` if you want plans
 version-controlled. **Not in a git repo?** handoff/resume and the context gate fall
 back to `~/.claude/mentor/_no-repo/`.
 
@@ -258,7 +260,7 @@ Knobs — env vars under `env` in `~/.claude/settings.json` (or the project's
 | `hooks/begin-plan.sh` | Arms the `.planning` marker (closes the gate); prints the `MODE:` line (the approval-gate default) — and a `CONTEXT:` line: over the ask threshold it asks the user first (hand off, or bypass + lean plan) before arming. |
 | `hooks/plan-gate.sh` | **The one gate.** Fail-closed `PreToolUse` on Write/Edit/MultiEdit/NotebookEdit — denies in-repo writes while the marker exists, even under `bypassPermissions`. Mentor's own `.mentor/` tree (where the plan file lives) is exempt, so the plan is always writable. Stale markers (>8h) self-heal. |
 | `hooks/approve-plan.sh` | Validates the plan (non-empty `.md` **newer than the marker**), releases the gate. Mode-agnostic — flags map to the approval options: no-arg implements, `--deliver` prints the deliverable soft-stop, `--handoff` the hand-off directive (both directives also print on a re-run when the gate is already open); unknown flags are rejected. |
-| `hooks/plan-open.sh` | Auto-opens the plan for review the first time it is written (VSCode tab / OS default; HTML zoom artifacts open in the browser). |
+| `hooks/plan-open.sh` | Auto-opens the plan for review the first time it is written (VSCode tab / OS default; HTML zoom artifacts in `.mentor/zooms/` open in the browser). |
 | `hooks/set-mode.sh` | Get/set the approval-gate default. |
 | `hooks/context-gate.sh` | **Context gate.** `UserPromptSubmit` — measures live context from the transcript: warns once (~200k), re-warns near the limit (~315k), and above ~350k asks the user — hand off (recommended) or bypass for the session. Never blocks or erases prompts. Fail-soft; slash commands always pass. |
 | `hooks/bypass-context.sh` | Writes the session-scoped `.context-bypass-<session_id>` marker when the user answers "Proceed anyway" — degrades the ask tier to a one-line advisory for the rest of the session. |
@@ -282,14 +284,17 @@ and GFM alerts. Portable: renders richly on GitHub/GitLab and any Mermaid-capabl
 viewer. One visualization per significant change, never two representations of
 one thing.
 
-**Optional HTML zoom:** when you explicitly ask for an HTML preview/zoom, mentor
-never renders the whole plan as one file — it first resolves **topic(s) ×
-perspective(s)** (end user / implementor / reviewer-architect / QA-tester),
-asking for whichever dimension your request didn't name, then dispatches one
-agent per topic × perspective combination. Each writes its own supplementary
-`plans/<slug>/zoom/<topic>-<perspective>.html` inside the plan's own dir — a
-throwaway, self-contained visual aid for that topic through that lens. The `.md`
-stays the source of truth.
+**Optional HTML zoom (`/mentor:zoom`):** when you explicitly ask for an HTML
+preview/zoom, mentor never renders the whole subject as one file — the `zoom`
+skill first resolves **topic(s) × perspective(s)** (end user / implementor /
+reviewer-architect / QA-tester), asking for whichever dimension your request
+didn't name, then dispatches one agent per topic × perspective combination.
+Each writes its own supplementary
+`.mentor/zooms/<subject-slug>/<topic>-<perspective>.html` — a throwaway,
+self-contained, local-only visual aid for that topic through that lens. The
+subject stays the source of truth. During planning, `plan` Step 5 delegates
+here (the subject slug = the plan slug); standalone, the skill zooms **any**
+subject — no plan file required.
 
 ### Viewing the plan
 
@@ -319,6 +324,28 @@ extra deliverable. Instruction-only — no hooks.
 | `plan-domain-backend-api` | API/endpoint/route/handler/schema/DTO/contract | Before/after contract diff tables, schema diffs, Mermaid sequence flows. |
 | `plan-domain-architecture` | Structural change — services, containers, datastores, integrations | Diff-highlighted C4-style Mermaid flowcharts, only the levels that change. |
 | `plan-domain-dynamic` | No registered domain matched (fallback) | A dispatched domain-definer names the domain and returns a best-practices brief; the plan gains a practice→step mapping. |
+
+## Changes in v2.12.0
+
+The HTML zoom is now its own skill — **`/mentor:zoom`** — usable on **any**
+subject, with no plan file and no planning session required.
+
+- **Extracted from `plan` Step 5.** The ~90-line zoom contract (topic ×
+  perspective selection gate, one dispatched agent per combo, self-contained
+  local HTML, never published) moved to `skills/zoom/SKILL.md`; `plan` Step 5 is
+  now a delegation stub, so the planning flow is unchanged from the user's side.
+  New in the standalone skill: a **source pack** step — a plan/doc path, real
+  file paths (optionally distilled by one `Explore` agent into a `_brief.md`),
+  or a conversation brief — so combo agents always render from real sources.
+- **Zooms moved to a flat tree:** `.mentor/zooms/<subject-slug>/…` replaces
+  `.mentor/plans/<slug>/zoom/…`. For a plan subject the slug IS the plan slug,
+  which is how `plan-review` and `handoff` still find a plan's zooms. The next
+  `/mentor:plan` run relocates existing zoom files automatically (idempotent,
+  `mv -n`); `plan-open.sh` still auto-opens files left at the legacy path.
+- **Boundaries restated:** zoom = local, read-only, never published;
+  `/mentor:tour` = published, editable, pass/not-pass acceptance;
+  `/plan-review` = a quality verdict on the plan `.md`. The trigger evals grew
+  matching near-miss queries, and `tour` joined the staged eval set.
 
 ## Changes in v2.11.1
 
@@ -490,6 +517,9 @@ zooms, and a visible `.opened` sidecar for each). Now:
   are left where they are (gitignored, harmless).
 - **Note:** handoff notes written before v2.2.0 may reference the old flat plan
   path — the plan now lives at `…/<slug>/plan.md`.
+- **Superseded (v2.12.0):** the per-plan `plans/<slug>/zoom/` location described
+  here was later replaced by the flat `.mentor/zooms/<subject-slug>/` tree;
+  `begin-plan.sh` relocates old zoom files automatically.
 
 ## Changes in v2.1.0
 

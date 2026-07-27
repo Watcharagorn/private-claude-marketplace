@@ -6,7 +6,7 @@
   "plugins": [
     {
       "name": "mentor",
-      "description": "A lean planning harness for Claude Code: a marker-driven edit gate keeps the repo read-only until a Mermaid-first Markdown plan — constitution-checked and refined by a staged review — is approved; implementation then runs subagents-first (SDD). Oversized plans split into isolated siblings, per-plan state tracks what is built, and an ask-first context gate steers long sessions to a clean hand-off.",
+      "description": "A lean planning harness: a marker-driven edit gate keeps the repo read-only until a Mermaid-first Markdown plan is approved, then implementation runs subagents-first (SDD). Ships staged plan review, plan splitting with per-plan build state, session handoff/resume, published review tours, and /mentor:zoom — local topic × perspective HTML views of any subject, no plan required.",
       "source": "./plugins/mentor",
       "category": "development"
     },

@@ -102,7 +102,7 @@ opens every new `plan.md`, so a 6-way split pops six editor tabs.
 
 Issue one `Agent` call per slice (`subagent_type: general-purpose`, `model: sonnet`,
 `effort: high`), **all in a single message** so they run concurrently — the same
-pattern `mentor:plan` Step 5 uses for zoom artifacts. Authoring in the main thread
+pattern `mentor:zoom` Step 3 uses for zoom artifacts. Authoring in the main thread
 would defeat the purpose: the point is to keep the orchestrating context lean.
 
 Each subagent starts with **zero memory of this conversation and no

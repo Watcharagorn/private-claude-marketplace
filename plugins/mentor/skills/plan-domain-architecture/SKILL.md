@@ -9,7 +9,7 @@ description: >
   and the Markdown plan to carry a before/after C4-model view — diff-highlighted
   Mermaid Context / Container (/ Component) diagrams, rendering only the C4
   levels the change actually moves. No extra agent; a polished HTML/CSS C4
-  diagram is reserved for the opt-in HTML zoom (`plan` Step 5).
+  diagram is reserved for the opt-in HTML zoom (`mentor:zoom`).
 ---
 
 # Architecture (C4) Planning Domain
@@ -150,10 +150,11 @@ sequence-flow viz as a C4 diagram or vice-versa; each answers a different questi
 
 ## HTML zoom (opt-in)
 
-When the user explicitly requests a visual zoom of this domain's area (`plan` Step 5), the zoom
+When the user explicitly requests a visual zoom of this domain's area (`mentor:zoom`, via `plan`
+Step 5), the zoom
 html file may carry a **polished HTML/CSS C4 diagram** for the requested level(s) only: boxes with
 name + technology sub-label + one-line responsibility, connectors carrying the relationship label
 (protocol / sync·async), people and external systems styled distinctly (person glyph / muted
 "external" treatment), diff-highlighted with a legend (NEW added-green, CHANGED amber, REMOVED
 struck/red, UNCHANGED plain), and a `C4 L1/L2/L3` header per diagram. Pure HTML/CSS with inline SVG
-for connectors — self-contained per `plan` Step 5. The `.md` plan stays the source of truth.
+for connectors — self-contained per `mentor:zoom` Step 3. The `.md` plan stays the source of truth.

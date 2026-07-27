@@ -8,8 +8,8 @@ description: >
   and token table per changed surface, all derived from the project's REAL
   design tokens and source. The live before/after HTML/CSS mockup contract
   (prompt token mentor:frontend-mockup) is carried by the per-combo zoom
-  agents of the opt-in HTML zoom (`plan` Step 5), when the user explicitly
-  requests a visual zoom of a UI surface.
+  agents of the opt-in HTML zoom (`mentor:zoom`, delegated from `plan`
+  Step 5), when the user explicitly requests a visual zoom of a UI surface.
 ---
 
 # Frontend Planning Domain
@@ -17,8 +17,8 @@ description: >
 Invoked **once per plan** by `plan`'s domain routing (Step 3) when the task touches UX/UI —
 components, pages, styles, layout, design systems, theming, responsive work. This skill adds
 directives to the research and plan-writing the flow already performs, plus — **only when the user
-requests an HTML zoom of a UI surface** (`plan` Step 5) — the mockup contract (§4), folded into
-each UI combo agent's prompt.
+requests an HTML zoom of a UI surface** (`mentor:zoom`, via `plan` Step 5) — the mockup contract
+(§4), folded into each UI combo agent's prompt.
 
 The plan deliverable (Markdown, always): a **before/after delta table + ASCII zone wireframe +
 token table** per changed surface (§3), precise about *what* changes and approximate about layout.
@@ -58,8 +58,8 @@ Three global rules govern everything in this domain (restated as hard rules in �
 1. The discovered design skill controls design and review decisions — invoke it first.
 2. All design work derives from **REAL front-end source files** — never invented structure.
 3. **Never create mockup HTML files inside the repo source tree** (`docs/`, `mockups/`, or any
-   documentation directory). The opt-in zoom html lives in the plan's own zoom dir at
-   `<repo>/.mentor/plans/<slug>/zoom/…` (exempt from the plan gate, so the write is allowed) —
+   documentation directory). The opt-in zoom html lives in mentor's zooms dir at
+   `<repo>/.mentor/zooms/<subject-slug>/…` (exempt from the plan gate, so the write is allowed) —
    so that is the one compliant place for mockup markup.
 
 ## 1 — Shape the research (`plan` Step 2)
@@ -119,9 +119,10 @@ always prose, never the rendering). Per `plan` Step 4's anti-duplication rule, t
 + ASCII wireframe IS the surface's visualization — do not also emit a separate per-topic UI diagram
 for the same surface.
 
-## 4 — Mockup contract (HTML zoom only — `plan` Step 5)
+## 4 — Mockup contract (HTML zoom only — `mentor:zoom` Step 3)
 
-> **This skill owns the contract.** `plan` Step 5 generates zoom artifacts by dispatching one
+> **This skill owns the contract.** `mentor:zoom` (Step 3 — delegated from `plan` Step 5 when
+> zooming a plan) generates zoom artifacts by dispatching one
 > agent per topic × perspective combo; when a combo's topic is a UI surface and the perspective
 > needs to *see* that surface to do its job — End user, Reviewer/Architect, or QA/Tester (the
 > tester must see the states they verify), everyone **except** the Implementor, whose zoom is
@@ -141,7 +142,7 @@ Rules:
 - **Regenerate on revision — completeness-checked, not memory-driven.** If the
   `Proposed UI changes per surface` section changes during a Keep-planning iteration (or a global
   product decision invalidates prior visuals), `grep -l` the invalidated term/content across EVERY
-  existing `zoom/*.html` in the plan's zoom dir and re-dispatch ALL matching combos in one batched
+  existing html in the plan's zooms dir (`.mentor/zooms/<plan-slug>/`) and re-dispatch ALL matching combos in one batched
   message with the updated spec — never just "that combo" from memory, and never ship stale panes.
   Wait for the re-dispatches to complete before any `plan-review` dispatch reads the zoom files.
 - **Inline panes only — never a hosted Artifact.** The panes are embedded **inline** as
@@ -180,8 +181,8 @@ inputs (so pane fidelity never depends on the agent re-researching):
    first would let the later `&` pass corrupt the `&quot;` entities. Do NOT escape `<` / `>`;
    `srcdoc` does not need it.)"*
 
-The zoom file follows `plan` Step 5's constraints (single self-contained file authored in one
-`Write`, inline CSS, WCAG-AA, ≥15px); the pane/badge/callout styling is the agent's to design.
+The zoom file follows `mentor:zoom` Step 3's constraints (single self-contained file authored in
+one `Write`, inline CSS, WCAG-AA, ≥15px); the pane/badge/callout styling is the agent's to design.
 
 ## Constraints recap (hard rules)
 
@@ -191,4 +192,4 @@ The zoom file follows `plan` Step 5's constraints (single self-contained file au
 2. Delta renderings, mockups, and implementation steps derive ONLY from real front-end source
    files.
 3. No mockup files inside the repo source tree, ever — the opt-in zoom html (in the gate-exempt
-   `.mentor/plans/<slug>/zoom/` dir) is the only mockup surface.
+   `.mentor/zooms/<subject-slug>/` dir) is the only mockup surface.

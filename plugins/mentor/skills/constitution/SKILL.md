@@ -27,7 +27,7 @@ shares one rulebook — unlike plans/handoffs, which are gitignored transient st
 A repo that already keeps its rulebook elsewhere (e.g. `docs/constitution.md`)
 can instead **adopt it by reference** (Step 3a): `constitution_path` in
 `.mentor/config.json` points at it, and every consumer (`plan` Step 0,
-`plan-review`, zoom combos) resolves that path and reads the real file live.
+`plan-review`, `zoom`) resolves that path and reads the real file live.
 
 The flow: guard → load any existing constitution → collect/derive principles
 (or adopt an external file by reference) → version & date → assemble

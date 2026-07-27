@@ -2,9 +2,9 @@
 """Multi-skill trigger eval for the mentor plugin.
 
 The stock skill-creator harness exposes ONE skill and asks "did it fire?".
-For mentor that misses the real risk: eight sibling planning skills competing,
-where the defect is the WRONG one firing. So this stages all eight at once in an
-isolated scratch project and records which one Claude actually reaches for.
+For mentor that misses the real risk: ten sibling skills competing, where the
+defect is the WRONG one firing. So this stages all ten at once in an isolated
+scratch project and records which one Claude actually reaches for.
 """
 import json, os, re, subprocess, sys, tempfile, time, uuid
 from concurrent.futures import ThreadPoolExecutor
@@ -13,7 +13,8 @@ from pathlib import Path
 HERE = Path(__file__).parent.resolve()
 REPO_SKILLS = (HERE / ".." / "skills").resolve()
 SKILLS = ["plan", "plan-split", "plan-track", "plan-review",
-          "grilling", "dispatch-agents", "resume", "handoff"]
+          "grilling", "dispatch-agents", "resume", "handoff",
+          "tour", "zoom"]
 
 
 def fm_field(fm, key):
@@ -36,7 +37,7 @@ def fm_field(fm, key):
 
 
 def stage_project(root: Path, descriptions: dict):
-    """Write the 8 competing skills as real project-level skills."""
+    """Write the competing skills as real project-level skills."""
     for name, desc in descriptions.items():
         d = root / ".claude" / "skills" / name
         d.mkdir(parents=True, exist_ok=True)

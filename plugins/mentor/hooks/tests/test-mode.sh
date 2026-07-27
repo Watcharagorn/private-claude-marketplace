@@ -76,22 +76,27 @@ rm -f "$CONF"
 out="$( cd "$REPO" && HOME="$SANDBOX" MENTOR_CONTEXT_GATE=off bash "$BEGIN" 2>&1 )"
 chk "unset → UNSET defaults to plan"   sh -c "printf '%s' \"\$0\" | grep -qF 'MODE: UNSET (default: plan)'" "$out"
 chk "unset → no upfront ask"           sh -c "! printf '%s' \"\$0\" | grep -qE 'AskUserQuestion|set-mode.sh'" "$out"
-# .opened sidecars are cleared on arm — recursively (dot-hidden in plan dirs) + legacy flat.
-mkdir -p "$PLANS_DIR/some-plan/zoom"
+# .opened sidecars are cleared on arm — recursively (dot-hidden in plan dirs,
+# the zooms tree) + legacy flat. A legacy plans/<slug>/zoom/ sidecar is first
+# RELOCATED to zooms/<slug>/ (v2.12.0) and then swept — gone either way.
+ZOOMS_DIR="$STATE_DIR/zooms"
+mkdir -p "$PLANS_DIR/some-plan/zoom" "$ZOOMS_DIR/some-plan"
 : > "$PLANS_DIR/some-plan/.plan.md.opened"
 : > "$PLANS_DIR/some-plan/zoom/.checkout-end-user.html.opened"
+: > "$ZOOMS_DIR/some-plan/.billing-implementor.html.opened"
 : > "$PLANS_DIR/legacy-flat.md.opened"
 ( cd "$REPO" && HOME="$SANDBOX" MENTOR_CONTEXT_GATE=off bash "$BEGIN" >/dev/null 2>&1 )
 chk "nested .opened sidecar cleared"      test ! -f "$PLANS_DIR/some-plan/.plan.md.opened"
-chk "nested zoom .opened sidecar cleared" test ! -f "$PLANS_DIR/some-plan/zoom/.checkout-end-user.html.opened"
+chk "legacy zoom .opened sidecar gone (relocated + swept)" sh -c "test ! -f '$PLANS_DIR/some-plan/zoom/.checkout-end-user.html.opened' && test ! -f '$ZOOMS_DIR/some-plan/.checkout-end-user.html.opened'"
+chk "zooms tree .opened sidecar cleared"  test ! -f "$ZOOMS_DIR/some-plan/.billing-implementor.html.opened"
 chk "legacy flat .opened sidecar cleared" test ! -f "$PLANS_DIR/legacy-flat.md.opened"
 # Outside a repo: fail-soft (exit 0, notice printed, no marker anywhere).
 out="$( cd "$NONGIT" && HOME="$SANDBOX" MENTOR_CONTEXT_GATE=off bash "$BEGIN" 2>&1 )"; rc=$?
 chk "non-repo begin-plan exits 0"      test "$rc" = "0"
 chk "non-repo → NOT-armed notice"      sh -c "printf '%s' \"\$0\" | grep -q 'NOT armed'" "$out"
 
-echo "== C. Flat-layout migration on arm (v2.2.0) =="
-rm -rf "$PLANS_DIR"; mkdir -p "$PLANS_DIR"
+echo "== C. Flat-layout migration on arm (v2.2.0 hop + v2.12.0 relocation) =="
+rm -rf "$PLANS_DIR" "$ZOOMS_DIR"; mkdir -p "$PLANS_DIR"
 printf '# Demo\n'      > "$PLANS_DIR/demo.md"
 : > "$PLANS_DIR/demo-checkout-end-user.html"
 # prefix collision: "auth-retry"'s zoom must not be captured by the shorter "auth" plan
@@ -100,14 +105,27 @@ printf '# AuthRetry\n' > "$PLANS_DIR/auth-retry.md"
 : > "$PLANS_DIR/auth-retry-x-y.html"
 ( cd "$REPO" && HOME="$SANDBOX" MENTOR_CONTEXT_GATE=off bash "$BEGIN" >/dev/null 2>&1 )
 chk "demo.md → demo/plan.md"                       test -f "$PLANS_DIR/demo/plan.md"
-chk "demo zoom → demo/zoom/checkout-end-user.html" test -f "$PLANS_DIR/demo/zoom/checkout-end-user.html"
+chk "demo zoom → zooms/demo/checkout-end-user.html (both hops)" test -f "$ZOOMS_DIR/demo/checkout-end-user.html"
 chk "auth.md → auth/plan.md"                       test -f "$PLANS_DIR/auth/plan.md"
 chk "auth-retry.md → auth-retry/plan.md"           test -f "$PLANS_DIR/auth-retry/plan.md"
-chk "collision zoom → auth-retry/zoom/x-y.html"    test -f "$PLANS_DIR/auth-retry/zoom/x-y.html"
-chk "auth/ has no captured zoom"                   test ! -e "$PLANS_DIR/auth/zoom"
+chk "collision zoom → zooms/auth-retry/x-y.html"   test -f "$ZOOMS_DIR/auth-retry/x-y.html"
+chk "auth has no captured zoom"                    sh -c "test ! -e '$PLANS_DIR/auth/zoom' && test ! -e '$ZOOMS_DIR/auth'"
+chk "no plans/<slug>/zoom/ dirs left"              test -z "$(ls -d "$PLANS_DIR"/*/zoom 2>/dev/null)"
 chk "no flat .md left"                             test -z "$(ls "$PLANS_DIR"/*.md 2>/dev/null)"
 chk "no flat .html left"                           test -z "$(ls "$PLANS_DIR"/*.html 2>/dev/null)"
 chk "marker armed after migration"                 test -f "$PLANS_DIR/.planning"
+
+echo "== C2. v2.12.0 relocation alone (per-plan zoom/ → zooms/<slug>/) =="
+mkdir -p "$PLANS_DIR/demo/zoom"
+: > "$PLANS_DIR/demo/zoom/billing-implementor.html"
+: > "$ZOOMS_DIR/demo/existing.html"   # pre-existing target content must survive (mv -n)
+( cd "$REPO" && HOME="$SANDBOX" MENTOR_CONTEXT_GATE=off bash "$BEGIN" >/dev/null 2>&1 )
+chk "per-plan zoom html relocated"        test -f "$ZOOMS_DIR/demo/billing-implementor.html"
+chk "emptied zoom/ dir removed"           test ! -e "$PLANS_DIR/demo/zoom"
+chk "pre-existing zooms file untouched"   test -f "$ZOOMS_DIR/demo/existing.html"
+# idempotent: a second arm with nothing to relocate must not fail or invent dirs
+( cd "$REPO" && HOME="$SANDBOX" MENTOR_CONTEXT_GATE=off bash "$BEGIN" >/dev/null 2>&1 ); rc=$?
+chk "second arm (nothing to relocate) exits 0" test "$rc" = "0"
 
 echo
 echo "RESULT: PASS=$PASS FAIL=$FAIL"

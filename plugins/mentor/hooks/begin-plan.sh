@@ -85,10 +85,27 @@ while IFS= read -r f; do
   done
 done < <(ls "${plans_dir}"/*.md 2>/dev/null | awk '{ print length, $0 }' | sort -rn | cut -d' ' -f2- || true)
 
-# Clear per-plan ".opened" sidecars (dot-hidden inside each <slug>/ dir; legacy
-# flat ones swept too): plan paths are slug-derived, so a stale sidecar from a
-# prior session would suppress plan-open.sh's first-creation open for the same slug.
-find "$plans_dir" \( -name '*.opened' -o -name '.*.opened' \) -delete 2>/dev/null || true
+# One-shot relocation (v2.12.0): zoom artifacts moved out of the per-plan dirs
+# into the flat zooms tree — plans/<slug>/zoom/*.html → zooms/<slug>/ (the
+# mentor:zoom skill's plan-slug contract). Sidecars move too; mv -n never
+# clobbers; the emptied zoom/ dir is removed. Runs AFTER the v2.2.0 migration
+# above, so freshly-migrated flat zooms take both hops in one arm. Idempotent.
+zooms_dir="$(mentor_state_dir "$repo_root")/zooms"
+for zdir in "${plans_dir}"/*/zoom; do
+  [ -d "$zdir" ] || continue
+  slug="$(basename "$(dirname "$zdir")")"
+  mkdir -p -m 700 "${zooms_dir}/${slug}"
+  for f in "$zdir"/*.html "$zdir"/.*.opened; do
+    [ -e "$f" ] || continue
+    mv -n "$f" "${zooms_dir}/${slug}/" 2>/dev/null || true
+  done
+  rmdir "$zdir" 2>/dev/null || true
+done
+
+# Clear ".opened" sidecars (dot-hidden beside plans and zooms; legacy flat ones
+# swept too): plan/zoom paths are slug-derived, so a stale sidecar from a prior
+# session would suppress plan-open.sh's first-creation open for the same slug.
+find "$plans_dir" "$zooms_dir" \( -name '*.opened' -o -name '.*.opened' \) -delete 2>/dev/null || true
 
 : > "${plans_dir}/.planning"
 

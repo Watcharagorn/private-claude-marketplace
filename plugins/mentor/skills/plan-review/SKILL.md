@@ -103,8 +103,9 @@ the primary plan:
 plan_dir="<the dirname of the PLAN: path above>"
 plans_dir="$(dirname "$plan_dir")"
 repo_root="$(cd "$plans_dir/../.." && pwd)"
+zoom_dir="$(dirname "$plans_dir")/zooms/$(basename "$plan_dir")"   # mentor:zoom's plan-slug contract
 ls -t "$plans_dir"/*/plan.md 2>/dev/null              # ALL plans, incl. superseded — see below
-ls    "$plan_dir"/zoom/*.html 2>/dev/null             # the primary plan's supplementary zoom artifacts
+ls    "$zoom_dir"/*.html 2>/dev/null                  # the primary plan's supplementary zoom artifacts
 const_rel="$(jq -r '.constitution_path // empty' "$repo_root/.mentor/config.json" 2>/dev/null)"
 const_path="${repo_root}/${const_rel:-.mentor/constitution.md}"
 [ -f "$const_path" ] && echo "$const_path"            # the resolved constitution (default or constitution_path)
@@ -294,12 +295,13 @@ must contain:
 
 1. `Act as a spec-consistency analyzer. You analyze the plan (and its related planning artifacts) for internal and cross-artifact consistency. You are NOT implementing it, and NOT judging whether the approach is good.`
 2. The primary plan path with `Read this file first.`, then the related-artifact
-   list from Step 1 (other plans' `plan.md`s, the primary plan's `zoom/*.html`,
+   list from Step 1 (other plans' `plan.md`s, the primary plan's zooms at
+   `$zoom_dir/*.html`,
    the resolved constitution `$const_path`) with `Read the ones that appear related to the
    primary plan (inside the primary plan's folder, or referenced by it); ignore
    unrelated plans.`
 3. **Lane guard:** `Judge only coherence, traceability, and agreement — not feasibility, requirement coverage vs reality, or design cleanliness. If a finding is really one of those, DROP it; another reviewer owns it.`
-   Plus one cycle-scoped exclusion: `Ignore zoom/*.html staleness relative to
+   Plus one cycle-scoped exclusion: `Ignore zoom html staleness relative to
    plan edits made in this review cycle — the plan was just revised and its
    zooms lag by construction; the closing report owns the re-zoom reminder.
    Flag orphan/stale-artifact only when the mismatch predates this review.`
@@ -371,9 +373,9 @@ in place (`plan` Step 4). Guards:
 DECISION-REQUIRED findings and demotions, plus the consistency reviewer's
 coverage map + metrics as-is), and **dead lanes** (if any reviewer died). If
 the Step 5 fold or this auto-fold touched content covered by an existing
-`zoom/*.html`, add a reminder that those zooms need re-dispatch — re-zooming
-happens in the plan flow (`plan` "Revision completeness"), never from inside
-this skill.
+`$zoom_dir/*.html`, add a reminder that those zooms need re-dispatch —
+re-zooming is `mentor:zoom`'s re-zoom rule (entered via `plan` Step 5's
+delegation), never done from inside this skill.
 
 Then return to the approval question when invoked from `plan` Step 6, or end
 with the report when invoked standalone.

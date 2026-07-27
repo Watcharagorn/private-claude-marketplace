@@ -195,7 +195,8 @@ Do NOT paraphrase the plan or summarize what you're about to do. Dispatch immedi
 Dispatched agents run as background teammates: they can signal **idle** before
 (or instead of) delivering, die mid-flight on infra errors, and stay resident
 after finishing. These rules govern every dispatch surface in mentor — this
-skill, plus the dispatches in `plan` Steps 2/5, `plan-review`, `tour`, and
+skill, plus the dispatches in `plan` Step 2, `zoom` (which `plan` Step 5
+delegates to), `plan-review`, `tour`, and
 `grilling` (each cross-references this section):
 
 - **Deliver before idling.** End every prompt sketch with a delivery directive:

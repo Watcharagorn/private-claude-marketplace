@@ -23,9 +23,11 @@ case "$git_common" in /*) common_abs="$git_common";; *) common_abs="$REPO/$git_c
 repo_root="$(cd "$(dirname "$common_abs")" && pwd)"
 PLANS_DIR="$repo_root/.mentor/plans"   # project-scoped, in-repo; per-plan dirs since v2.2.0
 PLAN_DIR="$PLANS_DIR/sample-plan"
-mkdir -p "$PLAN_DIR/zoom"
-PLAN="$PLAN_DIR/zoom/checkout-end-user.html"
-MARKER="$PLAN_DIR/zoom/.checkout-end-user.html.opened"
+ZOOMS_DIR="$repo_root/.mentor/zooms"   # flat zooms tree since v2.12.0 (mentor:zoom)
+ZOOM_DIR="$ZOOMS_DIR/sample-plan"
+mkdir -p "$PLAN_DIR" "$ZOOM_DIR"
+PLAN="$ZOOM_DIR/checkout-end-user.html"
+MARKER="$ZOOM_DIR/.checkout-end-user.html.opened"
 : > "$PLAN"
 
 trap 'rm -rf "$ROOT"' EXIT   # .mentor/ lives inside $ROOT, so this cleans everything
@@ -63,17 +65,24 @@ echo "== C. No-op cases (no opener selected) =="
 check "" "off-switch MENTOR_PLAN_OPEN=off -> no-op"   "$PLAN" MENTOR_PLAN_OPEN=off
 check "" "non-plan path -> no-op"                     "$ROOT/random.html"
 
-echo "== C2. Path patterns: per-plan <slug>/ layout only =="
-check chrome "zoom html inside <slug>/zoom/ matches" "$PLAN"
+echo "== C2. Path patterns: zooms/<slug>/ tree + legacy locations =="
+check chrome "zoom html inside zooms/<slug>/ matches" "$PLAN"
+LEGACY_ZOOM="$PLAN_DIR/zoom/legacy-combo.html"; mkdir -p "$PLAN_DIR/zoom"; : > "$LEGACY_ZOOM"
+check chrome "legacy pre-v2.12 plans/<slug>/zoom/ html still matches" "$LEGACY_ZOOM"
+rm -rf "$PLAN_DIR/zoom"
+TOUR_HTML="$repo_root/.mentor/tours/sample-user.html"; mkdir -p "$repo_root/.mentor/tours"; : > "$TOUR_HTML"
+check "" "tour html in tours/ -> no-op (published, never auto-opened)" "$TOUR_HTML"
+BRIEF_MD="$ZOOM_DIR/_brief.md"; : > "$BRIEF_MD"
+check "" "zoom source-pack _brief.md -> no-op"        "$BRIEF_MD"
 LEGACY_HTML="$PLANS_DIR/legacy-flat.html"; : > "$LEGACY_HTML"
 check "" "legacy flat html in plans/ -> no-op"        "$LEGACY_HTML"
 LEGACY_MD="$PLANS_DIR/legacy-flat.md"; : > "$LEGACY_MD"
 check "" "legacy flat md in plans/ -> no-op"          "$LEGACY_MD"
 STRAY_HTML="$PLAN_DIR/stray.html"; : > "$STRAY_HTML"
-check "" "html beside plan.md (not in zoom/) -> no-op" "$STRAY_HTML"
+check "" "html beside plan.md (not a zoom dir) -> no-op" "$STRAY_HTML"
 STRAY_MD="$PLAN_DIR/notes.md"; : > "$STRAY_MD"
 check "" "non-plan.md md inside <slug>/ -> no-op"      "$STRAY_MD"
-rm -f "$LEGACY_HTML" "$LEGACY_MD" "$STRAY_HTML" "$STRAY_MD"
+rm -f "$TOUR_HTML" "$BRIEF_MD" "$LEGACY_HTML" "$LEGACY_MD" "$STRAY_HTML" "$STRAY_MD"
 
 echo "== E. Markdown (.md) plans: prefer a VSCode tab, never raw-text Chrome =="
 MD="$PLAN_DIR/plan.md"; : > "$MD"

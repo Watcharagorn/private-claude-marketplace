@@ -65,6 +65,14 @@ hd.mkdir(parents=True, exist_ok=True)
     "Metering is approved and unstarted; tenant-data-isolation is 2/5 steps in.\n\n"
     "## Next steps\n\nResume tenant-data-isolation at step 3.\n")
 
-print(f"seeded {len(SPEC)} plans + 1 handoff note under {PLANS}")
+# an existing zoom artifact (v2.12 flat tree), so a re-zoom/"update the visual"
+# query finds real prior state instead of hunting an empty dir
+zd = ROOT / ".mentor" / "zooms" / "billing-invoice"
+zd.mkdir(parents=True, exist_ok=True)
+(zd / "invoice-lifecycle-implementor.html").write_text(
+    "<!doctype html><title>Invoice lifecycle — implementor zoom</title>"
+    "<p>Seeded fixture zoom artifact.</p>\n")
+
+print(f"seeded {len(SPEC)} plans + 1 handoff note + 1 zoom under {PLANS.parent}")
 for p in sorted(PLANS.glob("*/plan.md")):
     print("   ", p.relative_to(ROOT))

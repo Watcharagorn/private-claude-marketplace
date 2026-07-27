@@ -1,7 +1,7 @@
 {
-  "eval_name": "mentor-v2.11.0-multi-skill-triggering",
+  "eval_name": "mentor-v2.12.0-multi-skill-triggering",
   "note": "Multi-class: every query is scored on WHICH mentor skill fires, not whether one does. 'none' means no mentor skill should be consulted.",
-  "skills_in_play": ["plan", "plan-split", "plan-track", "plan-review", "grilling", "dispatch-agents", "resume", "handoff"],
+  "skills_in_play": ["plan", "plan-split", "plan-track", "plan-review", "grilling", "dispatch-agents", "resume", "handoff", "tour", "zoom"],
   "evals": [
     {
       "id": 1,
@@ -122,6 +122,54 @@
       "expected": "none",
       "tests": "DESIGN CHECK: a fresh planning ask must NOT be grabbed by any sibling skill; mentor:plan is deliberately command-only so the gate is armed first",
       "query": "help me plan the auth refactor — new JWT rotation, a redis session store, and ripping out the old cookie flow. touches api/auth/* and the middleware"
+    },
+    {
+      "id": 21,
+      "expected": "zoom",
+      "tests": "core trigger, 'zoom into' phrasing",
+      "query": "zoom into the auth flow for me — i want to actually see how the token refresh hangs together instead of reading another wall of markdown"
+    },
+    {
+      "id": 22,
+      "expected": "zoom",
+      "tests": "core trigger, html page + explicit no-publish",
+      "query": "can you render the payment module as an html page i can just open in the browser? dont publish it anywhere, local file is fine"
+    },
+    {
+      "id": 23,
+      "expected": "zoom",
+      "tests": "core trigger, NO plan exists — subject is the codebase",
+      "query": "give me a diagram page for the ingestion pipeline. theres no plan written for it, its just the code thats already sitting in the repo"
+    },
+    {
+      "id": 24,
+      "expected": "zoom",
+      "tests": "core trigger, both dimensions named (topic x perspective)",
+      "query": "id like to see the checkout redesign from a QA persons point of view and from the end users — as separate pages i can open side by side"
+    },
+    {
+      "id": 25,
+      "expected": "tour",
+      "tests": "NEAR-MISS vs zoom: reviewers mark pass/not-pass and it gets shared = tour, not a local visual",
+      "query": "i need a page i can send the reviewers where they walk each scenario, tick pass or not pass, and leave me feedback"
+    },
+    {
+      "id": 26,
+      "expected": "tour",
+      "tests": "core trigger, UAT/acceptance phrasing with a shareable link",
+      "query": "the billing work is done — set up a UAT walkthrough the product folks can run through themselves, with a link i can drop in slack"
+    },
+    {
+      "id": 27,
+      "expected": "plan-review",
+      "tests": "NEAR-MISS vs zoom: 'a proper look' but the ask is a quality verdict on a written plan",
+      "query": "before i approve the billing plan i want a proper look at it — is the approach actually sound or are we going to regret the queue thing"
+    },
+    {
+      "id": 28,
+      "expected": "none",
+      "tests": "NEAR-MISS keyword bait: 'zoom' the video product, nothing to do with mentor",
+      "query": "can you set up a zoom with the vendor for thursday afternoon and send round the invite?"
     }
   ]
 }
