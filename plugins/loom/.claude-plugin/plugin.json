@@ -1,7 +1,7 @@
 {
   "name": "loom",
-  "description": "Session harvesting and plugin lifecycle tools: turn a session into reusable artifacts, audit an existing plugin from a session to fix how it misbehaved, learn from every session that used a plugin (or one named session) with audit + enhance lenses (opt-in tracking makes learning instant), and publish releases with synced manifests.",
-  "version": "3.0.0",
+  "description": "Session harvesting and plugin lifecycle tools: auto-harvest sessions into reusable Claude Code artifacts, learn from a plugin's sessions to auto-improve it, schedule daily unattended runs, and publish releases with synced manifests.",
+  "version": "4.0.0",
   "author": {
     "name": "NTBX"
   }

@@ -162,6 +162,10 @@ source paths + its **design philosophy stated explicitly**, and — since subage
 REJECT per item** with reasoning and flags issues not in the set. Fold verdicts back in (revise
 REVISEs, drop REJECTs, add anything newly found), then re-read the updated set.
 
+**Sequential callers** (e.g. `learn`'s per-session loop) invoke this review **once per session** over
+that session's item set — right-sizing then usually lands at ONE reviewer, with the trio reserved for
+sessions whose items include a hook/settings merge or multiple artifacts.
+
 ## §I — Confirm with the user (usages, not artifact types)
 
 Print a **compact card per proposed usage/item**, then **immediately** call **one** `AskUserQuestion`
@@ -302,7 +306,12 @@ Survivors sort newest-first by mtime; namespaced-marker candidates ahead of bare
 re-eligible** (K.3 rule 1). Watermark rule (verbatim): `watermark = max(old, max sessionEndTs over
 sessions disposed this run)` — **never `now()`** (that would permanently skip the excluded active
 session and in-flight sessions on other terminals); never moves backwards; sound because every matching
-session older than it is already in `analyzed[]`. Grown-after-analysis sessions are not auto-re-analyzed
+session older than it is already in `analyzed[]`. Batch `learn` persists **per session**: sessions are
+processed **oldest→newest** and each session's `analyzed[]` entry plus the watermark advance land in
+**one** §K.7 write immediately after that session is disposed — the incremental max equals that
+session's `sessionEndTs`, so the rule holds after every write and a crash loses at most the in-flight
+session (`skipped-cap` remainders are ledgered up front at cap resolution; re-eligible by outcome, so
+the watermark passing them is sound). Grown-after-analysis sessions are not auto-re-analyzed
 in v1 (`lineCount` recorded; a run prints "N previously-analyzed sessions have grown — remove their
 ledger entries to re-learn"). Unknown/newer `schemaVersion` → treat as corrupt (move aside, warn,
 start fresh). Escape hatches: delete the ledger (full reset), or
@@ -337,7 +346,7 @@ more.
 `harvest-automations`' project-wide mode keeps its own ledger + watermark, keyed by **project** (a
 project hash, not a plugin name like §K.4). This section is the **single source of truth** for its
 schema and eligibility; `references/project-wide.md` owns only the orchestration (discovery loop, lock,
-batching, cross-session merge) and points here for the state rules. It does not consume §K.1/§K.2/§K.5
+the sequential per-session fold loop) and points here for the state rules. It does not consume §K.1/§K.2/§K.5
 (those are the machine-wide, per-plugin discovery path — harvest's sweep is per-project).
 
 **State location:**
@@ -351,14 +360,18 @@ batching, cross-session merge) and points here for the state rules. It does not 
 { "schemaVersion": 1, "projectRoot": "/Users/…",
   "watermark": "2026-07-14T04:08:24.718Z",
   "lastRun": { "at": "…", "mode": "project-wide", "sessionsAnalyzed": 5, "sessionsSkippedCap": 0,
-               "usagesProposed": 4, "usagesAccepted": 2, "report": "reports/<hash>-<ts>.md" },
+               "artifactsCreated": 3, "artifactsUpdated": 2, "updatesSkippedNoop": 1,
+               "report": "reports/<hash>-<ts>.md" },
   "analyzed": [ { "sessionId": "…", "transcriptPath": "…", "sessionEndTs": "…", "lineCount": 1487,
-                  "analyzedAt": "…", "opportunities": 3, "outcome": "harvested" } ] }
+                  "analyzedAt": "…", "opportunities": 3, "folded": 2, "outcome": "harvested" } ] }
 ```
 
 `outcome` enum: `harvested | no-opportunities | skipped-cap | error` — only `skipped-cap`/`error` are
 re-eligible (as §K.3 rule 1). The filename carries the hash (no `project` field); there is no per-entry
-`mode`. `analyzedAt` matches §K.4 naming. Corrupt / unknown-`schemaVersion` → move aside
+`mode`. `analyzedAt` matches §K.4 naming. `folded` (optional) = artifacts actually written for that
+session. `lastRun` is **informational only** — consumers key off `schemaVersion`/`watermark`/
+`analyzed[]`, so a `lastRun` field change does not bump `schemaVersion`; an old ledger's `lastRun` is
+simply overwritten on the next run. Corrupt / unknown-`schemaVersion` → move aside
 (`<ledger>.bak-<ts>`), warn, re-init fresh.
 
 **Eligibility** — §K.3 rule 1 (ledger-outcome-first: `error`/`skipped-cap` come back; `harvested`/
@@ -375,7 +388,12 @@ re-eligible (as §K.3 rule 1). The filename carries the hash (no `project` field
 
 **Watermark** — the §K.4 rule verbatim (`watermark = max(old, max sessionEndTs over sessions disposed
 this run)`, never `now()`, never backwards); the active session is excluded by construction and
-single-session runs never advance it. Grown-after-analysis handling is §K.4's (recorded `lineCount`; a
+single-session runs never advance it. **Project-wide persistence is per session:** sessions are
+processed **oldest→newest**, and each session's `analyzed[]` entry plus the watermark advance land in
+**one** §K.7 write immediately after that session is folded — the incremental max equals that session's
+`sessionEndTs`, so the rule holds after every write and a crash loses at most the in-flight session.
+`skipped-cap` remainders are ledgered up front at cap resolution (re-eligible by outcome, so the
+watermark passing them is sound). Grown-after-analysis handling is §K.4's (recorded `lineCount`; a
 run prints "N previously-harvested sessions have grown — remove their ledger entries to re-harvest" with
 the `jq 'del(.analyzed[] | select(.sessionId=="<sid>"))'` escape hatch).
 
@@ -387,13 +405,27 @@ jq's `*` **replaces** arrays, so a deep-merge would drop every prior entry. Use 
 `sessionId`, then append the batch — so re-runs **replace** rather than duplicate):
 
 ```bash
-cp "$ledger" "$ledger.bak.$(date +%s)"
+bak="$ledger.bak.$(date +%s)"; cp "$ledger" "$bak"
 jq --argjson batch "$entries" \
   '.analyzed = ([.analyzed[] | select([.sessionId] | inside($batch | map(.sessionId)) | not)] + $batch)' \
   "$ledger" > "$ledger.tmp" && jq empty "$ledger.tmp" && mv "$ledger.tmp" "$ledger" \
-  || { echo "INVALID — restoring"; rm -f "$ledger.tmp"; cp "$ledger".bak.* "$ledger"; }
+  || { echo "INVALID — restoring"; rm -f "$ledger.tmp"; cp "$bak" "$ledger"; }
 ```
 
-`$entries` is the batch's array of `analyzed[]` objects. **Consumers:** `learn` Step 5 (per-batch ledger
-append, per-plugin ledger at §K.4), `harvest-automations` project-wide Phase B (per-batch) and
-single-mode (one entry, §K.6). This is the one place the recipe lives.
+Restore from the **captured** `$bak`, never a `"$ledger".bak.*` glob — once more than one backup
+exists, the glob expands to multiple sources and `cp` fails (`Not a directory`), silently losing the
+restore. Per-session loops back up on every write, so this bites from session 2 onward.
+
+`$entries` is the array of `analyzed[]` objects to write (usually one, in the per-session loops).
+Sequential callers extend the same jq program with the watermark advance so entry + watermark land in
+one transaction — never in two writes:
+
+```bash
+jq --argjson batch "$entries" --arg wm "$endTs" \
+  '.analyzed = ([.analyzed[] | select([.sessionId] | inside($batch | map(.sessionId)) | not)] + $batch)
+   | .watermark = (if .watermark == null or .watermark < $wm then $wm else .watermark end)' ...
+```
+
+**Consumers:** `learn` Step 5 (per session, per-plugin ledger at §K.4), `harvest-automations`
+project-wide Phase B (per session, watermark advanced in the same write) and single-mode (one entry, no
+watermark clause, §K.6). This is the one place the recipe lives.

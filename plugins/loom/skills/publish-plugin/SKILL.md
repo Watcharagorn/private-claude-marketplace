@@ -1,16 +1,16 @@
 ---
 name: publish-plugin
 description: >
-  Publish (release) a plugin inside this ntbx-marketplace repo. Bumps the plugin's semver,
+  Publish (release) a plugin inside this marketplace repo. Bumps the plugin's semver,
   syncs the version + description into the plugin manifest, the marketplace manifest, and the
   plugin README (keeping manifest descriptions short and meaningful — trimming bloat on sight, never
   changelogs), validates the JSON, then commits and pushes to the repo's default branch.
   Invoke when the user says "publish the plugin", "release <plugin>", "pump/bump version and push",
-  "ship the marketplace plugin", or "/publish-plugin". Repo-scoped to ntbx-marketplace.
+  "ship the marketplace plugin", or "/publish-plugin". Repo-scoped to this marketplace.
 version: 1.2.0
 ---
 
-# Publish Plugin (ntbx-marketplace)
+# Publish Plugin (marketplace repo)
 
 Release a plugin in this marketplace repo: pick the version bump, propagate it everywhere it's
 recorded, validate, and push. This is the codified version of the manual release flow used in this
@@ -29,7 +29,7 @@ repo — bump the version, keep the manifests and git in sync, and record releas
 - `plugins/<name>/README.md` — human docs (optional; the place for a changelog if you keep one)
 - `plugins/<name>/skills/*/SKILL.md` — skills (each has its own `version` in frontmatter)
 
-Three plugins ship today: `mentor`, `sdlc-mini`, `loom`.
+The catalog of shipping plugins is `.claude-plugin/marketplace.json` — read it rather than assuming.
 
 ## Procedure
 

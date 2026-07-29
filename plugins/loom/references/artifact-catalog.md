@@ -310,8 +310,8 @@ Hook scripts communicate back to Claude via stdout (JSON or plain text) and exit
 ### CREATE mechanic (minimal valid hook)
 
 ```bash
-settings="$HOME/.claude/settings.json"
-cp "$settings" "${settings}.bak.$(date +%s)"
+settings="${CLAUDE_CONFIG_DIR:-$HOME/.claude}/settings.json"
+bak="${settings}.bak.$(date +%s)"; cp "$settings" "$bak"
 jq '.hooks["UserPromptSubmit"] = [{"matcher": "*", "hooks": [{"type": "command", "command": "bash /path/to/script.sh", "timeout": 5}]}]' \
   "$settings" > /tmp/s.json && jq empty /tmp/s.json && mv /tmp/s.json "$settings"
 ```
@@ -321,8 +321,8 @@ jq '.hooks["UserPromptSubmit"] = [{"matcher": "*", "hooks": [{"type": "command",
 **Merge into existing event array without clobbering:**
 
 ```bash
-settings="$HOME/.claude/settings.json"
-cp "$settings" "${settings}.bak.$(date +%s)"
+settings="${CLAUDE_CONFIG_DIR:-$HOME/.claude}/settings.json"
+bak="${settings}.bak.$(date +%s)"; cp "$settings" "$bak"
 
 NEW_HOOK='{"type":"command","command":"bash /path/to/new-script.sh","timeout":10}'
 
@@ -348,7 +348,7 @@ jq --arg event "PreToolUse" \
    ' "$settings" > /tmp/s.json \
 && jq empty /tmp/s.json \
 && mv /tmp/s.json "$settings" \
-|| { echo "ABORT: jq failed, restoring backup"; cp "${settings}.bak."* "$settings" 2>/dev/null; }
+|| { echo "ABORT: jq failed, restoring backup"; cp "$bak" "$settings"; }
 ```
 
 For plugin `hooks/hooks.json`, same structure but scoped to the plugin directory — the plugin loader merges it.
@@ -406,8 +406,8 @@ An explicit allow or deny rule that pre-approves (or blocks) a tool invocation p
 ### CREATE mechanic (add first rule)
 
 ```bash
-settings="$HOME/.claude/settings.json"
-cp "$settings" "${settings}.bak.$(date +%s)"
+settings="${CLAUDE_CONFIG_DIR:-$HOME/.claude}/settings.json"
+bak="${settings}.bak.$(date +%s)"; cp "$settings" "$bak"
 jq '.permissions.allow += ["Bash(npm run build:*)"] | .permissions.allow |= unique' \
   "$settings" > /tmp/s.json && jq empty /tmp/s.json && mv /tmp/s.json "$settings"
 ```
@@ -417,8 +417,8 @@ jq '.permissions.allow += ["Bash(npm run build:*)"] | .permissions.allow |= uniq
 **Add to allow list without duplicates:**
 
 ```bash
-settings="$HOME/.claude/settings.json"
-cp "$settings" "${settings}.bak.$(date +%s)"
+settings="${CLAUDE_CONFIG_DIR:-$HOME/.claude}/settings.json"
+bak="${settings}.bak.$(date +%s)"; cp "$settings" "$bak"
 
 NEW_PERM='Bash(kubectl get:*)'
 
@@ -427,7 +427,7 @@ jq --arg p "$NEW_PERM" \
   "$settings" > /tmp/s.json \
 && jq empty /tmp/s.json \
 && mv /tmp/s.json "$settings" \
-|| { echo "ABORT"; cp "${settings}.bak."* "$settings" 2>/dev/null; }
+|| { echo "ABORT"; cp "$bak" "$settings"; }
 ```
 
 **Add to deny list:**
@@ -711,8 +711,8 @@ Secrets in project `.mcp.json` should be `<PLACEHOLDER>` — real values go in `
 ### CREATE mechanic
 
 ```bash
-mcp="$HOME/.claude/.mcp.json"
-cp "$mcp" "${mcp}.bak.$(date +%s)"
+mcp="${CLAUDE_CONFIG_DIR:-$HOME/.claude}/.mcp.json"
+bak="${mcp}.bak.$(date +%s)"; cp "$mcp" "$bak"
 
 NEW_SERVER='{
   "type": "http",
@@ -724,7 +724,7 @@ jq --arg name "my-server" --argjson s "$NEW_SERVER" \
   '.mcpServers[$name] = $s' "$mcp" > /tmp/m.json \
 && jq empty /tmp/m.json \
 && mv /tmp/m.json "$mcp" \
-|| { echo "ABORT"; cp "${mcp}.bak."* "$mcp" 2>/dev/null; }
+|| { echo "ABORT"; cp "$bak" "$mcp"; }
 ```
 
 ### UPDATE / merge recipe
@@ -732,8 +732,8 @@ jq --arg name "my-server" --argjson s "$NEW_SERVER" \
 **Add or replace a single server (merge-json, safe):**
 
 ```bash
-mcp="$HOME/.claude/.mcp.json"
-cp "$mcp" "${mcp}.bak.$(date +%s)"
+mcp="${CLAUDE_CONFIG_DIR:-$HOME/.claude}/.mcp.json"
+bak="${mcp}.bak.$(date +%s)"; cp "$mcp" "$bak"
 
 UPDATED_SERVER='{
   "command": "node",
@@ -745,7 +745,7 @@ jq --arg name "<server-name>" --argjson s "$UPDATED_SERVER" \
   '.mcpServers[$name] = $s' "$mcp" > /tmp/m.json \
 && jq empty /tmp/m.json \
 && mv /tmp/m.json "$mcp" \
-|| { echo "ABORT"; cp "${mcp}.bak."* "$mcp" 2>/dev/null; }
+|| { echo "ABORT"; cp "$bak" "$mcp"; }
 ```
 
 **Remove a server:**

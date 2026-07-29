@@ -1,0 +1,46 @@
+{
+  "skill_name": "loom",
+  "note": "Behavior-trace evals for loom's session skills. Each prompt is answered by an agent that READS the skill files and traces the flow — the skills themselves mutate real machine state (ledgers, artifacts, git pushes), so evals verify the text produces the intended behavior unambiguously rather than executing a live run. The only live eval is --dry-run, which writes nothing by design.",
+  "evals": [
+    {
+      "id": 1,
+      "prompt": "Trace /loom:harvest (no arguments) in a git repo with 3 eligible non-active sessions and 1 active session. List: every point where the user is prompted, the order sessions are processed, when each ledger write and watermark advance happens, and what scope artifacts land at.",
+      "expected_output": "Zero prompts (cap question only fires >12). Sessions processed oldest→newest, active last. One §K.7 write per session combining the analyzed[] entry AND the watermark advance; active session folded but never ledgered/watermarked. All artifacts at project scope (user scope only outside a git repo; never plugin)."
+    },
+    {
+      "id": 2,
+      "prompt": "Trace /loom:harvest --review over 2 eligible sessions where the user selects nothing for session 1 and one usage for session 2. What happens after the zero-selection?",
+      "expected_output": "Session 1 is ledgered and the loop CONTINUES to session 2 (no stop, no re-ask). Session 2 runs cards + multi-select + scope question + per-update diff-confirm, then applies. Watermark advances after each session."
+    },
+    {
+      "id": 3,
+      "prompt": "Trace /loom:harvest --dry-run. What is written to disk?",
+      "expected_output": "Nothing: no lock, no $cfg/loom/ init, no agents, no ledger mutation, no report. Discovery list + eligibility + cap outcome presented, then stop."
+    },
+    {
+      "id": 4,
+      "prompt": "Trace /loom:harvest <session-id> for an old session of the current project. Is it interactive, and does the watermark move?",
+      "expected_output": "Fully interactive (cards + multi-select + scope + diff-confirm). One analyzed[] entry ledgered; the watermark NEVER moves in single mode."
+    },
+    {
+      "id": 5,
+      "prompt": "Trace /loom:learn mentor with 3 unanalyzed sessions. When does expert review run, when are items implemented, how many publishes happen, and when do ledger writes occur?",
+      "expected_output": "Per session (oldest first): one analysis agent → §H review (usually ONE reviewer; trio only for hooks/settings/multi-artifact sets) → APPROVE items implemented automatically → one §K.7 write (entry + watermark). Publish fires exactly ONCE at the end, only if ≥1 item was implemented."
+    },
+    {
+      "id": 6,
+      "prompt": "Trace /loom:harvest --headless and /loom:learn mentor --headless with 15 eligible sessions each. Does AskUserQuestion ever fire, and what happens to the active session in harvest?",
+      "expected_output": "AskUserQuestion never fires on any path: cap auto-defaults to Newest 12 (remainders ledgered skipped-cap), NO_TRANSCRIPTS/dead-ends stop cleanly with a message. Harvest skips the active session entirely (it is the headless runner itself). --headless overrides --review."
+    },
+    {
+      "id": 7,
+      "prompt": "In a project-wide auto harvest, session 3 is a fork/resume copy of session 1 and proposes an identical artifact. What happens?",
+      "expected_output": "The artifact already exists (created from session 1), so test -e routes it as an update; the effective diff is empty → no-op skip, recorded in the report. No duplicate artifact."
+    },
+    {
+      "id": 8,
+      "prompt": "In a project-wide auto harvest, the analysis agent for session 2 crashes. What happens to the run and to session 2 on the next run?",
+      "expected_output": "Session 2 is ledgered outcome=error and the loop continues with session 3. On the next run, error is re-eligible (§K.3 rule 1) so session 2 is retried."
+    }
+  ]
+}
