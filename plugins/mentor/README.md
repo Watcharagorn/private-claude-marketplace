@@ -53,7 +53,7 @@ review and are the single source of truth for implementation, handoff, and revie
 | `/mentor:zoom [subject] [topic] [perspective]` | **Topic × perspective HTML zoom of any subject** — a repo subsystem, a doc, a mentor plan, or the thing under discussion; no plan file or planning session required. One dispatched agent per combo writes a self-contained page to `.mentor/zooms/<subject-slug>/` (gitignored), auto-opened locally and **never published**. `plan` Step 5 delegates here for in-planning zooms. |
 | `/mentor:track [slug\|number\|status]` | List every plan with its state (draft / approved / in progress / implemented / failed), then build the one you pick. The way back into a `/plan-split` group. |
 | `/plan-split`* | Split an oversized plan into independently buildable sibling plans, each with explicit scope isolation; also offered as **Split into multiple plans** at the approval gate when a plan is oversized. |
-| `/plan-review`* | Staged review of the current plan: a judgment pass (practicality, comprehensiveness) with a **fold gate** where you pick the edits to apply, then — against the updated plan — a mechanical pass (cleanliness + spec-kit-`analyze`-style **consistency** across related artifacts) whose safe fixes **auto-fold**; decision-level findings are surfaced, never auto-applied. The mechanical stage is invocable alone ("check plan consistency"). Also offered as **Review the plan (staged)** at the proceed gate. |
+| `/plan-review`* | Staged review of the current plan: a judgment pass (practicality, comprehensiveness) with a **fold gate** that walks the recommended edits **one question at a time** — each question carries the reviewer's case with the key words bolded — then — against the updated plan — a mechanical pass (cleanliness + spec-kit-`analyze`-style **consistency** across related artifacts) whose safe fixes **auto-fold**; decision-level findings are asked the same one-by-one way, applied only on your verdict. The mechanical stage is invocable alone ("check plan consistency"). Also offered as **Review the plan (staged)** at the proceed gate. |
 | `/dispatch-agents`* | The **default implementation path** (subagents-driven development): every plan's steps are dispatch-annotated unless the plan states a `Dispatch: skipped` reason, and executed as subagent dispatches after approval. |
 
 \* skill trigger phrases, not registered slash commands — typing them (or the
@@ -324,6 +324,21 @@ extra deliverable. Instruction-only — no hooks.
 | `plan-domain-backend-api` | API/endpoint/route/handler/schema/DTO/contract | Before/after contract diff tables, schema diffs, Mermaid sequence flows. |
 | `plan-domain-architecture` | Structural change — services, containers, datastores, integrations | Diff-highlighted C4-style Mermaid flowcharts, only the levels that change. |
 | `plan-domain-dynamic` | No registered domain matched (fallback) | A dispatched domain-definer names the domain and returns a best-practices brief; the plan gains a practice→step mapping. |
+
+## Changes in v2.13.0
+
+`/plan-review` review results now reach you **one question at a time**. The
+Stage 1 fold gate drops its per-dimension multi-select: every recommended
+edit gets its own single-select question (Fold in / Skip / Skip the rest),
+written the way a human reviewer would present the finding — the observation,
+why it matters, and what changes, with the **key words bolded** — and, when
+the reviewer supplied concrete text, a before → after preview of the exact
+edit. Stage 2's DECISION-REQUIRED findings get the same treatment: instead of
+ending in a surfaced-only report, each finding is asked one verdict question
+(the reviewer's stated alternatives / Leave open / Skip the rest), and
+accepted resolutions are folded in one final pass — still never auto-applied.
+Stage-2-only's "Surface only" stays fully read-only: no writes, no verdict
+walk.
 
 ## Changes in v2.12.0
 

@@ -9,12 +9,14 @@ description: |
   "analyze the plan for consistency".
   Reads the current mentor plan (.md) and, with the edit gate closed, runs a
   staged review: Stage 1 judgment reviewers (practicality,
-  comprehensiveness), then a fold gate where the user picks which
-  recommended edits to fold into the plan; then Stage 2 mechanical
-  reviewers (cleanliness + a spec-kit-analyze-style consistency check over
-  related artifacts) against the updated plan, whose safe MECHANICAL fixes
-  are auto-folded — findings needing a substantive decision are surfaced,
-  never auto-applied. Stage 2 is also invocable on its own.
+  comprehensiveness), then a fold gate that walks their recommended edits
+  ONE AT A TIME — each edit is its own question carrying the reviewer's
+  case with the key words highlighted, and the user verdicts fold/skip;
+  then Stage 2 mechanical reviewers (cleanliness + a spec-kit-analyze-style
+  consistency check over related artifacts) against the updated plan, whose
+  safe MECHANICAL fixes are auto-folded — findings needing a substantive
+  decision are asked the same way, one verdict per finding, and applied
+  only on the user's verdict. Stage 2 is also invocable on its own.
 ---
 
 # Plan Review — Judgment, Fold, then Mechanical Auto-Fold
@@ -23,14 +25,17 @@ A pre-approval review pass in **two stages of two concurrent reviewers each**:
 it reads the current plan, confirms at the Step 2 gate, then fans out the
 **judgment reviewers** (practicality, comprehensiveness) — one `Agent()` call
 per dimension in a **single message**. Their recommended edits go through a
-**fold gate** (Step 4): the user picks which to apply, and the picks are
-folded by re-writing the plan in place. Only then do the **mechanical
-reviewers** (cleanliness, consistency) dispatch — against the UPDATED plan, so
-they also catch anything the fold introduced. Their `MECHANICAL`-tagged fixes
-are auto-folded; `DECISION-REQUIRED` findings are surfaced, never
-auto-applied. Reviewers stay read-only and the `.planning` gate stays closed
-throughout, but this skill itself writes ONE file — the plan `.md`, at Step 5
-(fold) and Step 7 (auto-fold), inside the gate-exempt `.mentor/` tree. The
+**fold gate** (Step 4): the user verdicts each edit **one question at a
+time** — every question presents the reviewer's case the way a human reviewer
+would, key words bolded — and the accepted edits are folded by re-writing the
+plan in place. Only then do the **mechanical reviewers** (cleanliness,
+consistency) dispatch — against the UPDATED plan, so they also catch anything
+the fold introduced. Their `MECHANICAL`-tagged fixes are auto-folded;
+`DECISION-REQUIRED` findings are walked the same one-question-per-finding
+way — applied only on the user's verdict, never automatically. Reviewers stay
+read-only and the `.planning` gate stays closed throughout, but this skill
+itself writes ONE file — the plan `.md`, at Step 5 (fold) and Step 7
+(auto-fold + verdict fold), inside the gate-exempt `.mentor/` tree. The
 mechanical stage can also be invoked **on its own** (see Stage-2-only mode
 below).
 
@@ -87,7 +92,8 @@ bash "${CLAUDE_PLUGIN_ROOT}/hooks/plan-state.sh" current
 The `PLAN:` line is the **primary** plan — the subject every reviewer reads — and its
 directory is `plan_dir`. If nothing is printed, say `Plan review aborted: no plan file
 found.` and stop. Then `Read` the primary plan — it IS its own canonical source. Do
-**not** edit it yet — plan edits happen only at Step 5 (fold) and Step 7 (auto-fold).
+**not** edit it yet — plan edits happen only at Step 5 (fold) and Step 7 (auto-fold +
+verdict fold).
 
 **When `GROUP:` is not `-`**, the primary plan is one slice of a `/plan-split` group,
 and the script prints its siblings. Reviewing an arbitrary slice is rarely what the
@@ -136,9 +142,9 @@ question:
 ```
 Question — header "Plan review", single-select, 3 options:
   1. "Run staged review"   (Recommended)
-     description: "Stage 1 judgment review (practicality, comprehensiveness) with a fold gate where you pick the edits to apply, then Stage 2 mechanical review (cleanliness, consistency) on the updated plan with safe fixes auto-folded."
+     description: "Stage 1 judgment review (practicality, comprehensiveness) whose recommended edits you verdict one question at a time, then Stage 2 mechanical review (cleanliness, consistency) on the updated plan — safe fixes auto-folded, decision-level findings asked one by one."
   2. "Stage 2 only"
-     description: "Skip the judgment stage; run just the mechanical pass — cleanliness + the spec-kit-analyze-style consistency check — and auto-fold its safe fixes. Decision-level findings are surfaced, not applied."
+     description: "Skip the judgment stage; run just the mechanical pass — cleanliness + the spec-kit-analyze-style consistency check — and auto-fold its safe fixes. Decision-level findings are asked one by one, applied only on your verdict."
   3. "Pass (skip)"
      description: "Return to planning without dispatching."
 ```
@@ -191,49 +197,64 @@ Each `prompt` must contain:
    is absent — do not add a separate constitution reviewer; the check stays folded
    into all reviewers.
 
-## Step 4 — Fold gate: the user picks which edits land
+## Step 4 — Fold gate: one verdict per edit, asked one at a time
 
-Surface both reviewers' `Strengths/Risks/Gaps/Recommended plan edits` blocks,
-numbering every recommended edit with a stable ID as you surface it — `P1,
-P2, …` (practicality), `C1, C2, …` (comprehensiveness). The IDs are the
-contract for the question below and for "Other" answers.
+Surface both reviewers' `Strengths/Risks/Gaps/Recommended plan edits` blocks
+in full, numbering every recommended edit with a stable ID as you surface it —
+`P1, P2, …` (practicality), `C1, C2, …` (comprehensiveness). The IDs are the
+contract for the questions below and for "Other" answers.
 
 If neither reviewer returned recommended edits, say so and go straight to
-Step 6. Otherwise ask ONE `AskUserQuestion` call containing one
-**multi-select** question per dimension that returned edits (omit a dimension
-with none):
+Step 6. Otherwise walk the edits **one at a time** (P-IDs in order, then
+C-IDs): each edit gets its own `AskUserQuestion` call containing exactly ONE
+single-select question, and the next question is not asked until the current
+verdict lands. Never batch several edits into one question or one call — the
+point is that the user judges each finding on its own merits, the way a
+reviewer walks a colleague through a review, instead of skimming a checklist.
+
+**Each question must carry the full case, written like a human review.** The
+user should be able to verdict without scrolling back, so put the substance in
+the question itself and **bold the load-bearing words** — the **risk** being
+closed, the **section or step** touched, the **behavior** that changes — so
+the eye lands on what matters first:
 
 ```
-Question 1 — header "Practicality", multiSelect: true
-  question: "Which practicality edits should be folded into the plan?
-             (Select none to fold none; 'Other' accepts any surfaced IDs, e.g. 'P5, C2'.)"
-  options: up to 4, one per recommended edit —
-    label "P<n>: <short edit label>",
-    description = the concrete change it makes to the plan and why it matters.
-
-Question 2 — header "Completeness", multiSelect: true — same shape with C-IDs.
+question: "<ID> (<k> of <n>): <the reviewer's case in 2–4 sentences — what it
+           observed in the plan, why it matters (the concrete **risk**,
+           **gap**, or **cost** of leaving it), and what the edit changes —
+           with the key words/phrases in **bold**.>"
+header: the edit ID (e.g. "P2")
+options:
+  1. "Fold in" — description: the exact change to the plan — which section,
+     what is added/removed/reworded — and the payoff. When the reviewer
+     supplied concrete text, attach a `preview` showing the edit as
+     before → after, so the user reads the actual words, not a paraphrase.
+  2. "Skip" — description: leave the plan unchanged here, and what that
+     accepts (the risk stays open / the gap stays uncovered).
+  3. "Skip the rest" — description: skip this and every remaining edit and
+     move on to Stage 2. (Offer only while more than one edit remains.)
 ```
 
-**Overflow (>4 edits in a dimension):** never truncate silently. Consolidate
-related edits into combined options (the label carries every folded ID, e.g.
-`"P2+P4: unify rollout steps"`), ranked by impact, until ≤4 options remain;
-any edit that resists consolidation stays reachable by ID via "Other" — the
-question text must say so. Selecting nothing in both questions is a valid
-outcome: fold nothing and continue to Step 6 regardless.
+Mark `"Fold in"` as `(Recommended)` only when the reviewer itself flagged the
+edit as its highest-impact item — recommending everything teaches the user to
+stop reading. An "Other" answer may accept a modified version of the edit
+("fold P2 but only for the rollout step") — fold the modified wording — or
+name earlier IDs to revisit. Skipping every edit is a valid outcome: fold
+nothing and continue to Step 6 regardless.
 
 **Re-entry dedup:** when the staged review runs again in the same session (the
-approval question loops back here), do not re-offer edit IDs the user already
-declined — only new or changed findings get options. Note the declined IDs in
-the surfaced text so they stay reachable via "Other" if the user changes
-their mind.
+approval question loops back here), do not re-ask edits the user already
+declined — only new or changed findings get questions. Note the declined IDs
+in the surfaced text so the user can revive one via "Other" at any question.
 
-## Step 5 — Fold the selected edits
+## Step 5 — Fold the accepted edits
 
-Apply exactly the edits the user selected (plus any IDs named via "Other") by
+Apply exactly the edits the user accepted at the fold gate — including any
+modified wordings or revisited IDs accepted via "Other" — in ONE pass,
 revising and re-writing the SAME plan file in place per `plan` Step 4 — never
-a second copy, never anywhere else. Do not apply unselected edits, and do not
+a second copy, never anywhere else. Do not apply skipped edits, and do not
 "improve" unrelated text while you're in the file — Stage 2 owns quality
-fixes. If nothing was selected, skip the write.
+fixes. If every edit was skipped, skip the write.
 
 ## Step 6 — Stage 2: fan out the two mechanical reviewers
 
@@ -242,9 +263,10 @@ decision) — both reviewers read the UPDATED plan, so they also catch anything
 the fold introduced. Issue one `Agent()` call each in a single message,
 `subagent_type: general-purpose`, `model: sonnet`. Dispatches follow
 `dispatch-agents`' **"Async runtime & lifecycle"** rules — durable verdict
-copies under `.mentor/plans/<slug>/`; close both reviewers out after Step 7
-consumes their findings. If one dies, note it and auto-fold the survivor's
-MECHANICAL findings.
+copies under `.mentor/plans/<slug>/`; close both reviewers out once their
+findings are consumed, BEFORE Step 7's verdict walk blocks on the user — an
+idle agent must not interrupt the questions with stray notifications. If one
+dies, note it and run Step 7 on the survivor's findings.
 
 **Both prompts embed this tagging contract verbatim** — it is what lets
 Step 7 apply fixes without a human in the loop:
@@ -354,7 +376,7 @@ must contain:
     plan's `## Constitution Check` table is internally consistent (every principle
     has a row; every ⚠️ verdict has a resolving or explicitly-justified note).
 
-## Step 7 — Auto-fold and report
+## Step 7 — Auto-fold, per-finding verdicts, and report
 
 Partition the Stage 2 findings by tag.
 
@@ -367,15 +389,39 @@ in place (`plan` Step 4). Guards:
   contradictory MECHANICAL fixes for the same text, consistency wins
   terminology, cleanliness wins structure and wording; if still ambiguous,
   demote both to DECISION-REQUIRED.
-- Never apply a DECISION-REQUIRED finding — those choices belong to the user.
+- Never apply a DECISION-REQUIRED finding in this pass — those choices go to
+  the verdict walk below.
 
-**Report** three groups, by ID: **applied**, **surfaced for decision** (the
-DECISION-REQUIRED findings and demotions, plus the consistency reviewer's
-coverage map + metrics as-is), and **dead lanes** (if any reviewer died). If
-the Step 5 fold or this auto-fold touched content covered by an existing
-`$zoom_dir/*.html`, add a reminder that those zooms need re-dispatch —
-re-zooming is `mentor:zoom`'s re-zoom rule (entered via `plan` Step 5's
-delegation), never done from inside this skill.
+**Ask** the DECISION-REQUIRED findings (including demotions) one at a time,
+CRITICAL → LOW, under Step 4's per-question contract: one `AskUserQuestion`
+call per finding, exactly one single-select question, the finding's ID as
+header, and the question text carrying the reviewer's case in 2–4 sentences
+with the **key words bolded** — what disagrees or is missing, **where**, and
+what each resolution costs. The options come from the finding itself:
+
+- One option per substantive alternative the reviewer stated (its label names
+  the choice; its description says what changes in the plan and what it
+  risks; attach a `preview` of the concrete text when the reviewer gave one).
+  A question holds at most 4 options, so cap the alternatives at two — the
+  strongest per the reviewer — and when more exist, say in the question text
+  that the rest are reachable via "Other" by name.
+- `"Leave open"` — keep the plan as-is; the finding is recorded in the report.
+- `"Skip the rest"` — leave this and every remaining finding open and go to
+  the report. (Offer only while more than one finding remains.)
+
+Do not pick a side for the user — even when one alternative looks obviously
+right, present it neutrally; the whole reason these findings weren't
+auto-folded is that the choice is substantive. Apply the accepted resolutions
+in ONE second revision pass after the walk — these are user verdicts, not
+auto-folds.
+
+**Report** three groups, by ID: **applied** (MECHANICAL fixes and
+verdict-accepted resolutions), **left open** (findings the user left open or
+skipped, plus the consistency reviewer's coverage map + metrics as-is), and
+**dead lanes** (if any reviewer died). If the Step 5 fold or either Step 7
+pass touched content covered by an existing `$zoom_dir/*.html`, add a reminder
+that those zooms need re-dispatch — re-zooming is `mentor:zoom`'s re-zoom rule
+(entered via `plan` Step 5's delegation), never done from inside this skill.
 
 Then return to the approval question when invoked from `plan` Step 6, or end
 with the report when invoked standalone.
@@ -393,10 +439,11 @@ previously read-only, so when this mode is entered by trigger phrase (not the
 Step 2 gate choice, whose description already announces the auto-fold), ask
 one single-select question before Step 7 writes anything — header
 "Auto-fold", options "Apply safe fixes (Recommended)" / "Surface only". On
-"Surface only", run Step 7's partition + report but skip the write.
+"Surface only", run Step 7's partition + report but skip both writes AND the
+per-finding verdict walk — the user asked to see, not to change.
 
 ### Do NOT
 
 - Do **not** run `approve-plan.sh` from inside this skill — review never releases the gate.
-- Plan-file writes from inside this skill are limited to exactly two moments — Step 5 (the user's fold-gate selections) and Step 7 (MECHANICAL-tagged Stage 2 findings). Never apply an unselected or DECISION-REQUIRED finding, never touch zoom artifacts or repo source files, and always follow `plan` Step 4's re-write-in-place rule.
+- Plan-file writes from inside this skill are limited to exactly two moments — Step 5 (the user's per-edit fold verdicts) and Step 7 (the MECHANICAL auto-fold pass plus the user's per-finding verdicts). Never apply an edit or resolution the user did not explicitly accept, never touch zoom artifacts or repo source files, and always follow `plan` Step 4's re-write-in-place rule.
 - Do **not** detect domains or ask the user to select topics — the review topics are fixed (see the dimension table above).

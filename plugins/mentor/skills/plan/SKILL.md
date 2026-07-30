@@ -387,7 +387,7 @@ yields instead.
 |---|---|
 | Proceed | Validate the plan, release the edit gate, and begin implementation. |
 | Deliver plan only | Validate the plan and release the gate; the plan file is the deliverable — no implementation, no dispatch. (/mentor:handoff can brief a fresh agent afterwards.) |
-| Review the plan (staged) | Run plan-review — a judgment pass (practicality, comprehensiveness) with a fold gate for the edits you pick, then a mechanical pass (cleanliness, consistency) whose safe fixes auto-fold. Stays in planning; ends back at this question. |
+| Review the plan (staged) | Run plan-review — a judgment pass (practicality, comprehensiveness) whose edits you verdict one question at a time, then a mechanical pass (cleanliness, consistency) whose safe fixes auto-fold and whose decision-level findings are asked one by one. Stays in planning; ends back at this question. |
 | Keep planning | Do not release — keep refining. Re-write the plan file and ask again when ready. |
 | Split into multiple plans | Slice this plan into independently buildable sibling plans, each with explicit scope isolation. Stays in planning; asks again afterwards. |
 | Hand off to next agent | Approve and release, then write a handoff doc so a fresh agent implements it — this session is getting large. |
@@ -456,10 +456,11 @@ do not dispatch in this session.
 On **Review the plan (staged)**, invoke `Skill(skill="mentor:plan-review")` and
 prepend: *"The user selected 'Review the plan (staged)' — skip the Step 2 gate
 and start Stage 1 directly."* Its reviewers are read-only and the gate stays
-closed; the skill itself folds the Stage 1 edits the user picks at its fold
-gate and auto-folds MECHANICAL Stage 2 findings into the plan file
-(gate-exempt `.mentor/` writes), surfaces DECISION-REQUIRED findings, then
-returns to this same question — this option never releases the gate by
+closed; the skill itself folds the Stage 1 edits the user accepts at its
+one-question-per-edit fold gate and auto-folds MECHANICAL Stage 2 findings
+into the plan file (gate-exempt `.mentor/` writes), walks DECISION-REQUIRED
+findings one verdict question at a time (applying only accepted resolutions),
+then returns to this same question — this option never releases the gate by
 itself.
 
 On **Split into multiple plans**, invoke `Skill(skill="mentor:plan-split")`. It writes
