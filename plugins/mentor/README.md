@@ -46,6 +46,7 @@ review and are the single source of truth for implementation, handoff, and revie
 | `/mentor:constitution [principles]` | Create/amend this repo's governing principles at `.mentor/constitution.md` — versioned, committed, and honored by every plan. |
 | `/mentor:mode [plan\|plan-only\|status]` | Get/set the persisted approval-gate default (which approval option is listed first). |
 | `/mentor:ship` | Finish the current branch: clean-check → `/simplify` → optional tests → push + auto-open PR/MR (or push to upstream). Never force-pushes. |
+| `/mentor:merge [PR#]` | The tail `/mentor:ship` leaves off: one bounded `gh pr checks --watch`, one flake-rerun max (same failure twice = regression → stop and report), then merge only on your explicit choice (now / auto-merge on green / leave open). GitHub-only. |
 | `/mentor:grill [topic]` | One-question-at-a-time interview that sharpens a design's open decisions before you build. Conversation only; no repo edits. |
 | `/mentor:handoff "<focus>"` | Compact the session into a handoff document (in its plan-topic folder, `.mentor/plans/<topic>/handoffs/`, gitignored) for a fresh agent; ends with copy-paste resume prompts (`/mentor:resume <slug>` + a plugin-free alternative). Also offered as **Hand off to next agent** at the approval gate — leading the options (marked **(Recommended)**) when the context gate warns or asks. |
 | `/mentor:resume [slug\|number]` | List this repo's live handoff notes (across all plan topics) and continue the chosen one. A note is stamped **resolved** (moved to a `resolved/` subdir, never re-listed) only when its work completes per the plan file (`/mentor:ship` stamps too) or a nested `/mentor:handoff` supersedes it — unfinished work stays resumable. |
@@ -251,6 +252,7 @@ Knobs — env vars under `env` in `~/.claude/settings.json` (or the project's
 | `MENTOR_CONTEXT_WARN_HIGH_TOKENS` | `"context_warn_high_tokens"` | 90% of ask | Warn-high threshold (tokens). |
 | `MENTOR_CONTEXT_BLOCK_TOKENS` | `"context_block_tokens"` | `350000` | Ask threshold (tokens; key name kept for compatibility). |
 | `MENTOR_CONTEXT_TAIL_LINES` | — | `400` | Transcript tail window scanned for the measurement. |
+| — | `"test_command"` | auto-detect | `/mentor:ship` Step 4's test command — set it where auto-detect guesses wrong (monorepos). No env-var twin. |
 
 ## How it works
 
@@ -264,7 +266,7 @@ Knobs — env vars under `env` in `~/.claude/settings.json` (or the project's
 | `hooks/set-mode.sh` | Get/set the approval-gate default. |
 | `hooks/context-gate.sh` | **Context gate.** `UserPromptSubmit` — measures live context from the transcript: warns once (~200k), re-warns near the limit (~315k), and above ~350k asks the user — hand off (recommended) or bypass for the session. Never blocks or erases prompts. Fail-soft; slash commands always pass. |
 | `hooks/bypass-context.sh` | Writes the session-scoped `.context-bypass-<session_id>` marker when the user answers "Proceed anyway" — degrades the ask tier to a one-line advisory for the rest of the session. |
-| `hooks/plan-state.sh` | **The one plan-state API** (not a hook — skills call it directly). `init` / `set` / `list` / `current` / `context`. Sole writer of `.state.json`; derives effective state from the plan's ✅ ticks; `current` is group-aware, so after a split it reports the whole group rather than whichever child agent finished last. |
+| `hooks/plan-state.sh` | **The one plan-state API** (not a hook — skills call it directly). `init` / `set` / `list` / `current` / `context` / `dir`. Sole writer of `.state.json`; derives effective state from the plan's ✅ ticks; `current` is group-aware, so after a split it reports the whole group rather than whichever child agent finished last. `dir` (v2.14.0) is the one repo-scoped `.mentor` path derivation — skills call it instead of hand-rolling `git-common-dir` snippets that drift. |
 
 ### Known limitations
 
@@ -324,6 +326,29 @@ extra deliverable. Instruction-only — no hooks.
 | `plan-domain-backend-api` | API/endpoint/route/handler/schema/DTO/contract | Before/after contract diff tables, schema diffs, Mermaid sequence flows. |
 | `plan-domain-architecture` | Structural change — services, containers, datastores, integrations | Diff-highlighted C4-style Mermaid flowcharts, only the levels that change. |
 | `plan-domain-dynamic` | No registered domain matched (fallback) | A dispatched domain-definer names the domain and returns a best-practices brief; the plan gains a practice→step mapping. |
+
+## Changes in v2.14.0
+
+**Approval now promotes plan state on every path.** `approve-plan.sh` previously
+left state at `draft` when the plan was approved via `--handoff` / `--deliver`,
+so the gate released while `/mentor:plan-track` still reported the plan as
+unapproved and refused to build it. All three approval paths now promote.
+
+**A new `/mentor:merge`** picks up where `/mentor:ship` deliberately stops: one
+bounded `gh pr checks --watch`, at most one rerun of a plausible flake, and a
+merge only on your explicit choice. The same job failing the same way twice is
+treated as a regression, reported, and left open — fixing it is a new session.
+
+**One repo-root derivation, not nine.** `plan-state.sh` gained a `dir [--plans]`
+subcommand and the skills that hand-rolled `git-common-dir` snippets now call it,
+which also fixes a worktree bug in plan's constitution lookup (it used
+`--show-toplevel` and missed linked worktrees).
+
+**Smaller things:** `/mentor:resume` surfaces the non-conforming-filename skips it
+used to swallow, and can rename one on request; `/mentor:ship` and `/mentor:resume`
+check branch ownership before you build on someone else's PR; `/mentor:ship` closes
+the plan's state on a successful ship and honors a `test_command` in
+`.mentor/config.json` for monorepos where test auto-detection misfires.
 
 ## Changes in v2.13.0
 
@@ -413,11 +438,13 @@ tell you which of the five are built.
   `ls -t plans/*/plan.md | head -1` snippets in `plan-review`, `grilling` and
   `lib/state.sh`, which after a split each resolved to whichever child agent finished
   writing last.
-- **`approve-plan.sh` promotes state on the no-arg Proceed path only.** The candidate
+- **`approve-plan.sh` promotes state on every approval path** (since v2.14.0 — it was
+  no-arg-only before, which left `--handoff`/`--deliver` plans at `draft` and made
+  `/mentor:track` falsely refuse them next session). The candidate
   set is snapshotted **before** the marker is deleted: `find -newer <marker>` is true
   for everything once the marker is gone, so promoting afterwards would have stamped
   every plan dir in the repo, including months-old ones, and flipped a just-superseded
-  parent back to `approved`. `--deliver` and `--handoff` mark nothing.
+  parent back to `approved`.
 - **The v2.8.0 ask-first context check is now one shared helper**
   (`mentor_context_verdict`, returning `OK`/`WARN`/`ASK`/`HANDOFF`). `begin-plan.sh`
   routes through it instead of measuring inline, and `/mentor:track` applies the same

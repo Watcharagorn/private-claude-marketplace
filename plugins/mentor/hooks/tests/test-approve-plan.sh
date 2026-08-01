@@ -148,7 +148,7 @@ NONGIT="$ROOT/plain"; mkdir -p "$NONGIT"
 rc=0; ( cd "$NONGIT" && HOME="$SANDBOX" bash "$APPROVE" >/dev/null 2>&1 ) || rc=$?
 chk "non-repo → exit 1"                test "$rc" = "1"
 
-echo "== J. Plan state: only a no-arg approve promotes, and only THIS session's plans =="
+echo "== J. Plan state: every approval path promotes, and only THIS session's plans =="
 # The bug this section guards: approve-plan.sh deletes the marker, and both
 # `[ a -nt b ]` and `find -newer b` are TRUE when b is gone. Asking "which plans are
 # newer than the marker" AFTER the release would stamp every plan dir in the repo.
@@ -175,13 +175,14 @@ ap >/dev/null
 chk "superseded parent not flipped back"          test "$(st split-parent)" = "superseded"
 chk "split child promoted"                        test "$(st split-kid)" = "approved"
 
-# --deliver / --handoff mean "no implementation in this session" → mark nothing.
+# --deliver / --handoff approve too — the flags defer implementation, not approval.
+# (Leaving these at `draft` made plan-track refuse handoff-approved plans next session.)
 arm; newplan delivered
 ap --deliver >/dev/null
-chk "--deliver marks nothing"                     test "$(st delivered)" = "draft"
+chk "--deliver promotes to approved"              test "$(st delivered)" = "approved"
 arm; newplan handed-off
 ap --handoff >/dev/null
-chk "--handoff marks nothing"                     test "$(st handed-off)" = "draft"
+chk "--handoff promotes to approved"              test "$(st handed-off)" = "approved"
 
 # No marker → no snapshot → nothing to promote. This is what stops a re-run from
 # stamping the whole repo.

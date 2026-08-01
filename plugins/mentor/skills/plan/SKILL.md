@@ -83,8 +83,11 @@ governing doc outside `.mentor/` — `constitution_path` in `.mentor/config.json
 points at it; see `/mentor:constitution`'s adopt-by-reference branch):
 
 ```bash
-repo_root="$(git rev-parse --show-toplevel 2>/dev/null)"
-const_rel="$(jq -r '.constitution_path // empty' "$repo_root/.mentor/config.json" 2>/dev/null)"
+# via the shared subcommand, not --show-toplevel: a linked worktree must resolve to
+# the MAIN repo's .mentor, where the constitution actually lives
+mentor_dir="$(bash "${CLAUDE_PLUGIN_ROOT}/hooks/plan-state.sh" dir)"
+repo_root="${mentor_dir%/.mentor}"
+const_rel="$(jq -r '.constitution_path // empty' "$mentor_dir/config.json" 2>/dev/null)"
 const_path="${repo_root}/${const_rel:-.mentor/constitution.md}"
 ```
 
@@ -211,9 +214,9 @@ Compute the path (substituting a kebab-case `<slug>` derived from the request �
 
 ```bash
 slug="<slug>"
-git_common="$(git rev-parse --git-common-dir 2>/dev/null)"
-repo_root="$(cd "$(dirname "$git_common")" && pwd)"
-plan_dir="$repo_root/.mentor/plans/$slug"
+plans_dir="$(bash "${CLAUDE_PLUGIN_ROOT}/hooks/plan-state.sh" dir --plans)"   # worktree-safe
+[ -n "$plans_dir" ] || { echo "ERROR: mentor plans dir unresolved — is CLAUDE_PLUGIN_ROOT set?" >&2; exit 1; }
+plan_dir="$plans_dir/$slug"
 mkdir -p -m 700 "$plan_dir"   # 700: plans may contain sensitive paths/snippets
 echo "${plan_dir}/plan.md"   # fixed name inside the slug dir, NO timestamp — stable across revisions
 ```

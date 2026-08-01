@@ -22,9 +22,13 @@
 # release are skipped, but --deliver/--handoff STILL print their directive —
 # a re-run must never silently downgrade a no-implementation instruction.
 #
-# Plan state (v2.4.0): the no-arg approve — and ONLY it — promotes this session's
-# plans to `approved` in their .state.json sidecars. See the promotion block at the
-# bottom for why the candidate set is snapshotted before the marker is deleted.
+# Plan state (v2.4.0, widened v2.14.0): EVERY approval path — no-arg, --handoff,
+# --deliver — promotes this session's plans to `approved` in their .state.json
+# sidecars. Approval is approval: the flags only change what happens NEXT
+# (implement now / hand off / deliver), not whether the plan was approved. Leaving
+# --handoff plans at `draft` made plan-track refuse them in the next session
+# ("the gate never released" — but it did). See the promotion block for why the
+# candidate set is snapshotted before the marker is deleted.
 
 set -euo pipefail
 
@@ -90,33 +94,12 @@ else
   [ -n "$newest_plan" ] && echo "  plan: ${newest_plan}"
 fi
 
-if [ "$flag" = "--handoff" ]; then
-  cat <<EOF
-
-HAND-OFF REQUESTED — plan APPROVED and gate released. Do NOT implement and do NOT
-dispatch implementation agents in this session. The approved plan file is:
-  ${newest_plan:-(no plan file on record)}
-Invoke Skill(skill="mentor:handoff") now to write the handoff document so the next
-agent can pick up implementation from this plan, then STOP.
-EOF
-  exit 0
-fi
-
-if [ "$flag" = "--deliver" ]; then
-  cat <<EOF
-
-DELIVER-ONLY — plan APPROVED and gate released. The plan file is the deliverable:
-  ${newest_plan:-(no plan file on record)}
-Do NOT implement and do NOT dispatch implementation agents in this session.
-Report where the plan lives and STOP. (The user can run /mentor:handoff to brief
-a fresh agent, or ask to proceed later — the gate is already open.)
-EOF
-  exit 0
-fi
-
-# No-arg approve: implementation follows, so this is the ONE path that promotes plan
-# state to `approved`. --deliver and --handoff explicitly mean "no implementation in
-# this session" and must leave state alone.
+# Promote plan state on EVERY approval path — this must run before the --handoff/
+# --deliver early exits. `approved` records the user's decision; whether
+# implementation happens now, next session (handoff), or never (deliver) is the
+# directives' business. plan-track trusts this state: a stored `draft` reads as
+# "the gate never released", so skipping promotion here falsely blocks the plan
+# in the very next session.
 #
 # Only plans from $newly_planned are candidates (see the snapshot above), and only
 # those whose effective state is `draft` or `unknown` — never `superseded` (a split
@@ -140,6 +123,30 @@ if [ -n "$newly_planned" ]; then
     promoted="${promoted}$(basename "$plan_dir") "
   done <<<"$newly_planned"
   if [ -n "$promoted" ]; then echo "  state: approved — ${promoted% }"; fi
+fi
+
+if [ "$flag" = "--handoff" ]; then
+  cat <<EOF
+
+HAND-OFF REQUESTED — plan APPROVED and gate released. Do NOT implement and do NOT
+dispatch implementation agents in this session. The approved plan file is:
+  ${newest_plan:-(no plan file on record)}
+Invoke Skill(skill="mentor:handoff") now to write the handoff document so the next
+agent can pick up implementation from this plan, then STOP.
+EOF
+  exit 0
+fi
+
+if [ "$flag" = "--deliver" ]; then
+  cat <<EOF
+
+DELIVER-ONLY — plan APPROVED and gate released. The plan file is the deliverable:
+  ${newest_plan:-(no plan file on record)}
+Do NOT implement and do NOT dispatch implementation agents in this session.
+Report where the plan lives and STOP. (The user can run /mentor:handoff to brief
+a fresh agent, or ask to proceed later — the gate is already open.)
+EOF
+  exit 0
 fi
 
 # Restate the SDD directive here — informational only, no enforcement — because this

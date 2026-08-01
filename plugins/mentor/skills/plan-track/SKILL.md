@@ -104,7 +104,7 @@ were replaced by their children.
 | `failed` | Show the sidecar's note — it says what broke last time — then set `in_progress` and retry, feeding that note to the first agent. |
 | `in_progress` | An interrupted run. Re-enter execution **from the first unticked step**; never restart from step 1. |
 | `implemented` | Say so and offer another. Do not rebuild it. |
-| `draft` | **Refuse to execute.** The approval gate never released this plan. Point the user at `/mentor:plan`'s approval step. In a fresh session there is no `.planning` marker, so `plan-gate.sh` would happily allow the edits — this refusal is what keeps that from becoming a hole in the gate. |
+| `draft` | **Refuse to execute.** The approval gate never released this plan. Point the user at `/mentor:plan`'s approval step. In a fresh session there is no `.planning` marker, so `plan-gate.sh` would happily allow the edits — this refusal is what keeps that from becoming a hole in the gate. **Escape hatch:** if the user says the plan WAS approved (pre-v2.14 `--handoff`/`--deliver` approvals didn't record it), confirm with them, then `set <slug> approved --note "user-confirmed prior approval"` and proceed — never silently, always on their explicit say-so. |
 | `unknown` | A pre-2.4.0 plan with nothing on record. Never show the approval pointer — it would be false for a plan that shipped months ago. Offer: mark it implemented, or leave it alone. |
 
 To move state:

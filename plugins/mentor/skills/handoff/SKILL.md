@@ -60,19 +60,15 @@ the plan gate, so the write is always allowed.) Resolve `topic` first:
 ```bash
 topic="<topic>"  # ← REPLACE per the rule above (kebab-case; the plan's slug, or the focus slug)
 slug="session"   # ← REPLACE with a short kebab-case of the next-session focus, e.g. "auth-retry-fix"
-git_common="$(git rev-parse --git-common-dir 2>/dev/null || true)"
-if [ -n "$git_common" ]; then
-  repo_root="$(cd "$(dirname "$git_common")" && pwd)"
-  mentor_dir="$repo_root/.mentor"
-else
-  mentor_dir="$HOME/.claude/mentor/_no-repo"   # not in a git repo
-fi
+mentor_dir="$(bash "${CLAUDE_PLUGIN_ROOT}/hooks/plan-state.sh" dir)"   # worktree-safe; _no-repo fallback
+[ -n "$mentor_dir" ] || { echo "ERROR: mentor dir unresolved — is CLAUDE_PLUGIN_ROOT set?" >&2; exit 1; }
 hand_dir="$mentor_dir/plans/$topic/handoffs"
 mkdir -p -m 700 "$hand_dir"
 # keep transient handoffs out of git (in-repo only); never clobber a user-tweaked file
-if [ -n "$git_common" ] && [ ! -e "$mentor_dir/.gitignore" ]; then
-  printf '%s\n' '*' '!.gitignore' '!config.json' '!constitution.md' > "$mentor_dir/.gitignore"
-fi
+case "$mentor_dir" in
+  */_no-repo) ;;   # outside a repo — nothing to gitignore
+  *) [ -e "$mentor_dir/.gitignore" ] || printf '%s\n' '*' '!.gitignore' '!config.json' '!constitution.md' > "$mentor_dir/.gitignore" ;;
+esac
 out="${hand_dir}/$(date +%Y%m%d-%H%M%S)-${slug}.md"
 echo "$out"
 ```
@@ -139,7 +135,9 @@ prose that merely mentions words like "token" or "password" (e.g. "fixing auth t
 
 Before reporting, **verify the written path is under a `plans/<topic>/handoffs/` dir and its
 filename matches `<YYYYMMDD-HHMMSS>-<slug>.md`** (the exact location and pattern `/mentor:resume`
-lists). If it is not, you used the wrong path — recompute via the Step 2 snippet and re-write there.
+lists). If it is not, you used the wrong path — recompute via the Step 2 snippet and **`mv` the
+file there** (never re-write and leave the original: a stranded misnamed copy is invisible to
+`/mentor:resume` yet looks like a live note to anyone browsing the dir).
 
 Write the file, then **supersede the topic's older notes — programmatic, not a judgment call**. The
 note just written is now this topic's single resume point: the plan file carries the durable state,

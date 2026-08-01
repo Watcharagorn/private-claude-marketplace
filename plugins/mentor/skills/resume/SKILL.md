@@ -11,7 +11,7 @@ description: >
   side of /mentor:handoff (which writes the notes). Strictly repo-scoped: the notes live
   under this repo's .mentor/ tree, so notes from other repos never appear. Scans the note
   for secrets before surfacing it.
-version: 0.3.0
+version: 0.4.0
 ---
 
 # Resume — Browse & Continue a Handoff Note
@@ -48,18 +48,11 @@ writes), so notes saved for other repositories cannot appear here.
 
 ## Step 1 — Resolve the repo-scoped mentor dir
 
-Derive the per-repo mentor dir. **This derivation must stay byte-for-byte identical to where
-`/mentor:handoff` writes** — copy the block verbatim:
+Derive the per-repo mentor dir via the shared subcommand — the same call `/mentor:handoff`
+uses, so reading and writing agree by construction:
 
 ```bash
-# keep in sync with handoff SKILL Step 2
-git_common="$(git rev-parse --git-common-dir 2>/dev/null || true)"
-if [ -n "$git_common" ]; then
-  repo_root="$(cd "$(dirname "$git_common")" && pwd)"
-  mentor_dir="$repo_root/.mentor"
-else
-  mentor_dir="$HOME/.claude/mentor/_no-repo"   # not in a git repo
-fi
+mentor_dir="$(bash "${CLAUDE_PLUGIN_ROOT}/hooks/plan-state.sh" dir)"
 echo "$mentor_dir"
 ```
 
@@ -70,9 +63,9 @@ Notes live in **two locations** under `$mentor_dir`, both covered by Step 2's `f
   resumable, but nothing new is written there.
 
 Read **only** from under `$mentor_dir` — never scan other repos' dirs (repo-scoped is a locked
-requirement). Using `--git-common-dir` means a git **worktree** resolves to the same key the note was
-written under. If you are **not** inside a git repo, fall back to `$HOME/.claude/mentor/_no-repo` —
-the same fallback `/mentor:handoff` uses.
+requirement). The subcommand resolves via `--git-common-dir`, so a git **worktree** lands on the
+same key the note was written under, and outside a git repo it echoes
+`$HOME/.claude/mentor/_no-repo` — the same fallback `/mentor:handoff` gets.
 
 ## Step 2 — List the notes, newest first
 
@@ -102,11 +95,11 @@ deliberately `find`-based, not glob-based — an unmatched glob aborts the whole
 (and either location may legitimately be empty), while `find` just yields nothing for a missing dir:
 
 ```bash
-i=0
+i=0; skipped=""
 while IFS= read -r f; do
   base="$(basename "$f")"
   if ! printf '%s' "$base" | grep -Eq '^[0-9]{8}-[0-9]{6}-.+\.md$'; then
-    echo "  (skipping non-conforming file: $base)"; continue
+    echo "  (skipping non-conforming file: $base)"; skipped="$skipped$base "; continue
   fi
   case "$f" in
     */plans/*/handoffs/*) topic="$(basename "$(dirname "$(dirname "$f")")")" ;;
@@ -119,6 +112,7 @@ while IFS= read -r f; do
 done < <(find "$mentor_dir/plans" "$mentor_dir/handoffs" \
               -type f -name '*.md' -path '*/handoffs/*' -not -path '*/handoffs/resolved/*' 2>/dev/null \
          | awk -F/ '{print $NF "\t" $0}' | sort -r | cut -f2-)   # newest first by basename timestamp
+if [ -n "$skipped" ]; then echo "skipped non-conforming: $skipped"; fi   # `if`, not `&&`: as the block's last command a false `&&` exits 1 and the whole listing renders as an error
 ```
 
 The exclusion is anchored to `*/handoffs/resolved/*` on purpose — a bare `*/resolved/*` would also
@@ -133,7 +127,15 @@ nothing to resume.
 
 ## Step 4 — Select a note
 
-Print the full numbered list (newest first) so the user can see every note, then resolve a selection:
+Print the full numbered list (newest first) so the user can see every note — **including the
+"skipped non-conforming" line when Step 2 skipped anything**. A warning that only lands in
+bash output is invisible to the user, and a misnamed-but-real handoff note silently vanishing
+is exactly how unfinished work gets lost. If the user then asks to recover a skipped file,
+rename it into the canonical pattern using the file's **mtime** for the timestamp
+(`mv "$f" "$(dirname "$f")/$(date -r "$f" +%Y%m%d-%H%M%S)-<slug>.md"` — an invented "now"
+timestamp would mis-sort the note permanently) and re-list. Only on their explicit request.
+
+Then resolve a selection:
 
 - **From the argument** (`$ARGUMENTS`) or from an `AskUserQuestion` "Other" free-text answer:
   - A **bare integer** → a **1-based ordinal** into the printed list (1 = newest).
@@ -168,9 +170,26 @@ Print the full numbered list (newest first) so the user can see every note, then
 4. **Reference artifacts by their paths** — the plan file, PRDs/ADRs, issue/PR URLs, commit SHAs as
    the note lists them. Do **not** paste their contents; open/read them only as needed to act.
 5. **Verify the gate state on disk — never trust the note's claim.** A note may say the plan gate is
-   released (or armed); check the actual marker before acting:
-   `test -f "$repo_root/.mentor/plans/.planning" && echo ARMED || echo RELEASED`. If the marker state
-   contradicts the note, say so and follow the marker, not the note.
+   released (or armed); check the actual marker before acting. Derive the path *in the same command*
+   — shell variables don't survive between Bash calls, and a half-derived path makes this check
+   answer RELEASED every time, which is the one wrong answer it must never give:
+
+   ```bash
+   mentor_dir="$(bash "${CLAUDE_PLUGIN_ROOT}/hooks/plan-state.sh" dir)"
+   test -f "$mentor_dir/plans/.planning" && echo ARMED || echo RELEASED
+   ```
+
+   If the marker state contradicts the note, say so and follow the marker, not the note. When the
+   note resumes **implementation**, also glance at branch ownership before the first edit — GitHub +
+   `gh` only, fail-soft:
+
+   ```bash
+   command -v gh >/dev/null && git remote get-url origin 2>/dev/null | grep -qi github && \
+     gh pr list --head "$(git branch --show-current)" --state open --json number,title,url 2>/dev/null || true
+   ```
+
+   An open PR that isn't this work means new commits would land in someone else's PR; surface it
+   now — discovering it at `/mentor:ship` costs a cherry-pick recovery.
 6. **Act on the note's "Recommended mentor commands for the next agent."** **Bound "act":** invoke the
    listed mentor command(s) **exactly as the note states** — do not infer extra steps or expand beyond
    what the note recommends. If the note recommends `/mentor:plan <focus>`, run that. If it recommends
@@ -206,7 +225,8 @@ Do **not** copy or duplicate the note into the repo source tree — it lives in 
 ## Done when
 
 - Only **this repo's** conforming, live handoff notes were listed (newest first, with their
-  topic), or the empty case was reported with the `/mentor:handoff` hint.
+  topic), or the empty case was reported with the `/mentor:handoff` hint. Any skipped
+  non-conforming files were named in the user-facing list, not just in bash output.
 - The user's selection was resolved unambiguously (argument or interactive), never auto-picked on an
   ambiguous/no match.
 - The chosen note was loaded, scanned for secrets, its focus + current state surfaced, and the work
@@ -225,5 +245,6 @@ Do **not** copy or duplicate the note into the repo source tree — it lives in 
 - Do **not** skip the stamp when the work DID finish — an unstamped solved note WILL be re-listed
   and re-worked by a later session.
 - Do **not** create handoff notes here — that is `/mentor:handoff`.
+- Do **not** rename a skipped non-conforming file unasked — surface it and wait for the user.
 - Do **not** echo a live secret found in a note — warn and redact.
 - Do **not** copy the note into the repo working tree.

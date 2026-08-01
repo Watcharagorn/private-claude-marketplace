@@ -27,6 +27,27 @@ Render to the user: the branch, the base, and
 `git -C "$repo_root" diff "origin/${base}"...HEAD --stat` (fall back to the
 local `$base` if the remote ref is absent).
 
+**Branch-ownership check** (GitHub + `gh` only — skip silently when `gh` is
+absent, the remote isn't GitHub, or the call fails; never block on it):
+
+```bash
+# Re-derive: Step 1's block was a separate Bash call and its variables are gone. An empty
+# $branch would make `gh pr list --head ""` match EVERY open PR in the repo — a false alarm
+# that stops a legitimate ship while never checking this branch at all.
+repo_root="$(git rev-parse --show-toplevel)"
+branch="$(git -C "$repo_root" rev-parse --abbrev-ref HEAD)"
+command -v gh >/dev/null && git remote get-url origin 2>/dev/null | grep -qi github && \
+  (cd "$repo_root" && gh pr list --head "$branch" --state open \
+     --json number,title,url 2>/dev/null) || true
+```
+
+If an open PR already exists for this branch, show it and ask via
+`AskUserQuestion` whether that PR is **this session's work** (pushing more
+commits onto your own PR is normal — continue) or **unrelated** (stop: shipping
+would inject these commits into someone else's PR; recommend cutting a fresh
+branch from `$base` and cherry-picking). Catching this here is cheap; catching
+it after the push means a cherry-pick/branch-reset recovery.
+
 ## Step 2 — Pre-flight clean check
 
 ```bash
@@ -56,7 +77,16 @@ quick review of the branch diff yourself instead). After it returns:
 Ask via `AskUserQuestion`: "Run the test suite before shipping?" —
 Yes (Recommended) / No.
 
-**Auto-detect the command from the repo root:**
+**Per-repo override first** — auto-detect guesses wrong in monorepos (a root
+`npm test` can proxy to an unrelated workspace), so an explicit setting always
+wins:
+
+```bash
+jq -r '.test_command // empty' "$repo_root/.mentor/config.json" 2>/dev/null
+```
+
+Non-empty → use it verbatim and say so. Otherwise **auto-detect from the repo
+root:**
 
 | Match | Command |
 |---|---|
@@ -65,8 +95,10 @@ Yes (Recommended) / No.
 | `go.mod` | `go test ./...` |
 | `Makefile` with a `test:` target | `make test` |
 
-Pick the first match and tell the user which command will run. If none match,
-ask the user for a command (explicit empty input = skip).
+Pick the first match and tell the user which command will run, adding the hint
+`(override with "test_command" in .mentor/config.json)` so the key is
+discoverable where the misfire happens. If none match, ask the user for a
+command (explicit empty input = skip).
 
 On failure, ask: "Tests failed. What now?" — Stop and fix (default, exit 1) /
 Ship anyway.
@@ -107,7 +139,9 @@ Detect the host from `git remote get-url origin`:
   Surface the MR URL (grep for `/-/merge_requests/`). If a `WARNINGS:` block
   names `merge_request.target`, the target is invalid — the MR did NOT open;
   re-resolve the base (ask the user) and retry. An already-open-MR warning is
-  fine — print its URL.
+  fine **when the MR is this branch's own work** — print its URL. (An MR opened
+  by someone else is the Step 1 ownership case; if Step 1 was skipped — no `gh`
+  on a GitLab remote — check the MR author/title before shrugging it off.)
 
 - **GitHub** — push, then open the PR with `gh` (run inside the repo):
   ```bash
@@ -144,12 +178,10 @@ notes would bury live work). Resume Step 7 and the next `/mentor:handoff` still
 stamp on their own triggers.
 
 ```bash
-# Re-derive here (shell vars don't survive between Bash calls) via git-common-dir —
-# the same derivation handoff/resume use: from a linked worktree it resolves to the
-# MAIN repo's .mentor, where the notes actually live (show-toplevel would miss them).
-git_common="$(git rev-parse --git-common-dir)"
-mentor_root="$(cd "$(dirname "$git_common")" && pwd)"
-hand_dir="$mentor_root/.mentor/plans/<topic>/handoffs"   # ← REPLACE <topic> per the rule above
+# Re-derive here (shell vars don't survive between Bash calls) via the shared
+# subcommand handoff/resume use: from a linked worktree it resolves to the MAIN
+# repo's .mentor, where the notes actually live (show-toplevel would miss them).
+hand_dir="$(bash "${CLAUDE_PLUGIN_ROOT}/hooks/plan-state.sh" dir --plans)/<topic>/handoffs"   # ← REPLACE <topic> per the rule above
 find "$hand_dir" -maxdepth 1 -type f -name '*.md' 2>/dev/null | while IFS= read -r n; do
   case "$(basename "$n")" in
     [0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9]-[0-9][0-9][0-9][0-9][0-9][0-9]-*.md)  # conforming notes only
@@ -164,6 +196,30 @@ Run this only after the push actually succeeded. Skip silently when there are no
 live notes (`find` yields nothing) — this step never blocks the ship report. A
 stamp is reversible by moving the file back up one directory.
 
+**Also close the plan's state** — same trigger, same `<topic>` resolution, same
+never-guess rule: a shipped plan left `in_progress` is re-offered for building by
+the next session's `/mentor:track`:
+
+```bash
+plans_dir="$(bash "${CLAUDE_PLUGIN_ROOT}/hooks/plan-state.sh" dir --plans)"
+[ -d "$plans_dir/<topic>" ] && \
+  bash "${CLAUDE_PLUGIN_ROOT}/hooks/plan-state.sh" set <topic> implemented
+```
+
+Guard on the directory rather than letting it fail: `set` exits 1 with "No such
+plan" when the plans dir exists but the slug doesn't — exactly the focus-slug
+handoff case that never got a `plan.md`. Don't invent a slug to satisfy it.
+Two edges worth knowing: `set` with no `--note` replaces any existing note with
+an empty one (so a prior `failed` reason is lost), and it has no downgrade guard —
+if `<topic>` resolves to a split parent, `implemented` overwrites `superseded`.
+
+## Step 7 — Point at the merge tail
+
+One line in the ship report: `Watch CI and merge with /mentor:merge` (GitHub +
+`gh` only — omit the line otherwise). Ship's job ends at the open PR; watching
+checks and merging is `/mentor:merge`'s, so it stays re-enterable after a
+stalled CI run without re-running ship.
+
 ## Failure modes
 
 | Situation | What to do |
@@ -173,4 +229,5 @@ stamp is reversible by moving the file back up one directory.
 | Simplify edited out-of-scope files | Ask before committing. |
 | Tests fail | Default: stop; branch intact for iteration. |
 | Push rejected | Offer `pull --rebase` + retry, or stop. Never force-push. |
-| MR/PR creation fails | The branch is already pushed and safe — print the compare URL. |
+| `gh pr create` fails: PR already exists for this branch | Do NOT open a duplicate — print the existing PR's URL (`gh pr list --head "$branch"`) and confirm with the user it now contains what they meant to ship (Step 1's ownership answer applies). |
+| MR/PR creation fails (other) | The branch is already pushed and safe — print the compare URL. |

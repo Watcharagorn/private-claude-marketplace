@@ -1,7 +1,19 @@
 {
-  "eval_name": "mentor-v2.12.0-multi-skill-triggering",
+  "eval_name": "mentor-v2.14.0-multi-skill-triggering",
   "note": "Multi-class: every query is scored on WHICH mentor skill fires, not whether one does. 'none' means no mentor skill should be consulted.",
-  "skills_in_play": ["plan", "plan-split", "plan-track", "plan-review", "grilling", "dispatch-agents", "resume", "handoff", "tour", "zoom"],
+  "skills_in_play": [
+    "plan",
+    "plan-split",
+    "plan-track",
+    "plan-review",
+    "grilling",
+    "dispatch-agents",
+    "resume",
+    "handoff",
+    "tour",
+    "zoom",
+    "merge"
+  ],
   "evals": [
     {
       "id": 1,
@@ -170,6 +182,24 @@
       "expected": "none",
       "tests": "NEAR-MISS keyword bait: 'zoom' the video product, nothing to do with mentor",
       "query": "can you set up a zoom with the vendor for thursday afternoon and send round the invite?"
+    },
+    {
+      "id": 29,
+      "expected": "merge",
+      "tests": "core trigger",
+      "query": "pr 412 is open and ci has been running for a while. can you keep an eye on the checks and if they go green just squash it in? if something fails dont fix it, just tell me what broke"
+    },
+    {
+      "id": 30,
+      "expected": "ship",
+      "tests": "near-miss vs merge — user wants the PR CREATED, not merged",
+      "query": "im done with the retry backoff work on this branch, tests pass locally. clean it up and get it up as a PR"
+    },
+    {
+      "id": 31,
+      "expected": "none",
+      "tests": "near-miss — git merge of a branch, no PR/CI involved",
+      "query": "can you merge develop into my feature branch and sort out the conflicts in state.sh"
     }
   ]
 }

@@ -111,9 +111,8 @@ Each subagent starts with **zero memory of this conversation and no
 
 ```bash
 echo "${CLAUDE_PLUGIN_ROOT}/skills/plan/SKILL.md"
-git_common="$(git rev-parse --git-common-dir 2>/dev/null)"
-repo_root="$(cd "$(dirname "$git_common")" && pwd)"
-ls "$repo_root/.mentor/constitution.md" 2>/dev/null   # include only if it exists
+mentor_dir="$(bash "${CLAUDE_PLUGIN_ROOT}/hooks/plan-state.sh" dir)"   # worktree-safe
+ls "$mentor_dir/constitution.md" 2>/dev/null   # include only if it exists
 ```
 
 Prompt template — every child gets all of it:

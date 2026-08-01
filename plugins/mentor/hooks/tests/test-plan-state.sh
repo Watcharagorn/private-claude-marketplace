@@ -259,6 +259,18 @@ out="$( cd "$REPO" && env HOME="$SANDBOX" CLAUDE_CONFIG_DIR="$SANDBOX/.claude" \
 chk "kill switch honored → UNKNOWN"     has "CONTEXT: UNKNOWN" "$out"
 rm -f "$TXDIR/sess.jsonl"
 
+echo "== I2. dir: pure path derivation, before every guard =="
+CWD="$REPO"
+out="$(psout dir)"; rc=$?
+chk "dir in a repo → exit 0"            test "$rc" = "0"
+chk "dir in a repo → <root>/.mentor"    test "$out" = "$REPO/.mentor"
+chk "dir --plans → plans dir"           test "$(psout dir --plans)" = "$REPO/.mentor/plans"
+CWD="$BARE"
+chk "dir in a never-planned repo works" test "$(psout dir)" = "$BARE/.mentor"   # no plans-dir guard
+CWD="$NONGIT"
+chk "dir outside a repo → _no-repo"     test "$(psout dir)" = "$SANDBOX/.claude/mentor/_no-repo"
+CWD="$REPO"
+
 echo "== I. Environmental problems are fail-soft: exit 0 with ONE reason on stderr =="
 CWD="$NONGIT"
 out="$(ps list)"; rc=$?

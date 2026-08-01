@@ -7,7 +7,7 @@
 # lifecycle-state sidecar live inside it):
 #   <repo_root>/.mentor/
 #   ├── .gitignore        # commit config.json + constitution.md; ignore transient state
-#   ├── config.json       # {"mode": "plan|plan-only", "context_gate", "context_*_tokens" ...}
+#   ├── config.json       # {"mode": "plan|plan-only", "context_gate", "context_*_tokens", "test_command" ...}
 #   ├── constitution.md   # governing principles (committed; managed by /mentor:constitution)
 #   ├── plans/            # the .planning marker + one <slug>/ dir per plan topic:
 #   │   └── <slug>/       #   plan.md (+ hidden .plan.md.opened sidecar)

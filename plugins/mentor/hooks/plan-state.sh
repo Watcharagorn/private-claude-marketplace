@@ -29,6 +29,12 @@
 #       every slash-prefixed prompt, so a slash command that starts an implementation
 #       has no other backstop.
 #
+#   dir [--plans]
+#       The repo-scoped mentor dir (<repo_root>/.mentor via git-common-dir, so linked
+#       worktrees share one; ~/.claude/mentor/_no-repo outside a repo) — one path on
+#       stdout. Skills call this instead of hand-rolling the derivation: the inlined
+#       copies drifted, and most dropped the no-repo fallback.
+#
 # EFFECTIVE state (see lib/state.sh): the more advanced of the stored state and the
 # state derived from plan.md's ✅ step ticks. A forgotten `set` therefore costs
 # nothing, and a pre-2.4.0 plan dir with no sidecar reads `unknown` — never `draft`.
@@ -52,6 +58,7 @@ Usage: plan-state.sh <subcommand>
   list [--group G]                      every plan with its effective state
   current                               the current plan (group-aware)
   context                               CONTEXT: OK|WARN|BLOCKED (~N tokens)
+  dir [--plans]                         the repo-scoped mentor dir (or its plans dir)
 EOF
 }
 
@@ -98,6 +105,22 @@ EOF
       echo "CONTEXT: OK (~${tokens} tokens)"
       ;;
   esac
+  exit 0
+fi
+
+# --- dir: pure path derivation — needs neither a repo (fallback) nor a plans dir ---
+if [ "$sub" = "dir" ]; then
+  dir_repo="$(mentor_repo_root "$(pwd)")"
+  if [ -n "$dir_repo" ]; then
+    mdir="$(mentor_state_dir "$dir_repo")"
+  else
+    mdir="$HOME/.claude/mentor/_no-repo"
+  fi
+  if [ "${1:-}" = "--plans" ]; then
+    echo "${mdir}/plans"
+  else
+    echo "$mdir"
+  fi
   exit 0
 fi
 

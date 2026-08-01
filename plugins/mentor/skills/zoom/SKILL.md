@@ -61,13 +61,13 @@ Derive the project-scoped mentor state dir (same derivation as `hooks/lib/state.
 — never hardcode paths; not in a git repo → fall back to `~/.claude/mentor/_no-repo`):
 
 ```bash
-git_common=$(git rev-parse --git-common-dir 2>/dev/null) && \
-  repo_root=$(cd "$(dirname "$git_common")" && pwd)
-state_dir="${repo_root:+$repo_root/.mentor}"; state_dir="${state_dir:-$HOME/.claude/mentor/_no-repo}"
+state_dir="$(bash "${CLAUDE_PLUGIN_ROOT}/hooks/plan-state.sh" dir)"   # worktree-safe; _no-repo fallback
 ls -t "$state_dir"/plans/*/plan.md 2>/dev/null | head -3   # candidate plan subjects (newest first)
 const_rel="$(jq -r '.constitution_path // empty' "$state_dir/config.json" 2>/dev/null)"
-[ -n "${repo_root:-}" ] && const_path="$repo_root/${const_rel:-.mentor/constitution.md}"
-[ -f "${const_path:-}" ] && echo "constitution: $const_path"
+case "$state_dir" in */.mentor)   # in a repo — resolve the constitution against its root
+  const_path="${state_dir%/.mentor}/${const_rel:-.mentor/constitution.md}"
+  [ -f "$const_path" ] && echo "constitution: $const_path" ;;
+esac
 ```
 
 **Resolve the subject**, in priority order:
