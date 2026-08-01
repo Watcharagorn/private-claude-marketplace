@@ -1,7 +1,7 @@
 ---
 name: audit-plugin
 description: Audit an EXISTING plugin from ONE session — a named session id/path, or the active session — to find how it misbehaved (gate false-positives, wrong-skill calls, retries, redundant questions, post-run surprises) and ship the fixes. Selects the target plugin once (auto by purpose-match, or the named one), dispatches one proposal-only audit agent, expert-reviews, confirms via one multi-select, implements per artifact-catalog safety, and publishes one version bump. Invoke for "audit <plugin> against session <id>", "fix <plugin> based on session <id>", "what went wrong with <plugin> in this session", or "/audit-plugin <session-id> [plugin]". For enhancement/redundancy work or analysis across every session, use learn; for loose user/project artifacts from a session, use harvest-automations.
-version: 1.0.0
+version: 1.0.1
 ---
 
 # Audit Plugin — find & fix how an existing plugin misbehaved (from a session)
@@ -21,7 +21,7 @@ echo "${common:-NO_COMMON}"
 ```
 
 > **Jargon, defined once.** *Transcript* = the JSONL log of a past session under
-> `~/.claude/projects/`. *Audit fix* = a correctness change for observed misbehavior. *Artifact* = a
+> the active config dir's `projects/` (`${CLAUDE_CONFIG_DIR:-$HOME/.claude}/projects/`). *Audit fix* = a correctness change for observed misbehavior. *Artifact* = a
 > Claude Code customization (skill, command, subagent, hook, permission, rule); the **artifact catalog**
 > (§D) is the authority on which type fits. *Plugin surface* = everything a plugin declares — its
 > commands, skills, agents, hooks.
@@ -37,7 +37,7 @@ echo "${common:-NO_COMMON}"
 - **No session to learn from.** The audit is evidence-driven — it reads a *real* transcript, not a
   hypothetical. For a feature with no session, use `/mentor:plan`.
 - **You want to remove redundant/manual work or add an optimal workflow** (the ENHANCE lens), or to
-  analyze **every** session machine-wide, not one → use `learn` (`/loom:learn <plugin> [session-id]`).
+  analyze **every** session across the config dir, not one → use `learn` (`/loom:learn <plugin> [session-id]`).
   `learn` runs both audit + enhance lenses; a bare `learn <plugin>` sweeps all unanalyzed sessions, and
   `learn <plugin> <session-id>` does one session with both lenses.
 - **The redundancy isn't plugin-shaped** (belongs in a user/project artifact, not inside any one

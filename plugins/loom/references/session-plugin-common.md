@@ -207,7 +207,8 @@ The steps `learn` (analyze **every** session that used plugin X) and `track` (op
 share below. `audit-plugin` and single-session `learn` work on **one** session (§A);
 `harvest-automations` adds a **project-scoped sweep** (its harvest-ledger spec + persistence recipe live
 at §K.6/§K.7); batch `learn` works on **the whole history** for one plugin, so it needs a marker
-pattern, a machine-wide scan, a per-plugin ledger + watermark, and — when `track` is set up — a usage
+pattern, a config-dir-wide scan (every project under `$cfg/projects` — the active config dir, not
+the whole machine), a per-plugin ledger + watermark, and — when `track` is set up — a usage
 index that lets it skip most scanning.
 
 Everywhere in §K, `cfg="${CLAUDE_CONFIG_DIR:-$HOME/.claude}"` and scan `"$cfg/projects"` — §A now
@@ -240,7 +241,7 @@ cmds="$(ls "$sroot/${plugin}/commands" 2>/dev/null | sed 's/\.md$//' | paste -sd
 
 ### §K.2 — Scan pipeline (backfill path)
 
-The full machine-wide scan — used by `learn` for sessions the index has never seen (pre-hook history,
+The full config-dir-wide scan — used by `learn` for sessions the index has never seen (pre-hook history,
 or projects where loom isn't enabled). `command grep` **throughout**: interactive `grep` here is a
 ugrep wrapper (`--ignore-files -I`) that silently skips `.jsonl` as "binary".
 
@@ -347,7 +348,7 @@ more.
 project hash, not a plugin name like §K.4). This section is the **single source of truth** for its
 schema and eligibility; `references/project-wide.md` owns only the orchestration (discovery loop, lock,
 the sequential per-session fold loop) and points here for the state rules. It does not consume §K.1/§K.2/§K.5
-(those are the machine-wide, per-plugin discovery path — harvest's sweep is per-project).
+(those are the config-dir-wide, per-plugin discovery path — harvest's sweep is per-project).
 
 **State location:**
 

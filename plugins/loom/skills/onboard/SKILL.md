@@ -1,7 +1,7 @@
 ---
 name: onboard
 description: Guided walkthrough that sets up the whole loom plugin for a new user or machine — checks the plugin's tracking state (the SessionEnd hook only proves itself after tracked sessions end), opts plugins into tracking, explains the harvest/learn modes and where state lives, offers the daily automation schedule, and finishes with a verification dry-run. Use when the user says "onboard loom", "set up loom", "help me get started with loom/harvest/learn", "/loom:onboard", asks what loom can do, or has just installed the plugin and asks what to configure. Resumable — each step checks current state first, so re-running skips what's already done.
-version: 0.1.0
+version: 0.1.1
 ---
 
 # onboard — set up loom end to end
@@ -10,7 +10,11 @@ Walk the user through loom's setup, one step at a time. Every step **checks curr
 skips itself when already done — running this twice is safe and fast. Delegate real work to the owning
 skills via `Skill()` (`track`, `automate`); never duplicate their logic here.
 
-`cfg="${CLAUDE_CONFIG_DIR:-$HOME/.claude}"` throughout.
+`cfg="${CLAUDE_CONFIG_DIR:-$HOME/.claude}"` throughout. **Name `$cfg` to the user up front**: on a
+machine with several config dirs (e.g. `~/.claude` and `~/.claude-ntb`), everything this walkthrough
+sets up — tracking, ledgers, the daily automation, and the credentials headless runs use — belongs
+to this one install only; re-running onboard from a terminal pointed at a different config dir
+configures *that* install, not this one.
 
 ## Step 1 — Check the plugin's tracking state
 
@@ -55,8 +59,10 @@ inspection — don't re-implement it here). Not installed → describe it in one
 headless job that harvests chosen projects and learns tracked plugins unattended), **state the
 `bypassPermissions` tradeoff plainly** (unattended file edits + a git push for learn's publish —
 guarded by project-scope folds, expert review, and `git diff` after the fact), and ask whether to set
-it up. Yes → `Skill(skill="automate")` for the setup flow. Already installed → relay the status and
-move on.
+it up. Mention that headless runs authenticate with **this config dir's** credentials — if `claude`
+has never logged in under `$cfg`, the scheduled runs fail with "Not logged in" until
+`CLAUDE_CONFIG_DIR=$cfg claude /login` is run once. Yes → `Skill(skill="automate")` for the setup
+flow. Already installed → relay the status and move on.
 
 ## Step 5 — Verify with a dry-run
 

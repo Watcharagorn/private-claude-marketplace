@@ -1,7 +1,7 @@
 {
   "name": "loom",
-  "description": "Session harvesting and plugin lifecycle tools: auto-harvest sessions into reusable Claude Code artifacts, learn from a plugin's sessions to auto-improve it, schedule daily unattended runs, and publish releases with synced manifests.",
-  "version": "4.0.0",
+  "description": "Session harvesting and plugin lifecycle tools: harvest sessions into reusable artifacts, learn from usage to auto-improve plugins, run daily unattended per config dir, and publish releases with synced manifests.",
+  "version": "4.1.0",
   "author": {
     "name": "NTBX"
   }

@@ -2,6 +2,8 @@
 
 **Purpose:** Precise, copy-paste-ready reference for `harvest-automations`. Read this file to determine which artifact to create or update and how to do it safely.
 
+**Config-dir rule:** `$cfg` in every path below means `${CLAUDE_CONFIG_DIR:-$HOME/.claude}` — the ACTIVE install's config dir. User-scope artifacts must land there, never in a literal `~/.claude`: on a machine with several config dirs (e.g. `~/.claude` and `~/.claude-ntb`), a hardcoded default writes into a *different* install, where the artifact never loads for the session that created it and silently pollutes the other install's global surface. The shell blocks spell out the expansion so they stay copy-paste-ready.
+
 ---
 
 ## 1. Skill (`skills/<name>/SKILL.md`)
@@ -15,7 +17,7 @@ A named, invocable playbook (via `Skill` tool or `/name`) that encodes multi-ste
 
 | Scope | Path |
 |-------|------|
-| User (global) | `~/.claude/skills/<name>/SKILL.md` |
+| User (global) | `$cfg/skills/<name>/SKILL.md` |
 | Project | `<repo>/.claude/skills/<name>/SKILL.md` |
 | Plugin | `<plugin-root>/skills/<name>/SKILL.md` |
 
@@ -53,8 +55,8 @@ version: <semver, optional>
 ### CREATE mechanic
 
 ```bash
-mkdir -p ~/.claude/skills/<name>
-cat > ~/.claude/skills/<name>/SKILL.md << 'EOF'
+mkdir -p "${CLAUDE_CONFIG_DIR:-$HOME/.claude}/skills/<name>"
+cat > "${CLAUDE_CONFIG_DIR:-$HOME/.claude}/skills/<name>/SKILL.md" << 'EOF'
 ---
 name: <name>
 description: <description>
@@ -77,7 +79,7 @@ Read the file, append a new `## <Section>` heading with the additional content, 
 
 ```bash
 # Pattern: append a new section to an existing SKILL.md
-skill_file="$HOME/.claude/skills/<name>/SKILL.md"
+skill_file="${CLAUDE_CONFIG_DIR:-$HOME/.claude}/skills/<name>/SKILL.md"
 cp "$skill_file" "${skill_file}.bak.$(date +%s)"
 cat >> "$skill_file" << 'EOF'
 
@@ -105,7 +107,7 @@ A user-invocable `/name` shortcut that is injected as a system prompt when typed
 
 | Scope | Path |
 |-------|------|
-| User (global) | `~/.claude/commands/<name>.md` |
+| User (global) | `$cfg/commands/<name>.md` |
 | Project | `<repo>/.claude/commands/<name>.md` |
 | Plugin | `<plugin-root>/commands/<name>.md` |
 
@@ -134,7 +136,7 @@ Arguments provided: $ARGUMENTS
 ### CREATE mechanic
 
 ```bash
-cat > ~/.claude/commands/<name>.md << 'EOF'
+cat > "${CLAUDE_CONFIG_DIR:-$HOME/.claude}/commands/<name>.md" << 'EOF'
 ---
 description: <description>
 argument-hint: [optional-arg]
@@ -151,7 +153,7 @@ EOF
 Append or rewrite sections. Commands are single-file; read then write back.
 
 ```bash
-cmd="$HOME/.claude/commands/<name>.md"
+cmd="${CLAUDE_CONFIG_DIR:-$HOME/.claude}/commands/<name>.md"
 cp "$cmd" "${cmd}.bak.$(date +%s)"
 # Edit with sed or full rewrite after Read
 ```
@@ -173,7 +175,7 @@ A sandboxed Claude instance with its own system prompt, tool list, model selecti
 
 | Scope | Path |
 |-------|------|
-| User (global) | `~/.claude/agents/<name>.md` |
+| User (global) | `$cfg/agents/<name>.md` |
 | Project | `<repo>/.claude/agents/<name>.md` |
 | Plugin | `<plugin-root>/agents/<name>.md` |
 
@@ -217,7 +219,7 @@ color: <purple|blue|green|yellow|red|gray>
 ### CREATE mechanic
 
 ```bash
-cat > ~/.claude/agents/<name>.md << 'EOF'
+cat > "${CLAUDE_CONFIG_DIR:-$HOME/.claude}/agents/<name>.md" << 'EOF'
 ---
 name: <name>
 description: <description with trigger keywords>
@@ -240,7 +242,7 @@ EOF
 Whole-file type. Read → add/edit section → write back. To add tools:
 
 ```bash
-agent="$HOME/.claude/agents/<name>.md"
+agent="${CLAUDE_CONFIG_DIR:-$HOME/.claude}/agents/<name>.md"
 cp "$agent" "${agent}.bak.$(date +%s)"
 # Use sed to patch the tools line, or full rewrite
 sed -i '' 's/^tools: .*/tools: Read, Grep, Glob, Bash, Write, Edit/' "$agent"
@@ -263,7 +265,7 @@ A shell command triggered automatically at a lifecycle event. The harness (not C
 
 | Scope | File |
 |-------|------|
-| User (global) | `~/.claude/settings.json` → `.hooks` |
+| User (global) | `$cfg/settings.json` → `.hooks` |
 | Project | `<repo>/.claude/settings.json` → `.hooks` |
 | Plugin | `<plugin-root>/hooks/hooks.json` → `.hooks` (merged by plugin loader) |
 
@@ -370,7 +372,7 @@ An explicit allow or deny rule that pre-approves (or blocks) a tool invocation p
 
 | Scope | File |
 |-------|------|
-| User (global) | `~/.claude/settings.json` → `.permissions.allow` / `.permissions.deny` |
+| User (global) | `$cfg/settings.json` → `.permissions.allow` / `.permissions.deny` |
 | Project | `<repo>/.claude/settings.json` → same |
 | Project (local, git-ignored) | `<repo>/.claude/settings.local.json` → same |
 
@@ -456,7 +458,7 @@ Immediate — applies to the next tool call in the same session.
 ## 6. CLAUDE.md / Memory
 
 ### What it is
-**CLAUDE.md** — persistent instruction file read at session start; sets standing behaviors, preferences, and conventions. **Memory files** — individual `.md` files in `~/.claude/memory/` (or project `<repo>/.claude/memory/`) indexed by `MEMORY.md`; Claude writes these to persist observations across sessions.
+**CLAUDE.md** — persistent instruction file read at session start; sets standing behaviors, preferences, and conventions. **Memory files** — individual `.md` files in `$cfg/memory/` (or project `<repo>/.claude/memory/`) indexed by `MEMORY.md`; Claude writes these to persist observations across sessions.
 
 **Use this when:** A behavior, preference, or constraint should persist across every session (CLAUDE.md), or a specific observation from a session should be recalled later (memory file).
 
@@ -464,11 +466,11 @@ Immediate — applies to the next tool call in the same session.
 
 | Artifact | Scope | Path |
 |----------|-------|------|
-| CLAUDE.md | User (global) | `~/.claude/CLAUDE.md` |
+| CLAUDE.md | User (global) | `$cfg/CLAUDE.md` |
 | CLAUDE.md | Project | `<repo>/CLAUDE.md` or `<repo>/.claude/CLAUDE.md` |
-| Memory file | User | `~/.claude/memory/<topic>.md` |
+| Memory file | User | `$cfg/memory/<topic>.md` |
 | Memory file | Project | `<repo>/.claude/memory/<topic>.md` |
-| Memory index | User | `~/.claude/MEMORY.md` |
+| Memory index | User | `$cfg/MEMORY.md` |
 | Memory index | Project | `<repo>/.claude/MEMORY.md` |
 
 `@import <path>` in CLAUDE.md pulls in another file's content at load time.
@@ -520,8 +522,8 @@ type: <user|feedback|project|reference>
 **New memory file + index registration:**
 
 ```bash
-mem_file="$HOME/.claude/memory/<topic>.md"
-mem_index="$HOME/.claude/MEMORY.md"
+mem_file="${CLAUDE_CONFIG_DIR:-$HOME/.claude}/memory/<topic>.md"
+mem_index="${CLAUDE_CONFIG_DIR:-$HOME/.claude}/MEMORY.md"
 
 cat > "$mem_file" << 'EOF'
 ---
@@ -540,7 +542,7 @@ echo "- [<Name>](memory/<topic>.md) — <description>" >> "$mem_index"
 **Append section to CLAUDE.md:**
 
 ```bash
-claude_md="$HOME/.claude/CLAUDE.md"
+claude_md="${CLAUDE_CONFIG_DIR:-$HOME/.claude}/CLAUDE.md"
 cp "$claude_md" "${claude_md}.bak.$(date +%s)"
 cat >> "$claude_md" << 'EOF'
 
@@ -558,7 +560,7 @@ Memory files: whole-file type. Read → update body → write back. Update the M
 
 ```bash
 # Update a memory file body (whole-file rewrite)
-mem_file="$HOME/.claude/memory/<topic>.md"
+mem_file="${CLAUDE_CONFIG_DIR:-$HOME/.claude}/memory/<topic>.md"
 cp "$mem_file" "${mem_file}.bak.$(date +%s)"
 # Write the updated content
 ```
@@ -581,7 +583,7 @@ A scoped instruction file that applies only when Claude is working on files matc
 | Scope | Path |
 |-------|------|
 | Project | `<repo>/.claude/rules/<topic>.md` |
-| User (global) | `~/.claude/rules/<topic>.md` |
+| User (global) | `$cfg/rules/<topic>.md` |
 
 No plugin-scope for rules in current Claude Code versions (v1).
 
@@ -664,7 +666,7 @@ Configuration entry that registers an external tool server (Model Context Protoc
 
 | Scope | Path |
 |-------|------|
-| User (global) | `~/.claude/.mcp.json` |
+| User (global) | `$cfg/.mcp.json` |
 | Project | `<repo>/.mcp.json` |
 
 Secrets in project `.mcp.json` should be `<PLACEHOLDER>` — real values go in `<repo>/.mcp.local.json` (git-ignored) or environment variables.
@@ -755,7 +757,7 @@ jq 'del(.mcpServers["<server-name>"])' "$mcp" > /tmp/m.json \
 && jq empty /tmp/m.json && mv /tmp/m.json "$mcp"
 ```
 
-**SECURITY:** Never put real tokens in project-committed `.mcp.json`. Use `<PLACEHOLDER>` and load secrets from `~/.claude/.env` (chmod 600, git-ignored) or environment variables at runtime.
+**SECURITY:** Never put real tokens in project-committed `.mcp.json`. Use `<PLACEHOLDER>` and load secrets from `$cfg/.env` (chmod 600, git-ignored) or environment variables at runtime.
 
 ### Load / activation
 
@@ -774,7 +776,7 @@ A named response style preset that overrides Claude's default formatting. Applie
 
 | Scope | Path |
 |-------|------|
-| User (global) | `~/.claude/output-styles/<name>.md` |
+| User (global) | `$cfg/output-styles/<name>.md` |
 | Project | `<repo>/.claude/output-styles/<name>.md` |
 | Plugin | `<plugin-root>/output-styles/<name>.md` |
 
@@ -809,8 +811,8 @@ The body is injected as a system-level style constraint.
 ### CREATE mechanic
 
 ```bash
-mkdir -p ~/.claude/output-styles
-cat > ~/.claude/output-styles/<name>.md << 'EOF'
+mkdir -p "${CLAUDE_CONFIG_DIR:-$HOME/.claude}/output-styles"
+cat > "${CLAUDE_CONFIG_DIR:-$HOME/.claude}/output-styles/<name>.md" << 'EOF'
 ---
 name: <name>
 description: <description>
@@ -831,7 +833,7 @@ EOF
 Whole-file type — styles are self-contained presets. Read → edit sections → write back.
 
 ```bash
-style="$HOME/.claude/output-styles/<name>.md"
+style="${CLAUDE_CONFIG_DIR:-$HOME/.claude}/output-styles/<name>.md"
 cp "$style" "${style}.bak.$(date +%s)"
 # Edit: append new rule under ## Format rules, or rewrite section
 ```
@@ -853,7 +855,7 @@ Immediate — applies to the next response after the style is referenced by name
 ### Full Plugin (versioned distribution)
 A plugin is a directory with `.claude-plugin/plugin.json` (name, description, version, author), a `hooks/hooks.json`, `skills/`, `commands/`, `agents/`, and optional `output-styles/`. Plugins are registered in a `marketplace.json` and loaded via `settings.json` → `enabledPlugins`. Harvest only **suggests** plugin bundling — it does not auto-generate the full plugin structure because version management, marketplace registration, and the publish flow (`/publish-plugin` skill) require human decisions about versioning strategy, distribution channel, and author metadata. Auto-generating a partial plugin risks creating an invalid registration that breaks the plugin loader.
 
-### Keybindings (`~/.claude/keybindings.json`)
+### Keybindings (`$cfg/keybindings.json`)
 Maps key chords to Claude Code actions. Harvest only **suggests** — keybindings are highly personal, may conflict with existing bindings, and the `/keybindings-help` skill (which reads live binding state) is the correct editor for this file. Auto-generating keybindings without conflict-checking would silently shadow existing shortcuts.
 
 ### Monitors (plugin-only, `EnterWorktree`/`ExitWorktree`)

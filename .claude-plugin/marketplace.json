@@ -18,7 +18,7 @@
     },
     {
       "name": "loom",
-      "description": "Session harvesting and plugin lifecycle tools: harvest every un-harvested session of a project into reusable artifacts one session at a time (auto-folded; --review to confirm), audit a plugin from one session, learn from every session that used a plugin and auto-implement reviewed improvements, opt in to usage tracking, schedule daily unattended harvest+learn runs, onboard new users, and publish releases with synced manifests.",
+      "description": "Session harvesting and plugin lifecycle tools: harvest a project's sessions into reusable Claude Code artifacts, learn from a plugin's sessions to auto-improve and republish it, track usage, and run it all unattended on a daily schedule — with every install isolated to its own Claude config dir.",
       "source": "./plugins/loom",
       "category": "development"
     }

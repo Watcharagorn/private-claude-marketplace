@@ -7,7 +7,7 @@ description: >
   changelogs), validates the JSON, then commits and pushes to the repo's default branch.
   Invoke when the user says "publish the plugin", "release <plugin>", "pump/bump version and push",
   "ship the marketplace plugin", or "/publish-plugin". Repo-scoped to this marketplace.
-version: 1.2.0
+version: 1.2.1
 ---
 
 # Publish Plugin (marketplace repo)
@@ -122,7 +122,7 @@ echo "description chars — plugin.json: $pd · marketplace: $md"
 # plugin installs under ~/.claude/plugins/cache/<marketplace>/<plugin>/<version>/).
 hj="plugins/<name>/hooks/hooks.json"
 if [ -f "$hj" ]; then
-  if jq -r '.. | .command? // empty' "$hj" | grep -qE '/\.claude/plugins/|/Users/'; then
+  if jq -r '.. | .command? // empty' "$hj" | grep -qE '/\.claude[^/]*/plugins/|/Users/|/home/'; then
     echo "FAIL: $hj hardcodes an absolute install path — use \${CLAUDE_PLUGIN_ROOT}/hooks/..."; exit 1
   else echo "hooks.json paths OK"; fi
 fi

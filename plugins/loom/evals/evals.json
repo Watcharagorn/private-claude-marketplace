@@ -41,6 +41,24 @@
       "id": 8,
       "prompt": "In a project-wide auto harvest, the analysis agent for session 2 crashes. What happens to the run and to session 2 on the next run?",
       "expected_output": "Session 2 is ledgered outcome=error and the loop continues with session 3. On the next run, error is re-eligible (§K.3 rule 1) so session 2 is retried."
+    },
+    {
+      "id": 9,
+      "prompt": "Machine has two config dirs: ~/.claude and ~/.claude-ntb, each with loom automation configured. Trace /loom:automate setup run with CLAUDE_CONFIG_DIR=~/.claude-ntb, where a legacy shared-label com.loom.daily.plist exists pointing at ~/.claude-ntb, plus a com.loom.daily.plist.bak.* backup, and ~/.claude has no live schedule. List every file and launchctl operation and the end state of BOTH installs.",
+      "expected_output": "New plist com.loom.daily.claude-ntb.plist written and loaded with PATH and CLAUDE_CONFIG_DIR=~/.claude-ntb baked in; legacy plist detected as this install's (runner-path grep) so unloaded and deleted, and its .bak.* files removed with it; the runner is installed via temp + mv (never in-place cp), preceded by the run.lock in-flight guard. Nothing under ~/.claude or any ~/.claude-labelled schedule is read or modified.",
+      "files": []
+    },
+    {
+      "id": 10,
+      "prompt": "Both com.loom.daily.claude.plist and com.loom.daily.claude-ntb.plist are installed. Trace /loom:automate --status and then --stop, run with CLAUDE_CONFIG_DIR unset (i.e. ~/.claude). What exactly is matched, reported, and removed?",
+      "expected_output": "--status computes slug=claude and checks liveness with an ANCHORED match (launchctl list | awk NF3 | grep -qxF com.loom.daily.claude) so the claude-ntb job can never satisfy it via prefix match; it reports only ~/.claude's schedule, config, stamp and log tail, writing nothing. --stop checks run.lock first, then unloads/deletes only com.loom.daily.claude.plist; the claude-ntb plist, config, ledgers and stamps are untouched and the report says config.json was kept.",
+      "files": []
+    },
+    {
+      "id": 11,
+      "prompt": "During a /loom:harvest --headless run fired by the daily automation under CLAUDE_CONFIG_DIR=~/.claude-ntb, in a project directory that is NOT a git repo, harvest decides to create a user-scope skill and a user-scope memory file. State the exact paths written, per the artifact catalog.",
+      "expected_output": "All user-scope paths resolve through ${CLAUDE_CONFIG_DIR:-$HOME/.claude}: the skill lands at ~/.claude-ntb/skills/<name>/SKILL.md and the memory at ~/.claude-ntb/memory/<topic>.md with its index line appended to ~/.claude-ntb/MEMORY.md. Nothing is written under ~/.claude — a literal ~/.claude path is the pre-isolation bug.",
+      "files": []
     }
   ]
 }

@@ -1,7 +1,7 @@
 ---
 name: learn
-description: Learn from EVERY unanalyzed session that used one plugin, machine-wide — or from ONE named session — improving the plugin with both audit + enhance lenses. With just <plugin>, discovers matching sessions across all project folders (usage-index fast path + scan backfill), filters already-analyzed ones via a per-plugin ledger + watermark, then processes each ONE AT A TIME, oldest first — analyze, expert-review, AUTO-implement approved improvements — finishing with ONE publish (--review confirms each session, --headless never prompts, --dry-run previews); with <plugin> <session-id>, analyzes just that session interactively (no discovery, ledger/watermark untouched). Invoke for "learn <plugin>", "learn from all sessions that used <plugin>", "audit and enhance <plugin> from session <id>", or "/learn <plugin>". For a quick misbehavior-only pass on one session, use audit-plugin.
-version: 1.0.0
+description: Learn from EVERY unanalyzed session that used one plugin, across every project of the active config dir — or from ONE named session — improving the plugin with both audit + enhance lenses. With just <plugin>, discovers matching sessions across all project folders of `$cfg/projects` (usage-index fast path + scan backfill), filters already-analyzed ones via a per-plugin ledger + watermark, then processes each ONE AT A TIME, oldest first — analyze, expert-review, AUTO-implement approved improvements — finishing with ONE publish (--review confirms each session, --headless never prompts, --dry-run previews); with <plugin> <session-id>, analyzes just that session interactively (no discovery, ledger/watermark untouched). Invoke for "learn <plugin>", "learn from all sessions that used <plugin>", "audit and enhance <plugin> from session <id>", or "/learn <plugin>". For a quick misbehavior-only pass on one session, use audit-plugin.
+version: 1.0.1
 ---
 
 # learn — audit + enhance one plugin from its sessions
@@ -20,7 +20,7 @@ Three related skills, one job each:
 `learn` reuses the two analysis lenses **by reference** (never re-inlined): each per-session agent reads
 them straight from **`references/analysis-lenses.md`** at heading anchors — the same file `audit-plugin`
 reads, so the AUDIT and ENHANCE briefs have one wording. The multi-session mechanics — marker pattern,
-machine-wide scan, ledger + watermark, usage index — live in chassis **§K**.
+config-dir-wide scan, ledger + watermark, usage index — live in chassis **§K**.
 
 Read the shared chassis first (resolve by glob, then reference §A … §K):
 
@@ -77,7 +77,7 @@ if [ "$headless" = 1 ]; then review=0; fi   # headless can never pause
 - **`$2` present → single-session mode.** Do **Step 1** (validate the plugin + resolve the chassis), then
   jump to **Step 5-single** below (resolve that one transcript via §A, run one both-lens agent, review,
   confirm, implement), then **Steps 6–7** (publish, finalize). **Skip** Steps 2–4 (ledger load,
-  discovery, cap) entirely — a single named run must never move the machine-wide watermark or write the
+  discovery, cap) entirely — a single named run must never move the plugin-wide watermark or write the
   ledger, mirroring how `harvest-automations` single-mode leaves the watermark alone. Single-session
   mode is always **interactive** (§I confirm) — it is the manual escape hatch.
 - **`$2` absent → batch mode.** Run Steps 1–7 in order, as written.
@@ -113,7 +113,7 @@ currently tracked** (present in `config.json`). `--dry-run` loads read-only (nev
 `plugins[<plugin>] > 0` → **candidate, no scan**; key present as `0` → **skip, no scan**; line missing
 the `<plugin>` key, or no line at all → hand to the scan.
 
-**Backfill scan (§K.2):** run the machine-wide scan **only** over transcripts whose sessionId is
+**Backfill scan (§K.2):** run the config-dir-wide scan **only** over transcripts whose sessionId is
 absent-from-index-or-missing-the-target-key. Build the marker pattern with §K.1 (surface root =
 `"$PWD/plugins"`, this repo).
 
@@ -123,9 +123,12 @@ namespaced-marker candidates ahead of bare/unqualified-only ones).
 
 - **Zero survivors** → "`<plugin>` is up to date — no unanalyzed sessions used it." Update
   `lastRun.at` only (no new `analyzed[]`), stop cleanly.
-- **Out-of-scope notice:** when `~/.claude/projects` exists **and** ≠ `$cfg/projects`, grep it once
-  with the same pattern and print "N matching sessions live in `~/.claude/projects` — out of scope for
-  this run (active config dir only)." Never let a second config dir masquerade as "up to date".
+- **Out-of-scope notice:** other config dirs may hold matching sessions this run will never see —
+  in **either** direction (a `~/.claude` run must report `~/.claude-ntb`'s sessions just as an
+  `~/.claude-ntb` run reports `~/.claude`'s). Enumerate siblings — `ls -d "$HOME"/.claude*/projects`
+  minus `$cfg/projects` itself — grep each once with the same pattern (count only; never analyze,
+  ledger, or watermark them), and print "N matching sessions live in `<dir>` — out of scope for this
+  run (active config dir only)." Never let a second config dir masquerade as "up to date".
 
 ## Step 4 — Present candidates + cap policy
 
