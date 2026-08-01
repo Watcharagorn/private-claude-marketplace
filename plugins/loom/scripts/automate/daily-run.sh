@@ -40,7 +40,6 @@ unset ANTHROPIC_API_KEY CLAUDE_CODE_OAUTH_TOKEN
 auto="$cfg/loom/automation"
 config="$auto/config.json"
 CLAUDE_BIN="$(command -v claude || echo "${HOME:-}/.local/bin/claude")"
-MAX_RUN_SECS=2700   # per claude invocation, wall clock
 
 # Refuse BEFORE touching the filesystem: a stray copy (plugin repo, stale cache) must exit
 # without littering its surroundings with automation/logs trees.
@@ -54,6 +53,23 @@ log() { echo "$(date '+%Y-%m-%d %H:%M:%S') $*"; }
 command -v jq >/dev/null || { log "jq not on PATH (${PATH:-unset}) — fix the plist/cron environment"; exit 1; }
 [ -x "$CLAUDE_BIN" ] || { log "claude not found ($CLAUDE_BIN) — fix the plist/cron environment"; exit 1; }
 jq empty "$config" 2>/dev/null || { log "config.json is invalid JSON — re-run /loom:automate"; exit 1; }
+
+# Model, effort, and the wall-clock ceiling are read fresh at every fire, so editing them in
+# config.json takes effect on the next run — no /loom:automate re-install needed (unlike
+# `schedule`, which is baked into the plist/crontab). The defaults are deliberate: these runs read
+# long transcripts and then rewrite plugin sources unattended under bypassPermissions, and a
+# shallow pass there yields edits someone unpicks by hand afterwards — thinking hard is the whole
+# point of a run nobody is watching. Set either string to "" to pass no flag and take the
+# account default instead.
+MODEL=$(jq -r '.model // "claude-opus-5[1m]"' "$config")
+EFFORT=$(jq -r '.effort // "xhigh"' "$config")
+MAX_RUN_SECS=$(jq -r '.maxRunSecs // 7200' "$config")   # per claude invocation, wall clock
+# A non-numeric ceiling turns the watchdog arithmetic below into a shell error mid-run, so the
+# day would die after the config was already accepted. Leading zeros are rejected too — POSIX
+# arithmetic reads 0700 as octal, and a ceiling that silently shrinks is worse than a loud one.
+case "$MAX_RUN_SECS" in
+    ''|*[!0-9]*|0*) log "maxRunSecs='$MAX_RUN_SECS' is not a positive integer — using 7200"; MAX_RUN_SECS=7200 ;;
+esac
 
 STAMP_FILE="$auto/stamps/last-ok"
 if [ -f "$STAMP_FILE" ] && [ "$(cut -d' ' -f1 "$STAMP_FILE")" = "$TODAY" ]; then
@@ -94,11 +110,17 @@ rm -f "$FAIL_MARK"
 # run_claude <workdir> <prompt> — one headless invocation with its own watchdog.
 # `exec` makes the subshell BECOME claude, so $pid (and the watchdog's kill) hit the real process.
 # The watchdog polls a wall-clock deadline (a single long `sleep` pauses across machine sleep
-# and once let a "45-minute" invocation run 4.7 hours) and escalates TERM → KILL.
+# and once let a wall-clock-capped invocation run 4.7 hours) and escalates TERM → KILL.
 run_claude() {
     wd="$1"; prompt="$2"
-    log "run: cd $wd && claude -p '$prompt'"
-    ( cd "$wd" && exec "$CLAUDE_BIN" -p "$prompt" --permission-mode "$PERM_MODE" ) &
+    # Build argv with `set --` instead of interpolating "${MODEL:+--model $MODEL}": that expansion
+    # is unquoted by construction, and the default model id contains brackets
+    # (claude-opus-5[1m]) that pathname expansion would try to match against the project's cwd.
+    set -- -p "$prompt" --permission-mode "$PERM_MODE"
+    [ -n "$MODEL" ] && set -- "$@" --model "$MODEL"
+    [ -n "$EFFORT" ] && set -- "$@" --effort "$EFFORT"
+    log "run: cd $wd && claude -p '$prompt'${MODEL:+ --model $MODEL}${EFFORT:+ --effort $EFFORT}"
+    ( cd "$wd" && exec "$CLAUDE_BIN" "$@" ) &
     pid=$!
     (
         deadline=$(( $(date +%s) + MAX_RUN_SECS ))
@@ -120,7 +142,7 @@ run_claude() {
     fi
 }
 
-log "starting loom daily run (cfg=$cfg perm=$PERM_MODE)"
+log "starting loom daily run (cfg=$cfg perm=$PERM_MODE model=${MODEL:-<account default>} effort=${EFFORT:-<account default>} ceiling=${MAX_RUN_SECS}s)"
 
 # 1. Harvest each configured project (skip roots that no longer exist).
 # Enumerate into a variable FIRST: a jq failure inside `jq | while` is invisible — zero

@@ -77,7 +77,11 @@ a plugin pauses its tracking automatically — the hook re-checks effective enab
 guarantees zero prompts — the cap auto-defaults, and the runner's own session is skipped. The runs use
 `--permission-mode bypassPermissions`; the guardrails are project-scope folds (review with `git diff`),
 per-session expert review in `learn`, and the ledgers making every run incremental. A once-per-day
-stamp, per-invocation watchdog, and logs live under `$cfg/loom/automation/`. `--status` inspects,
+stamp, per-invocation watchdog, and logs live under `$cfg/loom/automation/`. Unattended runs default
+to `claude-opus-5[1m]` at `xhigh` effort with a 2-hour per-invocation ceiling — reading long
+transcripts and rewriting plugin sources with nobody watching is the wrong place to economise;
+override per install with `model` / `effort` / `maxRunSecs` in `config.json` (read fresh at every
+fire, no re-install). `--status` inspects,
 `--stop` uninstalls. Each `CLAUDE_CONFIG_DIR` gets its own isolated schedule (per-config launchd
 label / cron marker), and the runner derives its config dir from its installed location — so its
 headless sessions and credentials always belong to the config dir it was set up under, and
@@ -115,7 +119,7 @@ $cfg/loom/                     # cfg = ${CLAUDE_CONFIG_DIR:-$HOME/.claude}
 │   ├── <hashed-project>.json  # per-project analyzed ledger + watermark (harvest-written)
 │   └── reports/               # per-run project-wide harvest reports (one section per session)
 └── automation/                # loom:automate daily-schedule state
-    ├── config.json            # projects to harvest, schedule time, marketplace repo
+    ├── config.json            # projects to harvest, schedule time, marketplace repo (+ optional model / effort / maxRunSecs)
     ├── bin/daily-run.sh       # the installed runner (copied out of the plugin)
     ├── logs/                  # one log per day
     └── stamps/                # once-per-day success stamp

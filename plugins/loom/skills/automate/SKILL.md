@@ -1,7 +1,7 @@
 ---
 name: automate
 description: Set up (or manage) a DAILY scheduled headless run that harvests configured projects and learns tracked plugins automatically — launchd on macOS, cron on Linux, driving "claude -p '/loom:harvest --headless'" per project and "/loom:learn <plugin> --headless" per tracked plugin. Each CLAUDE_CONFIG_DIR gets its own fully isolated schedule (per-config launchd label / cron marker; the runner pins sessions + credentials to its own install's config dir) — setting up from one config dir never touches another's. Use when the user says "automate loom", "schedule daily harvest/learn", "run harvest every day", "set up the loom daily job", "/loom:automate", or asks how to make harvesting/learning happen without them. Also handles "--status" (show schedule + last run) and "--stop" (uninstall the schedule, keep config). Setup is idempotent — re-run anytime to change projects or the schedule time.
-version: 0.2.0
+version: 0.3.0
 ---
 
 # automate — daily headless harvest + learn
@@ -56,7 +56,7 @@ $cfg/loom/automation/
    Learn's plugin list is **not** asked here — the runner reads `$cfg/loom/learning/config.json`
    (`loom:track`'s registry) live at run time, so `/loom:track <plugin>` additions are picked up with
    no re-setup. If nothing is tracked yet, note that the learn phase will no-op and point at
-   `/loom:track`.
+   `/loom:track`. The model / effort / ceiling knobs aren't asked here either — Step 2.2 says why.
 
 2. **Write `config.json`** under §E merge-json discipline (timestamped backup when it exists →
    `jq` → `jq empty` validate → restore on invalid; the chassis-resolution glob from `loom`'s other
@@ -70,13 +70,42 @@ $cfg/loom/automation/
      "marketplaceRepo": "/abs/path/to/marketplace-repo" }
    ```
 
-   The runner reads `projects`, `permissionMode`, and `marketplaceRepo` at every fire; `schedule` is
-   read only by THIS skill when building the plist/crontab — editing it in the file does nothing
-   until `/loom:automate` is re-run. Learn's plugin list is never stored here (it comes from track's
-   registry, live).
+   The runner reads `projects`, `permissionMode`, `marketplaceRepo`, `model`, `effort`, and
+   `maxRunSecs` at every fire; `schedule` is read only by THIS skill when building the
+   plist/crontab — editing it in the file does nothing until `/loom:automate` is re-run. Learn's
+   plugin list is never stored here (it comes from track's registry, live).
+
+   **Don't ask about `model`, `effort`, or `maxRunSecs`, and don't write them** — they carry
+   defaults that suit an unattended run, and an absent key is what lets a later default
+   improvement reach existing installs the next time `/loom:automate` refreshes the runner copy.
+   The runner is the source of truth and the table only mirrors it, so when the two disagree read
+   `$cfg/loom/automation/bin/daily-run.sh` — the copy that actually fires. (The plugin's
+   `scripts/automate/daily-run.sh` is only what the *next* re-install would put there.)
+
+   | key | default | why that default |
+   |---|---|---|
+   | `model` | `claude-opus-5[1m]` | These runs read long transcripts whole and then rewrite plugin sources with nobody watching. Capable model, big context. |
+   | `effort` | `xhigh` | Same reason — a shallow pass produces edits the user unpicks by hand later, which costs more than the run saved. |
+   | `maxRunSecs` | `7200` | Per-invocation wall-clock ceiling. Learn processes up to 12 sessions in ONE invocation, so a tight ceiling kills it mid-batch. |
+
+   **During setup**, mention them only when the user asks how to make the runs cheaper, faster, or
+   more thorough — `--status` reports them unconditionally (Step 3), which is a different job.
+   All three take effect on the next fire with no re-install (`schedule` is the exception), and
+   `"model": ""` or `"effort": ""` passes no flag at all, falling back to the account default —
+   which is also the escape hatch on a CLI too old for these flags, since an unknown option is a
+   hard parse error that would kill every invocation. A `maxRunSecs` that isn't a *plain* positive
+   integer — leading zeros included, since POSIX arithmetic reads `0700` as octal — is logged and
+   replaced with 7200 rather than crashing the fire.
+
+   Treat model and ceiling as coupled when advising: a slower or harder-thinking model needs a
+   *higher* `maxRunSecs`, not the same one, and the failure it produces if you forget is a
+   watchdog kill partway through a batch — which strands finished-but-uncommitted work (see
+   Edge cases). Cheapening the model without lowering the ceiling is safe; raising effort without
+   raising the ceiling is not.
 
 3. **Install the runner copy.** First the in-flight guard: if `$cfg/loom/automation/run.lock`
-   exists and is younger than 90 minutes (2× the runner's per-invocation watchdog), a headless
+   exists and is younger than 2× `maxRunSecs` (4 hours at the default — the same staleness
+   threshold the runner itself uses to decide a lock is a crash leftover), a headless
    `bypassPermissions` run is live **right now** — replacing its script or (in the next step)
    unloading its job kills a claude mid-write, possibly mid-commit in the marketplace repo. Say
    so, point at `logs/daily-<today>.log`, and proceed only on an explicit go-ahead or once the
@@ -86,6 +115,10 @@ $cfg/loom/automation/
    lock="$cfg/loom/automation/run.lock"
    [ -d "$lock" ] && age=$(( $(date +%s) - $(stat -c %Y "$lock" 2>/dev/null || stat -f %m "$lock" 2>/dev/null || date +%s) ))
    # GNU stat first, BSD second — GNU's -f means --file-system and corrupts the arithmetic
+   max=$(jq -r '.maxRunSecs // 7200' "$cfg/loom/automation/config.json" 2>/dev/null)
+   case "$max" in ''|*[!0-9]*|0*) max=7200 ;; esac   # same guard the runner applies
+   # live when age <= 2*max — the runner steals only when age EXCEEDS it, so match that boundary
+   # exactly; anything older is a crash leftover the runner would steal on its own
    ```
 
    Then copy the bundled script to config-dir state and make it executable — the scheduler must
@@ -124,6 +157,8 @@ $cfg/loom/automation/
 
    ```bash
    command -v claude >/dev/null || { echo "ABORT: claude not on PATH — cannot bake a valid PATH into the schedule"; exit 1; }
+   claude --help 2>&1 | grep -q -- '--effort' \
+     || echo "WARN: this claude predates --effort; the runner passes it every fire and an unknown flag is a hard parse error — set \"effort\": \"\" (and \"model\": \"\" if the model id is also rejected) in config.json, or upgrade the CLI"
    claude_dir="$(dirname "$(command -v claude)")"   # e.g. /Users/you/.local/bin — never '.' (the exit above guarantees it)
    runner="$cfg/loom/automation/bin/daily-run.sh"   # substitute the REAL absolute path below
    HOUR=$(jq -r '.schedule.hour // 9' "$cfg/loom/automation/config.json")
@@ -226,14 +261,21 @@ $cfg/loom/automation/
      block survives it.)
 
 5. **Confirm + first-run offer.** Print what was installed (schedule time, projects, tracked plugins
-   found, marketplace repo, log/stamp paths) and offer to fire the runner once now in the background
+   found, marketplace repo, log/stamp paths, and the model / effort / per-invocation ceiling the
+   runs will use — defaults unless `config.json` overrides them). Name those three even though
+   Step 2.2 says not to *ask* about them: the user is opting into unattended runs on a capable
+   model at high effort, and setup is where that gets said out loud rather than left for someone
+   to discover in `--status`. Then offer to fire the runner once now in the background
    (`nohup sh "$cfg/loom/automation/bin/daily-run.sh" &`) so the user can inspect
    `logs/daily-<today>.log` instead of waiting for tomorrow.
 
 ## Step 3 — `--status`
 
 Report, without changing anything: whether `config.json` exists (print projects + schedule +
-marketplace repo), whether **this config dir's** schedule is live (compute `$slug`/`$label` from
+marketplace repo, and the effective model / effort / `maxRunSecs` — printing the defaults when the
+keys are absent **or invalid**, applying the same positive-integer guard the runner does, because
+"what will tonight's run actually use" is the question `--status` answers and echoing a literal
+`"maxRunSecs": "abc"` answers it wrongly), whether **this config dir's** schedule is live (compute `$slug`/`$label` from
 `$cfg` as in setup, then `launchctl list | awk '{print $3}' | grep -qxF "$label"` on macOS;
 `crontab -l | grep -F "loom-automate:$slug >>>"` on Linux — the match must be anchored:
 `com.loom.daily.claude` is a strict prefix of `com.loom.daily.claude-ntb`, so a bare substring
@@ -273,20 +315,32 @@ Say explicitly that config, logs, stamps, and all harvest/learn ledgers were lef
   (`CLAUDE_CONFIG_DIR=<cfg> claude /login`); credentials from a different config dir are never
   used, by design.
 - **Setup or `--stop` while a run is in flight** — a fresh `$cfg/loom/automation/run.lock`
-  (younger than 90 min) means a headless `bypassPermissions` run is live; replacing the runner or
+  (younger than 2× `maxRunSecs`) means a headless `bypassPermissions` run is live; replacing the runner or
   unloading the job kills a claude mid-write. Both flows surface it and wait for a go-ahead; the
   atomic `mv` install additionally keeps an already-running shell safe if the user proceeds.
 - **`claude`/`jq` not found at fire time** — the installer bakes PATH into the plist/crontab from
   `command -v claude` at setup; the runner refuses to start (exit 1, logged) rather than half-run.
   Fix the binary's location in your shell, then re-run `/loom:automate` to refresh the baked PATH
   (never hand-edit the runner copy — setup re-copies it).
+- **`error: unknown option '--effort'` in the log** (or a rejected model id) — the CLI on this
+  machine predates a flag the runner passes. An unknown option is a parse error *before* any work,
+  so every invocation dies instantly, the fail marker is written, no stamp is set, and tomorrow's
+  fire repeats it forever; the only symptom is the log. Nothing self-heals here. Either upgrade
+  the CLI, or set `"effort": ""` / `"model": ""` in `config.json` to stop passing that flag and
+  take the account default — effective on the next fire, no re-install. Setup warns about this
+  when it resolves `claude`, but a CLI downgrade after setup would slip past that check.
 - **Machine asleep at fire time** — launchd coalesces a missed `StartCalendarInterval` into one fire
   on wake; cron simply misses. The once-per-day stamp makes any extra fires no-ops, and a missed day
   self-heals on the next fire (watermarks mean nothing is lost, just delayed).
 - **A run fails** — the runner stamps success only when every invocation succeeded. The most
-  common failure is the watchdog: an invocation past its 45-minute wall-clock ceiling is killed
-  and logged as `watchdog: … exceeded 2700s`; ledgers + watermarks mean the next fire resumes
-  where it stopped, so big first-time backlogs drain across days by design. The daily schedule
+  common failure is the watchdog: an invocation past its `maxRunSecs` wall-clock ceiling (2h by
+  default) is killed and logged as `watchdog: … exceeded <n>s`; ledgers + watermarks mean the next
+  fire resumes where it stopped, so big first-time backlogs drain across days by design. Note what
+  a kill costs mid-batch, since it decides whether to raise the ceiling: learn ledgers each session
+  as it finishes but only publishes at the very end, so a kill leaves the finished sessions' edits
+  implemented, uncommitted, and already marked analyzed — recoverable from the working tree, but
+  only if someone commits them before that tree is cleaned. Repeated kills at the same point are a
+  sign the ceiling is too tight, not that the batch is stuck. The daily schedule
   fires once, so a failed day waits for tomorrow's fire — or fire the runner manually
   (`sh $cfg/loom/automation/bin/daily-run.sh`) to retry today; the stamp guard only blocks re-runs
   after a *success*.
@@ -303,9 +357,11 @@ Say explicitly that config, logs, stamps, and all harvest/learn ledgers were lef
   idempotently under the **per-config label** (`com.loom.daily.$slug` / `loom-automate:$slug`),
   the label-collision ownership check passed before any overwrite, any legacy shared-label
   schedule (macOS plist or Linux unsuffixed cron block) migrated only when it points into this
-  `$cfg`, and the confirmation + first-run offer printed.
+  `$cfg`, and the confirmation + first-run offer printed — the confirmation naming the model,
+  effort, and per-invocation ceiling the runs will use.
 - `--status` reported this config dir's schedule liveness (anchored label match), config, stamp,
-  and log tail without writing anything.
+  the **effective** model / effort / `maxRunSecs` (defaults substituted for absent or invalid
+  keys, not echoed raw), and log tail without writing anything.
 - `--stop` removed only this config dir's schedule and said what was kept.
 - Setup and `--stop` checked `run.lock` before replacing the runner or touching the schedule, and
   the runner was installed via temp + `mv`, never an in-place `cp`.
