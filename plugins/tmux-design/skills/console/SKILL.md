@@ -1,6 +1,18 @@
 ---
 name: console
-description: Set up, redesign, and audit tmux windows/panes so every console surface shows formatted, colorful, live-refreshing content (tables, gauges, TUIs) — never raw text. Owns the ANSI design standard, the viddy/gum/lnav toolkit patterns, a dependency-free renderer starter, and the sandbox → respawn-pane → capture-pane verify loop that makes pane edits actually appear. Use whenever the task touches tmux or tmuxp — adding or changing a window, pane, or layout; redesigning or "optimizing" what a pane displays; making terminal output "a table", "colorful", "prettier", or "animated"; fixing a flickering, raw, or monochrome pane; building an lnav log format; or when an edited pane script "isn't showing changes". Reach for it even when the user never says "tmux" — "make my dashboard pane prettier" or "why is my watch pane stale" counts. Trigger phrases — "set up a tmux window/pane", "redesign this pane", "make this pane a table", "audit my tmux panes", /tmux-design:console [setup|redesign|audit] [target].
+description: >-
+  Set up, redesign, and audit tmux windows/panes so every console surface shows formatted,
+  live-refreshing content (tables, gauges, TUIs) — never raw text. Owns pane WIRING and
+  verification: tmuxp layout wiring, viddy/watch refresh, renderer wrappers, lnav log formats, and
+  the sandbox → respawn-pane → capture-pane loop that makes pane edits actually appear. Use
+  whenever the task touches tmux or tmuxp — adding or changing a window, pane, or layout;
+  redesigning what a pane displays; making terminal output "a table"; fixing a flickering, raw,
+  stale, or monochrome pane; building an lnav log format; or when an edited pane script "isn't
+  showing changes". Reach for it even when the user never says "tmux" — "why is my watch pane
+  stale" counts. Trigger phrases — "set up a tmux window/pane", "redesign this pane", "audit my
+  tmux panes", /tmux-design:console [setup|redesign|audit] [target]. For how a surface should LOOK
+  — themes, boxes, bars, sparklines, badges, status-bar and border styling — use
+  tmux-design:decorate.
 ---
 
 # Console design for tmux panes
@@ -13,6 +25,8 @@ below exists to make that glance faster.
 
 ## When NOT to use
 
+- Styling questions — themes, palettes, boxes, charts, status-bar or pane-border appearance,
+  popups (use `tmux-design:decorate`; this skill wires panes up, that one decides how they look)
 - Web/GUI frontend work (use frontend-design)
 - One-shot script output that never lives in a persistent pane
 
@@ -26,21 +40,25 @@ Enforce these in every pane you create or touch:
    staleness, and swallow Ctrl-C mid-child-call. Wrap a one-shot renderer with
    `viddy -p -n <secs> -- <cmd>` instead: in-place redraw, countdown header, diff-highlight
    (`-d`) that "pulses" changed cells, and scrollable snapshot history for free.
-3. **ANSI 256 palette** (consistent across panes so color carries meaning):
-   - section title `1;38;5;212` (pink, prefixed `▌ `) · table header `1;38;5;117` (cyan, bold)
-   - positive/OK `38;5;114` green · negative/error `38;5;203` red · pending/warn `38;5;221` yellow
-   - hot/imminent `1;38;5;208` orange · secondary text/borders `2` (dim)
-   - respect `NO_COLOR` as an opt-out; otherwise always emit color. Panes aren't TTYs — never
-     rely on a library's auto-detection, it will silently strip everything.
-4. **Tables**: bold header row, thin dim `─` rule under it, two-space column gaps, right-aligned
-   numerics. Pad with ANSI-aware width math (strip `\x1b\[[0-9;]*m` before measuring — colored
-   cells break naive `str.ljust`). Strip trailing zeros from exchange decimals
-   (`60800.00000000` → `60800`). Negative money as `-$150.78`, never `$-150.78`.
-5. **Semantic marks**: `▰▱` proximity gauges, colored `●` category dots, `⚡ ⛔ ◉` state
-   glyphs, `∅ none` (dim) for empty sections — a mark is read faster than a word.
+3. **Always emit color.** Panes aren't TTYs — never rely on a library's auto-detection, it will
+   silently strip everything. `NO_COLOR` (non-empty) is the opt-out, and `FORCE_COLOR=0` or an empty/`dumb` `TERM` also
+   disable it. *Which* colors is
+   `tmux-design:decorate`'s call: it owns the semantic roles, the named themes, and the
+   truecolor→256→16 degradation. A pane that emits raw color codes instead of naming a role
+   can't be re-themed, so route palette questions there rather than hardcoding here.
+4. **Tables**: bold header row, thin rule under it, two-space column gaps, right-aligned
+   numerics. Pad with **display-column** width math, not `len()` — `⛔ blocked` is 9 characters
+   and 10 columns, and colored or hyperlinked cells are mostly invisible bytes. Use the kit's
+   `vlen()`/`pad()`; see `${CLAUDE_PLUGIN_ROOT}/skills/decorate/references/primitives.md`. Strip trailing zeros from exchange
+   decimals (`60800.00000000` → `60800`). Negative money as `-$150.78`, never `$-150.78`.
+5. **Semantic marks**: a mark is read faster than a word — `▰▱` proximity gauges, category dots,
+   `∅ none` (dim) for empty sections. Prefer marks that are one column wide in every locale;
+   `${CLAUDE_PLUGIN_ROOT}/skills/decorate/references/primitives.md`
+   has the safe set and the emoji-width trap.
 6. **Timestamps in the reader's local timezone**, short form `12 Jul 19:55` — a pane is glanced
    at, and mentally converting UTC costs more than the timestamp saves. Color heartbeats by
-   freshness (green fresh / yellow aging / red stale) with `(Xm ago)`. Pin a fixed zone only when
+   freshness with `(Xm ago)` — name the `ok`/`warn`/`err` roles, as `freshness()` does, rather
+   than the hues, so a theme swap still reads correctly. Pin a fixed zone only when
    the pane tracks one market's clock, and label it when you do.
 7. **Renderer scripts stay dependency-free** (Python stdlib ANSI). Before writing one, look for a
    renderer the project already has — `ls scripts/` for a `*view*.py` / `*pane*.py`, `scripts/watch-*`
@@ -52,9 +70,11 @@ Enforce these in every pane you create or touch:
    cp "${CLAUDE_PLUGIN_ROOT}/scripts/renderer_template.py" scripts/<name>_view.py
    python3 "${CLAUDE_PLUGIN_ROOT}/scripts/renderer_template.py" demo   # see the standard rendered
    ```
-   It ships `c() / vlen() / table() / gauge()` helpers plus local-timezone handling, so the
-   fiddly parts (ANSI-safe padding, palette) are already right. Richer tools only if already
-   installed — check `command -v gum viddy lnav jq bat glow`.
+   It ships `c() vlen() pad() trunc() sanitize() table() panel() divider() bar() sparkline() badge() kv()
+   gauge() freshness()` plus theme resolution and local-timezone handling, so the fiddly parts
+   (display-column padding, palette, degradation) are already right. Richer tools only if already
+   installed — `command -v gum viddy lnav jq bat glow`; `${CLAUDE_PLUGIN_ROOT}/skills/decorate/references/tooling.md` has the
+   invocations and the force-color rules that make them work in a pane.
 8. **Refresh cadence matches data cadence** — 90s for fast-moving state, 120s+ for slow. Render
    only the data the pane needs: never run a full fetch to display one section (the pane refreshes
    forever; wasted calls compound).
@@ -75,6 +95,10 @@ this order, both of which redraw in place rather than blanking the screen:
 2. `while :; do tput cup 0 0; <cmd>; tput ed; sleep <secs>; done` — homes the cursor and erases
    from there down, so the screen is overwritten rather than emptied and refilled. Never `clear`;
    that blank frame between redraws *is* the flicker.
+
+If a redraw still tears — half the old frame visible under half the new one — wrap it in
+synchronized output: `printf '\033[?2026h'` before, `printf '\033[?2026l'` after. tmux passes
+this through from 3.7 onward and ignores it harmlessly before that.
 
 ## Actions
 

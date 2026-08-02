@@ -6,8 +6,11 @@ allowed-tools: [Bash, Read, Write, Edit, Glob, Grep]
 
 # tmux-design — console
 
-Follow the `console` skill end to end. It owns the design standard (palette, tables, gauges,
-refresh cadence), the bundled renderer starter, the lnav format recipe, and the verify loop.
+Follow the `console` skill end to end. It owns pane wiring — layouts, refresh cadence, the
+bundled renderer starter, the lnav format recipe, and the verify loop.
+
+For how a surface should *look* — themes, boxes, bars, sparklines, badges, status-bar and
+pane-border styling, popups — use `/tmux-design:decorate` instead.
 
 Parse the arguments:
 
