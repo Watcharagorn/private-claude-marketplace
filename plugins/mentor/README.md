@@ -138,7 +138,7 @@ session can answer "which of these five is next?" without re-reading five plans.
 
 | State | Meaning |
 |---|---|
-| `draft` | Written, not yet approved. `/mentor:track` refuses to build it. |
+| `draft` | Written, not yet approved. `/mentor:track` won't build it until you approve it. |
 | `approved` | The gate released it. Ready to build. |
 | `in_progress` | Execution started; some steps are ticked. |
 | `implemented` | Every `Done when:` passed. |
@@ -322,9 +322,9 @@ extra deliverable. Instruction-only — no hooks.
 
 | Domain | Triggers | Extra plan deliverable |
 |---|---|---|
-| `plan-domain-frontend` | UX/UI — components, pages, styles, layout, theming | ASCII zone wireframes + delta/token tables; live mockups authored by the zoom combo agent only in an opt-in HTML zoom. |
+| `plan-domain-frontend` | UX/UI — components, pages, styles, layout, design systems, theming, responsive | ASCII zone wireframes + delta/token tables; live mockups authored by the zoom combo agent only in an opt-in HTML zoom. |
 | `plan-domain-backend-api` | API/endpoint/route/handler/schema/DTO/contract | Before/after contract diff tables, schema diffs, Mermaid sequence flows. |
-| `plan-domain-architecture` | Structural change — services, containers, datastores, integrations | Diff-highlighted C4-style Mermaid flowcharts, only the levels that change. |
+| `plan-domain-architecture` | Structural change — services, containers, datastores, queues, integrations, data flows (not pure content/config/doc/style/refactor) | Diff-highlighted C4-style Mermaid flowcharts, only the levels that change; a provenance list for any changed datastore field. |
 | `plan-domain-dynamic` | No registered domain matched (fallback) | A dispatched domain-definer names the domain and returns a best-practices brief; the plan gains a practice→step mapping. |
 
 ## Changes in v2.14.0

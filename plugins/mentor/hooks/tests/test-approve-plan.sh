@@ -187,8 +187,29 @@ chk "--handoff promotes to approved"              test "$(st handed-off)" = "app
 # No marker → no snapshot → nothing to promote. This is what stops a re-run from
 # stamping the whole repo.
 rm -f "$MARKER"; newplan gate-open
-ap >/dev/null
+out="$(ap)"
 chk "gate already open → nothing promoted"        test "$(st gate-open)" = "draft"
+# Silence here is indistinguishable from a plugin too old to have the promotion block
+# at all — which is how a plan left at `draft` after a clean-looking approval went
+# unnoticed until the next session refused to build it. Every path reports.
+chk "gate-open path still reports state"   sh -c "printf '%s' \"\$0\" | grep -q 'state: unchanged'" "$out"
+
+# Marker armed, but every candidate is already approved → nothing to promote, and that
+# must say so rather than print nothing.
+arm; newplan already-ok
+psq set already-ok approved >/dev/null
+out="$(ap)"
+chk "all-already-approved reports state"   sh -c "printf '%s' \"\$0\" | grep -q 'state: unchanged'" "$out"
+chk "already-approved plan stays approved"        test "$(st already-ok)" = "approved"
+
+# The flag paths early-exit after their directive — the state line must land BEFORE that.
+arm; newplan flagged-h
+out="$(ap --handoff)"
+chk "--handoff prints the state line"      sh -c "printf '%s' \"\$0\" | grep -q 'state: approved'" "$out"
+arm; newplan flagged-d
+out="$(ap --deliver)"
+chk "--deliver prints the state line"      sh -c "printf '%s' \"\$0\" | grep -q 'state: approved'" "$out"
+
 chk "months-old plan still untouched at the end"  test "$(st ancient)" = "unknown"
 
 echo

@@ -114,6 +114,13 @@ levels you are rendering and **why** (which delta justified each). Mark people a
 the diagram can style them distinctly. **Define every architecture term at first use** (generalist-
 reviewer principle) — name each container's role, and decode every protocol/abbreviation.
 
+When a datastore **gains or changes a field** other elements read, add a short
+**provenance list** for it: every writer that populates the field and whether the plan's steps
+actually cover that writer, plus what the field holds on rows written **before** this change. A
+diagram shows that the field and its join exist; it cannot show that nothing writes it going
+forward, or that half the existing rows are blank — which is where changes like this actually
+break, and a reviewer cannot infer either one from boxes and arrows.
+
 The spec is realized in the `.md` as Mermaid diagrams per §3 — the diagram (+ legend) is what ships;
 the spec is scaffolding, not a section to echo verbatim.
 

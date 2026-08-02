@@ -27,6 +27,13 @@ Render to the user: the branch, the base, and
 `git -C "$repo_root" diff "origin/${base}"...HEAD --stat` (fall back to the
 local `$base` if the remote ref is absent).
 
+**`repo_root`, `branch` and `base` do not survive to the next step.** Every step below
+is a separate Bash call, so re-run the block above at the top of any step that uses them.
+This is not bookkeeping pedantry: `git -C ""` silently falls back to cwd, so an unset
+`repo_root` looks like it worked, while an unset `base` turns `origin/${base}...HEAD` into
+a fatal `ambiguous argument` — which reads downstream as "the feature touched no files"
+and makes every file look out-of-scope.
+
 **Branch-ownership check** (GitHub + `gh` only — skip silently when `gh` is
 absent, the remote isn't GitHub, or the call fails; never block on it):
 
@@ -51,21 +58,58 @@ it after the push means a cherry-pick/branch-reset recovery.
 ## Step 2 — Pre-flight clean check
 
 ```bash
-[ -n "$(git -C "$repo_root" status --porcelain)" ] && {
+# Re-derive: every Step here is a separate Bash call, so Step 1's variables are gone.
+# `git -C ""` silently falls back to cwd, so an unset $repo_root looks fine and isn't.
+repo_root="$(git rev-parse --show-toplevel)"
+base="$(git -C "$repo_root" symbolic-ref --short refs/remotes/origin/HEAD 2>/dev/null | sed 's|^origin/||')"
+[ -n "$base" ] || base="$(git -C "$repo_root" rev-parse --abbrev-ref HEAD)"
+
+# --untracked-files=no on purpose: untracked files cannot be pushed, so they cannot reach
+# the PR — blocking on them protects nothing, while permanently bricking ship in any repo
+# that keeps local artifacts around (a tool's .temp/, .venv, a cache dir). This gate still
+# blocks staged adds and unmerged paths; the exemption is narrowly "never `git add`ed".
+[ -n "$(git -C "$repo_root" status --porcelain --untracked-files=no)" ] && {
   echo "Working tree has uncommitted changes. Commit or stash them, then re-invoke /mentor:ship." >&2
   exit 1
 }
+
+# Untracked paths are REPORTED, never staged, never blocking. Keep this listing — Step 3
+# uses it as the baseline for telling simplify's new files from pre-existing local junk.
+git -C "$repo_root" ls-files --others --exclude-standard
 ```
+
+One exception worth a question: if an untracked path sits under a directory that also
+appears in `git diff --name-only "origin/${base}"...HEAD`, that is the "forgot to
+`git add` the new module" case — the only untracked state that can actually break the PR.
+Ask via `AskUserQuestion` before continuing. Otherwise say what you saw and move on;
+never `git add` an untracked path to satisfy this step.
 
 ## Step 3 — Run `/simplify`
 
 Invoke `Skill(skill="simplify")` (a Claude Code built-in; if unavailable, do a
 quick review of the branch diff yourself instead). After it returns:
 
-1. **Re-run the clean check** — simplify may have edited files.
-2. If `git status --porcelain` is non-empty:
-   - Feature scope: `feature_files=$(git diff --name-only "origin/${base}"...HEAD | sort -u)`
-   - Dirty + untracked: `simplify_files=$(git diff --name-only HEAD; git ls-files --others --exclude-standard) | sort -u`
+1. **Re-run the clean check** — simplify may have edited files. Step 2's
+   `--untracked-files=no` exemption is for the **blocking gate only**; untracked files
+   belong in the comparison here, because simplify can create them.
+2. Re-derive `repo_root` and `base` first (separate Bash call again — see Step 2), then,
+   if anything is dirty:
+
+   ```bash
+   feature_files="$(git -C "$repo_root" diff --name-only "origin/${base}...HEAD" | sort -u)"
+   # Braces + the pipe INSIDE the substitution. `v=$(a; b) | sort -u` pipes the
+   # assignment's stdout to sort and runs the whole thing in a subshell, so v is
+   # never set in this shell at all — the comparison below then silently sees nothing.
+   simplify_files="$( { git -C "$repo_root" diff --name-only HEAD
+                        git -C "$repo_root" ls-files --others --exclude-standard; } | sort -u )"
+   ```
+
+   Subtract Step 2's untracked listing before judging scope: only untracked paths that
+   were **not** already there are simplify's output. Pre-existing local junk must never
+   reach the "include all" option — that is how a directory nobody meant to commit gets
+   committed. Use the same `ls-files --others --exclude-standard` in both places;
+   `git status --porcelain` collapses a directory to `?? dir/` while `ls-files` enumerates
+   the files inside it, so mixing the two makes the difference meaningless.
    - If every dirty file is in the feature scope: **auto-commit without
      prompting** — `chore(simplify): refactor before ship` — and surface
      `git diff HEAD~1 --stat` in the ship summary.
@@ -185,7 +229,7 @@ hand_dir="$(bash "${CLAUDE_PLUGIN_ROOT}/hooks/plan-state.sh" dir --plans)/<topic
 find "$hand_dir" -maxdepth 1 -type f -name '*.md' 2>/dev/null | while IFS= read -r n; do
   case "$(basename "$n")" in
     [0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9]-[0-9][0-9][0-9][0-9][0-9][0-9]-*.md)  # conforming notes only
-      mkdir -p -m 700 "$hand_dir/resolved"
+      bash "${CLAUDE_PLUGIN_ROOT}/hooks/plan-state.sh" ensure-dir "$hand_dir/resolved" >/dev/null
       mv "$n" "$hand_dir/resolved/$(basename "$n")"
       echo "work shipped → resolved: $(basename "$n")" ;;
   esac
@@ -213,19 +257,30 @@ Two edges worth knowing: `set` with no `--note` replaces any existing note with
 an empty one (so a prior `failed` reason is lost), and it has no downgrade guard —
 if `<topic>` resolves to a split parent, `implemented` overwrites `superseded`.
 
-## Step 7 — Point at the merge tail
+## Step 7 — Point at the merge tail, and stop
 
-One line in the ship report: `Watch CI and merge with /mentor:merge` (GitHub +
-`gh` only — omit the line otherwise). Ship's job ends at the open PR; watching
-checks and merging is `/mentor:merge`'s, so it stays re-enterable after a
-stalled CI run without re-running ship.
+**Stop here.** Ship's job ends at the open PR. Emit one line in the ship report:
+`Watch CI and merge with /mentor:merge` (GitHub + `gh` only — omit the line otherwise).
+Keeping the tail in `/mentor:merge` is what makes it re-enterable after a stalled CI run
+without re-running ship.
+
+Do **not** watch checks, poll `gh run`, or `sleep` after the push — `/mentor:merge`
+Step 2 owns the one bounded watch, and chaining sleeps or re-checks is the **No busy-wait**
+rule owned by `mentor:dispatch-agents` ("Async runtime & lifecycle").
+
+One carve-out worth naming, because it is the reason this gets overridden: when the plan's
+own `Done when:` requires a green CI run, that obligation is real — but it does not license
+watching here. Invoke `/mentor:merge`, which owns the bounded watch, and report what it
+found. The `Done when:` is satisfied either way; the difference is whether the waiting is
+done by something that knows how to wait.
 
 ## Failure modes
 
 | Situation | What to do |
 |---|---|
 | Detached HEAD | Abort — check out a branch first. |
-| Dirty tree at Step 2 | Abort — user commits or stashes, then re-invokes. |
+| Dirty tree at Step 2 | Abort — user commits or stashes, then re-invokes. Untracked-only is NOT dirty; report it and continue. |
+| Tempted to watch CI after the push | Stop and hand to `/mentor:merge`. Never a `seq`/`sleep` poll loop — that is the **No busy-wait** rule. |
 | Simplify edited out-of-scope files | Ask before committing. |
 | Tests fail | Default: stop; branch intact for iteration. |
 | Push rejected | Offer `pull --rebase` + retry, or stop. Never force-push. |

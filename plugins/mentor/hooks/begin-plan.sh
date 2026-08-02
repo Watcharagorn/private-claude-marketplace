@@ -65,7 +65,7 @@ EOF
   esac
 fi
 
-mkdir -p -m 700 "$plans_dir"
+mentor_ensure_private_dir "$(mentor_state_dir "$repo_root")" "$plans_dir"
 mentor_ensure_gitignore "$(mentor_state_dir "$repo_root")"
 
 # One-shot migration (v2.2.0): flat <slug>.md + <slug>-*.html → <slug>/plan.md +
@@ -75,11 +75,11 @@ mentor_ensure_gitignore "$(mentor_state_dir "$repo_root")"
 while IFS= read -r f; do
   [ -f "$f" ] || continue
   slug="$(basename "$f" .md)"
-  mkdir -p -m 700 "${plans_dir}/${slug}"
+  mentor_ensure_private_dir "$(mentor_state_dir "$repo_root")" "${plans_dir}/${slug}"
   mv -n "$f" "${plans_dir}/${slug}/plan.md" 2>/dev/null || true
   for h in "${plans_dir}/${slug}-"*.html; do
     [ -f "$h" ] || continue
-    mkdir -p -m 700 "${plans_dir}/${slug}/zoom"
+    mentor_ensure_private_dir "$(mentor_state_dir "$repo_root")" "${plans_dir}/${slug}/zoom"
     base="${h##*/}"
     mv -n "$h" "${plans_dir}/${slug}/zoom/${base#"$slug"-}" 2>/dev/null || true
   done
@@ -94,7 +94,7 @@ zooms_dir="$(mentor_state_dir "$repo_root")/zooms"
 for zdir in "${plans_dir}"/*/zoom; do
   [ -d "$zdir" ] || continue
   slug="$(basename "$(dirname "$zdir")")"
-  mkdir -p -m 700 "${zooms_dir}/${slug}"
+  mentor_ensure_private_dir "$(mentor_state_dir "$repo_root")" "${zooms_dir}/${slug}"
   for f in "$zdir"/*.html "$zdir"/.*.opened; do
     [ -e "$f" ] || continue
     mv -n "$f" "${zooms_dir}/${slug}/" 2>/dev/null || true

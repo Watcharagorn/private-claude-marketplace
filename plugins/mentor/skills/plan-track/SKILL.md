@@ -40,6 +40,13 @@ honest on their own.
   notes carry conversation context; this skill carries plan state. If the user wants
   "where were we", they want `/mentor:resume`; if they want "what's built", they want
   this.
+- **Adopting a plan authored outside mentor** — native plan mode, a colleague's doc.
+  It has no state record and no dispatch annotations, so there is nothing here to
+  list or execute. Re-run `/mentor:plan` with that plan pasted as the task statement;
+  research is short because the decisions are already made, and it comes out the far
+  side as a real plan. Do not register it by hand: `approved` means the gate ran, and
+  a plan with no `[role:` annotations and no `Dispatch: skipped —` line gives
+  `mentor:dispatch-agents` nothing to execute.
 
 ---
 
@@ -104,7 +111,7 @@ were replaced by their children.
 | `failed` | Show the sidecar's note — it says what broke last time — then set `in_progress` and retry, feeding that note to the first agent. |
 | `in_progress` | An interrupted run. Re-enter execution **from the first unticked step**; never restart from step 1. |
 | `implemented` | Say so and offer another. Do not rebuild it. |
-| `draft` | **Refuse to execute.** The approval gate never released this plan. Point the user at `/mentor:plan`'s approval step. In a fresh session there is no `.planning` marker, so `plan-gate.sh` would happily allow the edits — this refusal is what keeps that from becoming a hole in the gate. **Escape hatch:** if the user says the plan WAS approved (pre-v2.14 `--handoff`/`--deliver` approvals didn't record it), confirm with them, then `set <slug> approved --note "user-confirmed prior approval"` and proceed — never silently, always on their explicit say-so. |
+| `draft` | **Not buildable as it stands.** The approval gate never released this plan, and in a fresh session there is no `.planning` marker, so `plan-gate.sh` would happily allow the edits — this refusal is what keeps that from becoming a hole in the gate. There is exactly one authorized way through, on the user's explicit say-so: **"Approving a draft plan here"** below. |
 | `unknown` | A pre-2.4.0 plan with nothing on record. Never show the approval pointer — it would be false for a plan that shipped months ago. Offer: mark it implemented, or leave it alone. |
 
 To move state:
@@ -113,8 +120,39 @@ To move state:
 bash "${CLAUDE_PLUGIN_ROOT}/hooks/plan-state.sh" set <slug> <state> [--note "…"]
 ```
 
+### Approving a draft plan here
+
+A plan arrives here still `draft` for one of two reasons: the user approved it in an
+earlier session but the approval was never recorded (pre-v2.14 `--handoff`/`--deliver`
+didn't record one), or they never approved it and want to now. Both land in the same
+place, so ask once with `AskUserQuestion` — approved earlier / approve it now / not yet
+— and never infer the answer. On "not yet", stop and point them at `/mentor:plan`.
+
+On either yes, move the state first:
+
+```bash
+bash "${CLAUDE_PLUGIN_ROOT}/hooks/plan-state.sh" set <slug> approved --note "<which reason>"
+```
+
+That call is what makes this safe: it is slug-scoped, so it promotes the one plan the
+user actually chose. Then check whether the gate is still armed — if
+`.mentor/plans/.planning` exists, edits are still blocked and the state move alone will
+not unblock them:
+
+```bash
+bash "${CLAUDE_PLUGIN_ROOT}/hooks/approve-plan.sh"
+```
+
+It takes **no plan argument** — only `--handoff` or `--deliver`, which mean something
+else — so passing a slug fails with `Unknown flag`. It also promotes every plan newer
+than the marker, which is harmless when the marker is this session's and worth knowing
+when it is not; the slug-scoped `set` above is what pins the intent to one plan. Run it
+as a single command: a non-zero exit means the gate stayed **closed** and has to be
+surfaced, never swallowed by a `||` fallback — a swallowed failure reads exactly like a
+successful approval.
+
 **Executing** — invoke `Skill(skill="mentor:dispatch-agents")` and follow its
-"Executing the dispatches" section as written. Two things are specific to arriving
+"Executing the dispatches" section as written. Three things are specific to arriving
 here rather than straight from `mentor:plan`:
 
 - On an `in_progress` plan, start at the **first unticked step**. The plan's `✅` marks
@@ -122,6 +160,11 @@ here rather than straight from `mentor:plan`:
   mode this whole skill exists to prevent.
 - When the plan is a **split child**, pass its isolation header into every
   implementation agent's prompt, so the sibling boundary travels with the work.
+- When the plan states **`Dispatch: skipped`**, there are no agents to dispatch —
+  implement in the main thread under `mentor:plan` Step 6's rule for that case, and keep
+  everything around it (step ticks, `Done when:` verification, the **No busy-wait** rule
+  from `mentor:dispatch-agents`, close-out) exactly as the dispatch path does it.
+  Arriving here does not make that path unowned.
 
 ## Step 4 — Close out
 
@@ -138,15 +181,18 @@ implementation pass has left little room for another.
 - The context check ran before any dispatch.
 - The user saw real state, not a guess.
 - The selected plan was resolved unambiguously, never auto-picked.
-- A `draft` plan was refused; an `implemented` one was not rebuilt.
+- A `draft` plan was either refused or approved by the user first — never silently
+  built; an `implemented` one was not rebuilt.
 - The plan that ran ended at `implemented` or at `failed` with a note.
 
 ### Do NOT
 
 - Do **not** dispatch implementation on `CONTEXT: ASK` before the user has answered —
   and do **not** refuse them on `CONTEXT: HANDOFF`, which means they already did.
-- Do **not** execute a `draft` plan, however open the gate happens to be.
-- Do **not** arm or release the edit gate — only `mentor:plan` does that.
+- Do **not** execute a plan that is still `draft`, however open the gate happens to be —
+  approve it through the step above first, or stop.
+- Do **not** **arm** the edit gate, and release it only through "Approving a draft plan
+  here", on the user's explicit say-so. `mentor:plan` owns every other approval path.
 - Do **not** restate the dispatch grammar or the selection rule here; cite
   `mentor:dispatch-agents` and `mentor:resume` Step 4. A second copy is a second thing
   to keep true.

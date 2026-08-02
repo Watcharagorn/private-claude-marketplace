@@ -216,8 +216,7 @@ Compute the path (substituting a kebab-case `<slug>` derived from the request �
 slug="<slug>"
 plans_dir="$(bash "${CLAUDE_PLUGIN_ROOT}/hooks/plan-state.sh" dir --plans)"   # worktree-safe
 [ -n "$plans_dir" ] || { echo "ERROR: mentor plans dir unresolved — is CLAUDE_PLUGIN_ROOT set?" >&2; exit 1; }
-plan_dir="$plans_dir/$slug"
-mkdir -p -m 700 "$plan_dir"   # 700: plans may contain sensitive paths/snippets
+plan_dir="$(bash "${CLAUDE_PLUGIN_ROOT}/hooks/plan-state.sh" ensure-dir "$plans_dir/$slug")" || exit 1   # creates it AND locks the path to 700
 echo "${plan_dir}/plan.md"   # fixed name inside the slug dir, NO timestamp — stable across revisions
 ```
 
@@ -412,8 +411,8 @@ re-invocation only if it is already loaded in this session), then follow its
 "Executing the dispatches" section: read the approved plan file, dispatch each
 `Run in parallel:` group's agents in ONE message (multiple `Agent` calls), run
 `Sequential:` steps one at a time, and verify each step's `Done when:` before
-starting the next. Mark each step done in the plan file as it passes. Do not
-busy-poll background agents — end the turn and let the harness re-invoke you.
+starting the next. Mark each step done in the plan file as it passes. Its
+**No busy-wait** rule applies to every wait on this path, dispatched or not.
 The main thread orchestrates and verifies; it does not re-do or re-read the
 work it delegated. Only when the plan opens its Implementation steps with
 `Dispatch: skipped — <reason>` does the main thread implement directly.

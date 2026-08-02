@@ -24,8 +24,8 @@
 #       silently picking one of N children.
 #
 #   context
-#       CONTEXT: OK|WARN|BLOCKED (~N tokens), plus the handoff/compact steer when
-#       BLOCKED. /mentor:track calls this before dispatching: context-gate.sh passes
+#       CONTEXT: ASK|HANDOFF|WARN|OK|UNKNOWN (~N tokens), plus the handoff/compact
+#       steer on ASK. /mentor:track calls this before dispatching: context-gate.sh passes
 #       every slash-prefixed prompt, so a slash command that starts an implementation
 #       has no other backstop.
 #
@@ -57,8 +57,9 @@ Usage: plan-state.sh <subcommand>
   set <slug> <state> [--note "…"]       state: draft|approved|in_progress|implemented|failed|superseded
   list [--group G]                      every plan with its effective state
   current                               the current plan (group-aware)
-  context                               CONTEXT: OK|WARN|BLOCKED (~N tokens)
+  context                               CONTEXT: ASK|HANDOFF|WARN|OK|UNKNOWN (~N tokens)
   dir [--plans]                         the repo-scoped mentor dir (or its plans dir)
+  ensure-dir <path>                     mkdir it + chmod 700 the whole path; echoes it
 EOF
 }
 
@@ -121,6 +122,40 @@ if [ "$sub" = "dir" ]; then
   else
     echo "$mdir"
   fi
+  exit 0
+fi
+
+# --- ensure-dir: create a mentor artifact dir and lock the whole path to 700 ---
+# Skills call this instead of `mkdir -p -m 700`, which cannot deliver what it promises
+# (see mentor_ensure_private_dir). Echoing the path lets a snippet read
+# `d="$(plan-state.sh ensure-dir "$d")"`, so a failure kills the pipeline before the write
+# rather than silently leaving the dir wide open.
+if [ "$sub" = "ensure-dir" ]; then
+  ed_target="${1:-}"
+  if [ -z "$ed_target" ]; then
+    echo "[mentor plan-state] ensure-dir needs a directory path." >&2
+    exit 1
+  fi
+  ed_repo="$(mentor_repo_root "$(pwd)")"
+  if [ -n "$ed_repo" ]; then
+    ed_mdir="$(mentor_state_dir "$ed_repo")"
+  else
+    ed_mdir="$HOME/.claude/mentor/_no-repo"
+  fi
+  # Confine it. Callers substitute a model-chosen <topic> into the path, so without this
+  # check ensure-dir would be an arbitrary mkdir-and-chmod primitive reachable from a
+  # prompt. Compare canonically so `..` cannot walk out.
+  ed_canon="$(python3 -c 'import os,sys; print(os.path.realpath(sys.argv[1]))' "$ed_target" 2>/dev/null || echo "$ed_target")"
+  ed_base="$(python3 -c 'import os,sys; print(os.path.realpath(sys.argv[1]))' "$ed_mdir" 2>/dev/null || echo "$ed_mdir")"
+  case "$ed_canon" in
+    "$ed_base"|"$ed_base"/*) ;;
+    *)
+      echo "[mentor plan-state] ensure-dir refuses a path outside ${ed_mdir}: ${ed_target}" >&2
+      exit 1
+      ;;
+  esac
+  mentor_ensure_private_dir "$ed_mdir" "$ed_canon"
+  echo "$ed_canon"
   exit 0
 fi
 

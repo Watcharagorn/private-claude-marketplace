@@ -22,6 +22,10 @@
 # self-heal fires it prints a stdout notice — a silent release is later
 # indistinguishable from an approval.
 #
+# Independently of the marker, a direct write to a plan's `.state.json` sidecar is always
+# denied — plan-state.sh is its only writer. That check runs before the marker check
+# because sidecars are edited mostly at close-out, when the gate is already released.
+#
 # No marker → exit 0 (not planning). Cannot resolve the repo/marker → exit 0
 # (nothing to protect). Exit 2 = block (stderr shown to the agent).
 
@@ -45,6 +49,46 @@ repo_root_common="$(mentor_repo_root "$CWD")"
 plans_dir="$(mentor_plans_dir "$repo_root_common")"
 marker="${plans_dir}/.planning"
 
+# Canonicalize without requiring the path to exist (new-file writes are the common
+# case). macOS BSD `realpath` lacks -m and fails on non-existent paths, so fall back
+# to python's os.path.realpath (resolves the existing prefix). A relative path is
+# resolved against the TOOL's cwd, not the hook process's — they are not the same.
+_canon() {
+  local p="${1/#\~/$HOME}"     # expand leading ~ to $HOME before realpath
+  case "$p" in /*) ;; *) p="${CWD%/}/$p" ;; esac
+  realpath -m -- "$p" 2>/dev/null && return 0
+  realpath -- "$p" 2>/dev/null && return 0
+  python3 -c "import os,sys; print(os.path.realpath(sys.argv[1]))" "$p" 2>/dev/null && return 0
+  echo "$p"
+}
+
+FILE_PATH="$(printf '%s' "$INPUT" | jq -r '.tool_input.file_path // .tool_input.notebook_path // ""' 2>/dev/null)" || true
+FILE_CANON=""
+[ -n "$FILE_PATH" ] && FILE_CANON="$(_canon "$FILE_PATH")"
+
+# --- single-writer guard for plan sidecars ---
+# `.state.json` is written ONLY by plan-state.sh, which validates the state, preserves
+# the note, and writes atomically. A hand-rolled Write skips all three and drifts as the
+# schema evolves. This arm sits ABOVE the marker check on purpose: the sidecar is edited
+# most often at close-out, long after the gate released, which is precisely when the
+# skill line carrying this rule isn't loaded and nothing else would catch it. Match the
+# CANONICAL path — a raw-string match is slipped by `./.mentor/…`, a `..` segment, or a
+# symlinked prefix, and this is a Write, so a slipped guard lands.
+case "$FILE_CANON" in
+  */.mentor/plans/*/.state.json)
+    slug="$(basename "$(dirname "$FILE_CANON")")"
+    cat >&2 <<EOF
+[mentor plan-gate] Refusing a direct write to a plan sidecar: ${FILE_PATH}
+
+plan-state.sh is the only writer of .state.json — it validates the state, keeps the
+note, and writes atomically. Use it instead:
+
+  plan-state.sh set ${slug} <draft|approved|in_progress|implemented|failed|superseded> --note "…"
+EOF
+    exit 2
+    ;;
+esac
+
 # No marker → not planning → allow.
 [ -f "$marker" ] || exit 0
 
@@ -52,21 +96,9 @@ marker="${plans_dir}/.planning"
 REPO_WT="$(git -C "$CWD" rev-parse --show-toplevel 2>/dev/null || true)"
 [ -z "$REPO_WT" ] && REPO_WT="$repo_root_common"
 
-# Canonicalize without requiring the path to exist (new-file writes are the common
-# case). macOS BSD `realpath` lacks -m and fails on non-existent paths, so fall back
-# to python's os.path.realpath (resolves the existing prefix).
-_canon() {
-  local p="${1/#\~/$HOME}"     # expand leading ~ to $HOME before realpath
-  realpath -m -- "$p" 2>/dev/null && return 0
-  realpath -- "$p" 2>/dev/null && return 0
-  python3 -c "import os,sys; print(os.path.realpath(sys.argv[1]))" "$p" 2>/dev/null && return 0
-  echo "$p"
-}
 REPO_CANON="$(_canon "$REPO_WT")"
 
-FILE_PATH="$(printf '%s' "$INPUT" | jq -r '.tool_input.file_path // .tool_input.notebook_path // ""' 2>/dev/null)" || true
-if [ -n "$FILE_PATH" ]; then
-  FILE_CANON="$(_canon "$FILE_PATH")"
+if [ -n "$FILE_CANON" ]; then
   case "$FILE_CANON" in
     "${REPO_CANON}/.mentor"|"${REPO_CANON}/.mentor/"*) exit 0 ;;  # mentor's own state (plan file, markers) → always allow, staleness never evaluated
     "$REPO_CANON"|"${REPO_CANON}/"*) ;;   # else inside repo → deny (fall through)

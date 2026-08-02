@@ -181,7 +181,7 @@ mentor session routes through this skill — callers load it (once per session)
 before issuing `Agent` calls. Then:
 
 1. **Read the approved plan file** (`<repo>/.mentor/plans/<slug>/plan.md`) — do not work from memory.
-2. **Dispatch "Run in parallel:" groups** — issue ALL `Agent()` calls for each parallel group in a **single message** so they run concurrently. After dispatching, do not busy-poll with `sleep`/no-op Bash calls; stop and let the harness re-invoke you when agents complete.
+2. **Dispatch "Run in parallel:" groups** — issue ALL `Agent()` calls for each parallel group in a **single message** so they run concurrently. After dispatching, apply **No busy-wait** ("Async runtime & lifecycle" below): stop and let the harness re-invoke you when agents complete.
 3. **Dispatch "Sequential:" steps one at a time** — wait for the prior step's result before issuing the next call.
 4. **Verify each `Done when:` criterion** before moving to the next step — agents describe what they intended; trust but verify.
 5. **CLOSING CHECKLIST — always, after the last step verifies:**
@@ -199,6 +199,16 @@ skill, plus the dispatches in `plan` Step 2, `zoom` (which `plan` Step 5
 delegates to), `plan-review`, `tour`, and
 `grilling` (each cross-references this section):
 
+- **No busy-wait.** Waiting is not work: never chain `sleep`s or fire no-op Bash
+  calls to pass the time. This governs **every** waiting surface in a mentor
+  session, not only dispatched agents — a long build, a background test suite, a
+  deploy. When something else will wake you (a dispatch completing, a backgrounded
+  command exiting), **end the turn** and let the harness re-invoke you. When nothing
+  will, make **one** bounded blocking call — a condition loop such as
+  `until ! pgrep -f <proc>; do sleep 5; done`, or a monitor/wait tool — sized under
+  the Bash timeout ceiling (600s). A chain of short sleeps burns a turn apiece, and
+  the harness blocks bare foreground `sleep` outright, so the chain tends to fail in
+  the middle and leave the wait half-done.
 - **Deliver before idling.** End every prompt sketch with a delivery directive:
   "Deliver your full result (final text / message per your runtime) BEFORE
   going idle — an idle signal with no delivered result is a contract

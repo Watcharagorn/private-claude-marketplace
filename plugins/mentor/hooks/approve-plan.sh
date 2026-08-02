@@ -38,6 +38,9 @@ case "$flag" in
   *)
     echo "[mentor approve-plan] Unknown flag: ${flag}" >&2
     echo "Usage: approve-plan.sh [--deliver | --handoff]" >&2
+    echo "This script takes no plan argument — it releases the gate and promotes every" >&2
+    echo "plan newer than the .planning marker. To approve ONE plan by slug, use:" >&2
+    echo "  plan-state.sh set <slug> approved --note \"…\"" >&2
     exit 1
     ;;
 esac
@@ -110,10 +113,17 @@ fi
 #
 # Fail-soft throughout: every helper here exits 0, so a state-write problem can never
 # turn a successful gate release into an error.
+#
+# Report the outcome on EVERY path, including both "nothing to do" paths. Silence is
+# ambiguous: it reads identically to the promotion block never running at all (a stale
+# cached plugin predating it), which is exactly how a plan left at `draft` after a
+# successful-looking approval went unnoticed until the next session refused to build it.
+# One `state:` line always prints, before the --handoff/--deliver early exits below.
 if [ -n "$newly_planned" ]; then
-  promoted=""
+  promoted=""; candidates=0
   while IFS= read -r plan_path; do
     [ -n "$plan_path" ] || continue
+    candidates=$((candidates + 1))
     plan_dir="$(dirname "$plan_path")"
     case "$(mentor_plan_effective_state "$plan_dir")" in
       draft|unknown) ;;
@@ -122,7 +132,13 @@ if [ -n "$newly_planned" ]; then
     mentor_plan_state_write "$plan_dir" approved "" "" ""
     promoted="${promoted}$(basename "$plan_dir") "
   done <<<"$newly_planned"
-  if [ -n "$promoted" ]; then echo "  state: approved — ${promoted% }"; fi
+  if [ -n "$promoted" ]; then
+    echo "  state: approved — ${promoted% }"
+  else
+    echo "  state: unchanged — nothing needed promoting (${candidates} candidate(s), none in draft/unknown)"
+  fi
+else
+  echo "  state: unchanged — no plans written this session, nothing to promote"
 fi
 
 if [ "$flag" = "--handoff" ]; then

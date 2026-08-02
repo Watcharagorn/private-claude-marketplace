@@ -144,7 +144,7 @@ neither is listed, degrade gracefully with the one-line notice
 ## Step 5 — Publish (stable URL; mechanics note printed once)
 
 ```bash
-mkdir -p "$state_dir/tours"
+mkdir -p "$state_dir/tours"   # bare on purpose: tours are meant to be shared, not 700
 tour_file="$state_dir/tours/<slug>-<audience>.html"
 [ -f "$tour_file" ] && echo "EXISTS"    # decides the mechanics note below
 ```

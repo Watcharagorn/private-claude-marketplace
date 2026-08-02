@@ -19,6 +19,20 @@ single message, and verifies the finished files — each written to
 plan file or planning session is required, and an armed plan gate is no obstacle (the
 `.mentor/` tree is gate-exempt).
 
+**If that call returns this command's own text** — any re-invocation or
+previously-loaded notice — rather than a file whose frontmatter reads
+`name: zoom`, the skill body never loaded: this command and the skill share the
+name `zoom`. Resolve and read it directly, then follow that file end to end:
+
+```bash
+echo "${CLAUDE_PLUGIN_ROOT}/skills/zoom/SKILL.md"
+```
+
+`Read` the printed path — `Read` cannot expand `${CLAUDE_PLUGIN_ROOT}` itself. **Do not
+re-run the steps above this one:** they already ran, and a step that writes or marks
+something can undo its own first pass when repeated.
+
+
 The arguments below are **optional** — a subject (free text, a path, or a plan-slug
 substring), and/or a topic and perspective when you already know the slice you want:
 

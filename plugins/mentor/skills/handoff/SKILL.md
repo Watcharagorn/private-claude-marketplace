@@ -62,8 +62,7 @@ topic="<topic>"  # ← REPLACE per the rule above (kebab-case; the plan's slug, 
 slug="session"   # ← REPLACE with a short kebab-case of the next-session focus, e.g. "auth-retry-fix"
 mentor_dir="$(bash "${CLAUDE_PLUGIN_ROOT}/hooks/plan-state.sh" dir)"   # worktree-safe; _no-repo fallback
 [ -n "$mentor_dir" ] || { echo "ERROR: mentor dir unresolved — is CLAUDE_PLUGIN_ROOT set?" >&2; exit 1; }
-hand_dir="$mentor_dir/plans/$topic/handoffs"
-mkdir -p -m 700 "$hand_dir"
+hand_dir="$(bash "${CLAUDE_PLUGIN_ROOT}/hooks/plan-state.sh" ensure-dir "$mentor_dir/plans/$topic/handoffs")" || exit 1
 # keep transient handoffs out of git (in-repo only); never clobber a user-tweaked file
 case "$mentor_dir" in
   */_no-repo) ;;   # outside a repo — nothing to gitignore
@@ -120,6 +119,10 @@ Pick the entries that fit the current state, tailored to the next-session focus:
 - **Unclear approach / unfinished design** → `/mentor:plan <focus>` (runs the gated plan harness).
 - **A plan exists but its decisions feel shaky** → `/mentor:grill` to pressure-test it, then re-plan / approve.
 - **Approved plan(s), ready to build** → `/mentor:track` — it lists each plan's state, lets the next agent pick one, and executes it via `mentor:dispatch-agents`; `/mentor:ship` when done. Point there rather than at "resume implementation": the next agent needs to know *which* plan and *how far it got*, and `/mentor:track` is the only thing that answers both.
+- **Work planned outside mentor** (native plan mode, an external doc) → `/mentor:plan <focus>`
+  with that plan pasted as the task statement. It has no mentor plan record, so `/mentor:track`
+  cannot list or execute it as-is — say that plainly rather than suggesting the next agent
+  "consider registering it", which is not something they can act on.
 - **Repeated manual work worth capturing** → `/loom:harvest`.
 - **Heavy multi-area work** → dispatch subagents per `mentor:dispatch-agents`.
 - If `.mentor/config.json` exists (a persisted mode — `/mentor:mode status` shows it), cite the repo's approval-gate default so the next agent knows whether "Proceed" or "Deliver plan only" is listed first at plan approval.
@@ -157,7 +160,7 @@ find "$hand_dir" -maxdepth 1 -type f -name '*.md' ! -name "$(basename "$out")" 2
 | while IFS= read -r old; do
     case "$(basename "$old")" in
       [0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9]-[0-9][0-9][0-9][0-9][0-9][0-9]-*.md)
-        mkdir -p -m 700 "$hand_dir/resolved"
+        bash "${CLAUDE_PLUGIN_ROOT}/hooks/plan-state.sh" ensure-dir "$hand_dir/resolved" >/dev/null
         mv "$old" "$hand_dir/resolved/$(basename "$old")"
         echo "superseded → resolved: $(basename "$old")" ;;
     esac

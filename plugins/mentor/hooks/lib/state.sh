@@ -98,6 +98,41 @@ GITIGNORE
   return 0
 }
 
+# mentor_ensure_private_dir <state_dir> <target_dir> — mkdir -p <target_dir>, then chmod
+# 700 every level from <state_dir>/plans down to <target_dir> inclusive.
+#
+# Why this exists rather than `mkdir -p -m 700`: `-m` applies the mode ONLY to the final
+# component, so intermediates land at whatever umask gives (typically 755), and re-running
+# it against an already-existing dir is a mode no-op. Every mentor call site creates a
+# nested path, so the "700, because plans may carry sensitive paths and snippets" promise
+# could never hold as written — and a tree that starts wrong stays wrong forever. Walking
+# down from plans/ makes the call self-healing: the next command repairs earlier drift.
+#
+# <state_dir> itself is deliberately NOT touched — it holds the committed config.json and
+# constitution.md, and locking it down would be a behavior change nobody asked for.
+# Fail-soft throughout: bad input or an unwritable path returns 0, never breaks a caller.
+mentor_ensure_private_dir() {
+  local state_dir="${1:-}" target="${2:-}" base rel part cur
+  [ -z "$state_dir" ] || [ -z "$target" ] && return 0
+  mkdir -p "$target" 2>/dev/null || return 0
+  base="${state_dir%/}/plans"
+  case "$target" in
+    "$base"|"$base"/*) ;;
+    *) chmod 700 "$target" 2>/dev/null || true; return 0 ;;   # outside plans/ → leaf only
+  esac
+  chmod 700 "$base" 2>/dev/null || true
+  rel="${target#"$base"}"; rel="${rel#/}"
+  cur="$base"
+  # `while read -d /` would drop the final part; split on / explicitly instead.
+  local IFS=/
+  for part in $rel; do
+    [ -n "$part" ] || continue
+    cur="${cur}/${part}"
+    chmod 700 "$cur" 2>/dev/null || true
+  done
+  return 0
+}
+
 # mentor_config_get <repo_root> <key> — echo the string value of config.json[<key>]
 # (numbers coerced to text), or empty when no repo / no file / no jq / unset.
 mentor_config_get() {

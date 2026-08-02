@@ -17,6 +17,20 @@ a scenario manifest via a dispatched agent, cross-checks coverage, renders one s
 per audience, and publishes to a stable URL — revisions republish in place, with parity kept across
 audiences.
 
+**If that call returns this command's own text** — any re-invocation or
+previously-loaded notice — rather than a file whose frontmatter reads
+`name: tour`, the skill body never loaded: this command and the skill share the
+name `tour`. Resolve and read it directly, then follow that file end to end:
+
+```bash
+echo "${CLAUDE_PLUGIN_ROOT}/skills/tour/SKILL.md"
+```
+
+`Read` the printed path — `Read` cannot expand `${CLAUDE_PLUGIN_ROOT}` itself. **Do not
+re-run the steps above this one:** they already ran, and a step that writes or marks
+something can undo its own first pass when repeated.
+
+
 The arguments below are **optional** — an audience (`user` | `dev` | `both`) and/or a subject
 (topic or plan-slug substring):
 

@@ -189,7 +189,10 @@ Then resolve a selection:
    ```
 
    An open PR that isn't this work means new commits would land in someone else's PR; surface it
-   now — discovering it at `/mentor:ship` costs a cherry-pick recovery.
+   now — discovering it at `/mentor:ship` costs a cherry-pick recovery. An open PR that **is** this
+   work means the shipping already happened: say `Watch CI and merge with /mentor:merge` rather than
+   re-implementing. Nothing else routes a later session into the merge tail, so a raw `gh pr merge`
+   here is how a shipped plan ends up stuck at `in_progress`.
 6. **Act on the note's "Recommended mentor commands for the next agent."** **Bound "act":** invoke the
    listed mentor command(s) **exactly as the note states** — do not infer extra steps or expand beyond
    what the note recommends. If the note recommends `/mentor:plan <focus>`, run that. If it recommends
@@ -204,8 +207,7 @@ Then resolve a selection:
 
      ```bash
      note="<the resumed note's absolute path>"
-     resolved_dir="$(dirname "$note")/resolved"
-     mkdir -p -m 700 "$resolved_dir"
+     resolved_dir="$(bash "${CLAUDE_PLUGIN_ROOT}/hooks/plan-state.sh" ensure-dir "$(dirname "$note")/resolved")" || exit 1
      mv "$note" "$resolved_dir/$(basename "$note")"
      echo "resolved: $resolved_dir/$(basename "$note")"
      ```

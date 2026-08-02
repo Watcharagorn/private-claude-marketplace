@@ -48,6 +48,24 @@ Do these in order:
    and release the gate except Review, Split, and Keep planning, which stay in
    planning.
 
+**If that call returns this command's own text** — any re-invocation or
+previously-loaded notice — rather than a file whose frontmatter reads
+`name: plan`, the skill body never loaded: this command and the skill share the
+name `plan`. Resolve and read it directly, then follow that file end to end:
+
+```bash
+echo "${CLAUDE_PLUGIN_ROOT}/skills/plan/SKILL.md"
+```
+
+`Read` the printed path — `Read` cannot expand `${CLAUDE_PLUGIN_ROOT}` itself. **Do not
+re-run the steps above this one:** they already ran, and a step that writes or marks
+something can undo its own first pass when repeated.
+
+That bites hardest at step 1 here: re-running `begin-plan.sh` resets the `.planning`
+marker's mtime, and `approve-plan.sh` then refuses to release a plan file older than the
+marker — stranding a finished plan unapprovable.
+
+
 The task to plan:
 
 $ARGUMENTS

@@ -27,8 +27,8 @@ Do these in order:
 
 2. **Call `Skill({"skill": "mentor:plan-track"})` and follow it end to end.**
    It lists the plans, resolves the selection, and executes the chosen plan through
-   `mentor:dispatch-agents`. A `draft` plan is refused — the approval gate never
-   released it; that belongs to `/mentor:plan`.
+   `mentor:dispatch-agents`. A `draft` plan is never built silently — the approval
+   gate never released it, so the skill asks you to approve it first, or stops.
 
 Argument (optional) — a plan slug, a 1-based number from the list, or `status` to
 print state and stop without building:

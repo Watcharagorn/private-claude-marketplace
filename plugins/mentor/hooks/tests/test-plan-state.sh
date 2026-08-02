@@ -295,6 +295,31 @@ out="$(ps current)"; rc=$?
 chk "current with no plans → exit 0"    test "$rc" = "0"
 chk "current with no plans → reason"    has "No plan found" "$out"
 
+echo "== ensure-dir — creates + locks to 700, and refuses to escape the mentor dir =="
+# Skills substitute a model-chosen <topic> into these paths, so an unconfined ensure-dir
+# would be an arbitrary mkdir-and-chmod primitive reachable straight from a prompt.
+ed_mdir="$(ps dir)"
+out="$(ps ensure-dir "$ed_mdir/plans/ed-topic/handoffs")"; rc=$?
+chk "ensure-dir inside the mentor dir → exit 0"  test "$rc" = "0"
+chk "ensure-dir echoes the path"                 has "plans/ed-topic/handoffs" "$out"
+chk "ensure-dir created it"                      test -d "$ed_mdir/plans/ed-topic/handoffs"
+chk "ensure-dir locked the leaf to 700" \
+  test "$(ls -ld "$ed_mdir/plans/ed-topic/handoffs" | cut -c1-10)" = "drwx------"
+chk "ensure-dir locked the intermediate too" \
+  test "$(ls -ld "$ed_mdir/plans/ed-topic" | cut -c1-10)" = "drwx------"
+
+out="$(ps ensure-dir "$ROOT/escape-me")"; rc=$?
+chk "ensure-dir outside the mentor dir → exit 1" test "$rc" = "1"
+chk "ensure-dir refusal says so"                 has "refuses a path outside" "$out"
+chk "ensure-dir created nothing outside"         test ! -d "$ROOT/escape-me"
+
+out="$(ps ensure-dir "$ed_mdir/plans/../../../escape-dots")"; rc=$?
+chk "ensure-dir rejects a .. escape"             test "$rc" = "1"
+chk "..-escape created nothing"                  test ! -d "$ROOT/escape-dots"
+
+out="$(ps ensure-dir)"; rc=$?
+chk "ensure-dir with no path → exit 1"           test "$rc" = "1"
+
 echo
 echo "RESULT: PASS=$PASS FAIL=$FAIL"
 [ "$FAIL" = "0" ]

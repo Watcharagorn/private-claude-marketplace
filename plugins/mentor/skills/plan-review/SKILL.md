@@ -233,11 +233,25 @@ options:
      accepts (the risk stays open / the gap stays uncovered).
   3. "Skip the rest" — description: skip this and every remaining edit and
      move on to Stage 2. (Offer only while more than one edit remains.)
+  4. "Fold in the rest" — description: fold this and every remaining edit,
+     naming the exact IDs it covers ("folds this and C2, C3, C4"), so the
+     click is never blind. (Offer only while more than one edit remains.)
 ```
+
+Every question at this gate carries the same binary, which is what makes a bulk
+answer well-defined here — and offering a bulk decline without a bulk accept
+quietly biases the gate toward skipping. If the user **rejects the question** and
+free-types an instruction instead ("fold in all"), map it onto the option set,
+then state the exact IDs you read it as covering and get confirmation before
+folding. The span is rarely as obvious as it looks: answered edits are already
+behind you, so "all" may mean the remainder or the whole set.
 
 Mark `"Fold in"` as `(Recommended)` only when the reviewer itself flagged the
 edit as its highest-impact item — recommending everything teaches the user to
-stop reading. An "Other" answer may accept a modified version of the edit
+stop reading. Never mark `"Fold in the rest"` or `"Skip the rest"` as
+`(Recommended)`: a bulk verdict is the user's call to make, and nudging toward
+one would hollow out the one-edit-at-a-time design this gate exists for. An
+"Other" answer may accept a modified version of the edit
 ("fold P2 but only for the rollout step") — fold the modified wording — or
 name earlier IDs to revisit. Skipping every edit is a valid outcome: fold
 nothing and continue to Step 6 regardless.
@@ -322,7 +336,7 @@ must contain:
    the resolved constitution `$const_path`) with `Read the ones that appear related to the
    primary plan (inside the primary plan's folder, or referenced by it); ignore
    unrelated plans.`
-3. **Lane guard:** `Judge only coherence, traceability, and agreement — not feasibility, requirement coverage vs reality, or design cleanliness. If a finding is really one of those, DROP it; another reviewer owns it.`
+3. **Lane guard:** `Judge only coherence, traceability, and agreement — not feasibility, requirement coverage vs reality, or design cleanliness. If a finding is really one of those, DROP it; another reviewer owns it. One bounded exception: you MAY grep the repo to check a count the plan states about itself (the count-mismatch category below), the same way the Critical-files check already reads the repo. That is the plan's own arithmetic, not a judgment about the requirement.`
    Plus one cycle-scoped exclusion: `Ignore zoom html staleness relative to
    plan edits made in this review cycle — the plan was just revised and its
    zooms lag by construction; the closing report owns the re-zoom reminder.
@@ -332,6 +346,13 @@ must contain:
    - `coverage-gap` — a scenario/requirement/edge case with no implementation
      step; a step tracing to no stated need; Verification not exercising a
      scenario; Critical files mismatch (listed-but-unused, or touched-but-unlisted);
+     `count-mismatch` — the plan states a count of its own change surface ("five
+     call sites", "3 handlers"): `grep -rn` the named identifier and reconcile the
+     **whole** result set against the plan's list, since confirming each listed site
+     cannot reveal the ones nobody listed. Report the command run, plan-count vs
+     found-count, and the `file:line` hits, so the user verdicts at a glance; an
+     undercount usually means missing steps, not just a stale numeral, which is why
+     `coverage-gap` stays DECISION-REQUIRED rather than auto-folding a new number in;
      an `## Implementation steps` section carrying neither `[role:` dispatch
      annotations nor a `Dispatch: skipped —` opening line (plans are
      dispatch-annotated by default — a plan with neither made no explicit choice).

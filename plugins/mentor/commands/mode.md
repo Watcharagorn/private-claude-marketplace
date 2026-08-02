@@ -1,7 +1,7 @@
 ---
 description: get or set the persisted per-repo approval-gate default (plan | plan-only)
 argument-hint: "[plan | plan-only | status]"
-allowed-tools: [Bash, Read]
+allowed-tools: [Bash, Read, Skill, AskUserQuestion]
 ---
 
 # mentor — repo mode

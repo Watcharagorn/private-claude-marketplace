@@ -307,6 +307,28 @@ chk "unmeasurable → empty verdict" \
 chk "verdict is set -e safe with no repo" \
   libsh "$CLEAN CLAUDE_CONFIG_DIR='$ROOT/nothing' v=\"\$(mentor_context_verdict '')\"; echo ok >/dev/null"
 
+echo "== mentor_ensure_private_dir — 700 down the whole path, self-healing =="
+# `mkdir -p -m 700 a/b/c` modes only `c`; the helper exists because that can never
+# deliver the "plans may carry sensitive paths" promise, and a tree that starts wrong
+# stays wrong (a later -m 700 on an existing dir is a no-op).
+PRIV="$ROOT/priv"; PSTATE="$PRIV/.mentor"
+mode() { ls -ld "$1" 2>/dev/null | cut -c1-10; }
+libsh "umask 022; mentor_ensure_private_dir '$PSTATE' '$PSTATE/plans/slug/handoffs'" >/dev/null
+chk "leaf is 700"                    test "$(mode "$PSTATE/plans/slug/handoffs")" = "drwx------"
+chk "intermediate slug/ is 700"      test "$(mode "$PSTATE/plans/slug")" = "drwx------"
+chk "plans/ itself is 700"           test "$(mode "$PSTATE/plans")" = "drwx------"
+chk ".mentor/ left alone"            test "$(mode "$PSTATE")" != "drwx------"
+
+# Self-heal: an already-wrong tree is repaired by the next call, which is what makes
+# begin-plan.sh fix drift that predates this helper.
+chmod 755 "$PSTATE/plans" "$PSTATE/plans/slug"
+libsh "mentor_ensure_private_dir '$PSTATE' '$PSTATE/plans/slug/handoffs'" >/dev/null
+chk "pre-existing 755 repaired"      test "$(mode "$PSTATE/plans/slug")" = "drwx------"
+chk "pre-existing 755 plans/ repaired" test "$(mode "$PSTATE/plans")" = "drwx------"
+
+chk "fail-soft on empty args"        libsh "mentor_ensure_private_dir '' ''"
+chk "fail-soft on unwritable parent" libsh "mentor_ensure_private_dir '$PSTATE' '/proc/nope/x'"
+
 echo
 echo "RESULT: PASS=$PASS FAIL=$FAIL"
 [ "$FAIL" = "0" ]

@@ -15,7 +15,8 @@ description: >
 # Dynamic-Domain Planning Fallback
 
 Invoked **once per plan** by `plan`'s domain routing (Step 3) when **no registered domain
-matched** (frontend, backend-api). The registered skills hardcode their domain's directives; this
+matched** — see that registry for the current list, rather than trusting a copy here. The
+registered skills hardcode their domain's directives; this
 skill *derives* them: it dispatches a small **domain-definer agent** that identifies the domain,
 distills the global best practices experts apply when planning work in that domain, and returns
 them as a compact brief. The main thread folds the brief into the research and plan-writing the
@@ -85,11 +86,21 @@ single research agent's prompt as its **first step**, instead of a separate disp
 `mentor:domain-dynamic` token there too for traceability. Caveat: the RESEARCH DIRECTIVES then
 apply only within that agent, and the brief feeds the plan-writing (Step 4) afterwards.
 
+**When the session isn't delegating at all** — the user has asked for no subagents, or `plan`
+Step 2's "delegation suggested, not enforced" judgment landed on reading directly — there is no
+research agent to fold into, so author the brief yourself in the main thread, in the same DOMAIN
+BRIEF format and still carrying the `mentor:domain-dynamic` token. Label it
+`self-authored — no definer dispatch` and surface that label in the plan the way a
+`confidence: low` domain is surfaced (§3), because a brief you wrote from your own knowledge was
+not independently derived and the user should be able to see that when weighing it. The brief is
+relocated, never skipped: "not delegating" is not "not doing".
+
 ## 2 — Fold into research (`plan` Step 2)
 
-Append the brief's RESEARCH DIRECTIVES to the relevant research agents' prompts (or cover them
-directly when not delegating). The research return contract is unchanged (FINDINGS ≤ ~400 words /
-EVIDENCE `file:line` / OPEN QUESTIONS).
+Append the brief's RESEARCH DIRECTIVES to the relevant research agents' prompts — or, when Step 2's
+research is not delegated, apply them yourself while reading. This governs the **use** of a brief
+that already exists; it never decides whether §1 produces one. The research return contract is
+unchanged (FINDINGS ≤ ~400 words / EVIDENCE `file:line` / OPEN QUESTIONS).
 
 ## 3 — Fold into the plan (`plan` Step 4)
 

@@ -103,6 +103,28 @@ run allow "$REPO" Write "Write outside repo (stale marker)" "$ROOT/scratch2.txt"
 if [ -f "$MARKER" ]; then PASS=$((PASS+1)); echo "  ok   outside-repo write did not release the stale marker"
 else FAIL=$((FAIL+1)); echo "  FAIL outside-repo write released the marker"; fi
 
+echo "== F. Plan sidecars are plan-state.sh's alone — blocked with OR without a marker =="
+# The real violation happened at close-out with the gate long released, so the marker
+# state must not matter here. Sibling .mentor/ paths stay exempt.
+rm -f "$MARKER"
+run block "$REPO" Write "Write .state.json (no marker)"        "$PLANS_DIR/myplan/.state.json"
+run block "$REPO" Edit  "Edit .state.json (no marker)"         "$PLANS_DIR/myplan/.state.json"
+run allow "$REPO" Write "Write plan.md (no marker)"            "$PLANS_DIR/myplan/plan.md"
+run allow "$REPO" Write "Write a look-alike, not a sidecar"    "$PLANS_DIR/myplan/state.json"
+: > "$MARKER"
+run block "$REPO" Write "Write .state.json (marker armed)"     "$PLANS_DIR/myplan/.state.json"
+run allow "$REPO" Bash  "Bash is still unmatched"              "$PLANS_DIR/myplan/.state.json"
+# The guard matches the CANONICAL path: a raw-string match is slipped by any of these,
+# and since it's a Write, a slipped guard lands.
+rm -f "$MARKER"
+run block "$REPO" Write "relative ./ path"                     "./.mentor/plans/myplan/.state.json"
+run block "$REPO" Write "relative bare path"                   ".mentor/plans/myplan/.state.json"
+run block "$REPO" Write "path with a .. segment"               "$PLANS_DIR/myplan/../myplan/.state.json"
+run block "$REPO" Write "path through a subdir and .."         "$REPO/src/../.mentor/plans/myplan/.state.json"
+: > "$MARKER"
+if [ -f "$MARKER" ]; then PASS=$((PASS+1)); echo "  ok   sidecar block did not disturb the marker"
+else FAIL=$((FAIL+1)); echo "  FAIL sidecar block released the marker"; fi
+
 echo
 echo "RESULT: PASS=$PASS FAIL=$FAIL"
 [ "$FAIL" = "0" ]
