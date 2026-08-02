@@ -88,7 +88,11 @@ The point of SDD: quality through narrow focus, and a lean main thread.
 - **Prompt sketches must be self-contained.** Each agent starts with zero
   memory of this conversation: give exact file paths, the approved plan path,
   the distilled facts it needs from research or prior steps (paste result
-  lines, not files), and its `Done when:` verbatim.
+  lines, not files), and its `Done when:` verbatim. Every **implementation**
+  brief additionally carries the solution-quality line: `Implement the most
+  practical and clean solution — never trade maintainability or reliability
+  for implementation speed.` (read-only roles like `Explore` are exempt — the
+  line governs how something is built, not how it's found.)
 - **Return contract:** agents return a short summary, file paths touched, and
   verification output — never full file bodies.
 - **No nested fan-out:** dispatched agents cannot dispatch further agents —

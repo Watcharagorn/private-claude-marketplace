@@ -188,7 +188,9 @@ decide from your message alone, without re-reading the codebase:
   label (a convention for decision questions like these — fixed workflow gates
   such as Step 6's approval order by position alone), and make each option's
   `description` carry its concrete consequence or trade-off — not a
-  restatement of the label.
+  restatement of the label. The recommendation itself must be the most
+  practical and clean solution — never trade maintainability or reliability
+  for implementation speed.
 - When options are competing shapes (schemas, layouts, flows, wording), use
   the `preview` field so the user compares them side by side.
 
@@ -254,8 +256,10 @@ Required sections, in order:
    section visualization treatment — a Mermaid flowchart/sequenceDiagram of
    actor→trigger→outcome, or a current-vs-expected GFM table — so the reviewer
    can verify your understanding at a glance.
-4. `## Approach` — the recommended design, with one visualization per
-   significant change/decision realized inline under its owning topic.
+4. `## Approach` — the recommended design — the most practical and clean
+   solution for the requirement, never trading maintainability or reliability
+   for implementation speed — with one visualization per significant
+   change/decision realized inline under its owning topic.
 5. `## Constitution Check` — **include only when the constitution resolved in
    Step 0 exists** (default `.mentor/constitution.md`, or the file
    `constitution_path` points at). A GFM table with one row per principle: `Principle | Verdict | Notes`,

@@ -327,6 +327,31 @@ extra deliverable. Instruction-only — no hooks.
 | `plan-domain-architecture` | Structural change — services, containers, datastores, queues, integrations, data flows (not pure content/config/doc/style/refactor) | Diff-highlighted C4-style Mermaid flowcharts, only the levels that change; a provenance list for any changed datastore field. |
 | `plan-domain-dynamic` | No registered domain matched (fallback) | A dispatched domain-definer names the domain and returns a best-practices brief; the plan gains a practice→step mapping. |
 
+## Changes in v2.16.0
+
+**Review questions now lead with the recommendation.** `/plan-review`'s fold gate
+marked `Fold in` as `(Recommended)` only on the reviewer's single highest-impact
+edit, and its verdict walk deliberately presented DECISION-REQUIRED alternatives
+neutrally. Both now lead with the recommended option: every fold question carries
+`(Recommended)` with the reviewer's one-line why in the description, and the verdict
+walk orders the reviewer-recommended resolution first. Reviewers name that resolution
+themselves — the Step 6 tagging contract now requires it — and on a genuine
+either-side-could-be-intended toss-up they say so and the options stay unled. The
+guards are unchanged: bulk `Fold in the rest` / `Skip the rest` options are still
+never `(Recommended)`, and the recommendation shapes only how options are
+*presented*, never whether one is applied — nothing DECISION-REQUIRED is folded
+until you verdict it.
+
+**Agents are asked to build the clean thing, not the quick thing.** Four skills —
+`plan-review`, `plan`, `grilling`, and `dispatch-agents` — now carry one canonical
+line: recommend the most practical and clean solution, never trading maintainability
+or reliability for implementation speed. It governs the edits reviewers propose,
+planning's recommended option and `## Approach` design, grilling's recommended
+answers, and every implementation brief a dispatch writes (read-only roles like
+`Explore` are exempt — the line governs how something is built, not how it's found).
+It never widens a reviewer's lane: naming a recommendation is a choice among that
+reviewer's own proposed fixes, not license to critique outside its lens.
+
 ## Changes in v2.14.0
 
 **Approval now promotes plan state on every path.** `approve-plan.sh` previously

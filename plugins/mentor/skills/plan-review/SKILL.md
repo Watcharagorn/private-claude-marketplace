@@ -179,16 +179,17 @@ Each `prompt` must contain:
 3. `Critique the plan's solution strictly through the lens of <topic>.` plus the one-line definition:
    - `practicality` → `Is the approach feasible, realistically scoped, and low-risk?`
    - `comprehensiveness` → `Does it cover the requirement, edge cases, and gaps?`
-4. Required structured output:
+4. `When proposing Recommended plan edits, recommend the most practical and clean solution — never trade maintainability or reliability for implementation speed — and give each edit a one-line why.` This governs how the reviewer constructs and picks among its OWN proposed edits — it never widens the critique lens set by item 3 above.
+5. Required structured output:
    ```
    Strengths:
    Risks:
    Gaps:
    Recommended plan edits:
    ```
-5. Word cap: `Cap your reply at 400 words.`
-6. Anti-recursion: `Do not invoke /plan-review or any planning skill.`
-7. **Constitution (conditional)** — if the resolved constitution exists (the
+6. Word cap: `Cap your reply at 400 words.`
+7. Anti-recursion: `Do not invoke /plan-review or any planning skill.`
+8. **Constitution (conditional)** — if the resolved constitution exists (the
    `$const_path` from Step 1 — default `.mentor/constitution.md`, or the file
    `constitution_path` in `.mentor/config.json` points at), add its path to
    every reviewer's prompt with:
@@ -225,9 +226,10 @@ question: "<ID> (<k> of <n>): <the reviewer's case in 2–4 sentences — what i
            with the key words/phrases in **bold**.>"
 header: the edit ID (e.g. "P2")
 options:
-  1. "Fold in" — description: the exact change to the plan — which section,
-     what is added/removed/reworded — and the payoff. When the reviewer
-     supplied concrete text, attach a `preview` showing the edit as
+  1. "Fold in (Recommended)" — description: the reviewer's one-line why this
+     edit is worth making, then the exact change to the plan — which
+     section, what is added/removed/reworded — and the payoff. When the
+     reviewer supplied concrete text, attach a `preview` showing the edit as
      before → after, so the user reads the actual words, not a paraphrase.
   2. "Skip" — description: leave the plan unchanged here, and what that
      accepts (the risk stays open / the gap stays uncovered).
@@ -246,11 +248,14 @@ then state the exact IDs you read it as covering and get confirmation before
 folding. The span is rarely as obvious as it looks: answered edits are already
 behind you, so "all" may mean the remainder or the whole set.
 
-Mark `"Fold in"` as `(Recommended)` only when the reviewer itself flagged the
-edit as its highest-impact item — recommending everything teaches the user to
-stop reading. Never mark `"Fold in the rest"` or `"Skip the rest"` as
-`(Recommended)`: a bulk verdict is the user's call to make, and nudging toward
-one would hollow out the one-edit-at-a-time design this gate exists for. An
+Mark `"Fold in"` as `(Recommended)` on every edit question — each surfaced
+edit is, by construction, one the reviewer already recommends (Step 3's
+prompt requires it), so the option that applies it leads and carries the
+label; the reviewer's one-line why lives in its `description`, which is what
+keeps the mark substantive instead of habitual. Never mark `"Fold in the
+rest"` or `"Skip the rest"` as `(Recommended)`: a bulk verdict is the user's
+call to make, and nudging toward one would hollow out the one-edit-at-a-time
+design this gate exists for. An
 "Other" answer may accept a modified version of the edit
 ("fold P2 but only for the rollout step") — fold the modified wording — or
 name earlier IDs to revisit. Skipping every edit is a valid outcome: fold
@@ -298,7 +303,14 @@ Tag every finding exactly one of:
 - DECISION-REQUIRED — resolving it means choosing between substantive
   alternatives: contradictions where either side could be intended, scope or
   step additions/removals/reordering, coverage gaps, feasibility or design
-  concerns, constitution violations. State the options; do not pick one.
+  concerns, constitution violations. State the options and name the one you
+  recommend: the most practical and clean solution —
+  never trade maintainability or reliability for implementation speed — with
+  a one-line why; the choice remains the user's. This governs how you
+  construct and choose among your OWN proposed resolutions — it never
+  re-scopes what you are critiquing. On a genuine either-side-could-be-intended
+  toss-up with no grounded basis to prefer one, say so explicitly and omit
+  the recommendation rather than invent one.
 If in doubt, tag DECISION-REQUIRED — the auto-fold must never make a
 substantive choice on the user's behalf.
 ```
@@ -307,8 +319,8 @@ substantive choice on the user's behalf.
 
 `description: "Review plan: cleanliness"`. Its `prompt` must contain the same
 scaffolding as the Step 3 reviewers (role line, primary plan path +
-read-first, anti-recursion, conditional constitution) with these lane
-specifics:
+read-first, the solution-quality directive, anti-recursion, conditional
+constitution) with these lane specifics:
 
 - `Critique the plan's solution strictly through the lens of cleanliness.` →
   `Is the resulting design simple, maintainable, and reuse-aware?`
@@ -341,6 +353,11 @@ must contain:
    plan edits made in this review cycle — the plan was just revised and its
    zooms lag by construction; the closing report owns the re-zoom reminder.
    Flag orphan/stale-artifact only when the mismatch predates this review.`
+   Plus one lane clarification for the recommend criterion in the Step 6
+   tagging contract: naming a recommended resolution is still a choice made
+   inside coherence, traceability, and agreement — it is never license to
+   also judge feasibility, requirement coverage vs reality, or design
+   cleanliness; those stay the other reviewers' lanes.
 4. **Method:** `Inventory (a) the needs stated in Context, (b) the numbered Use case scenarios incl. edge cases, (c) the Implementation steps, (d) the Critical files. Then run the detection passes across sections — and across artifacts when more than one is related.`
 5. **Detection categories:**
    - `coverage-gap` — a scenario/requirement/edge case with no implementation
@@ -390,6 +407,10 @@ must contain:
 
    Metrics: <N scenarios> · <req coverage %> · <artifacts checked> · <critical count>
    ```
+   For a DECISION-REQUIRED finding, the `Fix` column carries the recommended
+   resolution and its one-line why — or, on a declared toss-up, says so and
+   names why no side is preferred — the same content Step 7's verdict walk
+   surfaces as `(Recommended)`.
 9. Read-only + anti-recursion: `Do not edit any file. Do not invoke /plan-review or any planning skill.`
 10. **Constitution (conditional):** if the resolved constitution `$const_path`
     exists (Step 1), read it —
@@ -420,21 +441,28 @@ header, and the question text carrying the reviewer's case in 2–4 sentences
 with the **key words bolded** — what disagrees or is missing, **where**, and
 what each resolution costs. The options come from the finding itself:
 
-- One option per substantive alternative the reviewer stated (its label names
-  the choice; its description says what changes in the plan and what it
-  risks; attach a `preview` of the concrete text when the reviewer gave one).
-  A question holds at most 4 options, so cap the alternatives at two — the
-  strongest per the reviewer — and when more exist, say in the question text
-  that the rest are reachable via "Other" by name.
+- One option per substantive alternative the reviewer stated, ordered with
+  the reviewer's recommended resolution **first** — per the Step 6 tagging
+  contract the reviewer already named the one that is the most practical and
+  clean solution, never trading maintainability or reliability for
+  implementation speed — and that option's label carries `(Recommended)`,
+  with its description opening on the reviewer's one-line why before it says
+  what changes in the plan and what it risks (attach a `preview` of the
+  concrete text when the reviewer gave one). When the reviewer declared a
+  genuine toss-up and omitted a recommendation (the Step 6 carve-out), present
+  the alternatives unled — no option gets `(Recommended)`. A question holds
+  at most 4 options, so cap the alternatives at two — the strongest per the
+  reviewer — and when more exist, say in the question text that the rest are
+  reachable via "Other" by name.
 - `"Leave open"` — keep the plan as-is; the finding is recorded in the report.
 - `"Skip the rest"` — leave this and every remaining finding open and go to
   the report. (Offer only while more than one finding remains.)
 
-Do not pick a side for the user — even when one alternative looks obviously
-right, present it neutrally; the whole reason these findings weren't
-auto-folded is that the choice is substantive. Apply the accepted resolutions
-in ONE second revision pass after the walk — these are user verdicts, not
-auto-folds.
+The recommendation only shapes how the options are **presented** — ordered,
+labeled — never whether one is **applied**: nothing here is folded until the
+user verdicts it, the same guarantee that holds for every DECISION-REQUIRED
+finding. Apply the accepted resolutions in ONE second revision pass after the
+walk — these are user verdicts, not auto-folds.
 
 **Report** three groups, by ID: **applied** (MECHANICAL fixes and
 verdict-accepted resolutions), **left open** (findings the user left open or
