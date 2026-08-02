@@ -1,5 +1,5 @@
 ---
-description: See which mentor plans are built vs pending, and build the next one (plan state)
+description: See the repo-wide remaining-work hierarchy — plans, step progress, deps, and live handoffs — then build the next one (plan state)
 argument-hint: [slug | number | status]
 allowed-tools: [Bash, Read, Grep, Glob, Skill, Task, AskUserQuestion, Write, Edit]
 ---
@@ -26,9 +26,12 @@ Do these in order:
    explains why nothing else covers it.
 
 2. **Call `Skill({"skill": "mentor:plan-track"})` and follow it end to end.**
-   It lists the plans, resolves the selection, and executes the chosen plan through
+   It renders the repo-wide hierarchy (plans, step progress, deps, deferred stubs, live
+   handoffs), resolves the selection, and executes the chosen plan through
    `mentor:dispatch-agents`. A `draft` plan is never built silently — the approval
-   gate never released it, so the skill asks you to approve it first, or stops.
+   gate never released it, so the skill asks you to approve it first, or stops. A
+   deferred stub is never built directly either — it routes to `/mentor:plan` to be
+   claimed first.
 
 Argument (optional) — a plan slug, a 1-based number from the list, or `status` to
 print state and stop without building:

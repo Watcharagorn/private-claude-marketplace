@@ -233,6 +233,20 @@ That records the plan as `draft` in a hidden `.state.json` beside it. Approval, 
 later `/mentor:track`, read that state to know which plans are built and which are
 pending. It is idempotent, so re-running it on a revision is harmless.
 
+**Fleshing out a deferred stub.** If `$slug` names an existing stub born via
+`/mentor:defer` — you arrived here because `/mentor:track` routed a stub pick to this
+skill, or the user pointed you at one directly — run `claim` right after `init` so the
+stub stops being shielded from `approve-plan.sh`'s promotion sweep:
+
+```bash
+bash "${CLAUDE_PLUGIN_ROOT}/hooks/plan-state.sh" claim "$slug"
+```
+
+`claim` clears the sidecar's `origin` field; it is a harmless no-op (with a one-line
+notice) when there was nothing to clear, so it costs nothing to run whenever this
+plan slug could plausibly be a stub you are now fleshing out. A brand-new plan with no
+prior stub never needs this line.
+
 The path is inside the gate-exempt
 `.mentor/` tree, so the edit gate allows it; `plan-open.sh` auto-opens it for review the first time
 (VSCode tab when available — toggle preview with ⇧⌘V; opener configurable via
@@ -277,6 +291,12 @@ Required sections, in order:
    **Escape hatch:** when the implementation meets the dispatch-agents skill's
    skip rule, omit the annotations, but the section MUST then open with one
    line: `Dispatch: skipped — <reason>`. No line, no skip.
+   **Keep it small while you write:** if the step count creeps past ~12 while
+   drafting this section — Step 6's oversize threshold below, just reached early —
+   pause and offer to defer non-core chunks via `Skill(skill="mentor:defer")` before
+   finishing the write, rather than waiting for the Step 6 gate to catch an already-
+   oversized plan. A plan that arrives at Step 6 already trimmed rarely needs the
+   full split treatment.
 7. `## Critical files`
 8. `## Out of scope`
 9. `## Verification` — how to test end-to-end.
@@ -360,6 +380,12 @@ oversized when any of these holds:
 **Suppressed when this plan already has a `group`** — it is itself a split child, and
 re-slicing a slice usually means the first split drew its lines in the wrong place.
 Typing `/plan-split` still works if the user insists.
+
+When oversized, mention in the question text that non-core chunks can instead be
+**deferred via `/mentor:defer`** rather than a full split — a lighter alternative
+worth naming even though it isn't its own button. The option table below is
+unchanged: the user reaches this by typing it into `AskUserQuestion`'s always-present
+"Other" free text, not by picking a listed option.
 
 ### The option set
 

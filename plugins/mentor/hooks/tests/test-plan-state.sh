@@ -22,6 +22,7 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 HOOKS="$(dirname "$SCRIPT_DIR")"
 PLANSTATE="$HOOKS/plan-state.sh"
 [ -f "$PLANSTATE" ] || { echo "FATAL: not found: $PLANSTATE" >&2; exit 1; }
+command -v jq >/dev/null 2>&1 || { echo "FATAL: jq required to run this suite" >&2; exit 1; }
 
 ROOT="$(cd "$(mktemp -d)" && pwd -P)"
 SANDBOX="$ROOT/home"; mkdir -p "$SANDBOX/.claude/projects/proj"
@@ -31,6 +32,16 @@ git init -q -b main "$REPO" >/dev/null 2>&1
 BARE="$ROOT/bare-repo"          # a repo that has never planned
 git init -q -b main "$BARE" >/dev/null 2>&1
 NONGIT="$ROOT/plain"; mkdir -p "$NONGIT"
+
+# A PATH with real `git`/`dirname` but NO jq — for overview's fail-soft-without-jq
+# check. Only those two externals run before overview's own require_jq_read guard
+# (mentor_repo_root → git/dirname; everything after is shell builtins), so this
+# minimal PATH is enough to prove the guard fires rather than crashing on a missing
+# unrelated tool.
+BASH_BIN="$(command -v bash)"
+NOJQ_DIR="$ROOT/nojq"; mkdir -p "$NOJQ_DIR"
+ln -s "$(command -v git)" "$NOJQ_DIR/git"
+ln -s "$(command -v dirname)" "$NOJQ_DIR/dirname"
 
 trap 'rm -rf "$ROOT"' EXIT
 
@@ -52,6 +63,13 @@ _env() { env -u MENTOR_CONTEXT_GATE -u MENTOR_CONTEXT_BLOCK_TOKENS -u MENTOR_CON
 ps()    { ( cd "${CWD:-$REPO}" && _env bash "$PLANSTATE" "$@" 2>&1 ); }          # merged
 psout() { ( cd "${CWD:-$REPO}" && _env bash "$PLANSTATE" "$@" 2>/dev/null ); }   # stdout only
 pserr() { ( cd "${CWD:-$REPO}" && _env bash "$PLANSTATE" "$@" 2>&1 >/dev/null ); } # stderr only
+# Same as ps/psout/pserr but with a PATH where `jq` cannot be found (see NOJQ_DIR).
+psq_nojq_out() { ( cd "${CWD:-$REPO}" && _env PATH="$NOJQ_DIR" "$BASH_BIN" "$PLANSTATE" "$@" 2>/dev/null ); }
+psq_nojq_err() { ( cd "${CWD:-$REPO}" && _env PATH="$NOJQ_DIR" "$BASH_BIN" "$PLANSTATE" "$@" 2>&1 >/dev/null ); }
+psq_nojq_rc()  { ( cd "${CWD:-$REPO}" && _env PATH="$NOJQ_DIR" "$BASH_BIN" "$PLANSTATE" "$@" >/dev/null 2>&1 ); }
+# Read one field straight off a plan's sidecar (deps/origin — list/current never
+# surface these, so the CLI-output assertions above can't reach them).
+sidecar() { jq -r "${2}" "$PLANS/$1/.state.json" 2>/dev/null; }   # sidecar <slug> <jq filter>
 
 plan() { # <slug> [body line...]  — create a plan dir with a plan.md
   local slug="$1"; shift
@@ -319,6 +337,175 @@ chk "..-escape created nothing"                  test ! -d "$ROOT/escape-dots"
 
 out="$(ps ensure-dir)"; rc=$?
 chk "ensure-dir with no path → exit 1"           test "$rc" = "1"
+
+echo "== J. init --deps / --deferred (v2.17.0) =="
+rm -rf "$PLANS"; mkdir -p "$PLANS"
+plan dep-a; plan dep-b
+ps init dep-a >/dev/null
+out="$(ps init dep-b --deps dep-a)"; rc=$?
+chk "init --deps → exit 0"                  test "$rc" = "0"
+chk "init --deps reports deps"              has "deps=dep-a" "$out"
+chk "init --deps stored in sidecar"         test "$(sidecar dep-b '(.deps//[])|join(",")')" = "dep-a"
+out="$(ps init dep-b --deferred)"
+chk "init --deferred reports origin"        has "origin=deferred" "$out"
+chk "init --deferred sets sidecar origin"   test "$(sidecar dep-b '.origin')" = "deferred"
+chk "init --deferred does not disturb deps" test "$(sidecar dep-b '(.deps//[])|join(",")')" = "dep-a"
+
+plan dep-self
+out="$(ps init dep-self --deps dep-self --deferred)"; rc=$?
+chk "init --deps self-cycle → exit 0 (fail-soft)"          test "$rc" = "0"
+chk "init --deps self-cycle refused on stderr"              has "dependency cycle" "$out"
+chk "init --deps self-cycle: deps NOT set"                  test "$(sidecar dep-self '(.deps//[])|length')" = "0"
+chk "init --deps self-cycle: sibling flags still applied"   test "$(sidecar dep-self '.origin')" = "deferred"
+
+echo "== K. set-deps: replace wholesale, cycle-checked, fail-soft =="
+rm -rf "$PLANS"; mkdir -p "$PLANS"
+plan sd-a; plan sd-b; plan sd-c
+ps init sd-a >/dev/null; ps init sd-b >/dev/null; ps init sd-c >/dev/null
+out="$(ps set-deps sd-a sd-b,sd-c)"; rc=$?
+chk "set-deps → exit 0"                      test "$rc" = "0"
+chk "set-deps reports deps"                  has "deps = sd-b,sd-c" "$out"
+chk "set-deps stored wholesale, in order"    test "$(sidecar sd-a '(.deps//[])|join(",")')" = "sd-b,sd-c"
+
+out="$(ps set-deps sd-a sd-a)"; rc=$?
+chk "self-cycle → exit 0 (fail-soft)"        test "$rc" = "0"
+chk "self-cycle refused on stderr"           has "dependency cycle" "$out"
+chk "self-cycle: deps unchanged"             test "$(sidecar sd-a '(.deps//[])|join(",")')" = "sd-b,sd-c"
+
+# Multi-node (2 hops): a→b, then b→a must be refused (closes a→b→a).
+plan mn-a; plan mn-b
+ps init mn-a >/dev/null; ps init mn-b >/dev/null
+ps set-deps mn-a mn-b >/dev/null
+out="$(ps set-deps mn-b mn-a)"; rc=$?
+chk "2-node multi-node cycle → exit 0 (fail-soft)" test "$rc" = "0"
+chk "2-node multi-node cycle refused on stderr"    has "dependency cycle" "$out"
+chk "2-node cycle: deps unchanged (empty)"         test "$(sidecar mn-b '(.deps//[])|length')" = "0"
+
+# Multi-node (3 hops): a→b→c, then c→a must also be refused.
+plan mn3-a; plan mn3-b; plan mn3-c
+ps init mn3-a >/dev/null; ps init mn3-b >/dev/null; ps init mn3-c >/dev/null
+ps set-deps mn3-a mn3-b >/dev/null
+ps set-deps mn3-b mn3-c >/dev/null
+out="$(ps set-deps mn3-c mn3-a)"; rc=$?
+chk "3-node cycle → exit 0 (fail-soft)"      test "$rc" = "0"
+chk "3-node cycle refused on stderr"         has "dependency cycle" "$out"
+chk "3-node cycle: deps unchanged (empty)"   test "$(sidecar mn3-c '(.deps//[])|length')" = "0"
+
+plan unk-x
+ps init unk-x >/dev/null
+out="$(ps set-deps unk-x does-not-exist)"; rc=$?
+chk "unknown dep slug allowed (may be deferred later)" test "$rc" = "0"
+chk "unknown dep slug stored"                          test "$(sidecar unk-x '(.deps//[])|join(",")')" = "does-not-exist"
+out="$(ps set-deps unk-x "")"; rc=$?
+chk "empty deps clears them → exit 0"        test "$rc" = "0"
+chk "empty deps reported as (none)"          has "deps = (none)" "$out"
+chk "empty deps → sidecar deps = []"         test "$(sidecar unk-x '(.deps//[])|length')" = "0"
+
+plan note-dep
+ps init note-dep >/dev/null
+ps set note-dep failed --note "keep me" >/dev/null
+ps set-deps note-dep sd-b >/dev/null
+chk "set-deps preserves the note"            test "$(sidecar note-dep '.note')" = "keep me"
+chk "set-deps preserves the state"           test "$(state_of note-dep)" = "failed"
+
+echo "== L. claim: clears origin; note and other fields round-trip =="
+rm -rf "$PLANS"; mkdir -p "$PLANS"
+plan clm
+ps init clm --deferred >/dev/null
+chk "init --deferred → origin deferred"     test "$(sidecar clm '.origin')" = "deferred"
+ps set clm draft --note "stub context" >/dev/null
+chk "a plain set preserves origin (omitted flag)" test "$(sidecar clm '.origin')" = "deferred"
+out="$(ps claim clm)"; rc=$?
+chk "claim → exit 0"                        test "$rc" = "0"
+chk "claim reports clearing"                has "claimed — origin cleared" "$out"
+chk "claim clears origin"                   test "$(sidecar clm '.origin')" = "null"
+chk "claim preserves the note"              test "$(sidecar clm '.note')" = "stub context"
+chk "claim preserves the state"             test "$(state_of clm)" = "draft"
+out="$(ps claim clm)"; rc=$?
+chk "claim again → exit 0"                  test "$rc" = "0"
+chk "claim again → nothing to claim"        has "origin already unset" "$out"
+
+plan clm2
+ps init clm2 >/dev/null   # never deferred
+out="$(ps claim clm2)"; rc=$?
+chk "claim on a never-deferred plan → exit 0"           test "$rc" = "0"
+chk "claim on a never-deferred plan → nothing to claim" has "origin already unset" "$out"
+
+echo "== M. overview --json: repo-wide hierarchy (v2.17.0) — the new surface =="
+rm -rf "$PLANS" "$REPO/.mentor/handoffs"; mkdir -p "$PLANS"
+out="$(psout overview --json)"; rc=$?
+chk "overview --json on an empty repo → exit 0" test "$rc" = "0"
+chk "overview --json on an empty repo → []"     test "$out" = "[]"
+
+plan ov-a '# a' '## Implementation steps' '1. one ✅' '2. two ✅'
+mkdir -p "$PLANS/ov-a/handoffs/resolved"
+: > "$PLANS/ov-a/handoffs/live-note.md"
+: > "$PLANS/ov-a/handoffs/resolved/old-note.md"
+ps init ov-a >/dev/null
+
+plan ov-b '# b' '## Implementation steps' '1. one ✅' '2. two'
+ps init ov-b >/dev/null
+ps set-deps ov-b "ov-a,ov-missing" >/dev/null
+
+mkdir -p "$PLANS/ov-topic/handoffs"
+: > "$PLANS/ov-topic/handoffs/nudge.md"
+
+mkdir -p "$REPO/.mentor/handoffs"
+: > "$REPO/.mentor/handoffs/legacy-note.md"
+
+out="$(psout overview --json)"; rc=$?
+chk "overview --json → exit 0"    test "$rc" = "0"
+chk "overview --json → valid JSON" sh -c 'printf "%s" "$0" | jq . >/dev/null 2>&1' "$out"
+chk "overview → 4 entries (2 plans + plan-less topic + legacy)" test "$(printf '%s' "$out" | jq 'length')" = "4"
+
+ov_a="$(printf '%s' "$out" | jq -c '.[] | select(.slug=="ov-a")')"
+chk "ov-a: kind plan"                   test "$(printf '%s' "$ov_a" | jq -r '.kind')" = "plan"
+chk "ov-a: effective state implemented" test "$(printf '%s' "$ov_a" | jq -r '.state')" = "implemented"
+chk "ov-a: step counts 2/2"             test "$(printf '%s' "$ov_a" | jq -r '.steps.ticked,.steps.total' | tr '\n' ' ')" = "2 2 "
+chk "ov-a: live handoff only, resolved excluded" test "$(printf '%s' "$ov_a" | jq -c '.handoffs')" = '["live-note.md"]'
+chk "ov-a: no deps"                     test "$(printf '%s' "$ov_a" | jq -c '.deps')" = '[]'
+chk "ov-a: origin null"                 test "$(printf '%s' "$ov_a" | jq -r '.origin')" = "null"
+
+ov_b="$(printf '%s' "$out" | jq -c '.[] | select(.slug=="ov-b")')"
+chk "ov-b: step counts 1/2"                  test "$(printf '%s' "$ov_b" | jq -r '.steps.ticked,.steps.total' | tr '\n' ' ')" = "1 2 "
+chk "ov-b: deps carry both slugs, in order"  test "$(printf '%s' "$ov_b" | jq -c '.deps | map(.slug)')" = '["ov-a","ov-missing"]'
+chk "ov-b: known dep marked not missing"     test "$(printf '%s' "$ov_b" | jq -r '.deps[0].missing')" = "false"
+chk "ov-b: unknown dep marked missing"       test "$(printf '%s' "$ov_b" | jq -r '.deps[1].missing')" = "true"
+chk "ov-b: no handoffs"                      test "$(printf '%s' "$ov_b" | jq -c '.handoffs')" = '[]'
+
+ov_topic="$(printf '%s' "$out" | jq -c '.[] | select(.slug=="ov-topic")')"
+chk "plan-less topic: kind no_plan_topic"  test "$(printf '%s' "$ov_topic" | jq -r '.kind')" = "no_plan_topic"
+chk "plan-less topic: state 'no plan yet'" test "$(printf '%s' "$ov_topic" | jq -r '.state')" = "no plan yet"
+chk "plan-less topic: live handoff listed" test "$(printf '%s' "$ov_topic" | jq -c '.handoffs')" = '["nudge.md"]'
+chk "plan-less topic: zero step counts"    test "$(printf '%s' "$ov_topic" | jq -c '.steps')" = '{"ticked":0,"total":0}'
+
+ov_legacy="$(printf '%s' "$out" | jq -c '.[] | select(.kind=="legacy_handoffs")')"
+chk "legacy dir: topic-less (slug null)" test "$(printf '%s' "$ov_legacy" | jq -r '.slug')" = "null"
+chk "legacy dir: state null"             test "$(printf '%s' "$ov_legacy" | jq -r '.state')" = "null"
+chk "legacy dir: steps null"             test "$(printf '%s' "$ov_legacy" | jq -r '.steps')" = "null"
+chk "legacy dir: lists the flat note"    test "$(printf '%s' "$ov_legacy" | jq -c '.handoffs')" = '["legacy-note.md"]'
+
+chk "plan dirs never double as a plan-less topic" \
+  test -z "$(printf '%s' "$out" | jq -r '.[] | select(.kind=="no_plan_topic" and (.slug=="ov-a" or .slug=="ov-b"))')"
+
+echo "== N. overview --json is fail-soft when jq is absent from PATH =="
+out="$(psq_nojq_out overview --json)"
+err="$(psq_nojq_err overview --json)"
+rc=0; psq_nojq_rc overview --json || rc=$?
+chk "no jq → exit 0"                  test "$rc" = "0"
+chk "no jq → empty stdout"            test -z "$out"
+chk "no jq → one-line stderr notice"  test "$(printf '%s\n' "$err" | wc -l | tr -d ' ')" = "1"
+chk "no jq → notice names the problem" has "jq not found" "$err"
+
+echo "== O. list stays byte-compatible even when a plan carries deps/origin =="
+ps init ov-b --deferred >/dev/null   # give ov-b an origin too, alongside its deps
+out="$(psout list)"
+row="$(printf '%s' "$out" | awk -v s="ov-b" '$3 == s')"
+chk "row for a deps+origin plan is still found"    test -n "$row"
+chk "row is still exactly 5 whitespace-separated columns" \
+  test "$(printf '%s' "$row" | awk '{print NF}')" = "5"
+chk "row carries no stray JSON from deps/origin" \
+  sh -c '! printf "%s" "$0" | grep -qE "[][{}]"' "$row"
 
 echo
 echo "RESULT: PASS=$PASS FAIL=$FAIL"

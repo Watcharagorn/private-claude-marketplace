@@ -11,7 +11,9 @@
 #   ├── constitution.md   # governing principles (committed; managed by /mentor:constitution)
 #   ├── plans/            # the .planning marker + one <slug>/ dir per plan topic:
 #   │   └── <slug>/       #   plan.md (+ hidden .plan.md.opened sidecar)
-#   │       ├── .state.json  # {"state","group","order","note"} — written ONLY via plan-state.sh
+#   │       ├── .state.json  # {"state","group","order","note","deps","origin"} — written
+#   │       │                #   ONLY via plan-state.sh (deps/origin added v2.17.0; old
+#   │       │                #   4-field sidecars read back with deps:[] origin:null)
 #   │       └── handoffs/ #   <ts>-<slug>.md; solved/superseded notes → handoffs/resolved/
 #   ├── zooms/            # mentor:zoom artifacts — <subject-slug>/<topic>-<perspective>.html
 #   │                     #   (+ hidden .*.opened sidecars; pre-v2.12 they lived in plans/<slug>/zoom/)
@@ -160,18 +162,25 @@ mentor_cwd() {
   return 0
 }
 
-# --- plan state (v2.4.0) ----------------------------------------------------
+# --- plan state (v2.4.0, deps/origin added v2.17.0) -------------------------
 #
 # Each plan dir carries a hidden `.state.json` sidecar:
 #   {"state":"draft|approved|in_progress|implemented|failed|superseded",
-#    "group":"<parent slug>"|null, "order":<n>|null, "note":"<free text>"}
+#    "group":"<parent slug>"|null, "order":<n>|null, "note":"<free text>",
+#    "deps":["<slug>", …], "origin":"deferred"|null}
 # `group` is the slug of the plan that /plan-split replaced; standalone plans hold null.
+# `deps` names plan slugs this one needs first (unknown slugs allowed — the dep may be
+# deferred later; `plan-state.sh overview` marks those `missing`). `origin` is
+# `"deferred"` for a stub born via `/mentor:defer` (shields it from the approval
+# sweep — see approve-plan.sh) and null once `claim`ed or for an ordinary plan.
 #
 # The sidecar is a CACHE, not the only truth. Reads go through
 # mentor_plan_effective_state, which takes the more advanced of the stored state and
 # the state derived from plan.md's ✅ step ticks — so a forgotten state write costs
-# nothing, and pre-2.4.0 plan dirs read correctly with no migration. Writes go through
-# hooks/plan-state.sh (the CLI); skills never hand-roll this JSON.
+# nothing, and pre-2.4.0 plan dirs read correctly with no migration. `deps`/`origin`
+# are jq-defaulted the same way (`// []`, `// null`): a pre-2.17.0 4-field sidecar
+# needs no migration pass either. Writes go through hooks/plan-state.sh (the CLI);
+# skills never hand-roll this JSON.
 
 MENTOR_PLAN_STATES="draft approved in_progress implemented failed superseded"
 
@@ -195,7 +204,10 @@ mentor_plan_state_file() {
 }
 
 # mentor_plan_state_field <plan_dir> <key> — echo the stored value of <key>
-# (state|group|order|note), or empty when no sidecar / no jq / corrupt / unset / null.
+# (state|group|order|note|origin), or empty when no sidecar / no jq / corrupt /
+# unset / null. SCALAR fields only — it `tostring`s whatever it finds, so on `deps`
+# (an array) it would return a JSON-stringified array rather than a real list; use
+# mentor_plan_deps for that field instead.
 mentor_plan_state_field() {
   local d="${1:-}" key="${2:-}" f
   if [ -z "$d" ] || [ -z "$key" ]; then echo ""; return 0; fi
@@ -255,15 +267,89 @@ mentor_plan_order() {
   return 0
 }
 
-# mentor_plan_tick_state <plan_md> — echo the state implied by the ✅ ticks that
-# dispatch-agents appends as each step's `Done when:` passes: every step line in the
-# `## Implementation steps` section ticked → implemented; some → in_progress; none or
-# no recognizable steps → empty (no opinion). A step line is a numbered item (`3. …`)
-# or a `Step 3 — …` line; both totals come from the same rule, so the ratio holds
-# whatever the plan's step style.
-mentor_plan_tick_state() {
+# mentor_plan_deps <plan_dir> — echo the sidecar's `deps` array, one plan slug per
+# output line (never a JSON array). Dedicated array-typed reader, parallel to
+# mentor_plan_group/mentor_plan_order but for a list-valued field: the generic
+# mentor_plan_state_field `tostring`s every value, which on `deps` would hand back a
+# JSON-stringified array rather than something a caller can loop over (the set-deps
+# cycle walk) or re-encode as real JSON (`overview --json`). Empty output when no
+# sidecar / no jq / corrupt / unset / empty array — same jq-default (`// []`) that
+# makes a pre-2.17.0 4-field sidecar read as "no deps" with no migration needed.
+mentor_plan_deps() {
+  local d="${1:-}" f
+  [ -n "$d" ] || return 0
+  f="${d}/.state.json"
+  [ -f "$f" ] || return 0
+  command -v jq >/dev/null 2>&1 || return 0
+  jq -r '(.deps // []) | if type == "array" then .[] else empty end' "$f" 2>/dev/null || true
+  return 0
+}
+
+# mentor_plan_origin <plan_dir> — echo the sidecar's `origin` ("deferred") or empty
+# (null / unset / no sidecar / no jq — an ordinary, non-deferred plan). Thin wrapper
+# over the generic scalar reader, named to match mentor_plan_deps at call sites that
+# read both fields side by side.
+mentor_plan_origin() {
+  mentor_plan_state_field "${1:-}" origin
+}
+
+# mentor_plan_would_cycle <plans_dir> <slug> <tentative deps, space-separated> — echo
+# "cycle" when giving <slug> exactly this deps list would create a dependency cycle
+# (including a direct self-cycle, <slug> listed in its own deps), else echo nothing.
+# BFS from each tentative dep, following every OTHER plan's CURRENTLY STORED deps
+# (mentor_plan_deps) — reaching <slug> again means a cycle closes through it. A dep
+# slug with no matching plan dir is a dead end, not an error (unknown deps are
+# allowed — see overview's `missing` marking). The visited-set makes this terminate
+# in at most one pass over the plan dirs, so a torn/circular sidecar graph that
+# somehow already exists can never spin forever. Fail-soft: no plans_dir / no slug /
+# no jq → echoes "" (treated as safe by callers, matching every other reader here).
+mentor_plan_would_cycle() {
+  local plans_dir="${1:-}" slug="${2:-}" deps="${3:-}" dep node queue seen
+  [ -n "$plans_dir" ] && [ -n "$slug" ] || { echo ""; return 0; }
+  command -v jq >/dev/null 2>&1 || { echo ""; return 0; }
+  queue="$deps"
+  seen=" "
+  while [ -n "$queue" ]; do
+    node="${queue%% *}"
+    if [ "$node" = "$queue" ]; then queue=""; else queue="${queue#* }"; fi
+    [ -n "$node" ] || continue
+    if [ "$node" = "$slug" ]; then echo "cycle"; return 0; fi
+    case "$seen" in *" ${node} "*) continue ;; esac
+    seen="${seen}${node} "
+    if [ -d "${plans_dir}/${node}" ]; then
+      for dep in $(mentor_plan_deps "${plans_dir}/${node}"); do
+        queue="${queue} ${dep}"
+      done
+    fi
+  done
+  echo ""
+  return 0
+}
+
+# mentor_plan_live_handoffs <plan_dir> — echo one LIVE handoff basename per output
+# line: <plan_dir>/handoffs/*.md, excluding handoffs/resolved/* — the same anchored
+# exclusion (`-not -path '*/handoffs/resolved/*'`) /mentor:resume uses, so a repo path
+# or topic slug literally named "resolved" is never false-excluded. Empty when the
+# handoffs dir doesn't exist or holds nothing live.
+mentor_plan_live_handoffs() {
+  local d="${1:-}"
+  [ -n "$d" ] || return 0
+  [ -d "${d}/handoffs" ] || return 0
+  find "${d}/handoffs" -type f -name '*.md' -not -path '*/handoffs/resolved/*' 2>/dev/null \
+    | while IFS= read -r hf; do basename "$hf"; done
+  return 0
+}
+
+# mentor_plan_tick_counts <plan_md> — echo "<ticked> <total>" step-line counts from
+# the `## Implementation steps` section: a step line is a numbered item (`3. …`) or a
+# `Step 3 — …` line, ticked when it contains ✅. "0 0" when no plan.md or no
+# recognizable step lines. The one parsing implementation — mentor_plan_tick_state
+# (below) derives its implemented/in_progress/empty verdict FROM these counts, and
+# `plan-state.sh overview --json` reports the raw counts for the task-level rung of
+# the hierarchy — so the ratio and the verdict can never disagree.
+mentor_plan_tick_counts() {
   local md="${1:-}"
-  if [ -z "$md" ] || [ ! -f "$md" ]; then echo ""; return 0; fi
+  if [ -z "$md" ] || [ ! -f "$md" ]; then echo "0 0"; return 0; fi
   awk '
     /^##[[:space:]]/ {
       h = tolower($0)
@@ -275,12 +361,23 @@ mentor_plan_tick_state() {
       total++
       if (index($0, "✅") > 0) ticked++
     }
-    END {
-      if (total == 0) exit 0
-      if (ticked == total) print "implemented"
-      else if (ticked > 0) print "in_progress"
-    }
-  ' "$md" 2>/dev/null || true
+    END { printf "%d %d\n", ticked+0, total+0 }
+  ' "$md" 2>/dev/null || echo "0 0"
+  return 0
+}
+
+# mentor_plan_tick_state <plan_md> — echo the state implied by the ✅ ticks that
+# dispatch-agents appends as each step's `Done when:` passes: every step line in the
+# `## Implementation steps` section ticked → implemented; some → in_progress; none or
+# no recognizable steps → empty (no opinion). Built on mentor_plan_tick_counts, so the
+# step-line rule lives in exactly one place.
+mentor_plan_tick_state() {
+  local md="${1:-}" ticked total
+  read -r ticked total <<<"$(mentor_plan_tick_counts "$md")"
+  if [ "${total:-0}" -eq 0 ]; then echo ""; return 0; fi
+  if [ "$ticked" -eq "$total" ]; then echo "implemented"
+  elif [ "$ticked" -gt 0 ]; then echo "in_progress"
+  fi
   return 0
 }
 
@@ -317,30 +414,86 @@ mentor_plan_effective_state() {
   return 0
 }
 
-# mentor_plan_state_write <plan_dir> <state> [group] [order] [note] — upsert the
-# sidecar (create-then-set: most plans have no sidecar yet). `group`/`order` persist
-# when passed empty; `note` is REPLACED every time, so an empty note clears a stale
-# failure reason. A corrupt sidecar is reset rather than left unwritable.
+# mentor_plan_state_write <plan_dir> [--state S] [--group G] [--order N] [--note "…"]
+#   [--deps a,b] [--origin deferred|""] — upsert the sidecar (create-then-set: most
+#   plans have no sidecar yet).
+#
+# Flag-style since v2.17.0 (was fixed positional <state> <group> <order> <note>) so a
+# write that only touches one or two fields — set-deps, claim, approve-plan's
+# promotion — doesn't have to thread every other field through by hand.
+#
+# AN OMITTED FLAG PRESERVES THE EXISTING STORED VALUE for --state/--group/--order/
+# --deps/--origin. This is what lets `deps`/`origin` survive every state transition:
+# approve-plan's promotion write passes only `--state approved` and deps/origin ride
+# through untouched, instead of getting clobbered back to defaults the way a
+# mandatory-positional write would.
+#
+# --note is the ONE exception to "omitted preserves": it is ALWAYS replaced with
+# whatever was passed (empty when the flag is omitted) — unchanged from before the
+# rework. "note REPLACED every time" is a deliberate feature (a plain `set` with no
+# --note clears a stale failure note); a caller that wants to keep the current note
+# must re-pass it, the same way `init` already reads it back before writing.
+#
+# Passing a flag with an EXPLICIT EMPTY VALUE clears that field (group/order/origin →
+# null, deps → []) rather than preserving it — this is how `claim` clears origin
+# (`--origin ""`) without touching anything else. --state cannot be cleared this way:
+# an empty/invalid --state is rejected outright (fail-soft: no write), same as before.
+# --origin only accepts "deferred" or "" (clear); anything else is also rejected.
+#
 # jq has no in-place edit, so this is tmp-file + mv. A torn write leaves the sidecar
 # unreadable, which reads back as "unknown" — recoverable, because a split child's
 # isolation header carries the same group/order inside plan.md.
-# Fail-soft: always status 0, echoes nothing; a bad state / missing jq writes nothing.
+# Fail-soft: always status 0, echoes nothing; a bad --state/--origin or missing jq
+# writes nothing.
 mentor_plan_state_write() {
-  local d="${1:-}" state="${2:-}" group="${3:-}" order="${4:-}" note="${5:-}" f tmp
+  local d="${1:-}"
+  shift || true
+  local state="" state_set=0
+  local group="" group_set=0
+  local order="" order_set=0
+  local note="" deps="" deps_set=0
+  local origin="" origin_set=0
+  local f tmp deps_json
+  while [ "$#" -gt 0 ]; do
+    case "$1" in
+      --state)  state="${2:-}";  state_set=1;  shift; if [ "$#" -gt 0 ]; then shift; fi ;;
+      --group)  group="${2:-}";  group_set=1;  shift; if [ "$#" -gt 0 ]; then shift; fi ;;
+      --order)  order="${2:-}";  order_set=1;  shift; if [ "$#" -gt 0 ]; then shift; fi ;;
+      --note)   note="${2:-}";                 shift; if [ "$#" -gt 0 ]; then shift; fi ;;
+      --deps)   deps="${2:-}";   deps_set=1;   shift; if [ "$#" -gt 0 ]; then shift; fi ;;
+      --origin) origin="${2:-}"; origin_set=1; shift; if [ "$#" -gt 0 ]; then shift; fi ;;
+      *) shift ;;   # fail-soft: an unrecognized flag is ignored, never aborts a caller
+    esac
+  done
   [ -n "$d" ] && [ -d "$d" ] || return 0
-  mentor_plan_state_valid "$state" || return 0
+  if [ "$state_set" -eq 1 ] && ! mentor_plan_state_valid "$state"; then return 0; fi
+  if [ "$origin_set" -eq 1 ] && [ -n "$origin" ] && [ "$origin" != "deferred" ]; then return 0; fi
   command -v jq >/dev/null 2>&1 || return 0
   f="${d}/.state.json"
   if [ ! -f "$f" ] || ! jq -e 'type == "object"' "$f" >/dev/null 2>&1; then
     printf '%s\n' '{}' > "$f" 2>/dev/null || return 0
   fi
+  if [ -n "$deps" ]; then
+    deps_json="$(printf '%s' "$deps" | jq -R -c 'split(",") | map(select(length>0))' 2>/dev/null)"
+  else
+    deps_json="[]"
+  fi
+  [ -n "$deps_json" ] || deps_json="[]"
   tmp="${f}.tmp.$$"
-  if jq --arg s "$state" --arg g "$group" --arg o "$order" --arg n "$note" '{
-        state: $s,
-        group: (if $g == "" then (.group // null) else $g end),
-        order: (if $o == "" then (.order // null) else ($o | tonumber? // null) end),
-        note:  $n
-      }' "$f" > "$tmp" 2>/dev/null; then
+  if jq --arg state "$state" --argjson state_set "$state_set" \
+        --arg group "$group" --argjson group_set "$group_set" \
+        --arg order "$order" --argjson order_set "$order_set" \
+        --arg note "$note" \
+        --argjson deps "$deps_json" --argjson deps_set "$deps_set" \
+        --arg origin "$origin" --argjson origin_set "$origin_set" '
+        {
+          state: (if $state_set == 1 then $state else (.state // null) end),
+          group: (if $group_set == 1 then (if $group == "" then null else $group end) else (.group // null) end),
+          order: (if $order_set == 1 then (if $order == "" then null else ($order | tonumber? // null) end) else (.order // null) end),
+          note:  $note,
+          deps:  (if $deps_set == 1 then $deps else (.deps // []) end),
+          origin: (if $origin_set == 1 then (if $origin == "" then null else $origin end) else (.origin // null) end)
+        }' "$f" > "$tmp" 2>/dev/null; then
     mv -f "$tmp" "$f" 2>/dev/null || rm -f "$tmp" 2>/dev/null || true
   else
     rm -f "$tmp" 2>/dev/null || true

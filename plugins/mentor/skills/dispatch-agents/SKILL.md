@@ -97,6 +97,10 @@ The point of SDD: quality through narrow focus, and a lean main thread.
   verification output — never full file bodies.
 - **No nested fan-out:** dispatched agents cannot dispatch further agents —
   size each step so one agent completes it alone.
+- **Work discovered mid-flight is captured, not lost.** If the orchestrator or a
+  dispatched agent notices real work outside the current step's scope, capture it with
+  `/mentor:defer` (one item or several) and keep going — never leave it as an aside in
+  a chat message that disappears at session end.
 
 ## Per-step output shape
 

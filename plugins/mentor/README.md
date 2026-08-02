@@ -52,7 +52,8 @@ review and are the single source of truth for implementation, handoff, and revie
 | `/mentor:resume [slug\|number]` | List this repo's live handoff notes (across all plan topics) and continue the chosen one. A note is stamped **resolved** (moved to a `resolved/` subdir, never re-listed) only when its work completes per the plan file (`/mentor:ship` stamps too) or a nested `/mentor:handoff` supersedes it — unfinished work stays resumable. |
 | `/mentor:tour [user\|dev\|both] [subject]` | **Post-approval acceptance review**: an editable guided-tour artifact — scenario cards with pass/not-pass toggles, feedback capture, and MD/JSON report export — published to a stable URL that revisions republish in place. Subject defaults to the newest plan; artifacts live in `.mentor/tours/` (gitignored). |
 | `/mentor:zoom [subject] [topic] [perspective]` | **Topic × perspective HTML zoom of any subject** — a repo subsystem, a doc, a mentor plan, or the thing under discussion; no plan file or planning session required. One dispatched agent per combo writes a self-contained page to `.mentor/zooms/<subject-slug>/` (gitignored), auto-opened locally and **never published**. `plan` Step 5 delegates here for in-planning zooms. |
-| `/mentor:track [slug\|number\|status]` | List every plan with its state (draft / approved / in progress / implemented / failed), then build the one you pick. The way back into a `/plan-split` group. |
+| `/mentor:defer <item(s)>` | `git stash`-like capture: park one or many mid-flow discoveries (mid-planning or mid-implementation) as draft plan stubs at the normal plans location (`origin: "deferred"` in the sidecar, no separate stash area), then return to the interrupted flow. Picked up later via `/mentor:track`, which routes it to `/mentor:plan` to be claimed before it can build. |
+| `/mentor:track [slug\|number\|status]` | Repo-wide remaining-work hierarchy — every plan's state, step progress, cross-plan `deps`, deferred stubs, and live handoffs — then build the one you pick. The way back into a `/plan-split` group. |
 | `/plan-split`* | Split an oversized plan into independently buildable sibling plans, each with explicit scope isolation; also offered as **Split into multiple plans** at the approval gate when a plan is oversized. |
 | `/plan-review`* | Staged review of the current plan: a judgment pass (practicality, comprehensiveness) with a **fold gate** that walks the recommended edits **one question at a time** — each question carries the reviewer's case with the key words bolded — then — against the updated plan — a mechanical pass (cleanliness + spec-kit-`analyze`-style **consistency** across related artifacts) whose safe fixes **auto-fold**; decision-level findings are asked the same one-by-one way, applied only on your verdict. The mechanical stage is invocable alone ("check plan consistency"). Also offered as **Review the plan (staged)** at the proceed gate. |
 | `/dispatch-agents`* | The **default implementation path** (subagents-driven development): every plan's steps are dispatch-annotated unless the plan states a `Dispatch: skipped` reason, and executed as subagent dispatches after approval. |
@@ -83,7 +84,9 @@ v2.2.0, handoffs inside them since v2.10.0):
 ├── constitution.md  # governing principles (/mentor:constitution)        ← committed
 ├── plans/           # the .planning marker + one dir per plan topic      ← gitignored
 │   └── <slug>/      #   plan.md (+ hidden .plan.md.opened sidecar)
-│       ├── .state.json # lifecycle state (v2.11.0) — written only by plan-state.sh
+│       │            #   a /mentor:defer stub is an ordinary plan dir born small —
+│       │            #   same shape, same location, just origin:"deferred" (v2.17.0)
+│       ├── .state.json # lifecycle state + relations (v2.17.0) — written only by plan-state.sh
 │       └── handoffs/ #  handoff notes (/mentor:handoff → /mentor:resume);
 │           └── resolved/ # solved/superseded notes (stamped on completion or nested handoff)
 ├── zooms/           # /mentor:zoom artifacts — <subject-slug>/<topic>-<perspective>.html
@@ -163,10 +166,64 @@ lists with the right state, group, and position — a plan dir needs nothing but
 > written only by `hooks/plan-state.sh` and is *derivable from the plan file*, so
 > forgetting is a no-op rather than a corruption.
 
+### Sidecar schema (v2.17.0: `deps` + `origin`)
+
+Two fields joined the sidecar, both written only through `plan-state.sh`; old 4-field
+sidecars need no migration — every reader defaults the new fields.
+
+| Field | Before v2.17.0 | v2.17.0 | Written by |
+|---|---|---|---|
+| `state` | 6 states | unchanged | `init` / `set` |
+| `group` | split-parent slug or `null` | unchanged | `init --group` |
+| `order` | int or `null` | unchanged | `init --order` |
+| `note` | free text, replaced each write | unchanged | `set --note` |
+| `deps` | — | array of plan slugs, default `[]` | `init --deps a,b` / `set-deps <slug> a,b` |
+| `origin` | — | `"deferred"` or `null` | `init --deferred` sets it; `claim <slug>` clears it |
+
+`set-deps` replaces a plan's deps wholesale and refuses a write that would create a
+dependency cycle (direct or transitive) — fail-soft: a stderr warning, no write.
+Unknown dep slugs are allowed (the dep plan may not exist yet); `overview` marks them
+`missing` rather than failing.
+
+### Deferring work (`/mentor:defer`)
+
+Work discovered mid-planning or mid-implementation that isn't the current task's scope
+used to have nowhere to go but conversation prose. `/mentor:defer "<item(s)>"` — or
+just saying "stash this for later" — captures one or many items as ordinary plan dirs,
+born small: a stub `plan.md` (Goal / Context / Why deferred / Suggested first steps)
+plus a sidecar carrying `origin: "deferred"`, at the normal `plans/` location — no
+separate stash area. `origin` does two things: it shields the stub from
+`approve-plan.sh`'s promotion sweep (a stub jotted mid-planning stays `draft` even
+while the surrounding real plan gets approved), and it tells `/mentor:track` this
+entry isn't buildable as-is. Picking it up runs `/mentor:plan <slug>`, which fleshes
+out the stub and calls `claim <slug>` to clear `origin`, after which normal approval
+promotes it like any plan.
+
+### The repo-wide hierarchy (`overview --json`)
+
+`plan-state.sh overview --json` is the one call that answers "what's remaining?" — a
+JSON array covering every plan dir with a `plan.md` (state, group, order, `deps`, each
+marked `missing` when no such plan dir exists, `origin`, live handoffs, ticked/total
+step counts), plus topic dirs with a live handoff but no `plan.md` yet, plus the
+legacy flat `.mentor/handoffs/` dir. Computed fresh on every call — nothing is cached,
+so it can never drift from the sidecars, plan ticks, or filesystem it reads. `/mentor:track`
+renders it as a hierarchy, e.g.:
+
 ```
-/mentor:track            # list every plan + state, pick one, build it
-/mentor:track status     # print state and stop
-/mentor:track 2          # build the 2nd listed plan
+1. ● recommended-first-clean   implemented (3/3 steps)
+2. ○ oauth-refactor            draft (deferred) — deps: fix-gate-msg-typo
+3. ○ fix-gate-msg-typo         draft (deferred)
+4. ◐ some-feature              in_progress (1/4 steps)
+     └ handoff: 20260801-224510-implement.md (live)
+```
+
+Unmet deps are surfaced with a recommended build order but never block — the user can
+always proceed on the selected plan anyway.
+
+```
+/mentor:track            # repo-wide hierarchy: plans + deps + live handoffs, pick one, build it
+/mentor:track status     # print the hierarchy and stop
+/mentor:track 2          # build the 2nd listed (actionable) entry
 /mentor:track billing    # substring match on the slug
 ```
 
@@ -266,7 +323,7 @@ Knobs — env vars under `env` in `~/.claude/settings.json` (or the project's
 | `hooks/set-mode.sh` | Get/set the approval-gate default. |
 | `hooks/context-gate.sh` | **Context gate.** `UserPromptSubmit` — measures live context from the transcript: warns once (~200k), re-warns near the limit (~315k), and above ~350k asks the user — hand off (recommended) or bypass for the session. Never blocks or erases prompts. Fail-soft; slash commands always pass. |
 | `hooks/bypass-context.sh` | Writes the session-scoped `.context-bypass-<session_id>` marker when the user answers "Proceed anyway" — degrades the ask tier to a one-line advisory for the rest of the session. |
-| `hooks/plan-state.sh` | **The one plan-state API** (not a hook — skills call it directly). `init` / `set` / `list` / `current` / `context` / `dir`. Sole writer of `.state.json`; derives effective state from the plan's ✅ ticks; `current` is group-aware, so after a split it reports the whole group rather than whichever child agent finished last. `dir` (v2.14.0) is the one repo-scoped `.mentor` path derivation — skills call it instead of hand-rolling `git-common-dir` snippets that drift. |
+| `hooks/plan-state.sh` | **The one plan-state API** (not a hook — skills call it directly). `init` / `set` / `set-deps` / `claim` / `list` / `current` / `overview` / `context` / `dir`. Sole writer of `.state.json` (incl. `deps` and `origin`, v2.17.0); derives effective state from the plan's ✅ ticks; `current` is group-aware, so after a split it reports the whole group rather than whichever child agent finished last. `overview --json` computes the repo-wide plans+deps+handoffs hierarchy fresh on every call — nothing cached. `dir` (v2.14.0) is the one repo-scoped `.mentor` path derivation — skills call it instead of hand-rolling `git-common-dir` snippets that drift. |
 
 ### Known limitations
 
@@ -326,6 +383,44 @@ extra deliverable. Instruction-only — no hooks.
 | `plan-domain-backend-api` | API/endpoint/route/handler/schema/DTO/contract | Before/after contract diff tables, schema diffs, Mermaid sequence flows. |
 | `plan-domain-architecture` | Structural change — services, containers, datastores, queues, integrations, data flows (not pure content/config/doc/style/refactor) | Diff-highlighted C4-style Mermaid flowcharts, only the levels that change; a provenance list for any changed datastore field. |
 | `plan-domain-dynamic` | No registered domain matched (fallback) | A dispatched domain-definer names the domain and returns a best-practices brief; the plan gains a practice→step mapping. |
+
+## Changes in v2.17.0
+
+**Work discovered mid-process now has somewhere to go.** New `/mentor:defer`
+captures one or many future-work items — mid-planning or mid-implementation —
+as draft plan stubs, then returns to the interrupted flow. A stub is not a new
+kind of thing on disk: it is an ordinary plan dir at the normal location, born
+`draft` with `origin: "deferred"` in its sidecar. There is no stash area, no
+stash label, and no second capture path — which is why `list`, the edit gate,
+and the single writer already cover it with no new machinery. Stubs carry no
+`Relations` section: dependencies live only in the sidecar, so the fact keeps
+exactly one owner.
+
+**Deferred stubs survive an approval sweep.** `approve-plan.sh`'s promotion loop
+now skips candidates whose sidecar reads `origin: "deferred"`, so a stub jotted
+down while the gate was armed stays `draft` instead of being swept into
+`approved` alongside the plan you were actually writing. `plan-state.sh claim
+<slug>` clears the shield when the stub enters real planning — and
+`/mentor:track` will not approve an unclaimed stub through its draft escape
+hatch, so the defer→claim path cannot be bypassed.
+
+**`/mentor:track` answers "what's remaining?" for the whole repo.** Discovery
+moved from `list` to the new `plan-state.sh overview --json`, and the view is
+now a hierarchy rather than a flat table: every plan with its state and
+ticked/total step counts, `deferred` tags, cross-plan dependency edges, and each
+plan's live handoffs as sub-lines. It also surfaces two things nothing showed
+before — topic dirs holding handoffs but no plan yet, and the legacy flat
+`.mentor/handoffs/` dir. Dependencies are advisory: picking a plan whose deps
+are unbuilt warns and recommends an order, never blocks.
+
+**The sidecar records relations.** `.state.json` gains `deps` (an array of plan
+slugs) and `origin` (`"deferred"` or null), written via `init --deps/--deferred`,
+`set-deps`, and `claim`. `set-deps` refuses writes that would close a dependency
+cycle, including multi-node ones. Old four-field sidecars need no migration —
+readers default the new fields — and `list`/`current` output is byte-identical
+to v2.16.0, so anything parsing them keeps working. The repo-wide view is
+computed on every call and never cached, so it cannot drift from the files it
+describes.
 
 ## Changes in v2.16.0
 

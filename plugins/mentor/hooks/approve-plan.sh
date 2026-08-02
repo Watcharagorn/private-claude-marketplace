@@ -29,6 +29,14 @@
 # --handoff plans at `draft` made plan-track refuse them in the next session
 # ("the gate never released" — but it did). See the promotion block for why the
 # candidate set is snapshotted before the marker is deleted.
+#
+# Approval-sweep shield (v2.17.0): a candidate whose sidecar carries origin:"deferred"
+# (a stub born via /mentor:defer mid-session) is SKIPPED, not promoted — it stays
+# `draft` until `plan-state.sh claim <slug>` clears origin. The promotion write itself
+# is now flag-style (`--state approved`, no other flags) so it never touches
+# deps/origin/group/order — the old fixed-positional write clobbered them back to
+# defaults on every promotion, which is exactly what made a shield here pointless
+# before the rework.
 
 set -euo pipefail
 
@@ -120,7 +128,7 @@ fi
 # successful-looking approval went unnoticed until the next session refused to build it.
 # One `state:` line always prints, before the --handoff/--deliver early exits below.
 if [ -n "$newly_planned" ]; then
-  promoted=""; candidates=0
+  promoted=""; deferred_skipped=""; candidates=0
   while IFS= read -r plan_path; do
     [ -n "$plan_path" ] || continue
     candidates=$((candidates + 1))
@@ -129,13 +137,25 @@ if [ -n "$newly_planned" ]; then
       draft|unknown) ;;
       *) continue ;;
     esac
-    mentor_plan_state_write "$plan_dir" approved "" "" ""
+    # Shield: a stub jotted mid-planning via /mentor:defer stays draft until claimed
+    # (plan-state.sh claim <slug>) — otherwise every plan approval would silently
+    # promote deferred work the user explicitly set aside.
+    if [ "$(mentor_plan_state_field "$plan_dir" origin)" = "deferred" ]; then
+      deferred_skipped="${deferred_skipped}$(basename "$plan_dir") "
+      continue
+    fi
+    # Flag-style: only --state is passed, so deps/origin/group/order ride through
+    # untouched — the whole point of the shield above.
+    mentor_plan_state_write "$plan_dir" --state approved
     promoted="${promoted}$(basename "$plan_dir") "
   done <<<"$newly_planned"
   if [ -n "$promoted" ]; then
     echo "  state: approved — ${promoted% }"
   else
     echo "  state: unchanged — nothing needed promoting (${candidates} candidate(s), none in draft/unknown)"
+  fi
+  if [ -n "$deferred_skipped" ]; then
+    echo "  state: left draft (deferred stub — run 'plan-state.sh claim <slug>' first) — ${deferred_skipped% }"
   fi
 else
   echo "  state: unchanged — no plans written this session, nothing to promote"

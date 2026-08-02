@@ -18,6 +18,7 @@ PLANSTATE="$HOOKS/plan-state.sh"
 for f in "$APPROVE" "$SETMODE" "$PLANSTATE"; do
   [ -f "$f" ] || { echo "FATAL: not found: $f" >&2; exit 1; }
 done
+command -v jq >/dev/null 2>&1 || { echo "FATAL: jq required to run this suite" >&2; exit 1; }
 
 ROOT="$(cd "$(mktemp -d)" && pwd -P)"
 SANDBOX="$ROOT/home"; mkdir -p "$SANDBOX"
@@ -211,6 +212,51 @@ out="$(ap --deliver)"
 chk "--deliver prints the state line"      sh -c "printf '%s' \"\$0\" | grep -q 'state: approved'" "$out"
 
 chk "months-old plan still untouched at the end"  test "$(st ancient)" = "unknown"
+
+echo "== K. Approval-sweep shield: deferred stubs stay draft; claim unblocks; deps/origin/group/order survive promotion (v2.17.0) =="
+sidecar() { jq -r "${2}" "$PLANS_DIR/$1/.state.json" 2>/dev/null; }   # sidecar <slug> <jq filter>
+
+clear_plans; rm -f "$MARKER"
+arm; newplan main-plan
+newplan stub-deferred
+psq init stub-deferred --deferred --group stub-group --order 5 --deps main-plan >/dev/null
+
+out="$(ap)"; rc=$?
+chk "approve with a deferred stub present → exit 0" test "$rc" = "0"
+chk "main plan promoted"                             test "$(st main-plan)" = "approved"
+chk "deferred stub stays draft"                      test "$(st stub-deferred)" = "draft"
+chk "deferred stub keeps origin through the skip"    test "$(sidecar stub-deferred '.origin')" = "deferred"
+chk "deferred stub keeps deps through the skip"      test "$(sidecar stub-deferred '(.deps//[])|join(",")')" = "main-plan"
+chk "deferred stub keeps group through the skip"     test "$(sidecar stub-deferred '.group')" = "stub-group"
+chk "deferred stub keeps order through the skip"     test "$(sidecar stub-deferred '.order')" = "5"
+chk "approve reports the deferred skip"    sh -c "printf '%s' \"\$0\" | grep -q 'deferred stub'" "$out"
+chk "approve names the skipped stub"       sh -c "printf '%s' \"\$0\" | grep -q 'stub-deferred'" "$out"
+
+# Claim it — origin clears, and the sweep no longer shields it.
+psq claim stub-deferred >/dev/null
+arm; newplan stub-deferred   # re-touch plan.md newer than the fresh marker; init is idempotent
+out="$(ap)"; rc=$?
+chk "claimed stub → exit 0"                   test "$rc" = "0"
+chk "claimed stub promotes"                   test "$(st stub-deferred)" = "approved"
+chk "no more deferred-skip line once claimed" sh -c "! printf '%s' \"\$0\" | grep -q 'deferred stub'" "$out"
+chk "claimed stub's deps survive the promotion write"   test "$(sidecar stub-deferred '(.deps//[])|join(",")')" = "main-plan"
+chk "claimed stub's group survives the promotion write" test "$(sidecar stub-deferred '.group')" = "stub-group"
+chk "claimed stub's order survives the promotion write" test "$(sidecar stub-deferred '.order')" = "5"
+chk "claimed stub's origin stays cleared after promotion" test "$(sidecar stub-deferred '.origin')" = "null"
+
+# A never-deferred plan's deps/group/order must survive its (ordinary) promotion too —
+# same write path (--state approved only), exercised without the shield in play. This
+# is the whole reason mentor_plan_state_write went flag-style: the old fixed-positional
+# write clobbered these back to defaults on every promotion.
+arm; newplan survive-fields
+psq init survive-fields --group grp-x --order 7 --deps main-plan >/dev/null
+out="$(ap)"; rc=$?
+chk "ordinary plan with deps/group/order → exit 0" test "$rc" = "0"
+chk "ordinary plan promoted"                        test "$(st survive-fields)" = "approved"
+chk "deps survive an ordinary promotion"            test "$(sidecar survive-fields '(.deps//[])|join(",")')" = "main-plan"
+chk "group survives an ordinary promotion"          test "$(sidecar survive-fields '.group')" = "grp-x"
+chk "order survives an ordinary promotion"          test "$(sidecar survive-fields '.order')" = "7"
+chk "origin stays null (never was deferred)"        test "$(sidecar survive-fields '.origin')" = "null"
 
 echo
 echo "RESULT: PASS=$PASS FAIL=$FAIL"

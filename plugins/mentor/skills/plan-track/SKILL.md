@@ -1,17 +1,18 @@
 ---
 name: plan-track
 description: |
-  Show which EXISTING mentor plans have been implemented and which are still
-  unbuilt, then build the next unbuilt one. Backs the /mentor:track command. Use this
-  whenever the user asks what plans exist, which plan to build next, what is left to
-  build, whether a plan has already been implemented, or asks to implement / pick up /
-  retry a plan by name or number — and especially after /plan-split has left a group
-  of sibling plans to work through one session at a time. It reads each plan's
-  lifecycle state (draft / approved / in progress / implemented / failed), refuses to
-  start an implementation when this session's context is already too large to finish
-  one reliably, and executes the chosen plan through mentor:dispatch-agents.
-  This is about build status, not about authoring a plan for a new request (that is
-  /mentor:plan) or judging a plan's quality (that is /plan-review).
+  Show the repo-wide remaining-work hierarchy — every mentor plan's lifecycle state,
+  its step progress, cross-plan deps, deferred /mentor:defer stubs, and live handoffs —
+  then build the next unbuilt plan. Backs /mentor:track. Use whenever the user asks
+  what plans exist, what's remaining, what's left to build, remaining tasks, which plan
+  is next, whether a plan is already implemented, or asks to implement / pick up /
+  retry a plan by name or number — especially after /plan-split, or after
+  /mentor:defer has stashed stubs to survey. Reads each plan's lifecycle state, refuses
+  to start when context is too large, warns (never blocks) on unmet deps, routes a
+  deferred stub to /mentor:plan for claiming instead of building it directly, and
+  executes via mentor:dispatch-agents.
+  About build status, not authoring a new request (/mentor:plan), capturing mid-flow
+  work (/mentor:defer), or judging plan quality (/plan-review).
 ---
 
 # Plan Track — What's Built, What's Next, Build It
@@ -35,6 +36,9 @@ honest on their own.
 
 - **Authoring a plan for a new ask** — that is `/mentor:plan`.
 - **One plan is too big** — that is `/plan-split`.
+- **Capturing new work discovered mid-flow** — that is `/mentor:defer`. It writes the stub; this
+  skill only reads what already exists (via `overview`) and, when the user picks a stub, routes
+  them to `/mentor:plan` to flesh it out.
 - **Auditing a plan's quality before approving it** — that is `/plan-review`.
 - **Resuming a *session* from a handoff note** — that is `/mentor:resume`. Handoff
   notes carry conversation context; this skill carries plan state. If the user wants
@@ -74,36 +78,119 @@ having no check at all.
   starting the *next* plan.
 - **`CONTEXT: OK` / `UNKNOWN`** — continue.
 
-## Step 1 — List the plans
+## Step 1 — See the hierarchy
 
 ```bash
-bash "${CLAUDE_PLUGIN_ROOT}/hooks/plan-state.sh" list
+bash "${CLAUDE_PLUGIN_ROOT}/hooks/plan-state.sh" overview --json
 ```
 
-Show the table as-is. It groups split siblings together, orders them by their `order`
-field, and sorts `superseded` and `unknown` last. Plan files live at
-`PLANS_DIR/<PLAN>/plan.md`.
+This is the ONE call that answers "what's remaining?" — a JSON array covering every plan dir with
+a `plan.md` (slug, effective state, group, order, `deps` — each marked `missing` when no such plan
+dir exists, `origin`, live handoffs, `✅` step counts), plus topic dirs holding a live handoff but
+no plan yet, plus the legacy flat `.mentor/handoffs/*.md` dir. It replaces the old `list` table —
+`list` still exists and is byte-compatible, but `overview` is the only call that also carries deps,
+origin, and step counts, so it is Step 1 now. `jq .` on the output is always valid JSON; see the
+hook script's header comment for the exact per-entry shape (`kind: "plan" | "no_plan_topic" |
+"legacy_handoffs"`). Plan files live at `PLANS_DIR/<PLAN>/plan.md`.
 
-If the script reports **no git repo**, say that plainly in one line — mentor keeps no
-plan registry outside a repo. Printing an empty list next to plan files the user can
-see would just be confusing.
+If the script reports **no git repo**, say that plainly in one line — mentor keeps no plan
+registry outside a repo. Printing an empty hierarchy next to plan files the user can see would
+just be confusing.
 
-If `$ARGUMENTS` is `status`, stop here — the user asked to look, not to build.
+If `$ARGUMENTS` is `status`, render the hierarchy below and stop — the user asked to look, not to
+build.
+
+### Render it as a hierarchy, not a flat dump
+
+Use a distinct glyph/label per resource **kind** — a plan, a deferred stub, and a handoff must
+never read as the same kind of thing at a glance:
+
+| Glyph | Meaning (a bucket — the state word printed after the slug says exactly which) |
+|---|---|
+| `●` | `implemented` |
+| `◐` | `in_progress` |
+| `○` | `draft` or `approved` (not yet building) |
+| `✕` | `failed` |
+| `⊘` | `superseded` / `unknown` — render last, and only when the user is browsing everything |
+| `▷` | `kind: "no_plan_topic"` — a topic with a live handoff but no plan yet |
+
+Number **actionable** entries only (`kind: "plan"` or `"no_plan_topic"`) 1..N in render order —
+group headers and `handoff:` sub-lines never consume a number, because that numbering is exactly
+what Step 2's ordinal selection resolves against:
+
+```
+1. ● recommended-first-clean   implemented (3/3 steps)
+2. ○ oauth-refactor            draft (deferred) — deps: fix-gate-msg-typo
+3. ○ fix-gate-msg-typo         draft (deferred)
+4. ◐ some-feature              in_progress (1/4 steps)
+     └ handoff: 20260801-224510-implement.md (live)
+```
+
+Per plan entry: `<glyph> <slug>   <state>[ (deferred)] [(<ticked>/<total> steps)][ — deps: <a>[,
+<b> (missing)]]`.
+
+- `(deferred)` only when `origin == "deferred"` — the tag that marks an unclaimed `/mentor:defer`
+  stub, so it is never mistaken for a plan someone drafted by hand and left in `draft`.
+- step counts only when `steps.total > 0`.
+- the `deps` clause only when `deps` is non-empty; a dep entry with `missing: true` gets
+  ` (missing)` appended — named as a dependency, but no such plan dir exists yet.
+- each entry's **live** handoffs (its `handoffs` array — `overview` already excludes `resolved/`)
+  render as one indented line beneath it: `     └ handoff: <name> (live)`.
+
+Split-group siblings (`group` set) stay contiguous, ordered by `order`; on the group's first
+sibling, print a one-line header `▸ group: <group-slug>` and indent the members two spaces under
+it — same grouping `list` sorted by, just rendered instead of tabulated.
+
+`kind: "no_plan_topic"` entries use `▷` and the literal state text `no plan yet`, followed by their
+`handoff:` line(s) — a topic that only has conversation history, never a plan.
+
+`kind: "legacy_handoffs"` (topic-less, at most one entry) renders last if present:
+`▽ (untracked) legacy handoffs: <name>, <name> — .mentor/handoffs/, no topic`.
+
+Sort `kind: "plan"` entries the same way the old `list` table did: active states first
+(`superseded`/`unknown` last), then by group (an ungrouped plan sorts on its own slug), then
+`order`, then slug — so a reader who knew the old table still recognizes the order.
 
 ## Step 2 — Select a plan
 
 Resolve the selection using **`mentor:resume` Step 4's rule, unchanged**: a bare
-integer is a 1-based ordinal into the printed list; anything else is a
-case-insensitive substring match on the slug; a unique match is selected directly; an
-ambiguous or empty match re-prints the list and re-asks rather than auto-picking; with
-no argument, `AskUserQuestion` offers the 4 most relevant plans and "Other" covers the
-rest.
+integer is a 1-based ordinal into the printed hierarchy (actionable entries only, per Step 1's
+numbering); anything else is a case-insensitive substring match on the slug; a unique match is
+selected directly; an ambiguous or empty match re-prints the hierarchy and re-asks rather than
+auto-picking; with no argument, `AskUserQuestion` offers the 4 most relevant plans and "Other"
+covers the rest.
 
-"Most relevant" here means the ones the user can act on: unfinished plans first, in
-group and `order` sequence. Do not offer `superseded` parents as quick options — they
-were replaced by their children.
+"Most relevant" here means the ones the user can act on: unfinished plans first, in group and
+`order` sequence, deferred stubs included (their entry already says so). Do not offer
+`superseded` parents as quick options — they were replaced by their children.
+
+## Step 2.5 — Deps advisory (soft — never a block)
+
+If the selected entry's `deps` array is non-empty, look up each dep's effective state in the same
+`overview --json` output you already have (match by slug; a dep marked `missing` has no plan dir
+at all). When any dep is not `implemented`:
+
+- Say so plainly — name the unmet dep(s) and their current state (or "not yet planned" for a
+  `missing` one).
+- Recommend a build order: **deps first**, and `order` only as a tie-break within a `group` —
+  `deps` and `group`/`order` are independent mechanisms by design, and there is no automated check
+  for a contradiction between them, so this is advice, not a computed guarantee.
+- **Never block on this.** If the user wants to proceed on the selected plan anyway, continue to
+  Step 3 exactly as if the deps were clear.
+
+No deps, or all deps already `implemented` → nothing to say; continue.
 
 ## Step 3 — Act on the plan's effective state
+
+**A deferred stub short-circuits this step, first.** If the selected entry's `origin ==
+"deferred"` (same `overview --json`), it is an unclaimed `/mentor:defer` stub — a
+Goal/Context/Why-deferred skeleton, not a plan ready to build. Say so, then point the user at
+`/mentor:plan <the stub's slug or its Goal>` to flesh it out — that skill runs `claim` on the stub
+when it does, clearing `origin` so the normal approval sweep can pick it up afterward. Do not act
+on the table below for a deferred stub, and do not offer to build it directly — that is exactly
+the shortcut the `origin` shield exists to prevent.
+
+Otherwise, act on the effective state:
 
 | Effective state | What to do |
 |---|---|
@@ -122,7 +209,15 @@ bash "${CLAUDE_PLUGIN_ROOT}/hooks/plan-state.sh" set <slug> <state> [--note "…
 
 ### Approving a draft plan here
 
-A plan arrives here still `draft` for one of two reasons: the user approved it in an
+**Origin check, first.** Confirm `origin` for this slug (from Step 1's `overview --json`, or
+re-run it if you no longer have it in hand). If it is `"deferred"` — arriving here any other way
+than through Step 3's short-circuit above, e.g. the user jumped straight to "approve draft plan
+X" — **refuse**: this is an unclaimed `/mentor:defer` stub, and approving it as-is would promote
+a bare Goal/Context/Why-deferred skeleton straight to `approved`, skipping the planning this
+escape hatch was never meant to skip. Point the user at `/mentor:plan <slug>` (which claims it)
+and stop; do not ask the three-way question below for a deferred stub.
+
+A plan arrives here still `draft` for one of two other reasons: the user approved it in an
 earlier session but the approval was never recorded (pre-v2.14 `--handoff`/`--deliver`
 didn't record one), or they never approved it and want to now. Both land in the same
 place, so ask once with `AskUserQuestion` — approved earlier / approve it now / not yet
@@ -172,7 +267,7 @@ When every `Done when:` has passed, `set <slug> implemented`. When the remediati
 re-dispatch has failed and you are escalating to the user, `set <slug> failed --note
 "<what broke>"` — the note is what makes the retry cheap next time.
 
-Then report what is left (`list` again is enough) and, if the group has more plans,
+Then report what is left (re-running Step 1's hierarchy is enough) and, if the group has more plans,
 recommend a **fresh session** for the next one: a plan that just consumed a full
 implementation pass has left little room for another.
 
@@ -183,6 +278,11 @@ implementation pass has left little room for another.
 - The selected plan was resolved unambiguously, never auto-picked.
 - A `draft` plan was either refused or approved by the user first — never silently
   built; an `implemented` one was not rebuilt.
+- A deferred stub (`origin: "deferred"`) was routed to `/mentor:plan`, never built or approved
+  directly — through Step 3's short-circuit AND through the draft-approval escape hatch's origin
+  check, whichever path the user reached it by.
+- Unmet deps on the selected plan were surfaced with a recommended order — and never used to
+  block the user who chose to proceed anyway.
 - The plan that ran ended at `implemented` or at `failed` with a note.
 
 ### Do NOT
@@ -191,6 +291,10 @@ implementation pass has left little room for another.
   and do **not** refuse them on `CONTEXT: HANDOFF`, which means they already did.
 - Do **not** execute a plan that is still `draft`, however open the gate happens to be —
   approve it through the step above first, or stop.
+- Do **not** build or approve a deferred stub directly, however the user phrases the ask — point
+  at `/mentor:plan <slug>` every time; only `claim` (run by that skill) lifts the shield.
+- Do **not** hard-block on unmet deps — Step 2.5 is advisory; the decision to proceed anyway is
+  the user's.
 - Do **not** **arm** the edit gate, and release it only through "Approving a draft plan
   here", on the user's explicit say-so. `mentor:plan` owns every other approval path.
 - Do **not** restate the dispatch grammar or the selection rule here; cite

@@ -6,7 +6,7 @@
   "plugins": [
     {
       "name": "mentor",
-      "description": "A lean planning harness: a marker-driven edit gate keeps the repo read-only until a Mermaid-first Markdown plan is approved, then implementation runs subagents-first (SDD). Plans carry their own build state across sessions — split, handoff, resume, review, ship, merge.",
+      "description": "A lean planning harness: a marker-driven edit gate keeps the repo read-only until a Mermaid-first Markdown plan is approved, then implementation runs subagents-first (SDD). Plans carry their own build state across sessions — split, handoff, resume, defer, review, ship, merge.",
       "source": "./plugins/mentor",
       "category": "development"
     },

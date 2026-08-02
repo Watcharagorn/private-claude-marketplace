@@ -5,14 +5,27 @@
 # It exists so no skill ever hand-rolls the sidecar JSON, and so the three places
 # that used to resolve "the current plan" with their own `ls -t` share one answer.
 #
-#   init <slug> [--group G] [--order N]
+#   init <slug> [--group G] [--order N] [--deps a,b] [--deferred]
 #       Create the sidecar as `draft`. Idempotent and never LOWERS an existing
-#       state — re-running it on an approved plan keeps it approved.
+#       state — re-running it on an approved plan keeps it approved. --deps sets the
+#       initial dependency slugs (cycle-checked, same as set-deps); --deferred marks
+#       the plan a stub born via /mentor:defer (origin: "deferred" — shields it from
+#       approve-plan's promotion sweep until `claim`ed).
 #
 #   set <slug> <state> [--note "…"]
 #       Upsert (create-then-set): most plans predate the sidecar. <state> is one of
 #       draft approved in_progress implemented failed superseded.
 #       The note is REPLACED every time, so a plain `set` clears a stale failure note.
+#
+#   set-deps <slug> a,b
+#       Replace <slug>'s deps wholesale with the given comma-separated plan slugs
+#       (empty string clears them). Unknown slugs are allowed — the dep plan may be
+#       deferred later. Refuses a write that would create a dependency cycle (direct
+#       self-cycle or transitive): fail-soft, stderr warning, no write.
+#
+#   claim <slug>
+#       Clear `origin` — used when a deferred stub (born via /mentor:defer) enters
+#       real planning, so approve-plan's promotion sweep can promote it like any plan.
 #
 #   list [--group G]
 #       One row per plan: ordinal, EFFECTIVE state, slug, group, order.
@@ -22,6 +35,14 @@
 #       The plan a bare "review the plan" means. Skips superseded. When the answer
 #       belongs to a split group it prints the whole group and says so, instead of
 #       silently picking one of N children.
+#
+#   overview --json
+#       Repo-wide JSON array (--json is required — there is no human-table mode): one
+#       object per plan dir with a plan.md (slug, effective state, group, order, deps
+#       — each marked missing when no such plan dir exists, origin, live handoffs,
+#       ticked/total step counts), plus topic dirs that hold live handoffs but no
+#       plan.md yet (state "no plan yet") and the legacy flat handoffs/ dir (topic-less).
+#       Computed fresh every call — nothing is cached.
 #
 #   context
 #       CONTEXT: ASK|HANDOFF|WARN|OK|UNKNOWN (~N tokens), plus the handoff/compact
@@ -53,10 +74,14 @@ hook_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 usage() {
   cat <<'EOF'
 Usage: plan-state.sh <subcommand>
-  init <slug> [--group G] [--order N]   create the sidecar as draft (idempotent)
+  init <slug> [--group G] [--order N] [--deps a,b] [--deferred]
+                                         create the sidecar as draft (idempotent)
   set <slug> <state> [--note "…"]       state: draft|approved|in_progress|implemented|failed|superseded
+  set-deps <slug> a,b                   replace deps wholesale (cycle-checked, fail-soft)
+  claim <slug>                          clear origin (a deferred stub enters real planning)
   list [--group G]                      every plan with its effective state
   current                               the current plan (group-aware)
+  overview --json                       repo-wide JSON: plans + deps + live handoffs + step counts
   context                               CONTEXT: ASK|HANDOFF|WARN|OK|UNKNOWN (~N tokens)
   dir [--plans]                         the repo-scoped mentor dir (or its plans dir)
   ensure-dir <path>                     mkdir it + chmod 700 the whole path; echoes it
@@ -160,7 +185,7 @@ if [ "$sub" = "ensure-dir" ]; then
 fi
 
 case "$sub" in
-  init|set|list|current) ;;
+  init|set|set-deps|claim|list|current|overview) ;;
   ""|-h|--help|help)
     usage
     [ -n "$sub" ] && exit 0
@@ -185,12 +210,20 @@ if [ ! -d "$plans_dir" ]; then
   exit 0
 fi
 
-# --- shared row builder -------------------------------------------------------
-# Emits, tab-separated and sorted: <sortkey> <slug> <effective state> <group> <order>
-# Sort key: bucket (0 active / 1 superseded+unknown) | group (ungrouped sorts on its
-# own slug, so it neither splits a group nor clumps with one) | zero-padded order | slug.
-list_rows() {
-  local filter="${1:-}" d slug state group order bucket gkey okey
+# --- shared per-plan iterator --------------------------------------------------
+# _plan_walk [group-filter] — the ONE walk over plans_dir for every plan dir that has
+# a plan.md. Emits one tab-separated RAW record per line, unsorted:
+#   slug  state  group  order  deps_json  origin  handoffs_json  ticked  total
+# `deps_json`/`handoffs_json` are compact (`jq -c`) single-line JSON — safe to sit in
+# a tab field because compact jq output never contains a literal tab or newline, even
+# inside a string. `list_rows` (below, byte-compatible with the pre-v2.17.0 format)
+# and `overview --json` (new) both derive from this ONE walk — neither re-walks
+# plans_dir on its own. `list`/`current` never needed deps/handoffs/step-counts, so
+# computing them for those two callers too is a deliberate small cost in exchange for
+# there being exactly one place that decides what "every plan" means.
+_plan_walk() {
+  local filter="${1:-}" d slug state group order origin deps_pairs deps_json
+  local handoffs_json ticked total dep miss
   for d in "${plans_dir}"/*/; do
     [ -d "$d" ] || continue
     d="${d%/}"
@@ -198,8 +231,46 @@ list_rows() {
     slug="$(basename "$d")"
     state="$(mentor_plan_effective_state "$d")"
     group="$(mentor_plan_group "$d")"   # sidecar, else the isolation header
-    order="$(mentor_plan_order "$d")"
     if [ -n "$filter" ] && [ "$group" != "$filter" ]; then continue; fi
+    order="$(mentor_plan_order "$d")"
+    origin="$(mentor_plan_origin "$d")"
+    deps_pairs=""
+    while IFS= read -r dep; do
+      [ -n "$dep" ] || continue
+      if [ -d "${plans_dir}/${dep}" ]; then miss=false; else miss=true; fi
+      deps_pairs="${deps_pairs}${dep}$(printf '\t')${miss}
+"
+    done <<<"$(mentor_plan_deps "$d")"
+    deps_json="$(printf '%s' "$deps_pairs" | jq -R -s -c '
+      split("\n") | map(select(length>0) | split("\t") | {slug: .[0], missing: (.[1] == "true")})
+    ' 2>/dev/null)"
+    [ -n "$deps_json" ] || deps_json="[]"
+    handoffs_json="$(mentor_plan_live_handoffs "$d" | jq -R -s -c 'split("\n") | map(select(length>0))' 2>/dev/null)"
+    [ -n "$handoffs_json" ] || handoffs_json="[]"
+    read -r ticked total <<<"$(mentor_plan_tick_counts "${d}/plan.md")"
+    # IFS-whitespace read pitfall: a lone tab in IFS is still "IFS whitespace" to
+    # bash's `read` — consecutive tabs COLLAPSE instead of producing an empty field,
+    # so a genuinely-empty group/order/origin would silently shift every field after
+    # it for whoever reads this line. Emit "-" for empty (matching print_table's own
+    # existing display convention) and never a raw empty string here; consumers
+    # translate "-" back to "" on read.
+    printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' \
+      "$slug" "$state" "${group:--}" "${order:--}" "$deps_json" "${origin:--}" "$handoffs_json" "$ticked" "$total"
+  done
+}
+
+# list_rows [group-filter] — the pre-v2.17.0 5-field row format, byte-compatible:
+# <sortkey> <slug> <effective state> <group> <order>, tab-separated and sorted.
+# Sort key: bucket (0 active / 1 superseded+unknown) | group (ungrouped sorts on its
+# own slug, so it neither splits a group nor clumps with one) | zero-padded order |
+# slug. Derived from _plan_walk's raw records — see that function's comment for why
+# this is no longer its own directory walk.
+list_rows() {
+  local filter="${1:-}" slug state group order _rest bucket gkey okey
+  while IFS="$(printf '\t')" read -r slug state group order _rest; do
+    [ -n "$slug" ] || continue
+    [ "$group" = "-" ] && group=""   # un-placeholder — see _plan_walk's comment
+    [ "$order" = "-" ] && order=""
     case "$state" in
       superseded|unknown) bucket=1 ;;
       *)                  bucket=0 ;;
@@ -211,7 +282,7 @@ list_rows() {
     esac
     printf '%s|%s|%s|%s\t%s\t%s\t%s\t%s\n' \
       "$bucket" "$gkey" "$okey" "$slug" "$slug" "$state" "${group:--}" "${order:--}"
-  done | LC_ALL=C sort -t"$(printf '\t')" -k1,1
+  done <<<"$(_plan_walk "$filter")" | LC_ALL=C sort -t"$(printf '\t')" -k1,1
 }
 
 print_table() {
@@ -250,16 +321,27 @@ require_jq() {
   exit 0
 }
 
+# require_jq_read — the READ-side counterpart for overview (which never writes):
+# a single stderr line and exit 0, per this file's fail-soft convention for
+# environmental problems (see the header comment).
+require_jq_read() {
+  command -v jq >/dev/null 2>&1 && return 0
+  echo "[mentor plan-state] jq not found — cannot compute overview." >&2
+  exit 0
+}
+
 case "$sub" in
 
   init)
-    slug=""; group=""; order=""
+    slug=""; group=""; order=""; deps=""; deferred=0
     while [ "$#" -gt 0 ]; do
       case "$1" in
         # shift 1 then conditionally 1 more: a bare trailing `--group` must not
         # leave $# unchanged and spin this loop forever.
         --group) group="${2:-}"; shift; if [ "$#" -gt 0 ]; then shift; fi ;;
         --order) order="${2:-}"; shift; if [ "$#" -gt 0 ]; then shift; fi ;;
+        --deps) deps="${2:-}"; shift; if [ "$#" -gt 0 ]; then shift; fi ;;
+        --deferred) deferred=1; shift ;;
         -*) echo "[mentor plan-state] init: unknown flag ${1}" >&2; usage >&2; exit 1 ;;
         *)  [ -z "$slug" ] && slug="$1" || { echo "[mentor plan-state] init: unexpected argument ${1}" >&2; exit 1; }; shift ;;
       esac
@@ -269,9 +351,29 @@ case "$sub" in
     plan_dir="${plans_dir}/${slug}"
     # Idempotent: keep whatever state is already on record; only fill in a missing one.
     existing="$(mentor_plan_state_stored "$plan_dir")"
-    mentor_plan_state_write "$plan_dir" "${existing:-draft}" "$group" "$order" \
-      "$(mentor_plan_state_field "$plan_dir" note)"
-    echo "[mentor plan-state] ${slug}: $(mentor_plan_effective_state "$plan_dir")${group:+  group=${group}}${order:+  order=${order}}"
+    write_args=(--state "${existing:-draft}" --note "$(mentor_plan_state_field "$plan_dir" note)")
+    [ -n "$group" ] && write_args+=(--group "$group")
+    [ -n "$order" ] && write_args+=(--order "$order")
+    deps_summary=""
+    if [ -n "$deps" ]; then
+      clean_deps=()
+      IFS=',' read -r -a raw_deps <<<"$deps"
+      for x in "${raw_deps[@]:-}"; do
+        x="$(printf '%s' "$x" | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')"
+        [ -n "$x" ] && clean_deps+=("$x")
+      done
+      if [ "${#clean_deps[@]}" -gt 0 ]; then
+        if [ -n "$(mentor_plan_would_cycle "$plans_dir" "$slug" "${clean_deps[*]}")" ]; then
+          echo "[mentor plan-state] init: --deps would create a dependency cycle (${slug} → … → ${slug}) — deps NOT set; other fields still applied." >&2
+        else
+          deps_summary="$(IFS=,; echo "${clean_deps[*]}")"
+          write_args+=(--deps "$deps_summary")
+        fi
+      fi
+    fi
+    [ "$deferred" -eq 1 ] && write_args+=(--origin deferred)
+    mentor_plan_state_write "$plan_dir" "${write_args[@]}"
+    echo "[mentor plan-state] ${slug}: $(mentor_plan_effective_state "$plan_dir")${group:+  group=${group}}${order:+  order=${order}}${deps_summary:+  deps=${deps_summary}}$([ "$deferred" -eq 1 ] && printf '  origin=deferred')"
     ;;
 
   set)
@@ -297,13 +399,62 @@ case "$sub" in
     require_jq
     plan_dir="${plans_dir}/${slug}"
     before="$(mentor_plan_effective_state "$plan_dir")"
-    mentor_plan_state_write "$plan_dir" "$state" "" "" "$note"
+    mentor_plan_state_write "$plan_dir" --state "$state" --note "$note"
     after="$(mentor_plan_effective_state "$plan_dir")"
     echo "[mentor plan-state] ${slug}: ${before} → ${after}${note:+  (${note})}"
     # The effective read can outrank what was just stored — say so rather than let a
     # caller believe the sidecar is the last word.
     if [ "$after" != "$state" ]; then
       echo "[mentor plan-state] note: '${state}' stored, but the plan's ✅ step ticks report '${after}'."
+    fi
+    ;;
+
+  set-deps)
+    slug="${1:-}"; [ "$#" -gt 0 ] && shift
+    depstr="${1:-}"; [ "$#" -gt 0 ] && shift
+    if [ "$#" -gt 0 ]; then
+      echo "[mentor plan-state] set-deps: unexpected argument ${1}" >&2
+      usage >&2
+      exit 1
+    fi
+    require_slug "$slug"
+    require_jq
+    plan_dir="${plans_dir}/${slug}"
+    clean_deps=()
+    IFS=',' read -r -a raw_deps <<<"$depstr"
+    for x in "${raw_deps[@]:-}"; do
+      x="$(printf '%s' "$x" | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')"
+      [ -n "$x" ] && clean_deps+=("$x")
+    done
+    if [ "${#clean_deps[@]}" -gt 0 ] && [ -n "$(mentor_plan_would_cycle "$plans_dir" "$slug" "${clean_deps[*]}")" ]; then
+      echo "[mentor plan-state] set-deps: refused — ${slug} → … → ${slug} would be a dependency cycle. No write." >&2
+      exit 0
+    fi
+    clean_csv=""
+    [ "${#clean_deps[@]}" -gt 0 ] && clean_csv="$(IFS=,; echo "${clean_deps[*]}")"
+    # Re-read and re-pass the note: mentor_plan_state_write always REPLACES --note
+    # (even when omitted, which would clear it), so a deps-only write must round-trip
+    # the current note to avoid silently wiping it.
+    mentor_plan_state_write "$plan_dir" --deps "$clean_csv" --note "$(mentor_plan_state_field "$plan_dir" note)"
+    echo "[mentor plan-state] ${slug}: deps = ${clean_csv:-(none)}"
+    ;;
+
+  claim)
+    slug="${1:-}"; [ "$#" -gt 0 ] && shift
+    if [ "$#" -gt 0 ]; then
+      echo "[mentor plan-state] claim: unexpected argument ${1}" >&2
+      usage >&2
+      exit 1
+    fi
+    require_slug "$slug"
+    require_jq
+    plan_dir="${plans_dir}/${slug}"
+    was_deferred="$(mentor_plan_origin "$plan_dir")"
+    mentor_plan_state_write "$plan_dir" --origin "" --note "$(mentor_plan_state_field "$plan_dir" note)"
+    if [ "$was_deferred" = "deferred" ]; then
+      echo "[mentor plan-state] ${slug}: claimed — origin cleared, eligible for the normal approval sweep."
+    else
+      echo "[mentor plan-state] ${slug}: origin already unset — nothing to claim."
     fi
     ;;
 
@@ -363,6 +514,84 @@ case "$sub" in
       echo "sibling — do NOT assume it is the one the user means. Ask which sibling (or all):"
       echo
       print_table "$group" || true
+    fi
+    ;;
+
+  overview)
+    ov_json_flag=0
+    while [ "$#" -gt 0 ]; do
+      case "$1" in
+        --json) ov_json_flag=1; shift ;;
+        *) echo "[mentor plan-state] overview: unexpected argument ${1}" >&2; usage >&2; exit 1 ;;
+      esac
+    done
+    if [ "$ov_json_flag" -ne 1 ]; then
+      echo "[mentor plan-state] overview: --json is required — there is no human-table mode." >&2
+      usage >&2
+      exit 1
+    fi
+    require_jq_read
+    mentor_dir="$(dirname "$plans_dir")"
+    ov_entries=""
+
+    # 1) every plan dir with a plan.md — the shared per-plan iterator (_plan_walk).
+    while IFS="$(printf '\t')" read -r ov_slug ov_state ov_group ov_order ov_deps ov_origin ov_handoffs ov_ticked ov_total; do
+      [ -n "$ov_slug" ] || continue
+      [ "$ov_group" = "-" ] && ov_group=""    # un-placeholder — see _plan_walk's comment
+      [ "$ov_order" = "-" ] && ov_order=""
+      [ "$ov_origin" = "-" ] && ov_origin=""
+      entry="$(jq -n \
+        --arg slug "$ov_slug" --arg state "$ov_state" --arg group "$ov_group" --arg order "$ov_order" \
+        --argjson deps "$ov_deps" --arg origin "$ov_origin" --argjson handoffs "$ov_handoffs" \
+        --argjson ticked "$ov_ticked" --argjson total "$ov_total" '
+        {kind: "plan", slug: $slug, state: $state,
+         group: (if $group == "" then null else $group end),
+         order: (if $order == "" then null else ($order | tonumber? // null) end),
+         deps: $deps, origin: (if $origin == "" then null else $origin end),
+         handoffs: $handoffs, steps: {ticked: $ticked, total: $total}}')"
+      ov_entries="${ov_entries}${entry}
+"
+    done <<<"$(_plan_walk)"
+
+    # 2) topic dirs with live handoffs but NO plan.md yet — additive coverage; NOT
+    #    part of _plan_walk's plan.md-only filter, so list/current never see these.
+    for ov_d in "${plans_dir}"/*/; do
+      [ -d "$ov_d" ] || continue
+      ov_d="${ov_d%/}"
+      [ -f "${ov_d}/plan.md" ] && continue
+      ov_slug="$(basename "$ov_d")"
+      ov_handoffs="$(mentor_plan_live_handoffs "$ov_d" | jq -R -s -c 'split("\n") | map(select(length>0))' 2>/dev/null)"
+      [ -n "$ov_handoffs" ] || ov_handoffs="[]"
+      [ "$ov_handoffs" = "[]" ] && continue
+      entry="$(jq -n --arg slug "$ov_slug" --argjson handoffs "$ov_handoffs" '
+        {kind: "no_plan_topic", slug: $slug, state: "no plan yet",
+         group: null, order: null, deps: [], origin: null,
+         handoffs: $handoffs, steps: {ticked: 0, total: 0}}')"
+      ov_entries="${ov_entries}${entry}
+"
+    done
+
+    # 3) legacy flat .mentor/handoffs/*.md — topic-less (pre-v2.10 notes).
+    ov_legacy_dir="${mentor_dir}/handoffs"
+    if [ -d "$ov_legacy_dir" ]; then
+      ov_legacy_json="$(find "$ov_legacy_dir" -type f -name '*.md' -not -path '*/handoffs/resolved/*' 2>/dev/null \
+        | while IFS= read -r ov_f; do basename "$ov_f"; done \
+        | jq -R -s -c 'split("\n") | map(select(length>0))' 2>/dev/null)"
+      [ -n "$ov_legacy_json" ] || ov_legacy_json="[]"
+      if [ "$ov_legacy_json" != "[]" ]; then
+        entry="$(jq -n --argjson handoffs "$ov_legacy_json" '
+          {kind: "legacy_handoffs", slug: null, state: null,
+           group: null, order: null, deps: [], origin: null,
+           handoffs: $handoffs, steps: null}')"
+        ov_entries="${ov_entries}${entry}
+"
+      fi
+    fi
+
+    if [ -z "$ov_entries" ]; then
+      echo "[]"
+    else
+      printf '%s' "$ov_entries" | jq -s '.'
     fi
     ;;
 
