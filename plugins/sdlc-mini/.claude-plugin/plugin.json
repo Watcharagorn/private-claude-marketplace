@@ -1,8 +1,0 @@
-{
-  "name": "sdlc-mini",
-  "description": "Turbo SDLC helpers: /release-notes and /tidy skills. Manifest and env-config setup moved to the devflow plugin; init-turbo-manifest and init-turbo-env-config are now deprecated redirects.",
-  "version": "1.4.0",
-  "author": {
-    "name": "NTBX"
-  }
-}

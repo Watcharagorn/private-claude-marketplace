@@ -11,12 +11,6 @@
       "category": "development"
     },
     {
-      "name": "sdlc-mini",
-      "description": "Turbo SDLC helpers: a release-notes generator and a tidy commit helper. Manifest and env-config setup have moved to the devflow plugin; init-turbo-manifest and init-turbo-env-config remain as deprecated redirects.",
-      "source": "./plugins/sdlc-mini",
-      "category": "development"
-    },
-    {
       "name": "loom",
       "description": "Session harvesting and plugin lifecycle tools: harvest a project's sessions into reusable Claude Code artifacts, learn from a plugin's sessions to auto-improve and republish it, track usage, and run it all unattended on a daily schedule — with every install isolated to its own Claude config dir.",
       "source": "./plugins/loom",
