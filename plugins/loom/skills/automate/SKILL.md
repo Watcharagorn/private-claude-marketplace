@@ -1,6 +1,6 @@
 ---
 name: automate
-description: Set up (or manage) a DAILY scheduled headless run that harvests configured projects and learns tracked plugins automatically — launchd on macOS, cron on Linux, driving "claude -p '/loom:harvest --headless'" per project and "/loom:learn <plugin> --headless" per tracked plugin. Each CLAUDE_CONFIG_DIR gets its own fully isolated schedule (per-config launchd label / cron marker; the runner pins sessions + credentials to its own install's config dir) — setting up from one config dir never touches another's. Use when the user says "automate loom", "schedule daily harvest/learn", "run harvest every day", "set up the loom daily job", "/loom:automate", or asks how to make harvesting/learning happen without them. Also handles "--status" (show schedule + last run) and "--stop" (uninstall the schedule, keep config). Setup is idempotent — re-run anytime to change projects or the schedule time.
+description: Set up (or manage) a DAILY scheduled headless run that harvests configured projects and learns tracked plugins automatically — launchd on macOS, cron on Linux, driving "claude -p '/loom:harvest --headless'" per project and a fire-per-session "/loom:learn <plugin> --headless" loop per tracked plugin (each fire gets its own wall-clock watchdog). Each CLAUDE_CONFIG_DIR gets its own fully isolated schedule (per-config launchd label / cron marker; the runner pins sessions + credentials to its own install's config dir) — setting up from one config dir never touches another's. Use when the user says "automate loom", "schedule daily harvest/learn", "run harvest every day", "set up the loom daily job", "/loom:automate", or asks how to make harvesting/learning happen without them. Also handles "--status" (show schedule + last run) and "--stop" (uninstall the schedule, keep config). Setup is idempotent — re-run anytime to change projects or the schedule time.
 version: 0.3.0
 ---
 
@@ -9,7 +9,11 @@ version: 0.3.0
 Install a once-a-day scheduled job that runs `loom:harvest` over a **configured list of projects** and
 `loom:learn` over every **tracked plugin** (from `loom:track`'s registry), fully unattended. Both
 skills' `--headless` flags guarantee zero prompts; their ledgers + watermarks make every run
-incremental and idempotent.
+incremental and idempotent. Learn runs as a **fire-per-session loop**: each `claude -p` invocation
+processes exactly one session (committing its delta), the runner re-fires while the ledger's
+`lastRun.remaining` says more are queued (up to 12 fires/plugin/day), and the fire that drains the
+queue publishes the whole bundle — so the per-invocation watchdog bounds one session's work, never a
+batch's.
 
 **Say the tradeoff up front, before installing anything:** the scheduled runs use
 `--permission-mode bypassPermissions` — Claude edits files and (for `learn`) commits + pushes the
@@ -86,7 +90,7 @@ $cfg/loom/automation/
    |---|---|---|
    | `model` | `claude-opus-5[1m]` | These runs read long transcripts whole and then rewrite plugin sources with nobody watching. Capable model, big context. |
    | `effort` | `xhigh` | Same reason — a shallow pass produces edits the user unpicks by hand later, which costs more than the run saved. |
-   | `maxRunSecs` | `7200` | Per-invocation wall-clock ceiling. Learn processes up to 12 sessions in ONE invocation, so a tight ceiling kills it mid-batch. |
+   | `maxRunSecs` | `7200` | Per-invocation wall-clock ceiling. Learn does ONE session per invocation (the runner loops), so the ceiling bounds a single session's analyze→implement→commit — a kill costs at most that one in-flight session. |
 
    **During setup**, mention them only when the user asks how to make the runs cheaper, faster, or
    more thorough — `--status` reports them unconditionally (Step 3), which is a different job.
@@ -98,10 +102,11 @@ $cfg/loom/automation/
    replaced with 7200 rather than crashing the fire.
 
    Treat model and ceiling as coupled when advising: a slower or harder-thinking model needs a
-   *higher* `maxRunSecs`, not the same one, and the failure it produces if you forget is a
-   watchdog kill partway through a batch — which strands finished-but-uncommitted work (see
-   Edge cases). Cheapening the model without lowering the ceiling is safe; raising effort without
-   raising the ceiling is not.
+   *higher* `maxRunSecs`, not the same one. The failure it produces if you forget is a watchdog
+   kill of the in-flight session — its work is redone next fire (finished sessions are already
+   committed, so nothing else is lost), but repeated kills at the same session mean the ceiling
+   never lets one session finish. Cheapening the model without lowering the ceiling is safe;
+   raising effort without raising the ceiling is not.
 
 3. **Install the runner copy.** First the in-flight guard: if `$cfg/loom/automation/run.lock`
    exists and is younger than 2× `maxRunSecs` (4 hours at the default — the same staleness
@@ -335,15 +340,20 @@ Say explicitly that config, logs, stamps, and all harvest/learn ledgers were lef
 - **A run fails** — the runner stamps success only when every invocation succeeded. The most
   common failure is the watchdog: an invocation past its `maxRunSecs` wall-clock ceiling (2h by
   default) is killed and logged as `watchdog: … exceeded <n>s`; ledgers + watermarks mean the next
-  fire resumes where it stopped, so big first-time backlogs drain across days by design. Note what
-  a kill costs mid-batch, since it decides whether to raise the ceiling: learn ledgers each session
-  as it finishes but only publishes at the very end, so a kill leaves the finished sessions' edits
-  implemented, uncommitted, and already marked analyzed — recoverable from the working tree, but
-  only if someone commits them before that tree is cleaned. Repeated kills at the same point are a
-  sign the ceiling is too tight, not that the batch is stuck. The daily schedule
-  fires once, so a failed day waits for tomorrow's fire — or fire the runner manually
+  fire resumes where it stopped, so big first-time backlogs drain across days by design. A kill
+  costs at most the **one in-flight session**: learn commits each session's delta before ledgering
+  it and fires one session per invocation, so finished sessions are already in git — and if the
+  kill landed after the last session but before its publish, the next learn fire detects the
+  stranded unpushed commits and publishes the bundle itself (nothing to recover by hand). Repeated
+  kills at the same session are a sign the ceiling is too tight for one session's work. The daily
+  schedule fires once, so a failed day waits for tomorrow's fire — or fire the runner manually
   (`sh $cfg/loom/automation/bin/daily-run.sh`) to retry today; the stamp guard only blocks re-runs
   after a *success*.
+- **`plugins/<plugin>/ has uncommitted changes` in the learn log** — the tree was dirty before the
+  fire (the user's WIP, or a kill mid-implement that predates this design). Headless learn refuses
+  to touch it — it cannot tell WIP from wreckage, and a per-session commit would sweep both in.
+  It reports `remaining: 0` so the runner moves on; the message repeats daily until someone commits
+  or cleans `plugins/<plugin>/` by hand.
 - **A target project was deleted** — the runner logs "skip harvest" and continues; remove it from
   `config.json` on the next setup pass.
 - **Nothing tracked** — the learn phase no-ops with a log line; `/loom:track <plugin>` fixes it with

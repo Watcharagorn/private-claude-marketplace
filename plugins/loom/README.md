@@ -27,9 +27,9 @@ state. Enable `loom@private-marketplace` wherever you want `/harvest` or usage t
 |---|---|---|
 | `/loom:harvest` | `[session-id \| transcript.jsonl \| --dry-run \| --review \| --headless]` | No arg: **sequentially auto-harvest** every un-harvested session of the current project — passing artifacts fold in per session with no prompts, at project scope (`git diff` reviews them); per-project ledger + watermark skip done ones and advance per session. `--review` confirms each session; `--dry-run` previews. Id/path: harvest that **one** session **interactively**. Never packages or publishes a plugin |
 | `/loom:audit-plugin` | `[session] [plugin]` | Audit an existing plugin from **one** session (the active one if none named) — find how it misbehaved (gate false-positives, wrong-skill calls, retries, post-run surprises) and ship the fixes; one release |
-| `/loom:learn` | `<plugin> [session-id] [--dry-run] [--review] [--headless]` | Bare `<plugin>`: learn from **every** unanalyzed session that used it (every project of the active config dir) — one agent per session, both lenses, processed **one at a time, oldest first**: expert-review then **auto-implement** approved items, one release at the end; a per-plugin ledger + watermark means sessions are never re-analyzed. `--review` confirms each session. With a session id: analyze just that **one** session interactively (both lenses; ledger/watermark untouched) |
+| `/loom:learn` | `<plugin> [session-id] [--dry-run] [--review] [--headless]` | Bare `<plugin>`: learn from **every** unanalyzed session that used it (every project of the active config dir) — one agent per session, both lenses, processed **one at a time, oldest first**: expert-review then **auto-implement** approved items, **commit per session**, one release when the backlog drains; a per-plugin ledger + watermark means sessions are never re-analyzed. `--review` confirms each session; `--headless` does one session per invocation (the daily runner loops it). With a session id: analyze just that **one** session interactively (both lenses; ledger/watermark untouched) |
 | `/loom:track` | `[plugin \| marketplace …] [--stop]` | Opt in to usage tracking so `/loom:learn`'s discovery is instant — records which **enabled** plugins loom indexes at session end; no args = status |
-| `/loom:automate` | `[--status \| --stop]` | Set up (or inspect/remove) the **daily scheduled headless run** — launchd/cron fires `claude -p` with `--headless` harvest per configured project + learn per tracked plugin. Idempotent setup |
+| `/loom:automate` | `[--status \| --stop]` | Set up (or inspect/remove) the **daily scheduled headless run** — launchd/cron fires `claude -p` with `--headless` harvest per configured project + a fire-per-session learn loop per tracked plugin. Idempotent setup |
 | `/loom:onboard` | | Guided, resumable setup walkthrough: verify the hook, opt into tracking, learn the modes, optionally schedule the daily automation, finish with a dry-run |
 
 Unqualified forms (`/harvest`, `/audit-plugin`, `/learn`, `/track`, …) also resolve while no other
@@ -41,11 +41,11 @@ enabled plugin ships a same-named command.
 |---|---|---|
 | `harvest-automations` | 1.0.0 | Session(s) → loose reusable user/project artifacts across the full customization surface (any repo); with no arg, a **sequential project-wide sweep that auto-folds artifacts per session** via a per-project ledger + watermark (`--review` to confirm each session). Never packages or publishes a plugin |
 | `audit-plugin` | 1.0.1 | One session → fixes for how an existing plugin misbehaved (AUDIT lens; select → review → implement → one release) |
-| `learn` | 1.0.1 | A plugin's sessions → one plugin, both audit + enhance lenses. Bare: **all** unanalyzed sessions processed one at a time (per-session agent + review + **auto-implement**, ledger + watermark, one release); with a session id: that **one** session, interactive |
+| `learn` | 1.1.0 | A plugin's sessions → one plugin, both audit + enhance lenses. Bare: **all** unanalyzed sessions processed one at a time (per-session agent + review + **auto-implement** + per-session commit, ledger + watermark, one release at drain); headless: one session per invocation for the runner's loop; with a session id: that **one** session, interactive |
 | `track` | 0.1.0 | Opt-in usage tracking of enabled plugins (any marketplace) → the index that makes `learn` fast |
-| `automate` | 0.2.0 | Daily scheduled headless run (launchd/cron): harvest configured projects + learn tracked plugins, unattended; per-config-dir schedule isolation |
-| `onboard` | 0.1.1 | Guided, resumable loom setup walkthrough — delegates to `track`/`automate`, ends with a verification dry-run |
-| `publish-plugin` | 1.2.1 | Release: semver bump, manifest + README sync, validation, commit + push |
+| `automate` | 0.3.0 | Daily scheduled headless run (launchd/cron): harvest configured projects + a fire-per-session learn loop per tracked plugin, unattended; per-config-dir schedule isolation |
+| `onboard` | 0.1.2 | Guided, resumable loom setup walkthrough — delegates to `track`/`automate`, ends with a verification dry-run |
+| `publish-plugin` | 1.2.2 | Release: semver bump, manifest + README sync, validation, commit + push |
 
 Skill frontmatter versions are independent of the plugin version (publish-plugin's own rule). The AUDIT
 and ENHANCE analysis briefs are shared by `audit-plugin` and `learn` via
@@ -72,9 +72,11 @@ a plugin pauses its tracking automatically — the hook re-checks effective enab
 ## Daily automation (opt-in)
 
 `/loom:automate` installs a once-a-day scheduled job (launchd on macOS, cron on Linux) that runs
-`claude -p '/loom:harvest --headless'` in each configured project and
-`claude -p '/loom:learn <plugin> --headless'` (from this repo) for each tracked plugin. `--headless`
-guarantees zero prompts — the cap auto-defaults, and the runner's own session is skipped. The runs use
+`claude -p '/loom:harvest --headless'` in each configured project and, for each tracked plugin, a
+**fire-per-session loop** of `claude -p '/loom:learn <plugin> --headless'` (from this repo) — each
+fire processes one session under its own watchdog, commits its delta, and the fire that drains the
+queue publishes the bundle (up to 12 fires/plugin/day). `--headless` guarantees zero prompts — dead
+ends stop cleanly, and the runner's own session is skipped. The runs use
 `--permission-mode bypassPermissions`; the guardrails are project-scope folds (review with `git diff`),
 per-session expert review in `learn`, and the ledgers making every run incremental. A once-per-day
 stamp, per-invocation watchdog, and logs live under `$cfg/loom/automation/`. Unattended runs default

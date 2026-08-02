@@ -1,7 +1,7 @@
 ---
 name: learn
-description: Learn from EVERY unanalyzed session that used one plugin, across every project of the active config dir — or from ONE named session — improving the plugin with both audit + enhance lenses. With just <plugin>, discovers matching sessions across all project folders of `$cfg/projects` (usage-index fast path + scan backfill), filters already-analyzed ones via a per-plugin ledger + watermark, then processes each ONE AT A TIME, oldest first — analyze, expert-review, AUTO-implement approved improvements — finishing with ONE publish (--review confirms each session, --headless never prompts, --dry-run previews); with <plugin> <session-id>, analyzes just that session interactively (no discovery, ledger/watermark untouched). Invoke for "learn <plugin>", "learn from all sessions that used <plugin>", "audit and enhance <plugin> from session <id>", or "/learn <plugin>". For a quick misbehavior-only pass on one session, use audit-plugin.
-version: 1.0.1
+description: Learn from EVERY unanalyzed session that used one plugin, across every project of the active config dir — or from ONE named session — improving the plugin with both audit + enhance lenses. With just <plugin>, discovers matching sessions across all project folders of `$cfg/projects` (usage-index fast path + scan backfill), filters already-analyzed ones via a per-plugin ledger + watermark, then processes each ONE AT A TIME, oldest first — analyze, expert-review, AUTO-implement approved improvements, COMMIT per session — publishing one release when the backlog drains (--review confirms each session, --dry-run previews; --headless processes exactly ONE session per invocation and never prompts, for the daily runner's fire-per-session loop); with <plugin> <session-id>, analyzes just that session interactively (no discovery, ledger/watermark untouched). Invoke for "learn <plugin>", "learn from all sessions that used <plugin>", "audit and enhance <plugin> from session <id>", or "/learn <plugin>". For a quick misbehavior-only pass on one session, use audit-plugin.
+version: 1.1.0
 ---
 
 # learn — audit + enhance one plugin from its sessions
@@ -51,8 +51,10 @@ echo "${common:-NO_COMMON}"
 - **`--review`** — batch mode only: pause each session for a **§I confirm** before implementing its
   approved items. Without it, batch mode implements review-approved items **automatically**.
 - **`--headless`** — batch mode, for scheduled/unattended runs (see `loom:automate`): never call
-  `AskUserQuestion` — the cap auto-defaults to Newest 12, and dead ends stop cleanly with a message.
-  Overrides `--review`.
+  `AskUserQuestion` — dead ends stop cleanly with a message. Overrides `--review`. Headless processes
+  **exactly ONE session per invocation** (the oldest eligible survivor) and reports how many remain,
+  so the daily runner can fire once per session with a fresh wall-clock watchdog each time — a kill
+  can then only ever cost the one in-flight session, never a finished batch.
 
 `cfg="${CLAUDE_CONFIG_DIR:-$HOME/.claude}"` throughout — **not** §A's `$HOME/.claude` (see §K).
 
@@ -121,8 +123,11 @@ Union the index hits and scan hits, then **filter + order per §K.3** (ledger-ou
 eligibility; drop the active session with the `$cfg` restatement; drop transcripts with mtime < 5 min;
 namespaced-marker candidates ahead of bare/unqualified-only ones).
 
-- **Zero survivors** → "`<plugin>` is up to date — no unanalyzed sessions used it." Update
-  `lastRun.at` only (no new `analyzed[]`), stop cleanly.
+- **Zero survivors** → first check for a **stranded bundle**: commits touching `plugins/<plugin>/`
+  that never reached the remote (`git log --oneline @{u}..HEAD -- "plugins/<plugin>/"` — a prior run
+  committed per session but was killed before its publish). Any found → publish them now via Step 6's
+  catch-up path (git itself is the tracker; no ledger state needed). Then/otherwise: "`<plugin>` is
+  up to date — no unanalyzed sessions used it." Update `lastRun.at` (and `remaining: 0`), stop cleanly.
 - **Out-of-scope notice:** other config dirs may hold matching sessions this run will never see —
   in **either** direction (a `~/.claude` run must report `~/.claude-ntb`'s sessions just as an
   `~/.claude-ntb` run reports `~/.claude`'s). Enumerate siblings — `ls -d "$HOME"/.claude*/projects`
@@ -142,11 +147,24 @@ Plus the **grown-sessions notice** when any `analyzed[]` entry's recorded `lineC
 than the live `wc -l` ("N previously-analyzed sessions have grown — remove their ledger entries to
 re-learn": `jq 'del(.analyzed[] | select(.sessionId=="<sid>"))'`).
 
-**Cap = 12 per run.** ≤ 12 survivors → proceed after printing the list. > 12 → **one**
-`AskUserQuestion`: **Newest 12** (default) / Newest 24 / All N (cost warning) / Abort — note that after
-this answer an auto-mode run is unattended through to the publish. In `--headless` mode never ask: take
-**Newest 12** and say so. Remainders are ledgered `skipped-cap` **immediately** in one §K.7 write (no
-watermark clause — re-eligible by outcome, §K.3 rule 1). **`--dry-run` stops here** — nothing written.
+**Cap (interactive batch) = 12 per run.** ≤ 12 survivors → proceed after printing the list. > 12 →
+**one** `AskUserQuestion`: **Newest 12** (default) / Newest 24 / All N (cost warning) / Abort — note
+that after this answer an auto-mode run is unattended through to its final publish. Remainders are
+ledgered `skipped-cap` **immediately** in one §K.7 write (no watermark clause — re-eligible by
+outcome, §K.3 rule 1). **`--dry-run` stops here** — nothing written.
+
+**`--headless` takes ONE, not twelve.** Select only the **oldest** eligible survivor; the rest stay
+un-ledgered and remain eligible by the watermark rule (processing oldest-first advances the watermark
+only to the processed session's `endTs`, so every newer survivor still clears it — no `skipped-cap`
+entries needed). Record the count of unselected survivors: it becomes `lastRun.remaining` in Step 7,
+which is how the daily runner decides whether to fire again.
+
+**Guard the working tree before implementing (batch mode).** If `git status --porcelain
+"plugins/<plugin>/"` is already dirty at this point, those are either a killed run's partial edits or
+the user's work in progress — this run cannot tell which, and a per-session commit would silently
+sweep them in. Interactive: ask the user. `--headless`: stop cleanly with "plugins/<plugin>/ has
+uncommitted changes — commit or clean them before the next scheduled run", set `lastRun.remaining: 0`
+(so the runner doesn't hammer), and process nothing.
 
 **Order the selected survivors oldest→newest by `sessionEndTs`** before processing. Oldest-first makes
 the per-session watermark advance monotonic (Step 5, item 5) and lets fixes accrete forward — a later
@@ -202,20 +220,37 @@ session, in order:
    settings merge, or multiple artifacts. State the target plugin's design philosophy; fold verdicts
    back in (revise REVISEs, drop REJECTs).
 
-4. **Implement.** Auto mode (default): implement every **APPROVE**-verdict item into
-   `plugins/<plugin>/` per §D (catalog) / §E (write safety) / §F (`${CLAUDE_PLUGIN_ROOT}` hooks) /
-   §G (validate + grep-confirm) — no confirmation; an edit whose effective diff is empty is recorded
-   as a **no-op skip**. **`--review` instead:** run the **§I confirm** over this session's reviewed
-   items first (compact cards + one multi-select); zero selection → ledger the session and continue
-   the loop.
+4. **Implement, then COMMIT this session's delta.** Auto mode (default): implement every
+   **APPROVE**-verdict item into `plugins/<plugin>/` per §D (catalog) / §E (write safety) / §F
+   (`${CLAUDE_PLUGIN_ROOT}` hooks) / §G (validate + grep-confirm) — no confirmation; an edit whose
+   effective diff is empty is recorded as a **no-op skip**. **`--review` instead:** run the **§I
+   confirm** over this session's reviewed items first (compact cards + one multi-select); zero
+   selection → ledger the session and continue the loop.
+
+   If anything landed, commit it now — plain conventional commit, **no version bump, no push**
+   (both are the publish's job, Step 6):
+
+   ```bash
+   git add "plugins/<plugin>/" && git commit -m "learn(<plugin>): session <sid-8> — <what shipped>"
+   ```
+
+   The commit must come **before** item 5's ledger write, and the order is load-bearing: a kill
+   between commit and ledger leaves the session re-eligible, and its re-analysis converges as
+   `already-addressed` (a cheap no-op); the reversed order would mark a session `analyzed` while its
+   work exists nowhere but a doomed working tree — which is exactly the stranding this design
+   eliminates. A failed commit (or later a failed publish) ledgers the session `error` and the loop
+   continues — the next session's run, or the next fire, carries the delta forward.
 
 5. **Persist.** Append this session's section to `reports/<plugin>-<ts>.md` (findings, verdicts, what
-   was implemented/skipped, evidence). Then write the session's `analyzed[]` entry **and** the
+   was implemented/skipped, evidence, **and the commit SHA from item 4**, so the history maps sessions
+   to commits). Then write the session's `analyzed[]` entry **and** the
    watermark advance in **ONE** §K.7 write (the extended recipe with the watermark clause): per entry
    record `sessionId, transcriptPath, project, sessionEndTs, lineCount, markerHits, viaSubagent,
    analyzedAt, findings, outcome` (`analyzed` · `no-usage` · malformed return → `error`). Oldest→newest
    ordering makes the incremental max equal this session's `endTs` (§K.4). Drop the session's raw
    return from context — keep only one-line run-manifest entries (item · files touched · verdict).
+
+**`--headless` exits the loop here:** its one selected session is done — skip straight to Step 6.
 
 **Failure isolation:** an agent failure or implement failure ledgers that session `error` (re-eligible
 next run) and the loop **continues** — one bad session must not sink the run.
@@ -232,22 +267,40 @@ items per §D/§E/§F/§G. **Do not** write the ledger, touch the usage index, o
 Note in the final summary that this was a single-session run and the ledger/watermark were left
 untouched.
 
-## Step 6 — Publish ONCE
+## Step 6 — Publish when the backlog drains
 
-After the loop (or the single-session implement): if **≥1 item was implemented**, publish **exactly
-once** via **§J** — the plugin being published is the **analyzed target plugin**, which is **loom
-itself when running `/learn loom`**. One publish covers everything this run implemented; the commit
-body enumerates the changes. Report the new version + `old..new` push and advise `/reload-plugins`.
-Nothing implemented → nothing to publish; say so.
+The per-session commits (Step 5 item 4) are the durability layer; the publish — version bump,
+manifest/README sync, push — is the release layer, and it fires **at most once per invocation**,
+only when there is nothing left to wait for:
+
+- **Interactive batch:** after the loop, if ≥1 session committed anything → publish via **§J**. One
+  bump covers every commit this run made (they ride along in the push).
+- **`--headless`:** publish **only when `remaining` is 0** — i.e. this fire processed the last
+  eligible survivor, or Step 3 found a stranded bundle with zero survivors (the catch-up path).
+  `remaining > 0` → do **not** publish; report "N sessions remain — commits pending, publish deferred
+  to the fire that drains the queue" and let the runner fire again. This is what keeps a 12-session
+  backlog at one version bump instead of twelve, while a kill at any point loses at most the
+  in-flight session — everything committed is already in git, and the eventual publish (or the next
+  run's catch-up) bundles it.
+- **Single-session mode:** unchanged — one implement, one publish, as before.
+
+The plugin being published is the **analyzed target plugin** — **loom itself when running
+`/learn loom`**. Tell `publish-plugin` when the run is `--headless` so it never pauses on an
+ambiguous bump (it picks the lower class and notes the ambiguity in the commit body). Report the new
+version + `old..new` push and advise `/reload-plugins`. Nothing committed and no stranded bundle →
+nothing to publish; say so.
 
 ## Step 7 — Finalize
 
 **Batch mode:** update `lastRun` (`at`, `sessionsAnalyzed`, `sessionsSkippedCap`, `findingsProposed`,
-`findingsImplemented`, `updatesSkippedNoop`, `publishedVersion`, `report`) — the `analyzed[]` entries
-and watermark were already written per session in Step 5. Print a summary: sessions analyzed, findings,
-what shipped, and "next run only sees sessions newer than `<watermark>` plus any `skipped-cap`/`error`
-remainders." If `<plugin>` isn't tracked, add: "Tip: `/loom:track <plugin>` indexes future sessions at
-session-end, making discovery instant."
+`findingsImplemented`, `updatesSkippedNoop`, `publishedVersion`, `report`, and **`remaining`** — the
+count of still-eligible survivors this invocation did not process; the daily runner reads it to decide
+whether to fire again, so write it on **every** batch exit path, including dead-end stops). The
+`analyzed[]` entries and watermark were already written per session in Step 5. Print a summary:
+sessions analyzed, findings, per-session commits (SHAs), whether this invocation published or deferred,
+and "next run only sees sessions newer than `<watermark>` plus any `skipped-cap`/`error` remainders."
+If `<plugin>` isn't tracked, add: "Tip: `/loom:track <plugin>` indexes future sessions at session-end,
+making discovery instant."
 
 **Single-session mode:** no ledger/watermark to finalize. Print a summary: the one session analyzed, the
 findings, what shipped, and an explicit note that the ledger/watermark were left untouched (a later batch
@@ -259,9 +312,12 @@ findings, what shipped, and an explicit note that the ledger/watermark were left
 
 - Selected survivors processed **oldest→newest, one at a time**; namespaced-marker candidates ahead of
   bare/unqualified-only matches when capping.
-- **Cap = 12/run.** ≤ 12 → proceed. > 12 → one `AskUserQuestion` (Newest 12 default / Newest 24 /
-  All N + cost warning / Abort; `--headless` auto-defaults to Newest 12). Remainders ledgered
-  `skipped-cap` at cap resolution, re-offered next run. Abort touches nothing.
+- **Interactive cap = 12/run.** ≤ 12 → proceed. > 12 → one `AskUserQuestion` (Newest 12 default /
+  Newest 24 / All N + cost warning / Abort). Remainders ledgered `skipped-cap` at cap resolution,
+  re-offered next run. Abort touches nothing.
+- **`--headless` = exactly ONE session per invocation** (the oldest eligible), no cap question, no
+  `skipped-cap` entries — unprocessed survivors stay eligible by watermark; `lastRun.remaining` tells
+  the runner whether to fire again.
 
 ## Rules
 
@@ -274,8 +330,10 @@ findings, what shipped, and an explicit note that the ledger/watermark were left
   duplicated into this skill or the prompts; fail loud if an anchor is missing.
 - **Review before implement, every session** — §H right-sized per session (usually one reviewer); auto
   mode implements only APPROVE verdicts; `--review` adds the §I confirm.
-- **One publish per run** — after the loop, covering everything implemented (loom itself for
-  `/learn loom`). One plugin per publish.
+- **Commit per session, publish at drain** — each session's delta is committed (no bump, no push)
+  before its ledger write; the publish fires at most once per invocation, and in headless only on the
+  fire that empties the queue (or the catch-up on a stranded bundle). One plugin per publish; git
+  itself tracks the pending bundle — never a ledger field.
 - **State in the config dir, never in this repo** — `$cfg/loom/learning/`; use `$cfg`, not §A's
   `$HOME/.claude`.
 
@@ -289,10 +347,13 @@ findings, what shipped, and an explicit note that the ledger/watermark were left
 - **or** the selected survivors ran **oldest→newest, one at a time**: per session — one both-lens agent
   (paths only), findings ordered/trimmed with `already-addressed` drops and run-manifest convergence,
   §H review right-sized (one reviewer default, trio on hooks/settings/multi-artifact), APPROVE items
-  implemented automatically (§D/§E/§F/§G) or §I-confirmed first under `--review`, the report section
-  appended, and the `analyzed[]` entry + watermark persisted in **one** §K.7 write; failures ledgered
-  `error` with the loop continuing; then **one** publish (§J) iff anything was implemented, and the
-  finalize summary printed (+ the track tip when untracked).
+  implemented automatically (§D/§E/§F/§G) or §I-confirmed first under `--review`, the session's delta
+  **committed before** the `analyzed[]` entry + watermark landed in **one** §K.7 write; failures
+  ledgered `error` with the loop continuing; then the publish (§J) fired iff the queue drained with
+  commits pending (interactive: end of loop; headless: `remaining` 0), and the finalize summary printed
+  with per-session commit SHAs + `lastRun.remaining` (+ the track tip when untracked).
 - **Single-session mode** ran interactively (§H review + §I confirm), implemented the selection,
   published once if anything shipped, and left the ledger/watermark untouched.
-- **`--headless`** never called `AskUserQuestion` on any path.
+- **`--headless`** never called `AskUserQuestion` on any path, processed at most ONE session, wrote
+  `lastRun.remaining` on every exit path, and stopped cleanly (processing nothing) on a pre-dirty
+  `plugins/<plugin>/` tree.

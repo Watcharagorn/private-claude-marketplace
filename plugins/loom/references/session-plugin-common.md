@@ -190,14 +190,20 @@ materialized", create/change nothing, do **not** publish. This is a valid no-op 
 
 ## §J — Publish handoff
 
-**Publish exactly once**, via `Skill(skill="publish-plugin")`, passing the plugin and the bump as
-**INTENT** — e.g. "release `<plugin>` as a **minor** bump: new <artifacts> that remove <redundancy>"
-(or "**patch**: fixes <bugs>", or for a first release "first release at 0.1.0 — do not bump").
-`publish-plugin` has **no positional parser** — it classifies the bump itself (new artifact surface →
-**minor**; bug-only → **patch**; breaking → **major**), syncs manifests + README, validates JSON,
-checks hook paths, and commits + pushes to the repo's default branch. Let it own that; let the commit
-body enumerate the changes. Report the **new version** and the `old..new` push line, and advise the user to
-run **`/reload-plugins`** so the plugin loads. One plugin per publish.
+**Publish exactly once per handoff**, via `Skill(skill="publish-plugin")`, passing the plugin and the
+bump as **INTENT** — e.g. "release `<plugin>` as a **minor** bump: new <artifacts> that remove
+<redundancy>" (or "**patch**: fixes <bugs>", or for a first release "first release at 0.1.0 — do not
+bump"). `publish-plugin` has **no positional parser** — it classifies the bump itself (new artifact
+surface → **minor**; bug-only → **patch**; breaking → **major**), syncs manifests + README, validates
+JSON, checks hook paths, and commits + pushes to the repo's default branch. Let it own that; let the
+commit body enumerate the changes. Report the **new version** and the `old..new` push line, and advise
+the user to run **`/reload-plugins`** so the plugin loads. One plugin per publish.
+
+**Sequential callers** (batch `learn`) commit each session's delta as they go and invoke this handoff
+only when their queue drains — the pending per-session commits ride along in the push, and one bump
+covers them all (see `learn` Step 6 for the drain/catch-up conditions). When the calling flow is
+unattended (`--headless`), say so in the intent: `publish-plugin` must then never pause on an
+ambiguous bump — it takes the lower class and notes the ambiguity in the commit body.
 
 ---
 

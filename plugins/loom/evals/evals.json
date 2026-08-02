@@ -25,12 +25,12 @@
     {
       "id": 5,
       "prompt": "Trace /loom:learn mentor with 3 unanalyzed sessions. When does expert review run, when are items implemented, how many publishes happen, and when do ledger writes occur?",
-      "expected_output": "Per session (oldest first): one analysis agent → §H review (usually ONE reviewer; trio only for hooks/settings/multi-artifact sets) → APPROVE items implemented automatically → one §K.7 write (entry + watermark). Publish fires exactly ONCE at the end, only if ≥1 item was implemented."
+      "expected_output": "Per session (oldest first): one analysis agent → §H review (usually ONE reviewer; trio only for hooks/settings/multi-artifact sets) → APPROVE items implemented automatically → a git COMMIT of that session's delta (no bump, no push) → one §K.7 write (entry + watermark), commit strictly before the ledger write. Interactive batch publishes exactly once after the loop iff ≥1 session committed anything — one bump covering all three commits, which ride along in the push."
     },
     {
       "id": 6,
       "prompt": "Trace /loom:harvest --headless and /loom:learn mentor --headless with 15 eligible sessions each. Does AskUserQuestion ever fire, and what happens to the active session in harvest?",
-      "expected_output": "AskUserQuestion never fires on any path: cap auto-defaults to Newest 12 (remainders ledgered skipped-cap), NO_TRANSCRIPTS/dead-ends stop cleanly with a message. Harvest skips the active session entirely (it is the headless runner itself). --headless overrides --review."
+      "expected_output": "AskUserQuestion never fires on any path: harvest's cap auto-defaults to Newest 12 (remainders ledgered skipped-cap); learn --headless takes exactly ONE session (the oldest eligible) with no cap question and no skipped-cap entries — the other 14 stay eligible by watermark and lastRun.remaining=14 tells the runner to fire again; publish is deferred until the fire that drains the queue. NO_TRANSCRIPTS/dead-ends stop cleanly with a message. Harvest skips the active session entirely (it is the headless runner itself). --headless overrides --review."
     },
     {
       "id": 7,

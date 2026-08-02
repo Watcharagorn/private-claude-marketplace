@@ -7,7 +7,7 @@ description: >
   changelogs), validates the JSON, then commits and pushes to the repo's default branch.
   Invoke when the user says "publish the plugin", "release <plugin>", "pump/bump version and push",
   "ship the marketplace plugin", or "/publish-plugin". Repo-scoped to this marketplace.
-version: 1.2.1
+version: 1.2.2
 ---
 
 # Publish Plugin (marketplace repo)
@@ -54,7 +54,7 @@ Classify the change against the current version `MAJOR.MINOR.PATCH`:
 - **MINOR** — additive feature: a **new skill**, new hook, new flag, new capability that is backward-compatible. (e.g. sdlc-mini `1.0.0 → 1.1.0` added the `release-notes` skill.)
 - **PATCH** — bug fix or doc/wording fix only, no new surface. (e.g. mentor `0.14.1 → 0.14.2`.)
 
-State the proposed version and the reasoning, then proceed (don't block on confirmation unless the bump is ambiguous — e.g. a change that could be read as either breaking or additive).
+State the proposed version and the reasoning, then proceed (don't block on confirmation unless the bump is ambiguous — e.g. a change that could be read as either breaking or additive). **Unattended callers can't answer:** when the invoking flow says it is headless (e.g. `learn --headless` via §J), never pause — take the lower of the candidate classes and note the ambiguity in the commit body instead.
 
 ### 3. Bump `plugins/<name>/.claude-plugin/plugin.json`
 
@@ -152,6 +152,8 @@ git -C . push origin HEAD
 
 - Use `feat(<name>):` for MINOR, `fix(<name>):` for PATCH, `feat(<name>)!:` or a `BREAKING CHANGE:` footer for MAJOR.
 - Confirm the push landed (report the new short SHA and the `old..new` line on the default branch).
+- Pre-existing unpushed commits on the branch (e.g. `learn`'s per-session commits awaiting their
+  bundle) ride along with this push — expected, not a surprise to flag.
 
 ## Rules
 

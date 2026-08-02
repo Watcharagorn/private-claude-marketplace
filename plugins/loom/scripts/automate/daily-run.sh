@@ -19,7 +19,11 @@
 # - per-invocation watchdog on a WALL-CLOCK deadline: one long `sleep` stops counting across
 #   machine sleep — exactly when runs stall — so the deadline is polled instead;
 # - one target's failure never blocks the rest — both skills ledger `error` and are
-#   idempotently re-runnable, so whatever failed is picked up by the next fire.
+#   idempotently re-runnable, so whatever failed is picked up by the next fire;
+# - learn runs as a fire-per-session loop (one session per claude invocation, re-fired while the
+#   ledger's lastRun.remaining > 0, max 12/day): the watchdog then bounds ONE session's work, and
+#   a kill can never strand a batch's finished-but-unpublished sessions — each is committed as it
+#   lands and the draining fire publishes the bundle.
 
 # Refuse to be sourced (checked before set -u so a sourcing shell's options are untouched):
 # sourced under bash, $0 is the shell itself, the derivation below would export a garbage
@@ -140,6 +144,7 @@ run_claude() {
         log "FAILED (exit $ec)"
         echo "$prompt (exit $ec)" >> "$FAIL_MARK"   # a file survives the |while subshells below
     fi
+    return "$ec"   # the learn fire-loop stops re-firing a target whose last fire failed
 }
 
 log "starting loom daily run (cfg=$cfg perm=$PERM_MODE model=${MODEL:-<account default>} effort=${EFFORT:-<account default>} ceiling=${MAX_RUN_SECS}s)"
@@ -177,7 +182,25 @@ if [ -n "$MKT_REPO" ] && [ -d "$MKT_REPO" ]; then
     printf '%s\n' "$tracked" | while read -r plugin; do
         [ -n "$plugin" ] || continue
         if echo "$repo_plugins" | grep -qxF "$plugin"; then
-            run_claude "$MKT_REPO" "/loom:learn $plugin --headless"
+            # Fire-per-session loop: learn --headless processes exactly ONE session per invocation
+            # (committing its delta; the fire that drains the queue publishes the whole bundle), so
+            # every fire gets a fresh watchdog window — a kill costs one in-flight session, never a
+            # finished batch. The ledger's lastRun.remaining says how many are still queued; the
+            # 12-fires/day cap mirrors learn's old batch cap and bounds a runaway loop.
+            fires=0
+            while :; do
+                fires=$((fires + 1))
+                run_claude "$MKT_REPO" "/loom:learn $plugin --headless" \
+                    || break   # already fail-marked — don't hammer a failing target
+                remaining=$(jq -r '.lastRun.remaining // 0' "$cfg/loom/learning/$plugin.json" 2>/dev/null)
+                case "$remaining" in ''|*[!0-9]*) remaining=0 ;; esac   # missing/garbage → stop
+                [ "$remaining" -gt 0 ] || break
+                if [ "$fires" -ge 12 ]; then
+                    log "learn $plugin: daily fire cap (12) reached, $remaining session(s) remain — they drain on the next fire"
+                    break
+                fi
+                log "learn $plugin: $remaining session(s) remain — firing again ($((fires + 1))/12)"
+            done
         else
             log "skip learn: $plugin not in $MKT_REPO's marketplace.json"
         fi

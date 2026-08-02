@@ -1,7 +1,7 @@
 ---
 name: onboard
 description: Guided walkthrough that sets up the whole loom plugin for a new user or machine — checks the plugin's tracking state (the SessionEnd hook only proves itself after tracked sessions end), opts plugins into tracking, explains the harvest/learn modes and where state lives, offers the daily automation schedule, and finishes with a verification dry-run. Use when the user says "onboard loom", "set up loom", "help me get started with loom/harvest/learn", "/loom:onboard", asks what loom can do, or has just installed the plugin and asks what to configure. Resumable — each step checks current state first, so re-running skips what's already done.
-version: 0.1.1
+version: 0.1.2
 ---
 
 # onboard — set up loom end to end
@@ -45,9 +45,9 @@ Keep this to one compact briefing (no questions):
   `--review` pauses each session for confirmation; `--dry-run` previews; a session id/path runs one
   session interactively — the manual escape hatch.
 - **`/loom:learn <plugin>`** — analyzes every session that used the plugin, expert-reviews and
-  auto-implements approved improvements session by session, publishes once. Same
-  `--review`/`--dry-run` flags; `<plugin> <session-id>` is the interactive single-session form. Runs
-  from the marketplace repo.
+  auto-implements approved improvements session by session, committing each session's delta and
+  publishing one release when the backlog drains. Same `--review`/`--dry-run` flags;
+  `<plugin> <session-id>` is the interactive single-session form. Runs from the marketplace repo.
 - **State** (all under `$cfg/loom/`): `harvest/` per-project ledgers + reports, `learning/` per-plugin
   ledgers + usage index + reports, `automation/` daily-run config + logs. Ledgers + watermarks are why
   re-runs only pick up new sessions.
