@@ -1,0 +1,46 @@
+{
+  "skill_name": "tmux-design",
+  "note": "Behavior-trace evals. The console skill mutates a live tmux session (respawns panes, rewrites project scripts), so these are answered by an agent that READS the skill files and traces the flow — verifying the text produces the intended behavior unambiguously rather than executing against a real session. Eval 8 is the one live check: the bundled renderer's demo mode must emit real SGR output.",
+  "evals": [
+    {
+      "id": 1,
+      "prompt": "I edited scripts/watch-orders to change the refresh interval but the pane still shows the old countdown. What's wrong?",
+      "expected_output": "Identifies that a tmux pane keeps executing the process it was launched with, so editing the file on disk cannot affect it. Prescribes the verify loop: sandbox render in a disposable session, then `tmux respawn-pane -k -t <pane_id>` with an absolute path, then `tmux capture-pane -e -p` to confirm — and explicitly rejects Ctrl-C + send-keys retype, because an interrupt mid-child-call is swallowed and the typed command lands as inert text."
+    },
+    {
+      "id": 2,
+      "prompt": "Add a pane to my tmuxp session that shows deploy status, refreshing every couple of minutes.",
+      "expected_output": "Reads/creates .tmuxp.yaml, picks a layout (main-vertical + main-pane-width for interactive-focus, main-horizontal for log-dominant), creates a `scripts/watch-<name>` wrapper that ends in `exec viddy -p -n <secs> -- <one-shot renderer>` rather than putting the command inline in the yaml, builds a one-shot renderer to the standard, and finishes with the sandbox → respawn → capture verify loop. Cadence matches data cadence (120s+ for slow-moving state)."
+    },
+    {
+      "id": 3,
+      "prompt": "This pane script prints fine in my terminal but shows up with no colors inside tmux. Fix it.",
+      "expected_output": "Attributes it to TTY auto-detection: a pane is not a TTY, so any library's isatty() check strips color silently. The renderer must always emit ANSI unless NO_COLOR is set, using the standard's 256-color palette. If a `watch` fallback is in play, notes that `-c` is required to keep ANSI."
+    },
+    {
+      "id": 4,
+      "prompt": "Make the output of this monitoring script a proper table instead of a wall of text.",
+      "expected_output": "Applies the table idiom: bold cyan header, thin dim rule under it, two-space column gaps, right-aligned numerics, and ANSI-aware width math (strip \\x1b\\[[0-9;]*m before measuring, since colored cells break str.ljust). Reuses the project's existing renderer if one exists rather than duplicating its data loading; otherwise copies scripts/renderer_template.py from ${CLAUDE_PLUGIN_ROOT}. Sizes the table to the pane's real estate via `tmux display -p \"#{pane_width}x#{pane_height}\"` — a wrapping table is worse than the raw text it replaced."
+    },
+    {
+      "id": 5,
+      "prompt": "Audit my tmux panes and tell me which ones need work.",
+      "expected_output": "Lists panes with `tmux list-panes -s -F \"#{window_name} #{pane_id} #{pane_current_command}\"`, captures each with `tmux capture-pane -e -p`, and flags: absent ANSI color, clear-loop wrappers, wall-of-text with no structure, raw tail/cat panes, non-local timestamps, flicker-prone full redraws. Reports a verdict table rendered to the standard, and stays read-only until asked to fix."
+    },
+    {
+      "id": 6,
+      "prompt": "viddy isn't installed on this box. How do I refresh the pane?",
+      "expected_output": "Checks `command -v viddy`, offers to install (brew install viddy / go install), and gives the ordered fallback: `watch -c -n <secs>` (with -c called out as what preserves ANSI), then `while :; do tput cup 0 0; <cmd>; tput ed; sleep <secs>; done`. Explicitly refuses a `clear` loop and explains why — the blank frame between redraws IS the flicker."
+    },
+    {
+      "id": 7,
+      "prompt": "My lnav pane parses the plain log lines but every field from the labeled format comes back NULL.",
+      "expected_output": "Consults references/lnav-formats.md. Diagnoses non-mutually-exclusive regexes: lnav takes the first pattern that matches rather than the most specific, so the general pattern eats the labeled lines. Fix is a negative lookahead guarding the general pattern, e.g. (?<body>(?![A-Z]{1,8}: ).*). Validates headlessly with `lnav -i` then `lnav -n -c ';SELECT …'`, noting the table is named after the format key and the fallback body column is log_body. Ends by respawning the lnav pane so the new format loads."
+    },
+    {
+      "id": 8,
+      "prompt": "Run the bundled renderer template's demo mode and confirm the output meets the standard.",
+      "expected_output": "`python3 scripts/renderer_template.py demo` exits 0 and emits real SGR escape sequences (not literal [38;5;…m text): a pink ▌-prefixed section title, a bold cyan header row over a dim ─ rule, right-aligned numeric columns padded correctly despite embedded color codes, ▰▱ gauges, and a dim ∅ empty-state line. Timestamps resolve in the machine's local zone with no code edit needed."
+    }
+  ]
+}

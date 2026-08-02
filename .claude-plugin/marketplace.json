@@ -21,6 +21,12 @@
       "description": "Session harvesting and plugin lifecycle tools: harvest a project's sessions into reusable Claude Code artifacts, learn from a plugin's sessions to auto-improve and republish it, track usage, and run it all unattended on a daily schedule — with every install isolated to its own Claude config dir.",
       "source": "./plugins/loom",
       "category": "development"
+    },
+    {
+      "name": "tmux-design",
+      "description": "A design standard for tmux console surfaces: every pane renders colored, structured, in-place-refreshing content instead of raw text. Ships the ANSI palette and table/gauge idioms, a dependency-free renderer starter, lnav log-format guidance, and the sandbox → respawn → capture verify loop that makes pane edits actually appear.",
+      "source": "./plugins/tmux-design",
+      "category": "development"
     }
   ]
 }
