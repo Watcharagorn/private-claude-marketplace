@@ -10,7 +10,7 @@ description: >
   rather than asking what the code can answer. This is a conversation, not an
   implementation — it makes no repo edits. For an automated agent audit of a
   finished plan, use /plan-review instead.
-version: 0.1.0
+version: 0.2.0
 ---
 
 # Grilling — Sharpen the Design Before You Build
