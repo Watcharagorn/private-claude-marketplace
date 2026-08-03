@@ -28,14 +28,16 @@ Two skills split the job cleanly:
 
 ## What's in it
 
-- `skills/console/` — the wiring standard and verify loop.
+- `skills/console/` — the wiring standard and verify loop, including panes whose renderer owns its
+  own repaint loop and so never settle for a capture.
   - `references/lnav-formats.md` — lnav format schema, the mutually-exclusive-regex trap, headless
     install + SQL validation. Loaded only when a pane tails a log.
 - `skills/decorate/` — the visual standard.
   - `references/palette.md` — the semantic roles, seven themes (six in hex, plus the original 256-index palette), the color-depth
     ladder, the 256-quantization trap, contrast and colorblind guidance.
   - `references/primitives.md` — frames, bars, sparklines, badges, banners; the width rules
-    (East-Asian-Ambiguous box glyphs, emoji, ZWJ, OSC-8); Nerd Font tiers.
+    (East-Asian-Ambiguous box glyphs, emoji, ZWJ, OSC-8); status-driven animated glyphs, for when a
+    renderer owns its own paint loop instead of being wrapped; Nerd Font tiers.
   - `references/tmux-chrome.md` — status bar, format language, pane borders, popups.
   - `references/tooling.md` — gum/glow/bat cookbook and the force-color rules that make them
     work in a pane.

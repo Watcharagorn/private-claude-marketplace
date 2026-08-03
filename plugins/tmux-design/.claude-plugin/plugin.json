@@ -1,7 +1,7 @@
 {
   "name": "tmux-design",
   "description": "A design standard for tmux console surfaces: panes render themed, column-correct, in-place-refreshing content instead of raw text, verified live in the pane rather than assumed from a file edit.",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "author": {
     "name": "NTBX"
   }
