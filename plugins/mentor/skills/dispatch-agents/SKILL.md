@@ -39,6 +39,15 @@ this skill directly. It answers two things this skill cannot:
 When `mentor:plan` Step 6 or `mentor:plan-track` invokes this skill, those checks
 already ran; carry on.
 
+## When NOT to use — another framework owns the plan of record
+
+Work already planned elsewhere (spec-kit's `tasks.md`, a Jira epic): do not author a
+mentor plan or run an approval question over it (`plan-track`, "When NOT to use").
+Annotate that framework's phase with the grammar below and execute, recording progress
+in its task file — every `plan.md` mechanic here (approved-plan read, ✅ ticks,
+`plan-state.sh`, the gate) has no counterpart and is skipped. If this work should be
+gated, mentor should own the plan: `/mentor:plan`.
+
 ## Escape hatch — when a plan may skip annotation
 
 Skip dispatch annotation ONLY when one of these branches holds:
@@ -195,6 +204,8 @@ before issuing `Agent` calls. Then:
 5. **CLOSING CHECKLIST — always, after the last step verifies:**
    - **Close out finished agents** — stop/release any still-resident dispatches (see "Async runtime & lifecycle" below).
    - **Offer `/mentor:tour`** — one line: a hands-on acceptance pass building an editable guided-tour review artifact (pass/not-pass scenarios) of what shipped. Do not auto-run it.
+   - **Sweep the report you're about to write** — every follow-up, gap, or known-broken
+     item in it goes through `/mentor:defer` first (orchestrator contract above).
 
 Do NOT paraphrase the plan or summarize what you're about to do. Dispatch immediately.
 
