@@ -119,10 +119,17 @@ Pick the entries that fit the current state, tailored to the next-session focus:
 - **Unclear approach / unfinished design** → `/mentor:plan <focus>` (runs the gated plan harness).
 - **A plan exists but its decisions feel shaky** → `/mentor:grill` to pressure-test it, then re-plan / approve.
 - **Approved plan(s), ready to build** → `/mentor:track` — it lists each plan's state, lets the next agent pick one, and executes it via `mentor:dispatch-agents`; `/mentor:ship` when done. Point there rather than at "resume implementation": the next agent needs to know *which* plan and *how far it got*, and `/mentor:track` is the only thing that answers both.
-- **Work planned outside mentor** (native plan mode, an external doc) → `/mentor:plan <focus>`
-  with that plan pasted as the task statement. It has no mentor plan record, so `/mentor:track`
-  cannot list or execute it as-is — say that plainly rather than suggesting the next agent
-  "consider registering it", which is not something they can act on.
+- **Work planned outside mentor** → which branch depends on whether anything still *owns* the planning:
+  - *A static artifact* (native plan mode, a colleague's doc) → `/mentor:plan <focus>` with that plan
+    pasted as the task statement. It has no mentor plan record, so `/mentor:track` cannot list or
+    execute it as-is — say that plainly rather than suggesting the next agent "consider registering
+    it", which is not something they can act on.
+  - *Another planning framework owns this work* — you ran its commands this session (e.g. spec-kit's
+    `/speckit-*`) → lead with **that framework's own next command**, and say plainly that mentor's
+    *planning* commands do not apply here; `/mentor:handoff` and `/mentor:resume` still do. Do not
+    send the next agent to `/mentor:plan`: a second plan of record competes with the one already
+    governing the work. You lived the session, so you know which harness ran — decide from that, not
+    from sniffing the repo for another tool's files.
 - **Repeated manual work worth capturing** → `/loom:harvest`.
 - **Heavy multi-area work** → dispatch subagents per `mentor:dispatch-agents`.
 - If `.mentor/config.json` exists (a persisted mode — `/mentor:mode status` shows it), cite the repo's approval-gate default so the next agent knows whether "Proceed" or "Deliver plan only" is listed first at plan approval.

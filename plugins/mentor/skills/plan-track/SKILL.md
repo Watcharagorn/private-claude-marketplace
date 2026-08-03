@@ -50,7 +50,10 @@ honest on their own.
   research is short because the decisions are already made, and it comes out the far
   side as a real plan. Do not register it by hand: `approved` means the gate ran, and
   a plan with no `[role:` annotations and no `Dispatch: skipped —` line gives
-  `mentor:dispatch-agents` nothing to execute.
+  `mentor:dispatch-agents` nothing to execute. This holds for a **static** artifact —
+  unless another framework still owns planning for this work (spec-kit and the like),
+  in which case there is nothing for mentor to adopt: point at that framework's own
+  next command, because a second plan of record competes with the live one.
 
 ---
 
@@ -89,13 +92,16 @@ a `plan.md` (slug, effective state, group, order, `deps` — each marked `missin
 dir exists, `origin`, live handoffs, `✅` step counts), plus topic dirs holding a live handoff but
 no plan yet, plus the legacy flat `.mentor/handoffs/*.md` dir. It replaces the old `list` table —
 `list` still exists and is byte-compatible, but `overview` is the only call that also carries deps,
-origin, and step counts, so it is Step 1 now. `jq .` on the output is always valid JSON; see the
-hook script's header comment for the exact per-entry shape (`kind: "plan" | "no_plan_topic" |
-"legacy_handoffs"`). Plan files live at `PLANS_DIR/<PLAN>/plan.md`.
+origin, and step counts, so it is Step 1 now. Whenever it prints anything, that output is valid JSON
+(`jq .` parses it); see the hook script's header comment for the exact per-entry shape
+(`kind: "plan" | "no_plan_topic" | "legacy_handoffs"`). Plan files live at `PLANS_DIR/<PLAN>/plan.md`.
 
-If the script reports **no git repo**, say that plainly in one line — mentor keeps no plan
-registry outside a repo. Printing an empty hierarchy next to plan files the user can see would
-just be confusing.
+**It can also print nothing at all** — stdout empty, exit 0, one stderr line saying which case it
+hit: **no git repo** (mentor keeps no plan registry outside a repo), or **no `.mentor/plans` dir
+yet** (nothing has ever been planned here). Don't feed that to `jq` and don't render an empty
+hierarchy — say it in one line and stop. Say what the emptiness means and no more: mentor tracks
+only its own plans, so "no mentor plans in this repo" is never a claim that the repo has no work
+in flight — planning may simply live somewhere else.
 
 If `$ARGUMENTS` is `status`, render the hierarchy below and stop — the user asked to look, not to
 build.
