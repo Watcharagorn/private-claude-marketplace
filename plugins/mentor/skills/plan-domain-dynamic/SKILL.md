@@ -126,5 +126,5 @@ Everything this skill adds is plain Markdown, inline in the `.md`:
   Step 4's visualization decision rule.
 
 **HTML zoom (opt-in):** when the user explicitly requests a visual zoom of this domain's area
-(`mentor:zoom`, via `plan` Step 5), the brief's VIZ IDIOM may inform the zoom html's richer treatment (styling,
+(`mentor:zooming`, via `plan` Step 5), the brief's VIZ IDIOM may inform the zoom html's richer treatment (styling,
 layout, diagram idiom) for the requested area only. The `.md` plan stays the source of truth.

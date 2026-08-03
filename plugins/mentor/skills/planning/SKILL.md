@@ -1,9 +1,10 @@
 ---
-name: plan
+name: planning
 description: >
-  The mentor planning workflow — the body of the /mentor:plan command, not a
-  standalone entry point. The command runs begin-plan.sh first to arm the
-  marker-driven edit gate that holds planning read-only; loaded any other way this
+  Not a standalone entry point, and NOT for a conversational planning request — when the
+  user asks to plan something, run the /mentor:plan COMMAND; never select this skill to
+  answer that ask. This is the body of that command: it runs begin-plan.sh first to arm
+  the marker-driven edit gate that holds planning read-only; loaded any other way this
   skill detects the unarmed gate at Step 0 and stops, pointing you at the command.
   Guides research, domain routing, resolving open decisions with the user one at a
   time (AskUserQuestion with decision support), writing a Mermaid-first Markdown
@@ -16,7 +17,7 @@ The flow: resolve the mode & load the constitution → clarify if needed →
 research (delegation suggested) → domain routing → resolve open decisions
 with the user → write the Markdown plan
 (with a Constitution Check when a constitution exists) → (optional
-topic × perspective HTML zooms via `mentor:zoom` on request) → approve & release →
+topic × perspective HTML zooms via `mentor:zooming` on request) → approve & release →
 subagents-first implementation (dispatch-agents).
 
 While the `.planning` marker is armed, `plan-gate.sh` blocks every
@@ -140,7 +141,7 @@ Multiple domains may match; if none match, invoke the dynamic fallback.
 
 | Domain | Trigger signals | Skill to invoke | Extra plan deliverable |
 |---|---|---|---|
-| frontend | UX/UI — components, pages, styles, layout, design systems, theming, responsive | `Skill(skill="mentor:plan-domain-frontend")` | ASCII wireframes + delta/token tables; live mockups only in an HTML zoom combo (`mentor:zoom`, Step 5) |
+| frontend | UX/UI — components, pages, styles, layout, design systems, theming, responsive | `Skill(skill="mentor:plan-domain-frontend")` | ASCII wireframes + delta/token tables; live mockups only in an HTML zoom combo (`mentor:zooming`, Step 5) |
 | backend-api | API/endpoint/route/handler/schema/DTO/contract | `Skill(skill="mentor:plan-domain-backend-api")` | Before/after contract diff tables + schema diffs + Mermaid sequence flow |
 | architecture (C4) | Structural change — new/changed/removed service, container, datastore, queue, external integration, component, or data flow (NOT pure content/config/doc/style/refactor) | `Skill(skill="mentor:plan-domain-architecture")` | Diff-highlighted C4-style Mermaid flowcharts, only the levels that change |
 | dynamic (fallback) | no registered domain matched | `Skill(skill="mentor:plan-domain-dynamic")` | Domain best-practices section (practice→step mapping) |
@@ -295,7 +296,7 @@ Required sections, in order:
    line: `Dispatch: skipped — <reason>`. No line, no skip.
    **Keep it small while you write:** if the step count creeps past ~12 while
    drafting this section — Step 6's oversize threshold below, just reached early —
-   pause and offer to defer non-core chunks via `Skill(skill="mentor:defer")` before
+   pause and offer to defer non-core chunks via `Skill(skill="mentor:deferring")` before
    finishing the write, rather than waiting for the Step 6 gate to catch an already-
    oversized plan. A plan that arrives at Step 6 already trimmed rarely needs the
    full split treatment.
@@ -331,7 +332,7 @@ examples. The plan must be approvable by someone outside the domain.
 
 The topic × perspective HTML zoom is its own skill — `zoom` — and this step is
 pure delegation. Only when the **user asks** for an HTML zoom / visual preview
-— never by default — invoke `Skill(skill="mentor:zoom")` and follow it end to
+— never by default — invoke `Skill(skill="mentor:zooming")` and follow it end to
 end with the plan as the subject:
 
 - **Subject = the current plan** (`${plan_dir}/plan.md`), so per the zoom
@@ -349,7 +350,7 @@ artifact", "add a zoom for X"), a mid-revision regeneration, at any point in
 the plan lifecycle.
 
 **Revision completeness.** When a plan revision or a product decision
-invalidates prior zooms, re-enter `mentor:zoom` and follow its re-zoom rule
+invalidates prior zooms, re-enter `mentor:zooming` and follow its re-zoom rule
 (grep the invalidated term across `.mentor/zooms/<plan-slug>/*.html` and
 re-dispatch EVERY matching combo in one batched message). Wait for those
 agents to complete before dispatching `plan-review`, so a reviewer never reads
@@ -359,7 +360,7 @@ a zoom mid-write.
 
 > **🚫 No edits or implementation until the plan is APPROVED.** During planning,
 > only read-only agents (Explore, Plan, plan-review reviewers) may be
-> dispatched — the sole exception is `mentor:zoom`'s combo agents (Step 5),
+> dispatched — the sole exception is `mentor:zooming`'s combo agents (Step 5),
 > which write ONLY zoom artifacts under `.mentor/zooms/` (gate-exempt
 > `.mentor/` tree), never repo source files.
 > Every editing/implementation agent comes AFTER approval.

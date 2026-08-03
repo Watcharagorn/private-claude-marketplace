@@ -49,7 +49,7 @@ CONTEXT: ASK (~${tokens} tokens ≥ ${ask_at})
 [mentor] Plan gate NOT armed yet — the user decides first. Do NOT invoke the plan
 skill yet; ask via AskUserQuestion (header "Context", two options):
   1. "Hand off & plan in a fresh session (Recommended)" — invoke
-     Skill(skill="mentor:handoff") with the plan request as the focus, write the
+     Skill(skill="mentor:handoff-note") with the plan request as the focus, write the
      handoff doc, print its copy-paste /mentor:resume prompt, and STOP.
   2. "Proceed anyway (bypass + lean plan)" — run \`bash ${hook_dir}/bypass-context.sh\`,
      re-run \`bash ${hook_dir}/begin-plan.sh\`, then invoke the plan skill and keep the
@@ -87,7 +87,7 @@ done < <(ls "${plans_dir}"/*.md 2>/dev/null | awk '{ print length, $0 }' | sort 
 
 # One-shot relocation (v2.12.0): zoom artifacts moved out of the per-plan dirs
 # into the flat zooms tree — plans/<slug>/zoom/*.html → zooms/<slug>/ (the
-# mentor:zoom skill's plan-slug contract). Sidecars move too; mv -n never
+# mentor:zooming skill's plan-slug contract). Sidecars move too; mv -n never
 # clobbers; the emptied zoom/ dir is removed. Runs AFTER the v2.2.0 migration
 # above, so freshly-migrated flat zooms take both hops in one arm. Idempotent.
 zooms_dir="$(mentor_state_dir "$repo_root")/zooms"

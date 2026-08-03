@@ -1,5 +1,5 @@
 ---
-name: merge
+name: merging
 description: >
   Watch a PR's CI checks, triage a failure once (flake vs regression), and merge on
   green — always with the user's explicit go-ahead. User-invoked via /mentor:merge
@@ -97,7 +97,7 @@ unasked.
 
 ## Step 5 — Close the plan's state
 
-Only after a merge actually landed. `mentor:ship` Step 6 closes plan state when it
+Only after a merge actually landed. `mentor:shipping` Step 6 closes plan state when it
 *opens* the PR, so a PR that merges in a later session — or that `ship` never
 opened — leaves its plan at `in_progress`, and the next `/mentor:track` re-offers
 work that already shipped. This step closes that half of the loop; it is a no-op
@@ -106,7 +106,7 @@ when ship already did it, because `set` is idempotent.
 Merge resolves the topic differently from ship, and better: ship asks what *this
 session* worked on, which a merge-only session cannot answer, while the PR names
 it. Take the merged PR's head branch, strip a leading `<type>/`, and match the
-remainder against `plan-state.sh list` slugs with **`mentor:resume` Step 4's
+remainder against `plan-state.sh list` slugs with **`mentor:resuming` Step 4's
 unique-substring rule** — ambiguous or no match means no candidate, and you stop
 here rather than guessing.
 
@@ -119,7 +119,7 @@ bash "${CLAUDE_PLUGIN_ROOT}/hooks/plan-state.sh" set <slug> implemented --note "
 
 Carry the `--note`: a bare `set` replaces any existing note with an empty one, so a
 prior `failed` reason would be lost. The directory guard and the split-parent
-downgrade caveat are `mentor:ship` Step 6's ("Also close the plan's state") — follow
+downgrade caveat are `mentor:shipping` Step 6's ("Also close the plan's state") — follow
 them there rather than reading a second copy here. No candidate, or the user says
 no → say what you found and stop; never hand-edit `.state.json`.
 

@@ -5,7 +5,7 @@ description: |
   small enough to build in its own session. Trigger phrases: `/plan-split`, "split
   this plan into separate plans", "break this plan up", "this plan is too big for one
   pass", "make these into their own plans" — and it is offered as the leading option
-  at the `mentor:plan` approval step whenever a plan is oversized. Use this whenever a
+  at the `mentor:planning` approval step whenever a plan is oversized. Use this whenever a
   written plan has more work in it than one implementation pass can carry, even if the
   user only says the plan feels unwieldy. Not for reorganizing one plan's steps into
   phases or stages inside a single document — that is a `/mentor:plan` re-write; this
@@ -18,7 +18,7 @@ description: |
 
 # Plan Split — One Oversized Plan → N Isolated Siblings
 
-`mentor:plan` assumes one ask = one plan. When the ask is huge, that single plan
+`mentor:planning` assumes one ask = one plan. When the ask is huge, that single plan
 becomes unreviewable, its implementation runs out of context partway through, and a
 resumed session has to guess which steps already landed.
 
@@ -33,7 +33,7 @@ a neighbour's files.
 
 ## When to use
 
-- The plan `mentor:plan` just wrote is oversized — roughly >12 implementation steps,
+- The plan `mentor:planning` just wrote is oversized — roughly >12 implementation steps,
   or it contains independent deliverables that could ship separately.
 - The user asks to split, break up, or slice a plan, in any phrasing.
 - The user chose **"Split into multiple plans"** at the approval step.
@@ -102,7 +102,7 @@ opens every new `plan.md`, so a 6-way split pops six editor tabs.
 
 Issue one `Agent` call per slice (`subagent_type: general-purpose`, `model: sonnet`,
 `effort: high`), **all in a single message** so they run concurrently — the same
-pattern `mentor:zoom` Step 3 uses for zoom artifacts. Authoring in the main thread
+pattern `mentor:zooming` Step 3 uses for zoom artifacts. Authoring in the main thread
 would defeat the purpose: the point is to keep the orchestrating context lean.
 
 Each subagent starts with **zero memory of this conversation and no
@@ -110,7 +110,7 @@ Each subagent starts with **zero memory of this conversation and no
 `{#write-the-plan}`" gives it nothing it can resolve. Resolve the paths first:
 
 ```bash
-echo "${CLAUDE_PLUGIN_ROOT}/skills/plan/SKILL.md"
+echo "${CLAUDE_PLUGIN_ROOT}/skills/planning/SKILL.md"
 mentor_dir="$(bash "${CLAUDE_PLUGIN_ROOT}/hooks/plan-state.sh" dir)"   # worktree-safe
 ls "$mentor_dir/constitution.md" 2>/dev/null   # include only if it exists
 ```
@@ -120,7 +120,7 @@ Prompt template — every child gets all of it:
 ```
 Author one plan file. You are writing a plan, not implementing anything.
 
-1. Read <ABS>/skills/plan/SKILL.md and follow its "Content spec" (Step 4) exactly:
+1. Read <ABS>/skills/planning/SKILL.md and follow its "Content spec" (Step 4) exactly:
    the required sections in order, the visualization decision rule, the Mermaid
    portability rules, and the dispatch annotations from mentor:dispatch-agents.
    This is a real plan — use case scenarios, dispatch-annotated steps, critical
@@ -211,11 +211,11 @@ Fix any failure by re-dispatching that child before moving on.
 
 ## Step 8 — Return to the approval gate
 
-Splitting never releases the edit gate — only `mentor:plan` does. When you finish,
+Splitting never releases the edit gate — only `mentor:planning` does. When you finish,
 the gate's original subject no longer exists, so leaving the user here strands them.
 
 Surface each child's **isolation header only** (not the full bodies — that is what the
-files are for), then **re-ask `mentor:plan`'s approval question**, exactly as the
+files are for), then **re-ask `mentor:planning`'s approval question**, exactly as the
 "Review the plan (light)" option does when it returns. Note in the question that
 **Proceed now approves the whole set** and routes building to `/mentor:track`, so the
 user is not left wondering which child "Proceed" means.
@@ -236,7 +236,7 @@ user is not left wondering which child "Proceed" means.
   under `.mentor/plans/`.
 - Do **not** mark the parent `superseded` before every child is verified.
 - Do **not** restate the plan content spec, the dispatch grammar, or the approval flow
-  here — point the agents and yourself at `mentor:plan` and `mentor:dispatch-agents`.
+  here — point the agents and yourself at `mentor:planning` and `mentor:dispatch-agents`.
   Two copies of a spec means one of them is wrong.
 - Do **not** write a child anywhere but `<repo>/.mentor/plans/<child-slug>/plan.md`.
 - Do **not** author the children in the main thread — that spends the context the

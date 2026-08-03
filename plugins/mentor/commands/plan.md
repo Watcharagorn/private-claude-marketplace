@@ -35,7 +35,7 @@ Do these in order:
    - If stdout contains **`CONTEXT: ASK`**, do **not** call the plan skill yet — the
      gate was intentionally not armed; the user decides first. Follow the printed
      directive: ask via AskUserQuestion. On **"Hand off & plan in a fresh session"**
-     invoke `Skill(skill="mentor:handoff")` and STOP; on **"Proceed anyway"** run the
+     invoke `Skill(skill="mentor:handoff-note")` and STOP; on **"Proceed anyway"** run the
      printed bypass script, re-run `begin-plan.sh`, then continue below with a lean
      plan (skip optional zooms and plan-review).
    - If stdout contains **`CONTEXT: HANDOFF`**, the gate IS armed — surface the
@@ -43,9 +43,8 @@ Do these in order:
      **Hand off to next agent (Recommended)**.
    - If stdout contains **`CONTEXT: WARN`**, mention it to the user and continue.
 
-2. **Immediately call `Skill({"skill": "mentor:plan"})` and follow it end
-   to end** (after resolving a `CONTEXT: ASK` per step 1) — do **NOT** call
-   `mentor:plan` (that would reload this command).
+2. **Immediately call `Skill({"skill": "mentor:planning"})` and follow it end
+   to end** (after resolving a `CONTEXT: ASK` per step 1).
    At the approval step, take the option list from the **option-set table** in the
    skill's `{#approve}` section — it fixes the precedence between the `MODE:`
    default, `CONTEXT: WARN` / `CONTEXT: HANDOFF`, and an oversized plan (which leads
@@ -55,22 +54,9 @@ Do these in order:
    and release the gate except Review, Split, and Keep planning, which stay in
    planning.
 
-**If that call returns this command's own text** — any re-invocation or
-previously-loaded notice — rather than a file whose frontmatter reads
-`name: plan`, the skill body never loaded: this command and the skill share the
-name `plan`. Resolve and read it directly, then follow that file end to end:
-
-```bash
-echo "${CLAUDE_PLUGIN_ROOT}/skills/plan/SKILL.md"
-```
-
-`Read` the printed path — `Read` cannot expand `${CLAUDE_PLUGIN_ROOT}` itself. **Do not
-re-run the steps above this one:** they already ran, and a step that writes or marks
-something can undo its own first pass when repeated.
-
-That bites hardest at step 1 here: re-running `begin-plan.sh` resets the `.planning`
-marker's mtime, and `approve-plan.sh` then refuses to release a plan file older than the
-marker — stranding a finished plan unapprovable.
+**Never re-run step 1 once it has run.** `begin-plan.sh` resets the `.planning` marker's
+mtime, and `approve-plan.sh` then refuses to release a plan file older than the marker —
+stranding a finished plan unapprovable.
 
 
 The task to plan:

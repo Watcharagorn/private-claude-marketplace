@@ -8,7 +8,7 @@ description: >
   Markdown plan to carry a before/after API contract comparison —
   per-endpoint diff tables, schema diffs, and a Mermaid sequence-flow per
   changed flow. No mockup contract; richer styled panels are reserved
-  for the opt-in topic × perspective HTML zoom (`mentor:zoom`).
+  for the opt-in topic × perspective HTML zoom (`mentor:zooming`).
 ---
 
 # Backend-API Planning Domain
@@ -98,7 +98,7 @@ restate its contents in prose (a one-line caption + the legend are the only adja
 
 ## HTML zoom (opt-in)
 
-When the user explicitly requests a visual zoom of this domain's area (`mentor:zoom`, via `plan`
+When the user explicitly requests a visual zoom of this domain's area (`mentor:zooming`, via `plan`
 Step 5), the
 zoom html file may carry the richer treatment for the requested endpoints only: status tokens
 rendered as visually distinct NEW/CHANGED/BREAKING/DEPRECATED badges, colorized `+`/`-`/`~` schema

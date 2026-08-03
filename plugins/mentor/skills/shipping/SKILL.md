@@ -1,5 +1,5 @@
 ---
-name: ship
+name: shipping
 description: Finish the current branch — clean-check, run /simplify, optionally run tests, then ship to a user-chosen target (push + auto-open PR/MR, or push to the branch's upstream), then retire the plan topic's live handoff notes (stamped resolved — the work is done). Never force-pushes; never pushes to a protected source branch without an explicit choice. Invoked by /mentor:ship, "ship this", "merge and push", "finish and ship".
 ---
 

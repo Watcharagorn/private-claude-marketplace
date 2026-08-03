@@ -2,17 +2,18 @@
   "eval_name": "mentor-v2.14.0-multi-skill-triggering",
   "note": "Multi-class: every query is scored on WHICH mentor skill fires, not whether one does. 'none' means no mentor skill should be consulted.",
   "skills_in_play": [
-    "plan",
+    "planning",
     "plan-split",
     "plan-track",
     "plan-review",
     "grilling",
     "dispatch-agents",
-    "resume",
-    "handoff",
-    "tour",
-    "zoom",
-    "merge"
+    "resuming",
+    "handoff-note",
+    "touring",
+    "zooming",
+    "merging",
+    "shipping"
   ],
   "evals": [
     {
@@ -47,7 +48,7 @@
     },
     {
       "id": 6,
-      "expected": "resume",
+      "expected": "resuming",
       "tests": "NEAR-MISS vs plan-track: 'where were we' is session context, not build status",
       "query": "where were we on the billing work? i had to stop partway through yesterday afternoon and my head is completely empty on it now"
     },
@@ -83,13 +84,13 @@
     },
     {
       "id": 12,
-      "expected": "resume",
+      "expected": "resuming",
       "tests": "core trigger, explicit handoff-note language",
       "query": "continue from the handoff note from the other session"
     },
     {
       "id": 13,
-      "expected": "handoff",
+      "expected": "handoff-note",
       "tests": "core trigger, context-pressure framing",
       "query": "im at like 300k context and everything is crawling. write up where we are so i can pick this up fresh in a new session tomorrow"
     },
@@ -132,42 +133,42 @@
     {
       "id": 20,
       "expected": "none",
-      "tests": "DESIGN CHECK: a fresh planning ask must NOT be grabbed by any sibling skill; mentor:plan is deliberately command-only so the gate is armed first",
+      "tests": "DESIGN CHECK: a fresh planning ask must NOT be grabbed by any sibling skill; the /mentor:plan COMMAND is the only entry point (it arms the gate first), and mentor:planning is its non-triggering body",
       "query": "help me plan the auth refactor — new JWT rotation, a redis session store, and ripping out the old cookie flow. touches api/auth/* and the middleware"
     },
     {
       "id": 21,
-      "expected": "zoom",
+      "expected": "zooming",
       "tests": "core trigger, 'zoom into' phrasing",
       "query": "zoom into the auth flow for me — i want to actually see how the token refresh hangs together instead of reading another wall of markdown"
     },
     {
       "id": 22,
-      "expected": "zoom",
+      "expected": "zooming",
       "tests": "core trigger, html page + explicit no-publish",
       "query": "can you render the payment module as an html page i can just open in the browser? dont publish it anywhere, local file is fine"
     },
     {
       "id": 23,
-      "expected": "zoom",
+      "expected": "zooming",
       "tests": "core trigger, NO plan exists — subject is the codebase",
       "query": "give me a diagram page for the ingestion pipeline. theres no plan written for it, its just the code thats already sitting in the repo"
     },
     {
       "id": 24,
-      "expected": "zoom",
+      "expected": "zooming",
       "tests": "core trigger, both dimensions named (topic x perspective)",
       "query": "id like to see the checkout redesign from a QA persons point of view and from the end users — as separate pages i can open side by side"
     },
     {
       "id": 25,
-      "expected": "tour",
+      "expected": "touring",
       "tests": "NEAR-MISS vs zoom: reviewers mark pass/not-pass and it gets shared = tour, not a local visual",
       "query": "i need a page i can send the reviewers where they walk each scenario, tick pass or not pass, and leave me feedback"
     },
     {
       "id": 26,
-      "expected": "tour",
+      "expected": "touring",
       "tests": "core trigger, UAT/acceptance phrasing with a shareable link",
       "query": "the billing work is done — set up a UAT walkthrough the product folks can run through themselves, with a link i can drop in slack"
     },
@@ -185,13 +186,13 @@
     },
     {
       "id": 29,
-      "expected": "merge",
+      "expected": "merging",
       "tests": "core trigger",
       "query": "pr 412 is open and ci has been running for a while. can you keep an eye on the checks and if they go green just squash it in? if something fails dont fix it, just tell me what broke"
     },
     {
       "id": 30,
-      "expected": "ship",
+      "expected": "shipping",
       "tests": "near-miss vs merge — user wants the PR CREATED, not merged",
       "query": "im done with the retry backoff work on this branch, tests pass locally. clean it up and get it up as a PR"
     },

@@ -97,7 +97,7 @@ if [ "$TOKENS" -ge "$ASK_AT" ]; then
   cat <<EOF
 [mentor] CONTEXT: ASK (~${TOKENS} tokens ≥ ${ASK_AT}). Do NOT act on this prompt yet.
 FIRST ask the user via AskUserQuestion (header "Context", two options):
-  1. "Hand off to next agent (Recommended)" — then invoke Skill(skill="mentor:handoff")
+  1. "Hand off to next agent (Recommended)" — then invoke Skill(skill="mentor:handoff-note")
      with a focus describing the work in flight, write the handoff doc, print its
      copy-paste /mentor:resume prompt, and STOP.
   2. "Proceed anyway (bypass for this session)" — then run

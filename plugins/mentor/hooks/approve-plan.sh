@@ -167,7 +167,7 @@ if [ "$flag" = "--handoff" ]; then
 HAND-OFF REQUESTED — plan APPROVED and gate released. Do NOT implement and do NOT
 dispatch implementation agents in this session. The approved plan file is:
   ${newest_plan:-(no plan file on record)}
-Invoke Skill(skill="mentor:handoff") now to write the handoff document so the next
+Invoke Skill(skill="mentor:handoff-note") now to write the handoff document so the next
 agent can pick up implementation from this plan, then STOP.
 EOF
   exit 0

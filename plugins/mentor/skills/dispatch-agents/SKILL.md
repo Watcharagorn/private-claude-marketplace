@@ -36,7 +36,7 @@ this skill directly. It answers two things this skill cannot:
   (its Step 0 explains why nothing else covers this path). Dispatching straight from
   here is the one route into a full implementation with nothing measuring the session.
 
-When `mentor:plan` Step 6 or `mentor:plan-track` invokes this skill, those checks
+When `mentor:planning` Step 6 or `mentor:plan-track` invokes this skill, those checks
 already ran; carry on.
 
 ## When NOT to use — another framework owns the plan of record

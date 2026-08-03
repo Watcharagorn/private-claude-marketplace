@@ -69,7 +69,7 @@ Interview the user relentlessly about every aspect of this plan until you reach 
 
 - **Ask the questions one at a time**, waiting for feedback on each question before continuing. Asking multiple questions at once is bewildering — favor `AskUserQuestion` with a single focused question (your recommended option first).
 - **Order by dependency.** Resolve the decisions that other decisions hang off of first; let each answer narrow the next question.
-- **If a question can be answered by exploring the codebase, explore the codebase instead of asking.** Prefer dispatching an `Explore` subagent for anything beyond a few orienting reads — then fold what it finds into your next question. (Dispatches follow `dispatch-agents`' "Async runtime & lifecycle" rules: deliver-before-idle, one nudge on a silent idle, close out when consumed.)
+- **If a question can be answered by exploring the codebase, explore the codebase instead of asking.** Step 1's subject reads are yours to do directly; past those, **needing a second file — or any read beyond ~100 lines — is the dispatch signal**: hand that question to an `Explore` subagent and keep interviewing while it runs, then fold what it finds into your next question. The budget is about volume, not curiosity: an interview that reads hundreds of lines inline is too heavy to hand off. (Dispatches follow `dispatch-agents`' "Async runtime & lifecycle" rules: deliver-before-idle, one nudge on a silent idle, close out when consumed.)
 - Keep going until the material decisions are resolved or explicitly deferred — do not stop at the first easy answer.
 
 ---
@@ -81,6 +81,7 @@ When you reach shared understanding:
 1. Summarize the **resolved decisions** and any **deferred / open items** in a short recap.
 2. If a mentor plan was the subject, **surface the deltas** between the plan and what you just resolved, and tell the user to fold them in by re-running the plan flow (`/mentor:plan`) or, if mid-plan, re-asking the proceed gate. **Do not edit the plan file yourself** if a `.planning` gate is armed — surface the changes and let the plan flow re-render them.
 3. Point to the natural next step: `/mentor:plan` (to author/refresh the plan) or, if a locked plan now looks solid, `/plan-review` then approve.
+4. **If the grill settled it and the work turns out trivial** — one file, nothing material left to decide — say so and offer to implement it directly rather than routing a two-line change through the plan flow. Two conditions, both required: no `.planning` marker is armed (`plan-state.sh current` from Step 1 already told you), and you state plainly that plan ceremony was skipped and why. If the gate IS armed, this branch does not apply — `plan-gate.sh` blocks repo edits, so surface the deltas per item 2 and let the plan flow re-render them.
 
 ## Done when
 

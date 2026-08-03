@@ -105,7 +105,7 @@ arm; fresh_plan
 out="$(ap --handoff)"; rc=$?
 chk "handoff → exit 0"                 test "$rc" = "0"
 chk "handoff → marker gone"            test ! -f "$MARKER"
-chk "handoff → sentinel + skill ref"   sh -c "printf '%s' \"\$0\" | grep -q 'HAND-OFF REQUESTED' && printf '%s' \"\$0\" | grep -q 'mentor:handoff'" "$out"
+chk "handoff → sentinel + skill ref"   sh -c "printf '%s' \"\$0\" | grep -q 'HAND-OFF REQUESTED' && printf '%s' \"\$0\" | grep -q 'mentor:handoff-note'" "$out"
 # handoff with a stale plan: validation precedes the hand-off branch.
 clear_plans
 stale_plan; sleep 1; arm

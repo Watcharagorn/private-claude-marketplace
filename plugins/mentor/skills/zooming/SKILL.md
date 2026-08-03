@@ -1,5 +1,5 @@
 ---
-name: zoom
+name: zooming
 description: |
   Topic × perspective HTML zoom — focused, self-contained, LOCAL HTML review
   pages for ANY subject: a repo subsystem, a design doc or ADR, a mentor plan,

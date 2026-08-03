@@ -1,5 +1,5 @@
 ---
-name: constitution
+name: constitution-authoring
 description: >
   Create, amend, or show this repo's mentor CONSTITUTION — a committed,
   semantic-versioned set of governing principles (declarative, testable rules) at
@@ -9,7 +9,7 @@ description: >
   constitution", "add/amend/remove a principle", "make every plan enforce X",
   "what principles govern this repo". Standalone authoring flow — it never arms
   the plan gate and is not itself planning. NOT for writing a single plan (use
-  mentor:plan) or reviewing one plan's design (mentor:plan-review).
+  /mentor:plan) or reviewing one plan's design (mentor:plan-review).
 ---
 
 # mentor Constitution

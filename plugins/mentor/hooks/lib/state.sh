@@ -15,7 +15,7 @@
 #   │       │                #   ONLY via plan-state.sh (deps/origin added v2.17.0; old
 #   │       │                #   4-field sidecars read back with deps:[] origin:null)
 #   │       └── handoffs/ #   <ts>-<slug>.md; solved/superseded notes → handoffs/resolved/
-#   ├── zooms/            # mentor:zoom artifacts — <subject-slug>/<topic>-<perspective>.html
+#   ├── zooms/            # mentor:zooming artifacts — <subject-slug>/<topic>-<perspective>.html
 #   │                     #   (+ hidden .*.opened sidecars; pre-v2.12 they lived in plans/<slug>/zoom/)
 #   └── handoffs/         # legacy flat notes (pre-v2.10 — still read, never written)
 #   (.context-warned-<session_id> markers live at the .mentor/ root.)

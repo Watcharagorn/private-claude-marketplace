@@ -108,7 +108,7 @@ CONTEXT: ASK (~${tokens} tokens ≥ ${ask_at})
 implementation started this deep into a session degrades partway through.
 Ask via AskUserQuestion (header "Context", two options):
   1. "Hand off & build in a fresh session (Recommended)" — invoke
-     Skill(skill="mentor:handoff") with the chosen plan as the focus, write the
+     Skill(skill="mentor:handoff-note") with the chosen plan as the focus, write the
      handoff doc, print its copy-paste /mentor:resume prompt, and STOP.
   2. "Proceed anyway (bypass for this session)" — run
      \`bash ${hook_dir}/bypass-context.sh\`, then re-run this command and continue.

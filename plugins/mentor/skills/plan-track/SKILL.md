@@ -17,7 +17,7 @@ description: |
 
 # Plan Track — What's Built, What's Next, Build It
 
-`mentor:plan` writes plans; this skill is how you come back to them. Each plan dir
+`mentor:planning` writes plans; this skill is how you come back to them. Each plan dir
 carries a `.state.json` sidecar recording where it stands, so a fresh session can
 answer "which of these five is next?" without re-reading five plans and guessing.
 
@@ -159,7 +159,7 @@ Sort `kind: "plan"` entries the same way the old `list` table did: active states
 
 ## Step 2 — Select a plan
 
-Resolve the selection using **`mentor:resume` Step 4's rule, unchanged**: a bare
+Resolve the selection using **`mentor:resuming` Step 4's rule, unchanged**: a bare
 integer is a 1-based ordinal into the printed hierarchy (actionable entries only, per Step 1's
 numbering); anything else is a case-insensitive substring match on the slug; a unique match is
 selected directly; an ambiguous or empty match re-prints the hierarchy and re-asks rather than
@@ -254,7 +254,7 @@ successful approval.
 
 **Executing** — invoke `Skill(skill="mentor:dispatch-agents")` and follow its
 "Executing the dispatches" section as written. Three things are specific to arriving
-here rather than straight from `mentor:plan`:
+here rather than straight from `mentor:planning`:
 
 - On an `in_progress` plan, start at the **first unticked step**. The plan's `✅` marks
   are the record of a run that was interrupted; re-running ticked steps is the failure
@@ -262,7 +262,7 @@ here rather than straight from `mentor:plan`:
 - When the plan is a **split child**, pass its isolation header into every
   implementation agent's prompt, so the sibling boundary travels with the work.
 - When the plan states **`Dispatch: skipped`**, there are no agents to dispatch —
-  implement in the main thread under `mentor:plan` Step 6's rule for that case, and keep
+  implement in the main thread under `mentor:planning` Step 6's rule for that case, and keep
   everything around it (step ticks, `Done when:` verification, the **No busy-wait** rule
   from `mentor:dispatch-agents`, close-out) exactly as the dispatch path does it.
   Arriving here does not make that path unowned.
@@ -302,8 +302,8 @@ implementation pass has left little room for another.
 - Do **not** hard-block on unmet deps — Step 2.5 is advisory; the decision to proceed anyway is
   the user's.
 - Do **not** **arm** the edit gate, and release it only through "Approving a draft plan
-  here", on the user's explicit say-so. `mentor:plan` owns every other approval path.
+  here", on the user's explicit say-so. `mentor:planning` owns every other approval path.
 - Do **not** restate the dispatch grammar or the selection rule here; cite
-  `mentor:dispatch-agents` and `mentor:resume` Step 4. A second copy is a second thing
+  `mentor:dispatch-agents` and `mentor:resuming` Step 4. A second copy is a second thing
   to keep true.
 - Do **not** hand-edit `.state.json` — `plan-state.sh` is the only writer.

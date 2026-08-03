@@ -1,5 +1,5 @@
 ---
-name: tour
+name: touring
 description: |
   Editable guided-tour review artifact — mentor's post-approval acceptance
   surface. Use whenever the user wants a shareable page to hands-on review,

@@ -1,5 +1,5 @@
 ---
-name: resume
+name: resuming
 description: >
   Browse and continue this repo's mentor handoff notes. User-invoked via /mentor:resume.
   Lists ONLY the current repo's live (unresolved) handoff notes (newest first) from every

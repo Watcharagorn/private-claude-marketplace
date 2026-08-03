@@ -109,7 +109,7 @@ the primary plan:
 plan_dir="<the dirname of the PLAN: path above>"
 plans_dir="$(dirname "$plan_dir")"
 repo_root="$(cd "$plans_dir/../.." && pwd)"
-zoom_dir="$(dirname "$plans_dir")/zooms/$(basename "$plan_dir")"   # mentor:zoom's plan-slug contract
+zoom_dir="$(dirname "$plans_dir")/zooms/$(basename "$plan_dir")"   # mentor:zooming's plan-slug contract
 ls -t "$plans_dir"/*/plan.md 2>/dev/null              # ALL plans, incl. superseded — see below
 ls    "$zoom_dir"/*.html 2>/dev/null                  # the primary plan's supplementary zoom artifacts
 const_rel="$(jq -r '.constitution_path // empty' "$repo_root/.mentor/config.json" 2>/dev/null)"
@@ -469,7 +469,7 @@ verdict-accepted resolutions), **left open** (findings the user left open or
 skipped, plus the consistency reviewer's coverage map + metrics as-is), and
 **dead lanes** (if any reviewer died). If the Step 5 fold or either Step 7
 pass touched content covered by an existing `$zoom_dir/*.html`, add a reminder
-that those zooms need re-dispatch — re-zooming is `mentor:zoom`'s re-zoom rule
+that those zooms need re-dispatch — re-zooming is `mentor:zooming`'s re-zoom rule
 (entered via `plan` Step 5's delegation), never done from inside this skill.
 
 Then return to the approval question when invoked from `plan` Step 6, or end

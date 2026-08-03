@@ -1,5 +1,5 @@
 ---
-name: defer
+name: deferring
 description: >
   Capture work discovered mid-flow — during planning OR implementation — as one or more
   lightweight deferred plan stubs, without derailing the current task. Backs the
@@ -63,7 +63,7 @@ For each item, in order (an earlier item's slug is a valid `--deps` target for a
 same batch — the stub exists on disk by the time you get there):
 
 1. **Derive a slug** — kebab-case, ≤30 chars, drop articles, keep nouns/verbs (same convention as
-   `mentor:plan` Step 4). If it would collide with an existing plan dir that is about something
+   `mentor:planning` Step 4). If it would collide with an existing plan dir that is about something
    else, add a short disambiguator rather than silently overwriting someone else's plan.
 
 2. **Compute and create the plan dir:**

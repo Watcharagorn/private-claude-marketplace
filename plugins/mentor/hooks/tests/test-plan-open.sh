@@ -23,7 +23,7 @@ case "$git_common" in /*) common_abs="$git_common";; *) common_abs="$REPO/$git_c
 repo_root="$(cd "$(dirname "$common_abs")" && pwd)"
 PLANS_DIR="$repo_root/.mentor/plans"   # project-scoped, in-repo; per-plan dirs since v2.2.0
 PLAN_DIR="$PLANS_DIR/sample-plan"
-ZOOMS_DIR="$repo_root/.mentor/zooms"   # flat zooms tree since v2.12.0 (mentor:zoom)
+ZOOMS_DIR="$repo_root/.mentor/zooms"   # flat zooms tree since v2.12.0 (mentor:zooming)
 ZOOM_DIR="$ZOOMS_DIR/sample-plan"
 mkdir -p "$PLAN_DIR" "$ZOOM_DIR"
 PLAN="$ZOOM_DIR/checkout-end-user.html"

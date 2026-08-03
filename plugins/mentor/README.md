@@ -325,6 +325,24 @@ Knobs — env vars under `env` in `~/.claude/settings.json` (or the project's
 | `hooks/bypass-context.sh` | Writes the session-scoped `.context-bypass-<session_id>` marker when the user answers "Proceed anyway" — degrades the ask tier to a one-line advisory for the rest of the session. |
 | `hooks/plan-state.sh` | **The one plan-state API** (not a hook — skills call it directly). `init` / `set` / `set-deps` / `claim` / `list` / `current` / `overview` / `context` / `dir`. Sole writer of `.state.json` (incl. `deps` and `origin`, v2.17.0); derives effective state from the plan's ✅ ticks; `current` is group-aware, so after a split it reports the whole group rather than whichever child agent finished last. `overview --json` computes the repo-wide plans+deps+handoffs hierarchy fresh on every call — nothing cached. `dir` (v2.14.0) is the one repo-scoped `.mentor` path derivation — skills call it instead of hand-rolling `git-common-dir` snippets that drift. |
 
+### Commands and skills never share a name
+
+Every command is a **thin entry point** whose body is a skill — and the two must never
+carry the same name. When they do, `Skill({"skill": "mentor:<n>"})` resolves to the
+COMMAND file and the skill body becomes unreachable: the call returns the command's own
+text, the retry returns "already loaded above; instructions unchanged", and every
+mandatory step inside the SKILL.md is silently skipped. The skill's `description:` is
+shadowed by the command's too, so the skill cannot be reached conversationally either.
+
+Hence the naming split: `/mentor:plan` → skill `planning`, `/mentor:resume` → `resuming`,
+`/mentor:handoff` → `handoff-note`, and so on. **Command names are the user-facing
+surface and never change; the skill takes the distinct name.**
+`hooks/tests/test-skill-command-collision.sh` fails the build if any pair collides
+again, if a rename leaves a skill's frontmatter `name:` behind, or if any `Skill()` call
+site points at a skill that no longer exists. Prose could not enforce this — each
+colliding command used to carry a written fallback for exactly this case, and it went
+unused in practice.
+
 ### Known limitations
 
 - **Bash is not gated.** The gate covers the Write/Edit/MultiEdit/NotebookEdit
@@ -383,6 +401,58 @@ extra deliverable. Instruction-only — no hooks.
 | `plan-domain-backend-api` | API/endpoint/route/handler/schema/DTO/contract | Before/after contract diff tables, schema diffs, Mermaid sequence flows. |
 | `plan-domain-architecture` | Structural change — services, containers, datastores, queues, integrations, data flows (not pure content/config/doc/style/refactor) | Diff-highlighted C4-style Mermaid flowcharts, only the levels that change; a provenance list for any changed datastore field. |
 | `plan-domain-dynamic` | No registered domain matched (fallback) | A dispatched domain-definer names the domain and returns a best-practices brief; the plan gains a practice→step mapping. |
+
+## Changes in v2.18.0
+
+**Every skill is now reachable.** Nine skills shared a name with their command
+(`constitution defer handoff merge plan resume ship tour zoom`), which made
+`Skill({"skill": "mentor:<n>"})` resolve to the *command* file — the SKILL.md body never
+loaded. Observed live: `resume`'s secret-scan and gate/PR verification, and `handoff`'s
+mandatory `CHECK:` self-verification, all skipped while the run reported success. The
+same collision shadowed those nine skills' `description:` out of the model-visible skill
+listing, so their trigger phrases were dead text and none could be reached
+conversationally.
+
+Each skill is renamed away from its command; **`/mentor:*` command names are unchanged**:
+
+| Command | Skill (was) | Skill (now) |
+|---|---|---|
+| `/mentor:plan` | `plan` | `planning` |
+| `/mentor:resume` | `resume` | `resuming` |
+| `/mentor:handoff` | `handoff` | `handoff-note` |
+| `/mentor:ship` | `ship` | `shipping` |
+| `/mentor:merge` | `merge` | `merging` |
+| `/mentor:tour` | `tour` | `touring` |
+| `/mentor:zoom` | `zoom` | `zooming` |
+| `/mentor:defer` | `defer` | `deferring` |
+| `/mentor:constitution` | `constitution` | `constitution-authoring` |
+
+`grill`/`grilling` and `track`/`plan-track` were already split — they are the control
+that proved the fix (they deliver their skill body on the first call).
+
+**The ~110 lines of fallback prose are gone.** Each colliding command carried a block
+telling the model to read the SKILL.md directly if the call returned the command's own
+text. It was ignored in practice, and post-rename its premise is false, so it is deleted
+rather than reworded. Enforcement replaces it:
+`hooks/tests/test-skill-command-collision.sh` fails on any collision, any skill whose
+frontmatter `name:` no longer matches its directory, and any `Skill()` call site pointing
+at a nonexistent skill. See "Commands and skills never share a name" above.
+
+**`planning`'s description is deliberately non-triggering.** Now that it is visible, it
+states outright that a conversational planning ask must go through `/mentor:plan` (which
+arms the edit gate first) — Step 0's `GATE: NOT ARMED` stop remains the fail-safe. The
+trigger evals stage all twelve skills under their new names; `expected` ground truth was
+re-pointed, and `merging`/`shipping` are now actually staged (two expectations were
+previously unsatisfiable, so those cases could never pass).
+
+**Smaller things:** `handoff` pasted `plan-state.sh list` in its "Current state" section
+— `list` only tables topics that already have a `plan.md`, so work done outside a plan
+printed "No plans …" and got reported as invisible to `/mentor:track`. It now pastes
+`overview`, which is what `/mentor:track` itself reads, and offers `/mentor:defer` to
+register a stub. `grilling` gained a concrete dispatch threshold (a second file, or any
+read past ~100 lines, hands off to an `Explore` subagent) and a gated "the grill settled
+it and the work is trivial → implement directly" close, valid only when no `.planning`
+marker is armed.
 
 ## Changes in v2.17.0
 

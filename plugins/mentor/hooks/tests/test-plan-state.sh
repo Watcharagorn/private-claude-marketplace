@@ -252,7 +252,7 @@ mktx "$TXDIR/sess.jsonl" 400000
 out="$(ctx)"; rc=$?
 chk "over ask → exit 0"                 test "$rc" = "0"
 chk "over ask → CONTEXT: ASK"           has "CONTEXT: ASK" "$out"
-chk "over ask → offers the handoff"     has "mentor:handoff" "$out"
+chk "over ask → offers the handoff"     has "mentor:handoff-note" "$out"
 chk "over ask → offers the bypass"      has "bypass-context.sh" "$out"
 chk "over ask → does not dispatch yet"  has "Do NOT dispatch implementation yet" "$out"
 # The user already chose to continue: this command must NEVER then refuse them.

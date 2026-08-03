@@ -2,16 +2,23 @@
 
 `hooks/tests/` proves the scripts behave. This proves the **descriptions** do: that a
 user's phrasing reaches the skill it should, and — more importantly — not one of its
-nine siblings.
+eleven siblings.
 
-mentor ships ten overlapping user-facing skills (`plan`, `plan-split`, `plan-track`,
-`plan-review`, `grilling`, `dispatch-agents`, `resume`, `handoff`, `tour`, `zoom`).
+mentor ships twelve overlapping user-facing skills (`planning`, `plan-split`,
+`plan-track`, `plan-review`, `grilling`, `dispatch-agents`, `resuming`, `handoff-note`,
+`touring`, `zooming`, `merging`, `shipping`).
 The risk that
 matters is not "does `plan-split` trigger" but "does `plan-split` fire when the user
-meant `plan-track`" — or, since v2.12.0, "does `zoom` steal `tour`'s acceptance-page
-queries" (both make HTML from any subject; they differ on publication + interaction).
+meant `plan-track`" — or, since v2.12.0, "does `zooming` steal `touring`'s
+acceptance-page queries" (both make HTML from any subject; they differ on publication +
+interaction).
 A description tuned on its own can score perfectly and still
-collide, so this harness stages **all ten at once** and records which one wins.
+collide, so this harness stages **all twelve at once** and records which one wins.
+
+Note the skill names are the **skill** names, not the command names: since v2.18.0 no
+skill shares a name with a command (`/mentor:plan` → skill `planning`, and so on), which
+is what makes the skills reachable and their descriptions visible at all. Anything this
+harness measures is measuring the real routing surface only because of that split.
 
 ## Run it
 

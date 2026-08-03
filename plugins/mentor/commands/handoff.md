@@ -9,7 +9,7 @@ allowed-tools: [Bash, Read, Write, Skill, Task]
 Compact this conversation into a self-contained handoff document so another agent can continue the
 work in a fresh session.
 
-Immediately call `Skill({"skill": "mentor:handoff"})` and follow it end to end. It summarizes the
+Immediately call `Skill({"skill": "mentor:handoff-note"})` and follow it end to end. It summarizes the
 session and progress, recommends which mentor commands the next agent should run, references existing
 artifacts (the plan file, issues, commits, diffs) by path/URL instead of duplicating them, redacts
 secrets, and saves the document **inside its plan-topic folder** — the repo's gitignored
@@ -17,19 +17,6 @@ secrets, and saves the document **inside its plan-topic folder** — the repo's 
 `git status` stays clean. Writing the note **supersedes the topic's older notes** (stamped into
 `resolved/`), keeping one live resume point per topic. It ends by printing a **copy-paste resume
 prompt** the user can paste into the next session to continue instantly.
-
-**If that call returns this command's own text** — any re-invocation or
-previously-loaded notice — rather than a file whose frontmatter reads
-`name: handoff`, the skill body never loaded: this command and the skill share the
-name `handoff`. Resolve and read it directly, then follow that file end to end:
-
-```bash
-echo "${CLAUDE_PLUGIN_ROOT}/skills/handoff/SKILL.md"
-```
-
-`Read` the printed path — `Read` cannot expand `${CLAUDE_PLUGIN_ROOT}` itself. **Do not
-re-run the steps above this one:** they already ran, and a step that writes or marks
-something can undo its own first pass when repeated.
 
 
 The argument below is **optional** and describes what the next session will focus on — use it to

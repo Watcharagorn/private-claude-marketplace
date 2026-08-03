@@ -2,7 +2,7 @@
 # PostToolUse:Write|Edit
 #
 # Opens the mentor plan document (the Markdown plan, or an opt-in HTML zoom
-# artifact from mentor:zoom) for review ONCE, the first time it is created;
+# artifact from mentor:zooming) for review ONCE, the first time it is created;
 # later Write/Edits refresh it in place (the document self-refreshes on return to the tab,
 # and Live Preview / the browser reloads when the file changes on disk).
 #
@@ -30,7 +30,7 @@ file=$(printf '%s' "$input" | jq -r '.tool_input.file_path // ""' 2>/dev/null)
 case "${MENTOR_PLAN_OPEN:-}" in off|0|false|no) exit 0 ;; esac
 
 # Only act on the plugin's own plan files: the canonical Markdown plan
-# (plans/<slug>/plan.md), or an opt-in HTML zoom artifact (mentor:zoom) in the
+# (plans/<slug>/plan.md), or an opt-in HTML zoom artifact (mentor:zooming) in the
 # flat zooms tree — .mentor/zooms/<subject-slug>/ in a repo, or the _no-repo
 # fallback dir outside one. The legacy pre-v2.12 plans/<slug>/zoom/ location
 # still matches so any file begin-plan.sh has not yet migrated keeps opening.

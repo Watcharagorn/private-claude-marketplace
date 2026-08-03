@@ -12,9 +12,9 @@ from pathlib import Path
 
 HERE = Path(__file__).parent.resolve()
 REPO_SKILLS = (HERE / ".." / "skills").resolve()
-SKILLS = ["plan", "plan-split", "plan-track", "plan-review",
-          "grilling", "dispatch-agents", "resume", "handoff",
-          "tour", "zoom"]
+SKILLS = ["planning", "plan-split", "plan-track", "plan-review",
+          "grilling", "dispatch-agents", "resuming", "handoff-note",
+          "touring", "zooming", "merging", "shipping"]
 
 
 def fm_field(fm, key):

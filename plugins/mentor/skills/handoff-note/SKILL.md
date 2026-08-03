@@ -1,5 +1,5 @@
 ---
-name: handoff
+name: handoff-note
 description: >
   Compact the current conversation into a handoff document so another agent can
   pick up the work in a fresh session. User-invoked via /mentor:handoff. Summarizes
@@ -97,10 +97,14 @@ Write a Markdown document with these sections (skip a section only if genuinely 
 - **Goal / next-session focus** — from `$ARGUMENTS`; what the next agent should accomplish.
 - **What happened** — a tight summary of the conversation and the progress made. Narrative, not a transcript.
 - **Current state** — branch, what is done vs pending, any failing checks or known-broken bits.
-  When this repo has mentor plans, paste the output of
-  `bash "${CLAUDE_PLUGIN_ROOT}/hooks/plan-state.sh" list` here. A table of real plan states beats
-  a prose recollection of what got built, and it is exactly what the next agent needs before
-  running `/mentor:track`.
+  Paste the output of
+  `bash "${CLAUDE_PLUGIN_ROOT}/hooks/plan-state.sh" overview` here. A table of real plan states
+  beats a prose recollection of what got built, and it is exactly what the next agent needs before
+  running `/mentor:track`. Use `overview`, **not** `list`: `list` only tables topics that already
+  have a `plan.md`, so on work done outside a plan it prints "No plans …" and you will wrongly
+  report the work as invisible to `/mentor:track`. `overview` reports the same topics *plus* the
+  ones holding only handoffs (`state: "no plan yet"`) — which is what `/mentor:track` itself
+  reads, so this section and that command agree.
 - **Recommended mentor commands for the next agent** — see the mapping below.
 - **Referenced artifacts (do not duplicate)** — link by **path/URL**, never paste the contents:
   - the current mentor plan file at `<repo>/.mentor/plans/<topic>/plan.md` (if one exists —
@@ -121,9 +125,12 @@ Pick the entries that fit the current state, tailored to the next-session focus:
 - **Approved plan(s), ready to build** → `/mentor:track` — it lists each plan's state, lets the next agent pick one, and executes it via `mentor:dispatch-agents`; `/mentor:ship` when done. Point there rather than at "resume implementation": the next agent needs to know *which* plan and *how far it got*, and `/mentor:track` is the only thing that answers both.
 - **Work planned outside mentor** → which branch depends on whether anything still *owns* the planning:
   - *A static artifact* (native plan mode, a colleague's doc) → `/mentor:plan <focus>` with that plan
-    pasted as the task statement. It has no mentor plan record, so `/mentor:track` cannot list or
-    execute it as-is — say that plainly rather than suggesting the next agent "consider registering
-    it", which is not something they can act on.
+    pasted as the task statement. It has no mentor plan record, so `/mentor:track` cannot *execute*
+    it as-is — say that plainly rather than suggesting the next agent "consider registering it",
+    which is not something they can act on. What they *can* act on: `/mentor:defer <focus>` writes an
+    ordinary stub plan the existing `overview`/`/mentor:track` path already understands, so offer
+    that when the work should show up in the hierarchy. (`/mentor:track` does already *list* the
+    topic — `overview` reports it as "no plan yet" — so never report it as invisible.)
   - *Another planning framework owns this work* — you ran its commands this session (e.g. spec-kit's
     `/speckit-*`) → lead with **that framework's own next command**, and say plainly that mentor's
     *planning* commands do not apply here; `/mentor:handoff` and `/mentor:resume` still do. Do not

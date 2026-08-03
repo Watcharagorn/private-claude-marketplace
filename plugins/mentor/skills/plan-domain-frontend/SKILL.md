@@ -8,7 +8,7 @@ description: >
   and token table per changed surface, all derived from the project's REAL
   design tokens and source. The live before/after HTML/CSS mockup contract
   (prompt token mentor:frontend-mockup) is carried by the per-combo zoom
-  agents of the opt-in HTML zoom (`mentor:zoom`, delegated from `plan`
+  agents of the opt-in HTML zoom (`mentor:zooming`, delegated from `plan`
   Step 5), when the user explicitly requests a visual zoom of a UI surface.
 ---
 
@@ -17,7 +17,7 @@ description: >
 Invoked **once per plan** by `plan`'s domain routing (Step 3) when the task touches UX/UI —
 components, pages, styles, layout, design systems, theming, responsive work. This skill adds
 directives to the research and plan-writing the flow already performs, plus — **only when the user
-requests an HTML zoom of a UI surface** (`mentor:zoom`, via `plan` Step 5) — the mockup contract
+requests an HTML zoom of a UI surface** (`mentor:zooming`, via `plan` Step 5) — the mockup contract
 (§4), folded into each UI combo agent's prompt.
 
 The plan deliverable (Markdown, always): a **before/after delta table + ASCII zone wireframe +
@@ -119,9 +119,9 @@ always prose, never the rendering). Per `plan` Step 4's anti-duplication rule, t
 + ASCII wireframe IS the surface's visualization — do not also emit a separate per-topic UI diagram
 for the same surface.
 
-## 4 — Mockup contract (HTML zoom only — `mentor:zoom` Step 3)
+## 4 — Mockup contract (HTML zoom only — `mentor:zooming` Step 3)
 
-> **This skill owns the contract.** `mentor:zoom` (Step 3 — delegated from `plan` Step 5 when
+> **This skill owns the contract.** `mentor:zooming` (Step 3 — delegated from `plan` Step 5 when
 > zooming a plan) generates zoom artifacts by dispatching one
 > agent per topic × perspective combo; when a combo's topic is a UI surface and the perspective
 > needs to *see* that surface to do its job — End user, Reviewer/Architect, or QA/Tester (the
@@ -181,7 +181,7 @@ inputs (so pane fidelity never depends on the agent re-researching):
    first would let the later `&` pass corrupt the `&quot;` entities. Do NOT escape `<` / `>`;
    `srcdoc` does not need it.)"*
 
-The zoom file follows `mentor:zoom` Step 3's constraints (single self-contained file authored in
+The zoom file follows `mentor:zooming` Step 3's constraints (single self-contained file authored in
 one `Write`, inline CSS, WCAG-AA, ≥15px); the pane/badge/callout styling is the agent's to design.
 
 ## Constraints recap (hard rules)
