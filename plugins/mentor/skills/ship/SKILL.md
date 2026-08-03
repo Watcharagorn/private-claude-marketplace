@@ -115,7 +115,11 @@ ship invented is the one commit it must never author.
 ## Step 3 — Run `/simplify`
 
 Invoke `Skill(skill="simplify")` (a Claude Code built-in; if unavailable, do a
-quick review of the branch diff yourself instead). After it returns:
+quick review of the branch diff yourself instead). It fans out its own review
+agents: while they run, **No busy-wait** applies here too (`mentor:dispatch-agents`,
+"Async runtime & lifecycle") — end the turn and let the harness re-invoke you when
+they report. A `Bash true` poll burns a whole turn and returns nothing.
+After it returns:
 
 1. **Re-run the clean check** — simplify may have edited files. Step 2's
    `--untracked-files=no` exemption is for the **blocking gate only**; untracked files
@@ -146,6 +150,13 @@ quick review of the branch diff yourself instead). After it returns:
      `git diff HEAD~1 --stat` in the ship summary.
    - If any file is OUTSIDE the scope: show the list and ask via
      `AskUserQuestion`: include in-scope only (Recommended) / include all / abort.
+
+**Re-entry.** simplify runs its own numbered steps and its own agents, and it runs
+long — dozens of tool calls, all of them someone else's flow. When it returns you are
+back in **this** skill at Step 4. This is the seam where ship's tail gets dropped:
+the next action is Step 4's question, never a `git add`/`git commit`/`git push` you
+compose yourself. Steps 4 and 5 are both `AskUserQuestion` gates; skipping them means
+the user never chose whether to test, and never chose where the branch goes.
 
 ## Step 4 — Conditional test step
 
@@ -180,6 +191,11 @@ On failure, ask: "Tests failed. What now?" — Stop and fix (default, exit 1) /
 Ship anyway.
 
 ## Step 5 — Choose the ship target (mandatory)
+
+Both answers must exist before any `git push`: Step 4's test answer and this step's
+target answer. If you cannot point at the two `AskUserQuestion` calls in this
+transcript, you skipped a step — ask now. Everything up to here is local and
+reversible; the push is not.
 
 Never decide this yourself. Substitute real values before emitting the call:
 
@@ -263,8 +279,20 @@ branch="$(git -C "$repo_root" rev-parse --abbrev-ref HEAD)"
 git -C "$repo_root" push -u origin "$branch"
 ```
 
-**Either target:** if the push is rejected (remote moved), surface the error and
-ask whether to `git pull --rebase origin "$branch"` and retry, or stop.
+**Either target:** the two rejections have opposite fixes — read which one git printed,
+don't pattern-match the server's wording (it differs per host).
+`! [rejected] … (non-fast-forward / fetch first)` is git's own fast-forward check: the
+remote moved. Surface it and ask whether to `git pull --rebase origin "$branch"` and
+retry, or stop.
+`! [remote rejected]` means the *server* refused, and no rebase can change that — a
+retry just re-declines. When the reason names a hook or a protected branch
+(`pre-receive hook declined`, `protected branch hook declined`, `GH006`), cut a feature
+branch from the current HEAD (`git switch -c <type>/<slug>`) and redo the push via
+**5A**, so the work lands as a PR/MR into the protected branch. Then, if you were on
+`$base`, `git branch -f "$base" "origin/$base"` — those commits now live on the feature
+branch, and leaving `$base` ahead makes the next ship's `origin/$base...HEAD` diff and
+ahead-count double-count them. Any other remote rejection (`cannot lock ref`, quota):
+surface it and stop — never guess.
 **Never force-push.**
 
 ## Step 6 — Retire the topic's handoff notes (post-ship)
@@ -347,6 +375,6 @@ done by something that knows how to wait.
 | Tempted to watch CI after the push | Stop and hand to `/mentor:merge`. Never a `seq`/`sleep` poll loop — that is the **No busy-wait** rule. |
 | Simplify edited out-of-scope files | Ask before committing. |
 | Tests fail | Default: stop; branch intact for iteration. |
-| Push rejected | Offer `pull --rebase` + retry, or stop. Never force-push. |
+| Push rejected | `! [rejected]` (non-fast-forward) → offer `pull --rebase` + retry, or stop. `! [remote rejected]` (server hook / protected branch) → rebase cannot help; cut a feature branch and redo via 5A, then realign `$base` to `origin/$base`. Never force-push. |
 | `gh pr create` fails: PR already exists for this branch | Do NOT open a duplicate — print the existing PR's URL (`gh pr list --head "$branch"`) and confirm with the user it now contains what they meant to ship (Step 1's ownership answer applies). |
 | MR/PR creation fails (other) | The branch is already pushed and safe — print the compare URL. |
