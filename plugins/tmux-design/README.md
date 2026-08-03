@@ -74,7 +74,8 @@ python3 …/tmux-design/scripts/renderer_template.py demo --depth 16 --ascii
 ## The three things this exists to prevent
 
 **Flicker loops.** `while :; do clear; …; sleep N; done` blanks the screen between frames, hides
-staleness, and swallows Ctrl-C mid-child-call. The standard is `viddy -p -n <secs> -- <renderer>`.
+staleness, and swallows Ctrl-C mid-child-call. The standard is
+`viddy -p --unfold -n <secs> -- <renderer>` (`--unfold` avoids a stale-width wrap on live resize).
 If viddy isn't installed the skill offers to install it and falls back to `watch -c` or a
 `tput cup 0 0` redraw, never `clear`. If a redraw tears, wrap it in synchronized output.
 

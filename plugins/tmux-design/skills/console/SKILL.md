@@ -41,8 +41,14 @@ Enforce these in every pane you create or touch:
    lnav with a proper format, or viddy wrapping a one-shot renderer.
 2. **No `clear`-loop refreshers** (`while :; do clear; …; sleep N; done`) — they flicker, hide
    staleness, and swallow Ctrl-C mid-child-call. Wrap a one-shot renderer with
-   `viddy -p -n <secs> -- <cmd>` instead: in-place redraw, countdown header, diff-highlight
-   (`-d`) that "pulses" changed cells, and scrollable snapshot history for free.
+   `viddy -p --unfold -n <secs> -- <cmd>` instead: in-place redraw, diff-highlight (`-d`) that
+   "pulses" changed cells, and scrollable snapshot history for free. `--unfold` (`-w`) is not
+   optional: without it, a live pane resize makes viddy WRAP its last (stale-width) frame instead
+   of cropping it, visibly garbling a 3-row header into 5 for up to a full refresh cycle —
+   confirmed by shrinking a sandbox pane mid-render. Add `--no-title` (`-t`) only when the
+   renderer draws its own liveness signal (`freshness()` or a pane title): viddy's own header does
+   not actually count down (two captures 6s apart come back byte-identical), so don't keep it "for
+   the countdown" — keep it only when nothing else marks the pane alive.
 3. **Always emit color.** Panes aren't TTYs — never rely on a library's auto-detection, it will
    silently strip everything. `NO_COLOR` (non-empty) is the opt-out, and `FORCE_COLOR=0` or an empty/`dumb` `TERM` also
    disable it. *Which* colors is
@@ -85,7 +91,7 @@ Enforce these in every pane you create or touch:
    cp "${CLAUDE_PLUGIN_ROOT}/scripts/renderer_template.py" scripts/<name>_view.py
    python3 "${CLAUDE_PLUGIN_ROOT}/scripts/renderer_template.py" demo   # see the standard rendered
    ```
-   It ships `c() vlen() pad() trunc() sanitize() table() panel() divider() bar() sparkline() badge() kv()
+   It ships `c() vlen() pad() trunc() sanitize() table() panel() divider() spread() bar() sparkline() badge() kv()
    gauge() freshness()` plus theme resolution and local-timezone handling, so the fiddly parts
    (display-column padding, palette, degradation) are already right. Richer tools only if already
    installed — `command -v gum viddy lnav jq bat glow`; `${CLAUDE_PLUGIN_ROOT}/skills/decorate/references/tooling.md` has the
@@ -129,7 +135,7 @@ this through from 3.7 onward and ignores it harmlessly before that.
    #!/bin/zsh
    # <what this pane shows>, refreshed in place by viddy every <N>s.
    cd "$(dirname "$0")/.." || exit 1
-   exec viddy -p -n <N> -- <one-shot renderer command>
+   exec viddy -p --unfold -n <N> -- <one-shot renderer command>
    ```
 4. Build the renderer per the standard above, then run the **verify loop** (below).
 
@@ -162,11 +168,16 @@ this through from 3.7 onward and ignores it harmlessly before that.
 Editing a script **never** changes a running pane; tmux panes keep executing the process they
 were launched with, which is why "I edited it but nothing changed" happens. After any change:
 
-1. **Sandbox first** — render in a disposable session sized like the target, confirm colors
-   render as real SGR output (not literal `[38;5;…m` garbage), then kill it:
+1. **Sandbox first, on an isolated server** — render in a disposable session sized like the
+   target, confirm colors render as real SGR output (not literal `[38;5;…m` garbage), then kill
+   it. Use an explicit `-L` socket, not the ambient server — a bare `tmux new-session`/
+   `kill-session` here creates and destroys `_sbx` on the user's **live** server, the same class
+   of leak as the theming sandbox documented in `decorate/references/tmux-chrome.md`:
    ```bash
-   tmux new-session -d -s _sbx -x <w> -y <h> "<renderer command> | cat; sleep 60" && sleep 5 \
-     && tmux capture-pane -e -p -t _sbx | head -30; tmux kill-session -t _sbx
+   tmux -L _tmuxdesign_sbx -f /dev/null new-session -d -s _sbx -x <w> -y <h> \
+     "<renderer command> | cat; sleep 60" \
+     && sleep 5 && tmux -L _tmuxdesign_sbx capture-pane -e -p -t _sbx | head -30
+   tmux -L _tmuxdesign_sbx kill-server
    ```
    The `| cat; sleep 60` is doing real work, not padding. Renderers here are one-shot by rule 7, so
    the command exits the instant it has printed, tmux tears the session down with it, and the
@@ -174,12 +185,25 @@ were launched with, which is why "I edited it but nothing changed" happens. Afte
    to look at. The `| cat` matters as much: it puts stdout behind a pipe, which is the condition
    the renderer actually runs under inside viddy, so the sandbox exercises the same color-detection
    path as production instead of a friendlier one that hides rule 3 bugs.
-2. **Respawn the live pane** — `tmux respawn-pane -k -t <pane_id> "<command with absolute path>"`.
+
+   `capture-pane` only ever shows pane *content* — never the status bar or pane borders (a client
+   draws those). For chrome verification, use the read-only-attach probe in
+   `decorate/references/tmux-chrome.md`'s "Verifying rendered chrome" section instead.
+2. **Check width and resize behavior**, same isolated server. A single-size render misses two
+   real classes of bug: overflow at other pane widths, and viddy re-wrapping a stale frame on a
+   live resize (rule 2) — both are cheap to catch here rather than after they ship:
+   ```bash
+   for w in 60 100 160; do TMUX_PANE_WIDTH=$w <renderer command> | <assert every line's width>; done
+   tmux -L _tmuxdesign_sbx resize-window -t _sbx -x 60 && sleep 1 \
+     && tmux -L _tmuxdesign_sbx capture-pane -e -p -t _sbx | head -5   # header row count unchanged?
+   tmux -L _tmuxdesign_sbx kill-server
+   ```
+3. **Respawn the live pane** — `tmux respawn-pane -k -t <pane_id> "<command with absolute path>"`.
    Don't Ctrl-C + retype via send-keys: if the old process is mid-child-call the interrupt is
    swallowed and the typed command lands as inert text. Respawn is deterministic. Caveat: a
    respawned pane runs the command directly (no shell under it), so quitting it shows
    "Pane is dead" until the next full workspace launch.
-3. **Verify live** — `sleep 5 && tmux capture-pane -e -p -t <pane_id>`; confirm the new render
+4. **Verify live** — `sleep 5 && tmux capture-pane -e -p -t <pane_id>`; confirm the new render
    and that `#{pane_current_command}` is the expected process (e.g. `viddy`). Iterate on failure.
 
 ## Log-viewer panes (lnav)

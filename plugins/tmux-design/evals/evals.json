@@ -10,7 +10,7 @@
     {
       "id": 2,
       "prompt": "Add a pane to my tmuxp session that shows deploy status, refreshing every couple of minutes.",
-      "expected_output": "Reads/creates .tmuxp.yaml, picks a layout (main-vertical + main-pane-width for interactive-focus, main-horizontal for log-dominant), creates a `scripts/watch-<name>` wrapper that ends in `exec viddy -p -n <secs> -- <one-shot renderer>` rather than putting the command inline in the yaml, builds a one-shot renderer to the standard, and finishes with the sandbox → respawn → capture verify loop. Cadence matches data cadence (120s+ for slow-moving state)."
+      "expected_output": "Reads/creates .tmuxp.yaml, picks a layout (main-vertical + main-pane-width for interactive-focus, main-horizontal for log-dominant), creates a `scripts/watch-<name>` wrapper that ends in `exec viddy -p --unfold -n <secs> -- <one-shot renderer>` rather than putting the command inline in the yaml, builds a one-shot renderer to the standard, and finishes with the sandbox → respawn → capture verify loop. Cadence matches data cadence (120s+ for slow-moving state)."
     },
     {
       "id": 3,
@@ -75,7 +75,7 @@
     {
       "id": 15,
       "prompt": "Generate the tmux chrome for the nord theme and check it actually loads.",
-      "expected_output": "`scripts/tmux_theme.sh nord` writes to stdout only and never touches ~/.tmux.conf. Output loads via `tmux source-file` in a disposable session (TMUX_TMPDIR + `tmux -f /dev/null new-session -d`) with no error, and `tmux display-message -p '#{E:status-left}'` expands to real values. An unknown theme name exits non-zero with the list of valid names. Kills the sandbox server afterwards."
+      "expected_output": "`scripts/tmux_theme.sh nord` writes to stdout only and never touches ~/.tmux.conf. Output loads via `tmux source-file` in a disposable, `-L`-isolated session (`tmux -L <sock> -f /dev/null new-session -d`) — NOT a `TMUX_TMPDIR` sandbox, which is ignored whenever `$TMUX` is already set and would land on the live server — with no error, and `tmux -L <sock> display-message -p '#{E:status-left}'` expands to real values. An unknown theme name exits non-zero with the list of valid names. Kills the sandbox server afterwards via the same `-L` socket, never a bare `kill-server`."
     },
     {
       "id": 16,

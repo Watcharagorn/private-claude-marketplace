@@ -91,6 +91,11 @@ is used, or a placeholder if it has not run yet. Consequences:
 - Runs under **`/bin/sh`** — no bash or zsh syntax.
 - Cache anything expensive to a file and `#(cat /tmp/x)`.
 - `tmux refresh-client -S` forces an immediate status repaint.
+- **Runs with the server's global environment, never a session's.** Verified directly: a
+  `setenv -t <session> VAR val` is visible to `show-environment -t <session>`, but a running
+  `#()` job still sees whatever `show-environment -g VAR` holds — session-scoped env never reaches
+  it. Only `tmux setenv -g` changes what a `#()` command sees; check with
+  `tmux display-message -p '#(printenv VAR)'` rather than assuming a session-scoped export reached it.
 
 ### Debugging
 
@@ -198,18 +203,66 @@ tmux source-file ~/.config/tmux/theme.tmux && tmux refresh-client -S
 
 To persist, they add `source-file ~/.config/tmux/theme.tmux` to their own config.
 
-Verify in a sandbox before touching a live session:
+### Verify on a throwaway server, not a `TMUX_TMPDIR` sandbox
+
+**A `TMUX_TMPDIR`-based "sandbox" does not isolate anything when run from inside a pane.** The
+agent is normally inside a pane (`$TMUX` already set), and tmux resolves the socket from `$TMUX`
+whenever it is set — `TMUX_TMPDIR` is ignored. A `new-session` "sandbox" under that env var lands
+on the **live** server, `source-file` applies `set -g` chrome straight to the user's real session,
+and the teardown `tmux kill-server` then **kills the entire live server** — every session, every
+pane. Isolate by explicit socket instead, and confirm the isolation before anything destructive:
 
 ```bash
-export TMUX_TMPDIR=$(mktemp -d)
-tmux -f /dev/null new-session -d -s _sbx -x 120 -y 30
-tmux source-file ~/.config/tmux/theme.tmux && echo loaded
-tmux display-message -p '#{E:status-left}#{E:status-right}'
-tmux kill-server; rm -rf "$TMUX_TMPDIR"
+tmux -L _tmuxdesign_sbx -f /dev/null new-session -d -s _sbx -x 120 -y 30
+tmux -L _tmuxdesign_sbx source-file ~/.config/tmux/theme.tmux && echo loaded
+tmux -L _tmuxdesign_sbx display-message -p '#{socket_path}'   # ← confirm this is the sandbox
+                                                                 #   socket before the next line
+tmux -L _tmuxdesign_sbx kill-server
 ```
 
-The generator also runs `setenv -g TMUX_DESIGN_THEME <name>`, so renderers built on
-`renderer_template.py` pick up the same palette without any per-pane configuration.
+This proves the snippet **loads and expands** without risking the live server. It still does not
+show what a client actually *draws* — `capture-pane` never returns the status bar or pane borders,
+because a client draws them and they are not stored in any pane. For that, see *Verifying rendered
+chrome* below, which probes the real session at the real client width (the width is the point:
+clipping is a function of it).
+
+`console`'s own sandbox-render step uses the same `-L` isolation for the same reason — see
+"The verify loop" in `skills/console/SKILL.md`.
+
+### Scoping chrome to one session
+
+tmux options split across three scopes, and picking the wrong one is what causes a leak:
+
+| Scope | Examples this generator emits | Scoped to one session? |
+|---|---|---|
+| **server** | `default-terminal`, `terminal-features` | No — always affects every session on the server |
+| **session** | `status-*`, `message-*`, `popup-*` | Yes — `set -t "=<session>"` (exact match; a bare `-t <name>` prefix-matches, so `-t infra` also hits `infrastructure`) |
+| **window** | `window-status-*`, `pane-border-*`, `mode-style` | Only per-window — `set -t "<session>:"` reaches just that session's *current* window; covering every window needs a `list-windows` loop, and a **new** window still inherits the global default unless re-applied |
+
+**Prefer these two mechanisms over a hand-rolled scoping flag** — a flag degrades the moment a new
+window is created, because window options can't be scoped for windows that don't exist yet:
+
+1. **One tmux server per workspace** (`tmux -L <workspace> …`, or `tmuxp load -L <name>`) — `set -g`
+   then never crosses a boundary, since there is no shared server to leak across.
+2. **tmuxp's own declarative `options:` keys.** A per-session or per-window `options:` block in
+   `.tmuxp.yaml` is scoped by tmuxp itself; only `global_options:` maps to `set -g`. A leak across
+   sibling sessions is usually `global_options:` reached for where a plain `options:` key already
+   existed.
+
+This generator stays a `set -g`-only, one-theme, source-and-forget snippet by design (see the
+header comment in `scripts/tmux_theme.sh`) — session-scoped chrome is a workspace-composition
+decision for `.tmuxp.yaml`, not something this script should attempt.
+
+**Un-leaking a live server.** Removing a `global_options:` line from `.tmuxp.yaml` does not
+retroactively fix values already live on a running server — they persist until the server
+restarts. Clear them explicitly before re-applying a corrected theme, or the stale global will
+mask whether the fix actually worked: `tmux set -gwu <window-option>` / `tmux set -gu <option>`.
+
+The generator also runs `setenv -g TMUX_DESIGN_THEME <name>` — global, not session-scoped; the
+`#()` env-scope rule above applies to it too. Renderers built on `renderer_template.py` read it
+from their own process environment at **start**, so a pane process already running when the theme
+changes will not pick up the new value until it is respawned (`console`'s verify loop) — only a
+newly created pane sees it immediately.
 
 ## Verifying rendered chrome
 

@@ -112,6 +112,22 @@ divider("throughput")                       # labelled rule
 panel([line1, line2], heading="palette")    # framed block
 ```
 
+### `spread(left, right)` — a two-sided title/header row
+
+`divider()`'s label is centered and drawn in the border character; `spread()` is the plain-text
+sibling for "left … right, filled to a guaranteed minimum gap" — a pane title on the left, a
+`freshness()` stamp or countdown on the right:
+
+```python
+spread(c(MUTED, "orders · staging"), freshness(12, "14:32"))
+# orders · staging                                              ● 14:32 (12s ago)
+```
+
+RIGHT is the live value and is never dropped to make room; LEFT truncates first (down to nothing
+if it must). `fill` defaults to a plain space — pass an EAW=**N** mark instead of a box-drawing
+character if you want a filled rule (`─` measures 1 column by this kit's own width model but may
+still render 2-wide in a CJK-locale terminal, same caveat as everywhere else on this page).
+
 ## Bars, sparklines, gauges
 
 Three different questions; do not substitute one for another.

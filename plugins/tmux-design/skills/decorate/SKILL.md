@@ -107,7 +107,7 @@ python3 "${CLAUDE_PLUGIN_ROOT}/scripts/renderer_template.py" demo --depth 16 --a
 ```
 
 `renderer_template.py` provides `c() vlen() pad() trunc() sanitize() table() panel() divider()
-bar() sparkline() badge() kv() gauge() freshness()`. Copy it into the project's `scripts/` and
+spread() bar() sparkline() badge() kv() gauge() freshness()`. Copy it into the project's `scripts/` and
 adapt it; the fiddly parts — column math, theme resolution, degradation — are already correct.
 Its `c()` still accepts raw SGR strings, so renderers written before themes existed keep working.
 

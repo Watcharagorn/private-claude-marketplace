@@ -6,7 +6,7 @@ themed semantic colors, column-correct width math, aligned tables, panels, bars,
 sparklines, badges, and localized timestamps. A renderer built from this runs
 ONE-SHOT (print and exit) and lives under viddy for refresh:
 
-    exec viddy -p -n <secs> -- python3 scripts/<your_view>.py <mode>
+    exec viddy -p --unfold -n <secs> -- python3 scripts/<your_view>.py <mode>
 
 See the whole vocabulary rendered:
 
@@ -442,6 +442,30 @@ def divider(label=None, width=None, style=None):
     print(c(BORDER, h * left) + c(MUTED, label) + c(BORDER, h * right))
 
 
+def spread(left, right, width=None, fill=" ", min_gap=3):
+    """Left-label ... right-value, filled to width with a guaranteed min gap.
+
+    RIGHT is the live/changing value (a timestamp, countdown, freshness stamp)
+    and is never dropped to make room — LEFT truncates (down to nothing) first,
+    so a header never silently loses its freshness signal. `fill` must measure
+    as exactly 1 column via `vlen()` (catches an accidental CJK/emoji fill) —
+    but like every primitive here it inherits the kit-wide EAW=Ambiguous
+    caveat: a box-drawing fill such as '─' measures 1 by this kit's Western-
+    locale default and passes the guard, yet may still render 2 columns wide
+    in a CJK-locale terminal (see "East Asian Width Ambiguous" above). Prefer
+    a plain space or an EAW=N mark as `fill`.
+    """
+    width = width or pane_width()
+    left, right = str(left), str(right)
+    if vlen(fill) != 1:
+        raise ValueError("spread(): fill must be exactly 1 display column wide")
+    room = max(0, width - vlen(right) - min_gap)
+    if vlen(left) > room:
+        left = trunc(left, room) if room > 0 else ""
+    gap = max(min_gap, width - vlen(left) - vlen(right))
+    print(left + fill * gap + right)
+
+
 def panel(lines, heading=None, width=None, style=None):
     """Frame a block of content. Costs 2 columns and 2 rows — budget for it."""
     b = style or _bset()
@@ -633,6 +657,7 @@ def demo():
         ],
         ralign={2, 3},
     )
+    spread(c(MUTED, "pane title"), freshness(12, "14:32"), width=w)
     divider("throughput", width=w)
     kv([
         ("requests", sparkline([3, 5, 4, 9, 12, 8, 14, 20, 17, 21]) + c(DIM, "  3→21")),
