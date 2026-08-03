@@ -114,10 +114,15 @@ The point of SDD: quality through narrow focus, and a lean main thread.
   practical and clean solution — never trade maintainability or reliability
   for implementation speed.` (read-only roles like `Explore` are exempt — the
   line governs how something is built, not how it's found.)
+  That line and the standing contract block ("Deliver before idling" below) are
+  appended verbatim at dispatch time — a `Prompt sketch:` is the *middle* of a
+  prompt, never the whole of it.
 - **Return contract:** agents return a short summary, file paths touched, and
   verification output — never full file bodies.
-- **No nested fan-out:** dispatched agents cannot dispatch further agents —
-  size each step so one agent completes it alone.
+- **No nested fan-out:** dispatched agents **can** call the Agent tool — nothing
+  in the runtime stops them, and a chain they spawn is invisible to you and
+  outlives your close-out. Size each step so one agent completes it alone; the
+  contract block below is what actually holds the line.
 - **Work discovered mid-flight is captured, not lost.** If the orchestrator or a
   dispatched agent notices real work outside the current step's scope, capture it with
   `/mentor:defer` (one item or several) and keep going — never leave it as an aside in
@@ -170,7 +175,7 @@ Effort and model are independent levers: a `low`-effort `opus` step is fine, and
 
 1. **List the work.** Write the bare task list before assigning roles.
 2. **Find the critical path.** Which steps must finish before others can start? Those are sequential.
-3. **Find independent steps.** Disjoint files/areas, separate research questions, parallel verifications — group these for fan-out.
+3. **Find independent steps.** Disjoint files/areas, separate research questions, parallel verifications — group these for fan-out. Disjoint files are not enough: steps that each mint a value from a **shared sequence** (migration numbers, ports, generated ids, an append-only registry) collide even in separate files — pre-assign the concrete values in each step's `Inputs:`, or make them `Sequential:`.
 4. **Collapse small dependent steps.** Adjacent `Sequential:` steps that are individually small (combined ≤ ~40 changed lines) and suit the same role/model collapse into ONE dispatch — don't pay agent startup per tiny step.
 5. **Assign roles.** Smallest specialist that covers the work.
 6. **Assign models.** Default `sonnet`; upgrade only with a reason.
@@ -240,19 +245,29 @@ delegates to), `plan-review`, `tour`, and
   the Bash timeout ceiling (600s). A chain of short sleeps burns a turn apiece, and
   the harness blocks bare foreground `sleep` outright, so the chain tends to fail in
   the middle and leave the wait half-done.
-- **Deliver before idling.** End every prompt sketch with a delivery directive:
-  "Deliver your full result (final text / message per your runtime) BEFORE
-  going idle — an idle signal with no delivered result is a contract
-  violation." Verdict- or report-producing agents (reviewers, verifiers)
-  additionally **Write a durable copy** to `<repo>/.mentor/plans/<slug>/`
-  (e.g. `step-N-review.md`) before returning — a dropped notification must
-  never be the only copy of completed work.
+- **Deliver before idling — the standing prompt contract.** Every dispatched
+  prompt, on every surface, ends with this block pasted verbatim:
+
+  ```
+  Do not call the Agent/Task tool — you have no sub-agents. Complete this alone,
+  or stop and report the blocker.
+  Deliver your full result (final text / message per your runtime) BEFORE going
+  idle — an idle signal with no delivered result is a contract violation.
+  ```
+
+  Verdict- or report-producing agents (reviewers, verifiers) additionally
+  **write a durable copy** to `<repo>/.mentor/plans/<slug>/` (e.g.
+  `step-N-review.md`) before returning — a dropped notification must never be
+  the only copy of completed work.
 - **Idle-before-report race.** An idle notification can arrive before the
   agent's actual report. On idle with no report in hand: check the message
-  backlog, then send ONE nudge requesting the result — only if that fails,
-  fall back to independent re-verification. Never re-run expensive
-  verification (full builds, E2E suites) while the agent's own report may
-  still be in flight.
+  backlog, then send ONE nudge: "Status check on Step N: send your completed
+  result now — full text, per the return contract. If you are still working,
+  reply with the one thing that's left." Do not restate the step's criteria —
+  the agent's context is warm, and a re-brief invites it to redo finished work.
+  Only if the nudge fails, fall back to independent re-verification. Never
+  re-run expensive verification (full builds, E2E suites) while the agent's own
+  report may still be in flight.
 - **Agent died (infra/API error).** Don't reinvent recovery glue: wait with
   escalating patience (minutes-scale, roughly doubling — this sanctioned wait
   for a *dead* agent is not the busy-polling of a healthy one forbidden

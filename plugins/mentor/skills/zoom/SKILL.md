@@ -93,7 +93,7 @@ write ONLY zoom artifacts under `.mentor/zooms/`, never repo source files.
 
 ## Step 1 — Source pack (resolve inputs before any dispatch)
 
-Dispatched combo agents cannot fan out further (`dispatch-agents`, "no nested
+Dispatched combo agents must not fan out further (`dispatch-agents`, "no nested
 fan-out"), so everything they need to read must be resolved first:
 
 | Subject kind | Source pack |
