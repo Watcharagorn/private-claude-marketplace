@@ -43,10 +43,22 @@ already ran; carry on.
 
 Work already planned elsewhere (spec-kit's `tasks.md`, a Jira epic): do not author a
 mentor plan or run an approval question over it (`plan-track`, "When NOT to use").
-Annotate that framework's phase with the grammar below and execute, recording progress
-in its task file — every `plan.md` mechanic here (approved-plan read, ✅ ticks,
-`plan-state.sh`, the gate) has no counterpart and is skipped. If this work should be
-gated, mentor should own the plan: `/mentor:plan`.
+Annotate that framework's phase with the grammar below and execute — every `plan.md`
+mechanic here (approved-plan read, ✅ ticks, `plan-state.sh`, the gate) has no
+counterpart and is skipped, and `/mentor:defer` redirects: a follow-up belonging to
+that framework's backlog goes there, not into a mentor stub (repo work outside its
+scope still defers normally). Three rules hold on this path:
+
+- Copy `Goal:`/`Done when:` **verbatim from the task's own text** and verify the
+  delivery against that text — your brief is a lossy transcription of it.
+- Never let the record **drift from the work**: the orchestrator, not the agent, lands
+  each check-off in the same commit as that task's own work — never batched, never
+  left dirty for a later task to sweep in.
+- Write that progress line and **nothing else** in the framework's files. A spec
+  conflict blocking a `Done when:` goes to that framework's own amend command — mentor
+  never edits another framework's artifact of record.
+
+If this work should be gated, mentor should own the plan: `/mentor:plan`.
 
 ## Escape hatch — when a plan may skip annotation
 
@@ -247,6 +259,10 @@ delegates to), `plan-review`, `tour`, and
   above), then send a resume message: "You died on an infra error mid-step.
   Resume Step N where you left off. Already applied: <paste state>. Your
   `Done when:` <verbatim>." Two failed resumes → fresh re-dispatch of the role.
+  **A failure string naming a reset time** ("hit your session limit · resets
+  2:50pm") is a quota wall, not an infra blip: don't wait it out, don't
+  resume-message. Snapshot what each dead agent already landed, report the
+  reset time, and end the turn.
 - **Follow-up vs re-dispatch.** A small fix or clarification on work an idle
   agent already owns → message that same agent (its context is warm). A failed
   `Done when:` needing a clean rebrief → re-dispatch the role once (per the

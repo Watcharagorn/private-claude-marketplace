@@ -14,6 +14,13 @@ Do these in order:
 
 1. **Arm the plan gate — run this FIRST, exactly once, before any reading or drafting:**
 
+   One guard before you arm: if another framework already owns the plan of record for
+   this work (a spec-kit `tasks.md` phase, a Jira epic — decide from what the user
+   asked, not by sniffing the repo), do **not** arm. Point at that framework's own next
+   command, or invoke `Skill({"skill": "mentor:dispatch-agents"})` to execute one of its
+   phases (`plan-track`, "When NOT to use"). This sits before the arm deliberately:
+   nothing releases `.planning` but an approved plan.
+
    ```bash
    bash "${CLAUDE_PLUGIN_ROOT}/hooks/begin-plan.sh"
    ```
