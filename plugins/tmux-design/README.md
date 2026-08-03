@@ -40,8 +40,8 @@ Two skills split the job cleanly:
   - `references/tooling.md` — gum/glow/bat cookbook and the force-color rules that make them
     work in a pane.
 - `scripts/renderer_template.py` — dependency-free (stdlib only) themed ANSI renderer with
-  `c() vlen() pad() trunc() sanitize() table() panel() divider() bar() sparkline() badge() kv()
-  gauge() freshness()` and a `demo` mode. Copy it into the project and adapt.
+  `c() vlen() pad() trunc() sanitize() table() panel() divider() spread() bar() sparkline() badge()
+  kv() gauge() freshness()` and a `demo` mode. Copy it into the project and adapt.
 - `scripts/tmux_theme.sh` — emits a tmux chrome snippet for a named theme, on stdout only.
 - `commands/console.md`, `commands/decorate.md`.
 
