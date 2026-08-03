@@ -21,11 +21,34 @@ base="$(git -C "$repo_root" rev-parse --abbrev-ref --symbolic-full-name '@{upstr
 if [ -z "$base" ] || [ "$base" = "$branch" ]; then
   base="$(git -C "$repo_root" symbolic-ref --short refs/remotes/origin/HEAD 2>/dev/null | sed 's#^origin/##')"
 fi
+
+# branch == base: no PR/MR can open (a branch cannot target itself) and every push here
+# lands on the protected branch. Ask before Step 2 — never fall through to Step 5.
+# An `if` block, not `[ … ] && echo`: as the block's last command the latter exits 1 on
+# every normal ship, which reads as a failed step.
+if [ "$branch" = "$base" ]; then
+  echo "ON-BASE: $branch is this repo's default/integration branch"
+fi
 ```
 
 Render to the user: the branch, the base, and
 `git -C "$repo_root" diff "origin/${base}"...HEAD --stat` (fall back to the
 local `$base` if the remote ref is absent).
+
+**On the base branch.** If the block printed `ON-BASE`, stop and ask via
+`AskUserQuestion` before Step 2:
+
+- **Cut a feature branch from here and re-invoke (Recommended)** —
+  `git switch -c <type>/<slug>`. Branch now, not later: Step 3 commits to
+  whatever is checked out, so deferring means undoing a `chore(simplify)`
+  commit on `<base>`.
+- **Ship from `<branch>` anyway** — pushes straight to `origin/<branch>`, no
+  PR/MR, no review. This binds Step 5: skip its question and go to **5B**.
+
+5A is never offered here — `-o merge_request.target="$base"` from `$base` is a
+self-targeting MR (GitLab answers `WARNINGS:` and opens nothing) and
+`gh pr create --base X --head X` fails, both *after* the push has already landed
+on the protected branch.
 
 **`repo_root`, `branch` and `base` do not survive to the next step.** Every step below
 is a separate Bash call, so re-run the block above at the top of any step that uses them.
@@ -69,6 +92,7 @@ base="$(git -C "$repo_root" symbolic-ref --short refs/remotes/origin/HEAD 2>/dev
 # that keeps local artifacts around (a tool's .temp/, .venv, a cache dir). This gate still
 # blocks staged adds and unmerged paths; the exemption is narrowly "never `git add`ed".
 [ -n "$(git -C "$repo_root" status --porcelain --untracked-files=no)" ] && {
+  git -C "$repo_root" status --short --untracked-files=no >&2   # name them; else the user re-runs status
   echo "Working tree has uncommitted changes. Commit or stash them, then re-invoke /mentor:ship." >&2
   exit 1
 }
@@ -83,6 +107,10 @@ appears in `git diff --name-only "origin/${base}"...HEAD`, that is the "forgot t
 `git add` the new module" case — the only untracked state that can actually break the PR.
 Ask via `AskUserQuestion` before continuing. Otherwise say what you saw and move on;
 never `git add` an untracked path to satisfy this step.
+
+**Abort means abort.** Never branch, stage, commit, or stash on the user's behalf
+to get past this gate — the exit belongs to the user, and a hand-sorted commit
+ship invented is the one commit it must never author.
 
 ## Step 3 — Run `/simplify`
 
@@ -171,6 +199,9 @@ Never decide this yourself. Substitute real values before emitting the call:
 (`ahead` = `git rev-list --count "origin/${base}..${branch}"`, falling back to
 the local base ref.)
 
+**Not asked when `branch` = `base`** — Step 1's on-base question already chose;
+go straight to 5B.
+
 ### 5A — Push + open PR/MR
 
 Detect the host from `git remote get-url origin`:
@@ -183,11 +214,24 @@ Detect the host from `git remote get-url origin`:
   repo_root="$(git rev-parse --show-toplevel)"
   branch="$(git -C "$repo_root" rev-parse --abbrev-ref HEAD)"
   base="$(git -C "$repo_root" symbolic-ref --short refs/remotes/origin/HEAD 2>/dev/null | sed 's#^origin/##')"
+  # Same fallback Steps 2/3 carry. Without it an unset origin/HEAD (any remote added with
+  # `git remote add` rather than cloned) pushes -o merge_request.target="" — which fails
+  # AFTER the push has already landed.
+  [ -n "$base" ] || base="$(git -C "$repo_root" rev-parse --abbrev-ref HEAD)"
+
+  # Title mirrors the GitHub path's `--fill`: the commit subject only when the branch is a
+  # single commit. Unconditional `log -1` would title multi-commit MRs with Step 3's
+  # auto-created `chore(simplify)` commit — worse than the slug. Fail-soft: a missing
+  # origin/$base makes rev-list error, the count is empty, and title stays "$branch".
+  title="$branch"
+  [ "$(git -C "$repo_root" rev-list --count "origin/${base}..HEAD" 2>/dev/null)" = "1" ] &&
+    title="$(git -C "$repo_root" log -1 --format=%s)"
+
   git -C "$repo_root" push -u origin "$branch" \
     -o merge_request.create \
     -o merge_request.target="$base" \
     -o merge_request.remove_source_branch \
-    -o merge_request.title="$branch" 2>&1 | tee /tmp/ship-push.out
+    -o merge_request.title="$title" 2>&1 | tee /tmp/ship-push.out
   ```
   Surface the MR URL (grep for `/-/merge_requests/`). If a `WARNINGS:` block
   names `merge_request.target`, the target is invalid — the MR did NOT open;
@@ -202,6 +246,7 @@ Detect the host from `git remote get-url origin`:
   repo_root="$(git rev-parse --show-toplevel)"
   branch="$(git -C "$repo_root" rev-parse --abbrev-ref HEAD)"
   base="$(git -C "$repo_root" symbolic-ref --short refs/remotes/origin/HEAD 2>/dev/null | sed 's#^origin/##')"
+  [ -n "$base" ] || base="$(git -C "$repo_root" rev-parse --abbrev-ref HEAD)"   # see the GitLab block
   git -C "$repo_root" push -u origin "$branch"
   (cd "$repo_root" && gh pr create --base "$base" --head "$branch" --fill)
   ```
@@ -275,8 +320,10 @@ if `<topic>` resolves to a split parent, `implemented` overwrites `superseded`.
 
 ## Step 7 — Point at the merge tail, and stop
 
-**Stop here.** Ship's job ends at the open PR. Emit one line in the ship report:
-`Watch CI and merge with /mentor:merge` (GitHub + `gh` only — omit the line otherwise).
+**Stop here.** Ship's job ends at the open PR/MR. Emit one line in the ship report naming
+where the tail lives: **GitHub + `gh`** → `Watch CI and merge with /mentor:merge`;
+**any other host** (GitLab included — `/mentor:merge` is GitHub-only) →
+`Watch the pipeline and merge at <URL>`, reusing the URL 5A already surfaced.
 Keeping the tail in `/mentor:merge` is what makes it re-enterable after a stalled CI run
 without re-running ship.
 
@@ -295,7 +342,8 @@ done by something that knows how to wait.
 | Situation | What to do |
 |---|---|
 | Detached HEAD | Abort — check out a branch first. |
-| Dirty tree at Step 2 | Abort — user commits or stashes, then re-invokes. Untracked-only is NOT dirty; report it and continue. |
+| On the default/integration branch (`branch` = `base`) | Step 1 asks first: cut a feature branch and re-invoke (recommended), or push straight to `origin/<branch>` with no PR. Never offer 5A — the PR/MR cannot open and the push lands first. |
+| Dirty tree at Step 2 | Abort — the *user* commits or stashes, then re-invokes; ship never branches, stages or commits to clear it. Untracked-only is NOT dirty; report it and continue. |
 | Tempted to watch CI after the push | Stop and hand to `/mentor:merge`. Never a `seq`/`sleep` poll loop — that is the **No busy-wait** rule. |
 | Simplify edited out-of-scope files | Ask before committing. |
 | Tests fail | Default: stop; branch intact for iteration. |
