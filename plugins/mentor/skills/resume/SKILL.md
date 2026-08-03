@@ -213,7 +213,10 @@ Then resolve a selection:
      ```
 
    - **A nested handoff** — this session ends with `/mentor:handoff` continuing the same work; its
-     supersede step stamps the older note mechanically, so there is nothing extra to do here.
+     supersede step stamps the older note mechanically, so there is nothing extra to do here — for a
+     note in this same `handoffs/` dir. If the note you resumed lives in a different topic dir or the
+     legacy flat dir, handoff's sweep cannot see it: hand its absolute path to the handoff step
+     explicitly, or stamp it here with the snippet above.
 
    If the session ends with the work unfinished and no nested handoff, **leave the note live** —
    unfinished work must stay resumable; that is not a failure. A stamp is reversible by moving the

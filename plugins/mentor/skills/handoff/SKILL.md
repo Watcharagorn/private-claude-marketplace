@@ -172,7 +172,20 @@ find "$hand_dir" -maxdepth 1 -type f -name '*.md' ! -name "$(basename "$out")" 2
         echo "superseded → resolved: $(basename "$old")" ;;
     esac
   done
+# self-check — silence proves nothing, so print a verdict on every path
+[ -f "$out" ] || echo "CHECK: \$out is not a file — the note is not where you think it is"
+live="$(find "$hand_dir" -maxdepth 1 -type f -name '[0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9]-[0-9][0-9][0-9][0-9][0-9][0-9]-*.md' 2>/dev/null | wc -l | tr -d ' ')"
+echo "CHECK: live notes now ${live} (expect 1 — the note just written)"
 ```
+
+Read the `CHECK:` line before writing the report — it is the only evidence you have. `live notes
+now 1` licenses a supersession claim, but only for the basenames the `superseded → resolved:` lines
+actually printed (none printed = there was nothing to supersede — say that, never imply it
+happened). `0` means the note is not on disk where you think it is — an empty `$hand_dir`, a wrong
+`$out`, or a non-conforming filename; fix that before reporting anything. `2` or more means the
+`mv` did not run: name the files still live and tell the user `$hand_dir` needs a manual check.
+**No `CHECK:` line at all means the snippet never ran — you have no basis for any claim about
+superseding.** Claiming supersession that did not happen is the failure this step exists to prevent.
 
 If this session was resumed from a note that lives **outside `$hand_dir`**, the snippet above cannot
 see it — stamp that specific note the same way (`mkdir -p` a `resolved/` beside it, `mv` it in). The
@@ -180,9 +193,13 @@ two ways this happens: a **legacy flat-dir note** (under `.mentor/handoffs/`), a
 topic dir** — e.g. the work started under a pre-plan focus-slug topic and, now that a plan exists,
 you are handing off under the plan's slug. The note you just wrote supersedes the resumed one
 regardless of which folder it started in; skipping this leaves a stale duplicate listed forever.
-A stamp is reversible by moving the file back up one directory.
+A stamp is reversible by moving the file back up one directory. That `mv` is outside the
+self-check's reach, so `echo "superseded → resolved: <basename>"` when you run it — an out-of-dir
+note you did not echo is one you may not report as superseded.
 
 Then tell the user the **absolute path** of the new note and note that it is **gitignored**.
+Report superseding from the echoed lines alone — name each `superseded → resolved:` basename, or
+say plainly that nothing was superseded.
 If the Step 2 snippet just created `.mentor/.gitignore`, that file itself shows as untracked —
 don't claim `git status` is clean; instead suggest committing it once (it is designed to be
 committed, alongside `config.json`/`constitution.md`), after which the `.mentor/` tree stays out
@@ -213,8 +230,9 @@ point.
 ## Done when
 
 - The document is written under the per-repo, **gitignored** `.mentor/plans/<topic>/handoffs/` dir.
-- The topic's older notes (and a legacy note this session resumed from, if any) were superseded into
-  `resolved/` — the new note is the topic's only live resume point.
+- The supersede snippet **ran**, and its `CHECK: live notes now` line reported `1` — the new note is
+  the topic's only live resume point. Any other reading: the report names what is still live instead
+  of claiming supersession.
 - Existing artifacts are referenced by path/URL, **not duplicated**.
 - Secrets are redacted.
 - The content is tailored to the next-session focus.
