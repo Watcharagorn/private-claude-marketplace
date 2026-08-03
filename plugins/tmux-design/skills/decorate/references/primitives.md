@@ -39,6 +39,7 @@ a CJK locale, with iTerm2's "ambiguous-width = double" setting, or on a CJK Wind
 ```
 ─ 2500 A    │ 2502 A    ╭ 256D A    █ 2588 A    ▌ 258C A
 ● 25CF A    • 2022 A    → 2192 A    ★ 2605 A    ▒ 2592 A
+▣ 25A3 A    ▓ 2593 A    ○ 25CB A  ← the block/ring set a status glyph reaches for
 ░ 2591 N  ← inconsistent with ▒, so a shade ramp can misalign against itself
 ```
 
@@ -50,7 +51,7 @@ python3 "${CLAUDE_PLUGIN_ROOT}/scripts/renderer_template.py" demo --ascii   # or
 
 **Prefer EAW=N marks for fixed-width slots** — they are 1 column everywhere:
 `✓ 2713` `✗ 2717` `✔ 2714` `✘ 2718` `❯ 276F` `▸ 25B8` `› 203A` `» 00BB` `▪ 25AA` `⚠ 26A0`
-`↳ 21B3` `☐ 2610` `☑ 2611` `∅ 2205` `◉ 25C9` `▰ 25B0` `▱ 25B1`
+`↳ 21B3` `☐ 2610` `☑ 2611` `∅ 2205` `◉ 25C9` `▰ 25B0` `▱ 25B1` `▬ 25AC`
 
 Check anything before adopting it — reject `A`, `W`, `F`:
 ```bash
@@ -195,6 +196,13 @@ Never pipe figlet through `lolcat` into anything width-aware — see rule 4 in t
   | `pane-border-status top` | 1 row **per pane** | `off` |
 
   So a default-header viddy pane gives you `pane_width - 1` columns × `pane_height - 4` rows.
+- **A renderer that owns its own loop has no wrapper cut** — its only external cost is
+  `pane-border-status`. Budget it as `pane_height − (header rows + margin)`, deriving the header
+  total from the glyph's own row count rather than writing it as a literal, and derive it **once**.
+  That total is consumed in more than one place — the value the renderer publishes for its body,
+  and the row limit the body renderer is called with — so the same number written twice
+  misdimensions the body the first time a row is added or cut, silently and only at some pane
+  heights.
 - **viddy's scrollbar column arrives one line earlier than "overflow" suggests.** Measured on
   viddy 1.3.1: with a 20-row content area, 19 rows of content draw at full width and 20 rows put
   `↑ ║ … ↓` in the last column — it appears as soon as content *reaches* the content area, not
@@ -217,6 +225,70 @@ Never pipe figlet through `lolcat` into anything width-aware — see rule 4 in t
 - **Never `clear`.** That blank frame between redraws *is* the flicker, and it destroys scrollback.
   Full-canvas work belongs in the alternate screen (`\033[?1049h` / `\033[?1049l`, restored with a
   `trap`) or, better, a `display-popup`.
+
+### Status-driven animated glyphs (the renderer owns the loop)
+
+Everything above assumes a refresher owns the redraw. A renderer may own it instead — a continuous
+paint loop replacing `viddy` — but only when **motion carries data** *and* the paint cadence must
+exceed the data cadence. Both, or use `viddy`: motion that isn't reporting anything is decoration,
+and decoration doesn't justify owning a redraw.
+
+**The idiom.** Draw a small glyph shaped like the thing being monitored — a cell grid for a cluster
+of tasks, a line of nodes for a pipeline. Structure (borders, connectors) keeps a fixed accent
+color; only the *living* parts take a status color, and the **rate** of their motion encodes
+urgency: fastest at worst, slowest at healthy. The reader then gets state from motion before
+reading a word, which is the entire justification. A glyph whose speed never changes is decoration
+wearing a status costume.
+
+**Derive aggregate status as the worst of each entity's own current state** — never by grepping the
+rendered frame for a status color. A pane that shows history (a strip of recent results per entity)
+keeps past failures on screen, so a frame-wide grep reports the worst thing that *ever* happened
+and the glyph never recovers.
+
+**Where motion may live.** In dedicated chrome (a header glyph, a countdown bar), or *inside a mark
+that already carries meaning* — swapping a status dot between two shapes so it breathes. Motion
+occupying its own cells beside data rows gets cut: it competes with the reader's actual target.
+Every layer added or cut moves the chrome math, which is why the row total above is derived once
+rather than written twice.
+
+**Two clocks, never one.** Fetch on the slow cadence into a file, with an atomic rename so a
+half-written frame is never read (the caching idiom in `tmux-chrome.md`); paint on the fast one, and
+never let the paint loop trigger a fetch. Paint both waiting states explicitly — a refresh in
+flight over a good cache, and a cold start with no cache — because painting nothing while a fetch
+runs is indistinguishable from the loop having died.
+
+**Motion and `freshness()` answer different questions.** Motion says *the monitor is alive*;
+`freshness()` says *the data is fresh*. Under two clocks a live loop will happily paint an hour-old
+cache and look perfectly healthy, so keep both.
+
+**A spinner is legal here.** The rule above bans spinners *under `viddy`*, and its stated exception
+is foreground scripts on a real tty — a respawned loop owning its pane is that case. Nothing
+underneath is competing for the cells.
+
+Requirements of owning the loop:
+
+- **Home and overwrite; never `clear`** (above). `console`'s `tput cup 0 0` / `tput ed` fallback is
+  the same move; the refinement is a per-line erase-to-EOL plus one erase-below at the end, so a
+  frame that shrinks doesn't leave the previous frame's tail on screen.
+- **Stay on the normal screen.** Full-canvas work belongs in the alternate screen (above) — a
+  persistent pane does not, because its scrollback and `capture-pane` have to see the frame.
+- **Wrap each frame in synchronized output** (above). A sub-second full-frame repaint is the
+  highest tearing-risk surface in this guide; it composes with home-and-overwrite rather than
+  replacing it, so this is not a choice between recipes.
+- **Stop painting when the window is inactive** (`#{window_active}`) while still refreshing data —
+  animating a pane nobody is looking at burns a core to no effect.
+- **Refetch on resize**, so the body refits now rather than at the next slow tick.
+- **Keep a one-variable path back to a static refresher.** An own loop is the most fragile thing in
+  the pane; falling back to `viddy` by flipping one environment variable is what makes it safe to
+  adopt.
+- **Ship a one-shot frame mode** — one synchronous fetch, one paint, exit. Without it the pane
+  cannot be verified at all; see `console`'s verify loop.
+
+**Width.** The block and ring glyphs this idiom reaches for are mostly EAW=**A** ("Width
+correctness" above), so a glyph drawn to an exact column count breaks that contract in a CJK
+locale. And the two states of a breathing mark must come from the *same* EAW class: `●`→`◉` does
+not — `● 25CF` is A, `◉ 25C9` is N — so the row narrows by a column every other frame. Take both
+states from the N list, or use the ASCII mode.
 
 ## Nerd Fonts
 

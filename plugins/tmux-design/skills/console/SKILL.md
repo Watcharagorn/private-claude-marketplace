@@ -49,6 +49,10 @@ Enforce these in every pane you create or touch:
    renderer draws its own liveness signal (`freshness()` or a pane title): viddy's own header does
    not actually count down (two captures 6s apart come back byte-identical), so don't keep it "for
    the countdown" — keep it only when nothing else marks the pane alive.
+   A renderer may own the redraw itself rather than being wrapped — but only when motion **encodes
+   data** *and* the paint cadence must exceed the data cadence. Anything short of both: use viddy.
+   See "Status-driven animated glyphs" in `decorate/references/primitives.md` for what that owes
+   you, and "Verifying an own-loop pane" below for how to check it.
 3. **Always emit color.** Panes aren't TTYs — never rely on a library's auto-detection, it will
    silently strip everything. `NO_COLOR` (non-empty) is the opt-out, and `FORCE_COLOR=0` or an empty/`dumb` `TERM` also
    disable it. *Which* colors is
@@ -205,6 +209,29 @@ were launched with, which is why "I edited it but nothing changed" happens. Afte
    "Pane is dead" until the next full workspace launch.
 4. **Verify live** — `sleep 5 && tmux capture-pane -e -p -t <pane_id>`; confirm the new render
    and that `#{pane_current_command}` is the expected process (e.g. `viddy`). Iterate on failure.
+
+### Verifying an own-loop pane
+
+A pane whose renderer owns its own paint loop (rule 2) never settles, so three things above change:
+
+- **Step 1 has nothing stable to sample.** Capturing after a sleep returns whichever animation
+  frame happened to be on screen — a different one each run, so there is nothing to diff. Such a
+  renderer must ship a **one-shot frame mode** (`<renderer> --frame <name>`, or an equivalent env
+  flag: one synchronous fetch, one paint, exit); that is the artifact to sandbox. Because it exits
+  by itself, the `| cat; sleep 60` + `sleep 5` scaffolding collapses to `| cat` and an immediate
+  capture — keep the `| cat`, for the same reason as above.
+- **The one-shot must bypass the inactive-window paint skip.** A sandbox session is detached, so a
+  loop that declines to paint an inactive window paints *nothing* here and the capture comes back
+  empty — a pass-shaped failure in the one step meant to catch it. Gate that skip on "not
+  one-shot".
+- **Step 4's process assertion changes.** `#{pane_current_command}` is the loop's own process, never
+  `viddy` — assert that instead, and assert the frame *differs* between two captures a second
+  apart, which is the only direct evidence the loop is still running rather than stopped on a
+  plausible-looking frame.
+
+If Ctrl-C is wired to force an immediate refresh instead of exiting — reasonable for a monitoring
+pane — then `respawn-pane`/`kill-pane` is the only way to stop it, and step 3's "Pane is dead"
+caveat applies with nothing to work around it.
 
 ## Log-viewer panes (lnav)
 

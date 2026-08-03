@@ -8,7 +8,8 @@ description: >-
   tabs, pane borders, popups. Use whenever the question is how something should LOOK: "make this
   pane prettier", "theme my tmux", "style my status bar", "add a progress bar or sparkline", "my
   table columns are misaligned", "these colors are unreadable on my light terminal", "put a box
-  around this output" — or when picking colors for any terminal output. Reach for it even when
+  around this output", "which animation layers should I keep or cut" — or when picking colors for
+  any terminal output. Reach for it even when
   tmux is never mentioned; "my CLI output looks ugly" counts. For WIRING a pane — adding a pane,
   viddy refresh, lnav formats, auditing a session, "I edited the script but the pane didn't
   change" — use tmux-design:console: this skill styles what a pane shows, console operates the
@@ -60,7 +61,9 @@ pipeline that colors before it lays out will drift.
 **5. Match the primitive to the data shape.** One value → `badge()` or `kv()`. A ratio or
 percentage → `bar()`. A series over time → `sparkline()`. Rows → `table()`. Grouped sections →
 `panel()` or `divider()`. "How close is it?" → `gauge()` (deliberately inverted; not a progress
-bar). Reaching for a table when the data is one number is the most common over-decoration.
+bar). A monitored resource's own topology, carrying live status → a status-driven animated glyph,
+but only when the renderer owns its paint loop. Reaching for a table when the data is one number is
+the most common over-decoration.
 → `references/primitives.md`
 
 **6. Chrome and content share the palette.** A Catppuccin pane inside a default-green status bar
