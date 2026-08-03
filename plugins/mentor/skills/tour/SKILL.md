@@ -144,6 +144,9 @@ neither is listed, degrade gracefully with the one-line notice
 ## Step 5 — Publish (stable URL; mechanics note printed once)
 
 ```bash
+# Re-derive: Step 1's block was a separate Bash call and its variables are gone. An unset
+# $state_dir would write the tour to /tours at the filesystem root instead of the repo.
+state_dir="$(bash "${CLAUDE_PLUGIN_ROOT}/hooks/plan-state.sh" dir)"   # worktree-safe
 mkdir -p "$state_dir/tours"   # bare on purpose: tours are meant to be shared, not 700
 tour_file="$state_dir/tours/<slug>-<audience>.html"
 [ -f "$tour_file" ] && echo "EXISTS"    # decides the mechanics note below

@@ -226,6 +226,7 @@ Write the plan there with the `Write` tool, then register it so mentor can track
 becomes of it:
 
 ```bash
+slug="<slug>"   # re-derive: the block above was a separate Bash call; an empty slug registers nothing
 bash "${CLAUDE_PLUGIN_ROOT}/hooks/plan-state.sh" init "$slug"
 ```
 
@@ -239,6 +240,7 @@ skill, or the user pointed you at one directly — run `claim` right after `init
 stub stops being shielded from `approve-plan.sh`'s promotion sweep:
 
 ```bash
+slug="<slug>"   # re-derive: separate Bash call again (see `init` above)
 bash "${CLAUDE_PLUGIN_ROOT}/hooks/plan-state.sh" claim "$slug"
 ```
 

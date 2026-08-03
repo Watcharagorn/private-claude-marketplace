@@ -92,10 +92,13 @@ quick review of the branch diff yourself instead). After it returns:
 1. **Re-run the clean check** — simplify may have edited files. Step 2's
    `--untracked-files=no` exemption is for the **blocking gate only**; untracked files
    belong in the comparison here, because simplify can create them.
-2. Re-derive `repo_root` and `base` first (separate Bash call again — see Step 2), then,
-   if anything is dirty:
+2. Then, if anything is dirty:
 
    ```bash
+   # Re-derive: separate Bash call again — see Step 2.
+   repo_root="$(git rev-parse --show-toplevel)"
+   base="$(git -C "$repo_root" symbolic-ref --short refs/remotes/origin/HEAD 2>/dev/null | sed 's#^origin/##')"
+   [ -n "$base" ] || base="$(git -C "$repo_root" rev-parse --abbrev-ref HEAD)"
    feature_files="$(git -C "$repo_root" diff --name-only "origin/${base}...HEAD" | sort -u)"
    # Braces + the pipe INSIDE the substitution. `v=$(a; b) | sort -u` pipes the
    # assignment's stdout to sort and runs the whole thing in a subshell, so v is
@@ -126,6 +129,7 @@ Yes (Recommended) / No.
 wins:
 
 ```bash
+repo_root="$(git rev-parse --show-toplevel)"   # re-derive: separate Bash call (see Step 2)
 jq -r '.test_command // empty' "$repo_root/.mentor/config.json" 2>/dev/null
 ```
 
@@ -174,6 +178,11 @@ Detect the host from `git remote get-url origin`:
 - **GitLab** (URL contains `gitlab` or your self-hosted GitLab host) — fold MR
   creation into the push (idempotent — an existing open MR is reused):
   ```bash
+  # Re-derive: separate Bash call, so Step 1/2's vars are gone. Pushing with an empty
+  # $branch or $base targets the wrong ref — re-derive before every push, without exception.
+  repo_root="$(git rev-parse --show-toplevel)"
+  branch="$(git -C "$repo_root" rev-parse --abbrev-ref HEAD)"
+  base="$(git -C "$repo_root" symbolic-ref --short refs/remotes/origin/HEAD 2>/dev/null | sed 's#^origin/##')"
   git -C "$repo_root" push -u origin "$branch" \
     -o merge_request.create \
     -o merge_request.target="$base" \
@@ -189,6 +198,10 @@ Detect the host from `git remote get-url origin`:
 
 - **GitHub** — push, then open the PR with `gh` (run inside the repo):
   ```bash
+  # Re-derive (separate Bash call again — see 5A's GitLab block).
+  repo_root="$(git rev-parse --show-toplevel)"
+  branch="$(git -C "$repo_root" rev-parse --abbrev-ref HEAD)"
+  base="$(git -C "$repo_root" symbolic-ref --short refs/remotes/origin/HEAD 2>/dev/null | sed 's#^origin/##')"
   git -C "$repo_root" push -u origin "$branch"
   (cd "$repo_root" && gh pr create --base "$base" --head "$branch" --fill)
   ```
@@ -199,6 +212,9 @@ Detect the host from `git remote get-url origin`:
 ### 5B — Push to upstream
 
 ```bash
+# Re-derive (separate Bash call again — see 5A).
+repo_root="$(git rev-parse --show-toplevel)"
+branch="$(git -C "$repo_root" rev-parse --abbrev-ref HEAD)"
 git -C "$repo_root" push -u origin "$branch"
 ```
 

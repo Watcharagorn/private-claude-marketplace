@@ -95,6 +95,10 @@ deliberately `find`-based, not glob-based — an unmatched glob aborts the whole
 (and either location may legitimately be empty), while `find` just yields nothing for a missing dir:
 
 ```bash
+# Re-derive: Step 1's block was a separate Bash call and its variables are gone. An unset
+# $mentor_dir makes `find` search "/plans" and "/handoffs" — which silently yield nothing,
+# so the listing reports "no handoff notes" for a repo that has them.
+mentor_dir="$(bash "${CLAUDE_PLUGIN_ROOT}/hooks/plan-state.sh" dir)"
 i=0; skipped=""
 while IFS= read -r f; do
   base="$(basename "$f")"
