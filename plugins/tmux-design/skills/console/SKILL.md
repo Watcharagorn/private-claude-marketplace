@@ -3,16 +3,16 @@ name: console
 description: >-
   Set up, redesign, and audit tmux windows/panes so every console surface shows formatted,
   live-refreshing content (tables, gauges, TUIs) — never raw text. Owns pane WIRING and
-  verification: tmuxp layout wiring, viddy/watch refresh, renderer wrappers, lnav log formats, and
-  the sandbox → respawn-pane → capture-pane loop that makes pane edits actually appear. Use
-  whenever the task touches tmux or tmuxp — adding or changing a window, pane, or layout;
-  redesigning what a pane displays; making terminal output "a table"; fixing a flickering, raw,
-  stale, or monochrome pane; building an lnav log format; or when an edited pane script "isn't
-  showing changes". Reach for it even when the user never says "tmux" — "why is my watch pane
-  stale" counts. Trigger phrases — "set up a tmux window/pane", "redesign this pane", "audit my
-  tmux panes", /tmux-design:console [setup|redesign|audit] [target]. For how a surface should LOOK
-  — themes, boxes, bars, sparklines, badges, status-bar and border styling — use
-  tmux-design:decorate.
+  verification: tmuxp layouts, viddy/watch refresh, renderer wrappers, lnav log formats, and the
+  sandbox → respawn-pane → capture-pane loop that makes pane edits actually appear. Use whenever
+  the task touches tmux or tmuxp — adding or changing a window, pane, or layout; redesigning what
+  a pane displays; making terminal output "a table"; fixing a flickering, raw, stale, or
+  monochrome pane; building an lnav log format; or when an edited pane script "isn't showing
+  changes". Reach for it even when the user never says "tmux" — "why is my watch pane stale"
+  counts. Trigger phrases — "audit my tmux panes", /tmux-design:console
+  [setup|redesign|audit]. For how a surface should LOOK — themes, boxes, bars, sparklines,
+  badges, status-bar and border styling — use tmux-design:decorate; a whole-workspace polish
+  runs both.
 ---
 
 # Console design for tmux panes
@@ -25,8 +25,11 @@ below exists to make that glance faster.
 
 ## When NOT to use
 
-- Styling questions — themes, palettes, boxes, charts, status-bar or pane-border appearance,
-  popups (use `tmux-design:decorate`; this skill wires panes up, that one decides how they look)
+- Styling *decisions* — themes, palettes, boxes, charts, status-bar or pane-border appearance,
+  popups (use `tmux-design:decorate`; this skill wires panes up, that one decides how they look).
+  A whole-workspace request — "make my panes nicer", "maximize the UX of this session" — is
+  normally **both** skills in sequence rather than a reason to stop here: wire and verify in this
+  skill, and load `decorate` for the look instead of inventing one inline
 - Web/GUI frontend work (use frontend-design)
 - One-shot script output that never lives in a persistent pane
 
@@ -46,6 +49,18 @@ Enforce these in every pane you create or touch:
    `tmux-design:decorate`'s call: it owns the semantic roles, the named themes, and the
    truecolor→256→16 degradation. A pane that emits raw color codes instead of naming a role
    can't be re-themed, so route palette questions there rather than hardcoding here.
+
+   That routing is easy to skip once you are already deep in a console task and chrome is the last
+   thing left, so treat these three as the moment to load `tmux-design:decorate` *before* typing the
+   next command: you are about to set `status-*`, `window-status-*`, or `pane-border-*`; you are
+   about to write a literal `colour###` or `#rrggbb` anywhere; or you are writing a `#()` helper
+   whose stdout lands in the status line. That last one hides the most — a `scripts/status-<name>`
+   sets no tmux option and lives in no config, so it looks like plain scripting right up until it
+   is the one thing a theme swap cannot reach. Have it emit plain text and let the format color it,
+   or use `#[fg=…]` resolved from the loaded theme. Two answers from `decorate` are cheap now and
+   expensive to retrofit: which theme (it asks whether the terminal is light or dark, because that
+   genuinely cannot be detected) and `tmux setenv -g TMUX_DESIGN_THEME <name>`, which is what makes
+   the panes and the chrome agree instead of drifting apart.
 4. **Tables**: bold header row, thin rule under it, two-space column gaps, right-aligned
    numerics. Pad with **display-column** width math, not `len()` — `⛔ blocked` is 9 characters
    and 10 columns, and colored or hyperlinked cells are mostly invisible bytes. Use the kit's
@@ -123,7 +138,12 @@ this through from 3.7 onward and ignores it harmlessly before that.
 1. Locate the pane: `tmux list-panes -s -t <session> -F "#{window_name} #{pane_id} #{pane_current_command}"`.
 2. Read its current wrapper/command and identify the data source; measure the real estate with
    `tmux display -p -t <pane> "#{pane_width}x#{pane_height}"` and size tables/truncation to fit —
-   a table that wraps is worse than the raw text it replaced.
+   a table that wraps is worse than the raw text it replaced. That figure is the **pane**, not what
+   your renderer gets to draw in: the refresher wrapping it keeps some for itself (under viddy, 4
+   rows always, plus the right-hand column once your content fills the pane), and
+   `pane-border-status top` costs another row per pane. Subtract the wrapper's cut before sizing
+   anything, and measure *after* loading chrome rather than before — see "Motion, repaint, and the
+   wrapper's cut" in `${CLAUDE_PLUGIN_ROOT}/skills/decorate/references/primitives.md`.
 3. Write or update the one-shot renderer (import/reuse the project's existing loader functions —
    don't duplicate parsing logic).
 4. Rewire the wrapper to `exec viddy … -- <renderer>` and run the **verify loop**.
@@ -145,9 +165,15 @@ were launched with, which is why "I edited it but nothing changed" happens. Afte
 1. **Sandbox first** — render in a disposable session sized like the target, confirm colors
    render as real SGR output (not literal `[38;5;…m` garbage), then kill it:
    ```bash
-   tmux new-session -d -s _sbx -x <w> -y <h> "<pane command>" && sleep 5 \
+   tmux new-session -d -s _sbx -x <w> -y <h> "<renderer command> | cat; sleep 60" && sleep 5 \
      && tmux capture-pane -e -p -t _sbx | head -30; tmux kill-session -t _sbx
    ```
+   The `| cat; sleep 60` is doing real work, not padding. Renderers here are one-shot by rule 7, so
+   the command exits the instant it has printed, tmux tears the session down with it, and the
+   capture fails with `can't find pane: _sbx` — the sleep just holds the session open long enough
+   to look at. The `| cat` matters as much: it puts stdout behind a pipe, which is the condition
+   the renderer actually runs under inside viddy, so the sandbox exercises the same color-detection
+   path as production instead of a friendlier one that hides rule 3 bugs.
 2. **Respawn the live pane** — `tmux respawn-pane -k -t <pane_id> "<command with absolute path>"`.
    Don't Ctrl-C + retype via send-keys: if the old process is mid-child-call the interrupt is
    swallowed and the typed command lands as inert text. Respawn is deterministic. Caveat: a

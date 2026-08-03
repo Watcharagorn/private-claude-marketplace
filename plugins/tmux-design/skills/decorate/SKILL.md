@@ -68,10 +68,16 @@ looks broken, not themed. When you theme panes, theme the status bar, window tab
 borders in the same pass. → `references/tmux-chrome.md`
 
 **7. Budget the real estate first.** `tmux display -p -t <pane> "#{pane_width}x#{pane_height}"`
-is the only correct width source inside tmux — `tput cols` returns its 80-column fallback when
-stdout isn't a terminal, which is exactly the situation a pane renderer is in, and `COLUMNS` is
-ignored by gum and glow. A frame costs 2 columns and 2 rows. Content that wraps is worse than the
-raw text it replaced.
+is the only correct source for the **pane's** size inside tmux — `tput cols` returns its 80-column
+fallback when stdout isn't a terminal, which is exactly the situation a pane renderer is in, and
+`COLUMNS` is ignored by gum and glow. But the pane's size is not the size you get to draw in. The
+refresh wrapper takes its cut first (under viddy: 4 rows, plus the right-hand column as soon as
+content fills the pane), and these costs compose rather than replace each other — a frame costs 2
+columns and 2 rows, so a panel inside a default-header viddy pane has an inner width of
+`pane_width - 3` and an inner height of `pane_height - 6`. Subtract the wrapper's cut before the
+frame's, or the frame you carefully sized to the pane wraps anyway. Content that wraps is worse
+than the raw text it replaced. → `references/primitives.md`, "Motion, repaint, and the wrapper's
+cut"
 
 **8. Don't let meaning rest on hue alone.** Roughly 8% of men have a red-green deficiency, and at
 similar luminance those two read as the same brownish gray. Pair every semantic color with a
@@ -110,7 +116,12 @@ Its `c()` still accepts raw SGR strings, so renderers written before themes exis
 ### theme — choose and apply one palette
 
 1. Ask what the host terminal's background is. A dark theme on a light terminal is unreadable,
-   and this cannot be detected reliably — `catppuccin-latte` is the light option.
+   and this cannot be detected reliably — `catppuccin-latte` is the light option. If the machine
+   already runs other themed tmux sessions, read one first (`tmux show -t <other-session>`) and
+   name the closest bundled theme instead of hand-copying its color numbers: matching the
+   neighbours is usually the actual goal, and a named theme keeps the degradation and the role
+   vocabulary that copied literals throw away. `ansi256-legacy` is the one that matches a session
+   styled straight from the plain 256-color palette.
 2. Set `TMUX_DESIGN_THEME` for the session so every renderer picks it up:
    `tmux setenv -g TMUX_DESIGN_THEME <name>`.
 3. Generate and load the matching chrome (below), then re-render the panes.
@@ -133,10 +144,17 @@ mkdir -p ~/.config/tmux
 tmux source-file ~/.config/tmux/theme.tmux && tmux refresh-client -S
 ```
 
+The generator emits global options (`set -g`), so loading it restyles **every** session on that
+tmux server and pins one theme server-wide. That is usually what someone wants and is a surprise
+when it isn't — on a machine running several sessions, say so before loading, or scope the options
+to one session (`set -t <session>` for `status-*`, and per-window `set -w -t <session>:<n>` for
+`pane-border-*` / `window-status-*`, which are window options).
+
 Sanity-check formats with `tmux display-message -a`, which dumps every variable and its live
-value — by far the fastest way to debug a `#{}` expression. Details and the gotchas that cost
-the most time (escaping inside conditionals, `#()` staleness, border styles ignoring attributes)
-are in `references/tmux-chrome.md`.
+value — by far the fastest way to debug a `#{}` expression. That shows what an option *expands*
+to, not what the client actually draws; to see the rendered bar at the real client width, use
+"Verifying rendered chrome" in `references/tmux-chrome.md`. The gotchas that cost the most time
+(escaping inside conditionals, `#()` staleness, border styles ignoring attributes) are there too.
 
 ### popup — transient overlay surfaces
 
@@ -166,4 +184,6 @@ already running in the pane isn't disturbed.
   CJK, or hyperlinked cells.
 - The design still reads at the pane's real width, and at 256 colors, and under `NO_COLOR`.
 - No meaning carried by hue alone.
-- Changes verified live via `console`'s verify loop, not assumed from a successful file edit.
+- Changes verified live, not assumed from a successful file edit — pane *content* via `console`'s
+  verify loop, and *chrome* via "Verifying rendered chrome" in `references/tmux-chrome.md`, since
+  that verify loop is pane-scoped and structurally cannot see a status bar or window-tab row.

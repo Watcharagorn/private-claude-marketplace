@@ -1,6 +1,6 @@
 {
   "skill_name": "tmux-design",
-  "note": "Behavior-trace evals. The console skill mutates a live tmux session (respawns panes, rewrites project scripts), so most are answered by an agent that READS the skill files and traces the flow — verifying the text produces the intended behavior unambiguously rather than executing against a real session. Evals 9-11 check routing between the two sibling skills (console = wiring and verification, decorate = visual vocabulary), which is the main ambiguity risk in this plugin. Evals 12-16 are live: they execute the bundled scripts and assert on real output.",
+  "note": "Behavior-trace evals. The console skill mutates a live tmux session (respawns panes, rewrites project scripts), so most are answered by an agent that READS the skill files and traces the flow — verifying the text produces the intended behavior unambiguously rather than executing against a real session. Evals 9-11 check routing between the two sibling skills (console = wiring and verification, decorate = visual vocabulary) from the user's opening prompt; eval 17 checks the harder case, where a console-framed task drifts into chrome mid-flow and must hand off rather than improvise. Routing is the main ambiguity risk in this plugin. Evals 12-16 are live: they execute the bundled scripts and assert on real output.",
   "evals": [
     {
       "id": 1,
@@ -20,7 +20,7 @@
     {
       "id": 4,
       "prompt": "Make the output of this monitoring script a proper table instead of a wall of text.",
-      "expected_output": "Applies the table idiom: bold header, thin rule under it, two-space column gaps, right-aligned numerics, and DISPLAY-COLUMN width math via the kit's vlen()/pad() rather than len() or str.ljust. Reuses the project's existing renderer if one exists rather than duplicating its data loading; otherwise copies scripts/renderer_template.py from ${CLAUDE_PLUGIN_ROOT}. Sizes the table to the pane's real estate via `tmux display -p \"#{pane_width}x#{pane_height}\"` — a wrapping table is worse than the raw text it replaced."
+      "expected_output": "Applies the table idiom: bold header, thin rule under it, two-space column gaps, right-aligned numerics, and DISPLAY-COLUMN width math via the kit's vlen()/pad() rather than len() or str.ljust. Reuses the project's existing renderer if one exists rather than duplicating its data loading; otherwise copies scripts/renderer_template.py from ${CLAUDE_PLUGIN_ROOT}. Sizes the table to the pane's real estate via `tmux display -p \"#{pane_width}x#{pane_height}\"`, then SUBTRACTS the refresh wrapper's own cut before sizing — that figure is the pane, not the content area (under viddy, 4 rows and the right-hand column). A wrapping table is worse than the raw text it replaced."
     },
     {
       "id": 5,
@@ -50,7 +50,7 @@
     {
       "id": 10,
       "prompt": "Style my tmux status bar to match the colors my panes use, and put the git branch on the right.",
-      "expected_output": "Routes to decorate (chrome action). Uses scripts/tmux_theme.sh to generate a snippet to a separate file and instructs the user to `tmux source-file` it — explicitly does NOT rewrite ~/.tmux.conf in place. Sets terminal-features RGB or the hex colors get quantized. Raises status-left-length/status-right-length above their defaults of 10 and 40. For the branch, knows `#()` never blocks, is always one tick stale, uses only the last output line, and runs under /bin/sh."
+      "expected_output": "Routes to decorate (chrome action). Uses scripts/tmux_theme.sh to generate a snippet to a separate file and instructs the user to `tmux source-file` it — explicitly does NOT rewrite ~/.tmux.conf in place. Sets terminal-features RGB or the hex colors get quantized. Raises status-left-length/status-right-length above their defaults of 10 and 40. For the branch, knows `#()` never blocks, is always one tick stale, uses only the last output line, and runs under /bin/sh. Verifies the result rather than assuming it: knows `display-message -a` shows what an option EXPANDS to, not what the client draws, and reaches for the nested read-only client capture (`tmux attach -r` into a correctly-sized probe session, `capture-pane -e`) to confirm the bar is not clipped at the real client width — keeping the `-r`, which is what stops the probe resizing the live session."
     },
     {
       "id": 11,
@@ -81,6 +81,11 @@
       "id": 16,
       "prompt": "Someone's branch name is displaying weirdly and reversing the rest of my status row.",
       "expected_output": "Identifies a bidi control character (U+202A-202E or U+2066-2069) in the untrusted text: zero display columns but it visually reverses everything after it — a layout bug and a spoofing vector. Prescribes sanitize() before layout, which strips bidi controls and C0/C1 while deliberately preserving ZWJ so emoji still render as one glyph. Applies to any untrusted source: branch names, log lines, commit messages, filenames."
+    },
+    {
+      "id": 17,
+      "prompt": "Polish my `invest` tmux workspace to maximize the UX — the panes, the status bar, the borders, all of it.",
+      "expected_output": "A whole-workspace request that lands in console but crosses into decorate's territory. Wires and verifies panes in console, but hands off to tmux-design:decorate BEFORE writing any chrome: does not hand-author `status-*` / `window-status-*` / `pane-border-*` as raw `colour###` or hex literals, and does not bake a color into a `#()` status-helper script. Gets the theme from decorate (which asks whether the terminal is light or dark, and matches an already-themed sibling session by naming the closest bundled theme rather than copying its numbers) and sets TMUX_DESIGN_THEME so panes and chrome agree. Notes that tmux_theme.sh emits global `set -g` options, which restyles every session on the server."
     }
   ]
 }

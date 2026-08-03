@@ -7,7 +7,7 @@ Read when choosing how to draw something, or when alignment is wrong.
 - [Frames and dividers](#frames-and-dividers)
 - [Bars, sparklines, gauges](#bars-sparklines-gauges)
 - [Marks, badges, banners](#marks-badges-banners)
-- [Motion and repaint](#motion-and-repaint)
+- [Motion, repaint, and the wrapper's cut](#motion-repaint-and-the-wrappers-cut) — what viddy/watch/borders take before you draw
 - [Nerd Fonts](#nerd-fonts)
 
 ## Width correctness
@@ -159,11 +159,39 @@ and often absent — check `command -v figlet` first. If you want one, `-f smsla
 ships by default; **Calvin S** is 3 rows drawn from `╔═╗║╚╝`, so it visually matches box borders.
 Never pipe figlet through `lolcat` into anything width-aware — see rule 4 in the skill.
 
-## Motion and repaint
+## Motion, repaint, and the wrapper's cut
 
 - **Spinners are illegal under `viddy`** and in any non-tty. viddy owns the redraw; a spinner
   underneath it fights for the same cells. Spinners belong only in foreground interactive scripts,
   gated on `[ -t 1 ]`.
+- **The wrapper owns the pane; your renderer gets what's left.** `#{pane_width}x#{pane_height}` is
+  the pane, and every refresher recommended here keeps some of it. Budget from the remainder, not
+  from the pane, or a table sized "to fit" wraps and the wrapped rows push the content further out
+  of view:
+
+  | Surface | Its cut | Lever |
+  |---|---|---|
+  | `viddy` (default header) | 3 rows header + 1 row key bar; 1 column right | `-t` drops the header |
+  | `viddy -t` | 1 row key bar; 1 column right | — |
+  | `viddy -w` (no wrap) | + 1 row when content is wider than the content area | keep content narrower |
+  | `watch -c` | 2 rows of header | `-t` |
+  | `lnav` | its own top and bottom status lines | measure |
+  | `pane-border-status top` | 1 row **per pane** | `off` |
+
+  So a default-header viddy pane gives you `pane_width - 1` columns × `pane_height - 4` rows.
+- **viddy's scrollbar column arrives one line earlier than "overflow" suggests.** Measured on
+  viddy 1.3.1: with a 20-row content area, 19 rows of content draw at full width and 20 rows put
+  `↑ ║ … ↓` in the last column — it appears as soon as content *reaches* the content area, not
+  after it exceeds it. This is worth budgeting unconditionally rather than "only when long",
+  because the failure feeds itself: lines written to the full pane width wrap the moment the
+  scrollbar takes that column, wrapping adds rows, and the extra rows keep the scrollbar there.
+  Reserve the column and none of it starts.
+- **Measure after loading chrome, not before.** `pane-border-status top` costs a row per pane and
+  the theme generator sets it, so a height measured before the theme loads is one row too generous
+  for every pane. `#{pane_height}` reports the true post-border size once it's on.
+- **Numbers age; the probe doesn't.** These are one viddy release. To re-measure any wrapper, run
+  it in the sandbox from `console`'s verify loop against a renderer that prints numbered
+  full-width lines, and count what survives.
 - **Synchronized output** removes tearing on a full-frame repaint. Wrap the whole frame:
   ```bash
   printf '\033[?2026h'; render; printf '\033[?2026l'

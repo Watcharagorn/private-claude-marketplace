@@ -99,7 +99,15 @@ tmux display-message -a                      # EVERY variable and its live value
 tmux display-message -p '#{E:status-left}'   # expand one option
 tmux display-message -p '#{client_termfeatures}'   # what tmux thinks the terminal can do
 tmux display-message -p '#{pane_width}x#{pane_height}'
+tmux show -gv status                         # ONE option's value
 ```
+
+`show` takes at most one option name — `tmux show -g status-left status-right` exits 1 with
+`too many arguments (need at most 1)`. Dump everything with a bare `tmux show -g`, or read a
+single value with `-gv` as above.
+
+These answer "what does this option expand to". They cannot answer "is it clipped, and does it
+look right at the real client width" — for that see *Verifying rendered chrome* below.
 
 ## Window tabs
 
@@ -132,6 +140,18 @@ tmux set -p -t %3 @label "api logs"
 ```
 ```tmux
 set -g pane-border-format " #{pane_index} #{?#{@label},#{@label},#{pane_current_command}} "
+```
+
+`@label` is set out-of-band, so it does not survive a fresh `tmuxp load` into new panes. When each
+pane already has a `scripts/watch-<name>` wrapper (console's setup shape), have the wrapper label
+itself instead — it then re-labels on every launch *and* every respawn, for free, and the label
+lives next to the thing it names:
+
+```zsh
+[ -n "$TMUX_PANE" ] && tmux select-pane -t "$TMUX_PANE" -T "fires · 2m"
+```
+```tmux
+set -g pane-border-format " #{pane_index} #{?#{pane_title},#{pane_title},#{pane_current_command}} "
 ```
 
 3.6+ also offers `pane-scrollbars [off|modal|on]` with `pane-scrollbars-position` and
@@ -190,6 +210,52 @@ tmux kill-server; rm -rf "$TMUX_TMPDIR"
 
 The generator also runs `setenv -g TMUX_DESIGN_THEME <name>`, so renderers built on
 `renderer_template.py` pick up the same palette without any per-pane configuration.
+
+## Verifying rendered chrome
+
+The sandbox above proves the snippet *loads and expands*. It does not show what a client actually
+draws, so it cannot catch the most common chrome failure: a `status-left`/`status-right` that is
+correct but clipped, because `status-left-length` defaults to 10 and `status-right-length` to 40.
+`console`'s verify loop can't answer this either — it is pane-scoped, and the status bar is not in
+any pane.
+
+Work cheapest-first. `tmux display-message -p '#{E:status-right}'` (above) is free and
+side-effect-free, and settles "did `#()` run" and "did it expand to the right text". Only the last
+question — is it clipped at the real client width — needs a rendered capture:
+
+```bash
+sess=invest
+sz=$(tmux list-clients -t "$sess" -F '#{client_width}x#{client_height}' | head -1)
+if [ -n "$sz" ]; then                       # attached → match the real client exactly
+  w=${sz%x*}; h=${sz#*x}
+else                                        # detached → window size + however many status rows
+  w=$(tmux display -p -t "$sess" '#{window_width}')
+  h=$(tmux display -p -t "$sess" '#{window_height}')
+  case "$(tmux show -gv status)" in off) r=0;; on) r=1;; *) r=$(tmux show -gv status);; esac
+  h=$((h + r))
+fi
+tmux new-session -d -s _sbx_probe -x "$w" -y "$h" "TMUX= tmux attach -t $sess -r"
+sleep 1; tmux capture-pane -e -p -t _sbx_probe | tail -3; tmux kill-session -t _sbx_probe
+```
+
+Three details keep this from being destructive, and each is easy to get wrong:
+
+- **`-r` is load-bearing, not politeness.** `window-size` defaults to `latest`, so a client
+  attaching makes the session follow *it*. On tmux 3.7b a read-only client is exempt from that —
+  verified: an 80x24 probe attached with `-r` left a 120x30 session untouched, while the same
+  attach *without* `-r` reflowed it to 80x23 and left it that way after the probe was killed. Drop
+  the `-r` and you resize someone's live dashboard as a side effect of looking at it.
+- **Get the size from `list-clients`, not `display -p`.** `tmux display -p -t <session>
+  '#{client_width}'` reports the size of the client *you* are calling from, not the target's — it
+  will happily hand back your own 239x63 for a 120x30 session. Matching the real width is the
+  point rather than a precaution: clipping is a function of width, so a probe at the wrong width
+  answers a question nobody asked.
+- **Derive the status rows; don't just add 1.** `status` may be `off` (+0), `on` (+1), or `2`–`5`
+  for a multi-row block, and `status-position top` puts the bar first — read the leading rows
+  rather than the trailing ones when it does.
+
+Capture with `-e` so the SGR sequences survive; without it you can check the layout but not whether
+a single color landed, which is usually the reason you are looking.
 
 ## Theme frameworks (optional, not a dependency)
 
