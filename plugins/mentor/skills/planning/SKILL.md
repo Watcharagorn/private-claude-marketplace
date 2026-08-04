@@ -135,9 +135,23 @@ the research prompts.
 
 ## Step 3 — Domain routing {#domains}
 
-Scan the task (and refine after research returns) against the registry. For each
-matched domain, invoke its planning skill **exactly once** via `Skill(skill="…")`.
-Multiple domains may match; if none match, invoke the dynamic fallback.
+Scan the task against the registry, refine after research FINDINGS return, then
+re-scan the **drafted plan body** before every Step 4 write — the first draft and each
+revision this loop writes. Routing off the request alone misses what a plan only grows
+later: a schema section arriving at revision 3 needs backend-api's deliverable as much
+as one present from the start. (Bodies rewritten inside `plan-review` or authored by
+`plan-split` belong to those skills, not this loop.)
+
+For each matched domain, invoke its planning skill **exactly once** via
+`Skill(skill="…")`. Multiple domains may match; if none match, invoke the dynamic
+fallback — when a registered domain matches later, `plan-domain-dynamic` owns what
+supersedes what.
+
+A domain matching **after** research has nothing left to fold its research directives
+into, and its deliverable rests on the evidence those directives gather —
+backend-api's affected-callers column, say. Filled from recall it only looks
+researched, so run the directives first (a targeted `Explore`, or directly per the
+domain skill's own "researching directly" clause), then fold the deliverable.
 
 | Domain | Trigger signals | Skill to invoke | Extra plan deliverable |
 |---|---|---|---|
@@ -257,6 +271,8 @@ The path is inside the gate-exempt
 `~/.claude/settings.json`). **Keep it current:** on every revision re-write this
 SAME file in place — never create a second timestamped copy. Never write the
 plan anywhere else in the repo or to the harness-native `~/.claude/plans/` dir.
+Before each re-write, re-run Step 3's registry scan against the new body — that is
+where a domain the plan only just grew gets caught.
 
 ### Content spec
 

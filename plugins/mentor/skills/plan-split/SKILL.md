@@ -155,8 +155,11 @@ safe to build in any order and in separate sessions:
 
 Name a **sibling slug** for every excluded area — "does not touch metering" tells an
 implementation agent nothing about where metering went; "→ `metering-pipeline`" tells
-it exactly. The header is also the authority on dependency order, which is why the
-state sidecar stores no dependency field: one place to keep true, not two.
+it exactly. The header is where a human reads dependency order at a glance, but it is
+not what `/mentor:track` reads: since v2.17.0 the sidecar carries a `deps` array, and
+`init --group/--order` below does not populate it. When a child's `depends on` should
+also drive track's build order and unmet-dep warnings, set it explicitly —
+`plan-state.sh set-deps <child-slug> <a,b>` (cycle-checked).
 
 Keep the first line's shape (`**Plan <n> of <N>** · group \`<slug>\``) — mentor parses
 `group` and `order` back out of it whenever a `.state.json` is missing or torn, so the
