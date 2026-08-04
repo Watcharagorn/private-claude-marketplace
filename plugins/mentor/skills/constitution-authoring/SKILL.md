@@ -150,6 +150,13 @@ Decide the new version from the nature of the change and state the reason:
 First ratification is always `1.0.0`. `Ratified` = the original adoption date
 (preserved on amendment); `Last amended` = `TODAY`.
 
+**Amending an adopted external constitution** (Step 2's `ADOPTED-BY-REFERENCE`):
+that document belongs to the repo, not to mentor, so keep the shape it already
+has. Version and date it only by the convention it already carries — if it has
+none, do not impose one. Step 5's template does not apply either: edit the
+requested principle into the file in place and describe the change in Step 7's
+report rather than prepending a sync-impact header.
+
 ## Step 5 — Assemble the document {#assemble}
 
 Fill this template. **Leave no unexplained `[BRACKET]` tokens** — every
@@ -211,13 +218,23 @@ wrapper commentary) so the user reads exactly what will be committed. Then ask v
 `AskUserQuestion` — header "Constitution", single-select:
 
 - **"Ratify & write"** (first time) / **"Save amendment"** (existing) —
-  *"Write `.mentor/constitution.md` at v<new>."*
+  *"Write `<the resolved constitution path>` at v<new>."* Name the real file, so an
+  adopted external document is never mistaken for `.mentor/constitution.md`; drop
+  the version clause when that document carries no version.
 - **"Keep editing"** — *"Adjust principles/wording; re-surface and ask again."*
 - **"Cancel"** — *"Do not write anything."*
 
 On **Keep editing**, revise and re-surface. On **Cancel**, stop without writing.
 
 ## Step 7 — Write & report {#write}
+
+**Only a returned answer approves.** Step 6's `AskUserQuestion` must have come back
+with **Ratify & write** / **Save amendment** before anything is written. If that
+question was interrupted, never asked, or the user only claimed approval in prose
+("looks good", "go ahead"), ask it now — prose selects no option. Surfacing the
+document and reasoning your way to a conclusion is not consent: this is a committed,
+team-shared rulebook, and Step 6 is the only check on the write, since the plan gate
+is disarmed here by definition (Step 1 stops the flow when it is not).
 
 On approval, create the dir and write the file with `Write` (it is in-repo, but no
 plan gate is armed, so the write is allowed):
@@ -228,7 +245,9 @@ repo_root="$(git rev-parse --show-toplevel)"
 mkdir -p "$repo_root/.mentor"   # bare on purpose: constitution.md is committed, not private
 ```
 
-Write the assembled document to `$REPO_ROOT/.mentor/constitution.md`. Then report:
+Write the assembled document to the **resolved** constitution file —
+`$REPO_ROOT/.mentor/constitution.md`, or the adopted external document when Step 1
+printed `ADOPTED-BY-REFERENCE`. Then report:
 
 - The path and the new version (e.g. `v1.0.0 ratified` / `v1.2.0 — MINOR`).
 - A one-line summary of what changed (from the sync-impact report).
@@ -239,9 +258,11 @@ Write the assembled document to `$REPO_ROOT/.mentor/constitution.md`. Then repor
 
 ### Do NOT
 - Do **not** run `begin-plan.sh` or arm the plan gate — this is not a plan session.
-- Do **not** write the constitution anywhere but `$REPO_ROOT/.mentor/constitution.md` —
-  with ONE exception: the adopt-by-reference branch (Step 3a), which writes only the
-  `constitution_path` key into `.mentor/config.json` and never a second constitution file.
+- Do **not** write the constitution anywhere but the **resolved** constitution file:
+  `$REPO_ROOT/.mentor/constitution.md`, or the adopted external document when Step 1
+  printed `ADOPTED-BY-REFERENCE` (amend that one in place — never create a second
+  constitution beside it). The adopt-by-reference branch (Step 3a) writes only the
+  `constitution_path` key into `.mentor/config.json`.
 - Do **not** invent principles the user did not ask for and cannot be grounded in
   the repo — when unsure, propose and let Step 6 confirm.
 - Do **not** leave placeholder brackets or a stale version/date in the written file.
