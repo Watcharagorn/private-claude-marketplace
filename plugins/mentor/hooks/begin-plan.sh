@@ -40,7 +40,7 @@ if [ -n "$verdict" ]; then
   read -r level tokens warn_at ask_at <<<"$verdict"
   case "$level" in
     HANDOFF)
-      context_warn="CONTEXT: HANDOFF (~${tokens} tokens ≥ ${ask_at}) — critically large (gate bypassed this session): keep planning lean (skip optional zooms and plan-review); at the approval step lead with \"Hand off to next agent (Recommended)\"."
+      context_warn="CONTEXT: HANDOFF (~${tokens} tokens ≥ ${ask_at}) — critically large (gate bypassed this session): do not propose a zoom or plan-review; at the approval step lead with \"Hand off to next agent (Recommended)\"."
       ;;
     ASK)
       hook_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -52,8 +52,8 @@ skill yet; ask via AskUserQuestion (header "Context", two options):
      Skill(skill="mentor:handoff-note") with the plan request as the focus, write the
      handoff doc, print its copy-paste /mentor:resume prompt, and STOP.
   2. "Proceed anyway (bypass + lean plan)" — run \`bash ${hook_dir}/bypass-context.sh\`,
-     re-run \`bash ${hook_dir}/begin-plan.sh\`, then invoke the plan skill and keep the
-     plan lean (skip optional zooms and plan-review).
+     re-run \`bash ${hook_dir}/begin-plan.sh\`, then invoke the plan skill and follow
+     the CONTEXT: HANDOFF advisory the re-run prints.
 (Threshold: "context_block_tokens" in .mentor/config.json or MENTOR_CONTEXT_BLOCK_TOKENS;
 disable entirely with MENTOR_CONTEXT_GATE=off.)
 EOF

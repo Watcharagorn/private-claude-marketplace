@@ -68,16 +68,18 @@ always offered there, and you never ask the user to pick a mode upfront:
   all (not in a git repo, so there was nothing to arm — distinct from the
   unarmed-inside-a-repo case the check above catches) — list **"Proceed"** first.
 
-`begin-plan.sh` may also print a **`CONTEXT:`** line (the context gate). A
-**`CONTEXT: WARN`** means the session is getting large — surface it to the user
-and use the WARN option set at Step 6 (it leads with **"Hand off to next
-agent"**). A **`CONTEXT: HANDOFF`** means the session is critically large and
-the user already chose to proceed (gate bypassed): planning continues, but keep
-it lean — skip the optional zoom offer and do not offer plan-review (both
-inflate the very context that is running out) — and use the Step 6
-handoff-leading set with its first option labeled **(Recommended)**. (A
-**`CONTEXT: ASK`** never reaches this skill — the command layer resolves it
-with the user before invoking the skill; noted here for completeness.)
+`begin-plan.sh` may also print a **`CONTEXT:`** line (the context gate):
+
+- **`CONTEXT: WARN`** — the session is getting large. Surface it to the user and use
+  the WARN row of Step 6's option set (it leads with **"Hand off to next agent"**).
+  Nothing about *how* you plan changes.
+- **`CONTEXT: HANDOFF`** — critically large, and the user already chose to proceed
+  (gate bypassed). Everything WARN does, plus: do not propose a zoom (Step 5) or
+  plan-review yourself — an explicit user ask for either is still honored — and use
+  the HANDOFF row at Step 6. "Keep the plan lean", if the command layer said it,
+  means exactly those two omissions: Step 4's content spec never shrinks.
+- **`CONTEXT: ASK`** never reaches this skill — the command layer resolves it with the
+  user first; noted for completeness.
 
 **Load the constitution.** Resolve the constitution path (a repo may keep its
 governing doc outside `.mentor/` — `constitution_path` in `.mentor/config.json`
@@ -147,6 +149,16 @@ For each matched domain, invoke its planning skill **exactly once** via
 fallback — when a registered domain matches later, `plan-domain-dynamic` owns what
 supersedes what.
 
+**Substituting an already-available skill.** No registered domain matched, but a
+non-`mentor` skill already available this session — the session's skill list, not a
+filesystem hunt — names this task's technology or surface in its description? Invoke
+it once instead of the dynamic fallback, for its directives only: never its build,
+copy, scaffold, or live-verify steps. Still produce the dynamic row's deliverable —
+the `## Domain best practices applied` practice→step table — captioned
+`source: <skill>`. If it covers only part of the task, run the dynamic fallback for
+the rest. A registered domain matching on a later re-scan supersedes it, as it would
+the dynamic brief.
+
 A domain matching **after** research has nothing left to fold its research directives
 into, and its deliverable rests on the evidence those directives gather —
 backend-api's affected-callers column, say. Filled from recall it only looks
@@ -158,7 +170,7 @@ domain skill's own "researching directly" clause), then fold the deliverable.
 | frontend | UX/UI — components, pages, styles, layout, design systems, theming, responsive | `Skill(skill="mentor:plan-domain-frontend")` | ASCII wireframes + delta/token tables; live mockups only in an HTML zoom combo (`mentor:zooming`, Step 5) |
 | backend-api | API/endpoint/route/handler/schema/DTO/contract — or the data model behind it: migration, table, column, index, constraint, enum, RLS policy | `Skill(skill="mentor:plan-domain-backend-api")` | Before/after contract diff tables + schema diffs + Mermaid sequence flow; on a DDL change also a per-column delta table + Mermaid ER diff of the changed entities |
 | architecture (C4) | Structural change — new/changed/removed service, container, datastore, queue, external integration, component, or data flow (NOT pure content/config/doc/style/refactor) | `Skill(skill="mentor:plan-domain-architecture")` | Diff-highlighted C4-style Mermaid flowcharts, only the levels that change |
-| dynamic (fallback) | no registered domain matched | `Skill(skill="mentor:plan-domain-dynamic")` | Domain best-practices section (practice→step mapping) |
+| dynamic (fallback) | no registered domain matched — and no available skill substitutes (above) | `Skill(skill="mentor:plan-domain-dynamic")` | Domain best-practices section (practice→step mapping) |
 
 Each matched domain skill returns directives you fold into the research prompts
 and the plan body.

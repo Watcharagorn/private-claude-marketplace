@@ -36,8 +36,8 @@ Do these in order:
      gate was intentionally not armed; the user decides first. Follow the printed
      directive: ask via AskUserQuestion. On **"Hand off & plan in a fresh session"**
      invoke `Skill(skill="mentor:handoff-note")` and STOP; on **"Proceed anyway"** run the
-     printed bypass script, re-run `begin-plan.sh`, then continue below with a lean
-     plan (skip optional zooms and plan-review).
+     printed bypass script, re-run `begin-plan.sh`, then continue below — the re-run
+     prints `CONTEXT: HANDOFF`, so follow that line's guidance.
    - If stdout contains **`CONTEXT: HANDOFF`**, the gate IS armed — surface the
      advisory to the user, keep the plan lean, and at the approval step lead with
      **Hand off to next agent (Recommended)**.

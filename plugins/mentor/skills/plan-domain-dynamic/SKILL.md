@@ -75,6 +75,9 @@ PITFALLS:
   after research FINDINGS return") matches a **registered** domain after this fallback already
   ran, invoke that domain skill as usual; its directives supersede the brief's AUTHOR DIRECTIVES
   and VIZ IDIOM (keep PITFALLS as extra edge-case input); do not re-dispatch the definer.
+- **Substituted co-source:** when `plan` Step 3 substituted an already-available skill for part
+  of the task, that skill governs the part it covers — treat this brief as the secondary domain
+  there (its VIZ IDIOM yields; BEST PRACTICES and PITFALLS still apply).
 - **Revision rule:** on "Keep planning" / "Keep it current" iterations, **reuse the existing
   DOMAIN BRIEF**; re-dispatch the definer only if the user corrects the domain identification
   (e.g. a flagged `confidence: low` guess) or the task scope changes materially.

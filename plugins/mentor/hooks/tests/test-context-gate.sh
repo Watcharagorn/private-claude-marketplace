@@ -300,6 +300,7 @@ rm -f "$STATE/.context-bypass-$SESS"
 bp 230000
 chk "warn → armed + CONTEXT: WARN"           contains "CONTEXT: WARN" "$OUT"
 chk "warn → .planning created"               test -f "$STATE/plans/.planning"
+chk "warn → no lean-planning advisory" sh -c '! printf "%s" "$1" | grep -qw "lean"' _ "$OUT"
 bp none
 chk "no transcript → arms silently (no CONTEXT line)" sh -c '! printf "%s" "$1" | grep -q "CONTEXT:"' _ "$OUT"
 chk "no transcript → armed"                  test -f "$STATE/plans/.planning"
