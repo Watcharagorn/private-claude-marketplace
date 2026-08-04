@@ -28,6 +28,17 @@ A pane whose renderer owns its own paint loop (rule 2) never settles, so three t
   loop that declines to paint an inactive window paints *nothing* here and the capture comes back
   empty — a pass-shaped failure in the one step meant to catch it. Gate that skip on "not
   one-shot".
+- **Step 2 measures the one-shot, and its resize half runs the loop itself.** Wherever the check
+  pipes `<renderer command>` into `check_cols.py` — step 2's width sweep, and rule 7's
+  foreign-language branch — an own-loop renderer **hangs** it: the check reads stdin to EOF and the
+  loop never closes it. Measure the one-shot mode instead, at `--reserve 0` rather than `--reserve 1`,
+  because a pane with no wrapper has no scrollbar column to give back. The resize half changes target
+  rather than being dropped: there is no viddy to re-wrap a stale frame, so launch the **loop** in the
+  sandbox and shrink the window under it. That check is worth more than the one it replaces — a body
+  that refits on the next frame is "Refetch on resize" (`primitives.md`) *verified* rather than
+  remembered, and nothing else here tests it. Skipping step 2 is the likeliest failure of this whole
+  shape, because following it literally hangs the call: the agent gets punished for compliance, so the
+  step most often abandoned is the one this pane needs most.
 - **Step 4's process assertion changes.** `#{pane_current_command}` is the loop's own process, never
   `viddy` — assert that instead, and assert the frame *differs* between two captures a second
   apart, which is the only direct evidence the loop is still running rather than stopped on a

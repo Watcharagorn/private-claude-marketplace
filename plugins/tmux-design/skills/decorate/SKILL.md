@@ -8,7 +8,8 @@ description: >-
   borders, popups. Use whenever the question is how something should LOOK: "make this pane
   prettier", "theme my tmux", "style my status bar", "add a progress bar or sparkline", "my table
   columns are misaligned", "these colors are unreadable on my light terminal", "put a box around
-  this output". Reach for it even when tmux is never mentioned; "my CLI output looks ugly" counts.
+  this output", "animate this pane so I can tell it's still alive". Reach for it even when tmux is
+  never mentioned; "my CLI output looks ugly" counts.
   For WIRING a pane — adding panes, viddy refresh, lnav formats, session audits — use
   tmux-design:console: this skill styles what a pane shows, console operates the pane.
 ---

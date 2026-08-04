@@ -54,7 +54,8 @@ Enforce these in every pane you create or touch:
    the countdown" — keep it only when nothing else marks the pane alive.
    A renderer may own the redraw itself rather than being wrapped — but only when motion **encodes
    data** *and* the paint cadence must exceed the data cadence. Anything short of both: use viddy.
-   See "Status-driven animated glyphs" in `decorate/references/primitives.md` for what that owes
+   See "Status-driven animated glyphs" in
+   `${CLAUDE_PLUGIN_ROOT}/skills/decorate/references/primitives.md` for what that owes
    you, and "Verifying an own-loop pane" in
    `${CLAUDE_PLUGIN_ROOT}/skills/console/references/verifying-pane-shapes.md` for how to check it.
 
@@ -311,8 +312,18 @@ that shrank is the one nobody captures.
    anything, and measure *after* loading chrome rather than before — see "Motion, repaint, and the
    wrapper's cut" in `${CLAUDE_PLUGIN_ROOT}/skills/decorate/references/primitives.md`.
 3. Write or update the one-shot renderer (import/reuse the project's existing loader functions —
-   don't duplicate parsing logic).
-4. Rewire the wrapper to `exec viddy … -- <renderer>` and run the **verify loop**.
+   don't duplicate parsing logic). **Settle the shape before you write it**: under rule 2's own-loop
+   carve-out the renderer owes the requirements list in "Status-driven animated glyphs"
+   (`${CLAUDE_PLUGIN_ROOT}/skills/decorate/references/primitives.md`), and it budgets its real estate
+   *without* the wrapper's cut step 2 just subtracted. Read that list before the first line rather
+   than after the first render — every item on it is structural, so retrofitting one ("refetch on
+   resize" is the one that gets missed) costs a second edit pass.
+4. Rewire the wrapper to `exec viddy … -- <renderer>` and run the **verify loop** — except for an own
+   loop, which *replaces* viddy rather than being wrapped by it: exec the loop itself, and let the
+   requirements list's one-variable fallback be the thing that flips the pane back to viddy when the
+   loop misbehaves. Verify it through "Verifying an own-loop pane" in
+   `${CLAUDE_PLUGIN_ROOT}/skills/console/references/verifying-pane-shapes.md` — steps 1, 2 and 4 all
+   change for that shape, and step 2 **hangs** if you run it as written.
 
 ### audit — enforce the standard across a session
 
@@ -491,9 +502,18 @@ were launched with, which is why "I edited it but nothing changed" happens. Afte
    after a respawn reads as "it hasn't painted yet, give it another second", which is why this one
    survives a careful look. `#{pane_dead}` says so in one field, and `#{pane_dead_status}` carries the
    exit code that explains it — both already in step 3's format string, so this costs nothing.
-   Respawn rather than waiting out the interval, too: these panes refresh every 90–120s by rule 8, so
-   a capture taken before the first tick shows the pre-edit frame and sends you debugging a renderer
-   that was never wrong.
+   Respawn rather than waiting out the interval, too — **and not only after an edit**. These panes
+   refresh every 90–120s by rule 8, so a capture taken before the first tick shows the pre-edit frame
+   and sends you debugging a renderer that was never wrong. The same holds when what changed was
+   *upstream* of the pane rather than inside it — a credential you just repaired, a service that just
+   came back — which is the case that catches people, because no edit was made and so this loop was
+   never entered. Waiting hands you an indeterminate frame; a respawn hands you a determinate one.
+   The exception is a **two-clock** own-loop pane ("Two clocks, never one" in
+   `${CLAUDE_PLUGIN_ROOT}/skills/decorate/references/primitives.md`): respawning restarts the
+   *painter*, which repaints the cache instantly and animates a confident, healthy-looking frame over
+   the stale data you were trying to clear. Run its one-shot mode, which fetches synchronously, and
+   read `freshness()` rather than the motion — under two clocks, motion says the monitor is alive and
+   says nothing at all about the data.
 5. **If the change split a pane, verify the siblings too** — the loop above only ever looks at the
    pane you touched, and a split is the one edit that changes a pane you didn't. Diff the
    `list-panes` geometry against what it was before the split and `capture-pane -e -p` every pane
