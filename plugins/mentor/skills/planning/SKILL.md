@@ -317,7 +317,11 @@ Required sections, in order:
    oversized plan. A plan that arrives at Step 6 already trimmed rarely needs the
    full split treatment.
 7. `## Critical files`
-8. `## Out of scope`
+8. `## Out of scope` — name every carve-out so the reviewer sees the
+   boundary, but give one a **plan number or slug** only when it resolves on
+   disk (a `/plan-split` sibling, or a `/mentor:defer` stub for work the user
+   actually asked for); an invented `feature 0NN` reads as a roadmap promise
+   `/mentor:track` cannot see.
 9. `## Verification` — how to test end-to-end.
 
 **Visualization decision rule (pick exactly ONE idiom per artifact):**

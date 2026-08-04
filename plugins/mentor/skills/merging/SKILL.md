@@ -75,6 +75,24 @@ run_id="$(gh run list --branch "$branch" --limit 1 --json databaseId -q '.[0].da
 gh run view "$run_id" --log-failed
 ```
 
+**When `--log-failed` names the job but not the cause** — a bare `1 failed` with no assertion, diff,
+or stack — the evidence is in the run's **artifacts**, not stdout (browser/E2E suites put it there).
+Look **once**, before spending the rerun on a guess:
+
+```bash
+# Re-derive: $run_id died with the block above. `gh api` expands {owner}/{repo} itself.
+run_id="$(gh run list --branch "$(git branch --show-current)" --limit 1 --json databaseId -q '.[0].databaseId')"
+gh api "repos/{owner}/{repo}/actions/runs/$run_id/artifacts" --jq '.artifacts[].name'
+dir="$(mktemp -d)"; gh run download "$run_id" -n "<the report artifact>" -D "$dir" && ls -R "$dir"
+```
+
+`gh run view --json` has **no** `artifacts` field, so the REST call is the only listing. `-D` is
+mandatory — `gh run download` extracts into the **current directory** by default, dropping hundreds
+of MB of report junk into the repo working tree. Download **by name** and read only the small
+text/JSON summaries; traces, videos and the HTML report are binaries you cannot read. One artifact,
+one look — if it is silent too, report what the log did say and let the decision below stand on the
+base-run history.
+
 **Ask whether the failure is even yours before spending the rerun.** "Unrelated to the
 diff" reads like a flake, so a deterministic environment failure (a missing binary, a
 service that never comes up — `supabase: not found`, exit 127) routes to *flake*, burns
@@ -193,6 +211,11 @@ Then **one bounded `gh run watch <id>`, exactly as Step 2 does it** (`timeout: 6
 the **No busy-wait** rule owned by `mentor:dispatch-agents`. On red, name the failing job
 and stop: no triage, no rerun. Step 3's one-rerun budget is PR-scoped, and a regression on
 the base branch is a fresh working session, not a tail on this one.
+
+When the red is the **same test Step 3 flake-verdicted**, that is not a second budget — it is a test
+that failed, went green on a rerun, and failed again on what actually landed, which is as easily a
+real failure the rerun masked as a flake. Name it and capture it with `/mentor:defer "<test> flaky
+on <base>"`: that verdict outlives this session, while another rerun would only re-roll it.
 
 ## Done when
 

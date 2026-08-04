@@ -11,7 +11,6 @@ description: >
   side of /mentor:handoff (which writes the notes). Strictly repo-scoped: the notes live
   under this repo's .mentor/ tree, so notes from other repos never appear. Scans the note
   for secrets before surfacing it.
-version: 0.4.0
 ---
 
 # Resume — Browse & Continue a Handoff Note
@@ -211,6 +210,14 @@ Then resolve a selection:
    user who already chose a note isn't asked to choose a plan again. Invoke
    `Skill(skill="mentor:dispatch-agents")` directly only when the note's work has no plan record at
    all, so there is no state for track to read.
+
+   **The bound is on the work, not on how it is executed or delivered.** Running the note's work by
+   hand instead of through `/mentor:track` skips the step ticks and `mentor:dispatch-agents`' closing
+   sweep — the sweep that routes every follow-up through `/mentor:defer` — and hand-rolling
+   `git push` + `gh pr create` skips `mentor:shipping` Step 6, which stamps this note resolved and
+   closes the plan's state. The note then stays live and `/mentor:track` re-offers work that already
+   shipped. Concretely: when you are about to type `git push`, `gh pr create`, or `gh pr merge`, run
+   `/mentor:ship` instead — it hands off to `/mentor:merge`, which owns the merge consent gate.
 7. **Stamp the note resolved when — and only when — its work is done.** Track the note's path for the
    rest of the session; the stamp fires on the first of these:
    - **All the note's tasks completed per the plan file** — every recommended command ran to
@@ -247,7 +254,10 @@ Do **not** copy or duplicate the note into the repo source tree — it lives in 
 - The user's selection was resolved unambiguously (argument or interactive), never auto-picked on an
   ambiguous/no match.
 - The chosen note was loaded, scanned for secrets, its focus + current state surfaced, and the work
-  continued via the note's recommended mentor command(s) — and nothing beyond them.
+  continued via the note's recommended mentor command(s) — and nothing beyond them. The session
+  still **ended through a mentor command** — `/mentor:ship` → `/mentor:merge`, `/mentor:handoff`, or
+  `/mentor:defer` — never through raw `git`/`gh` or a hand-written file; the bound is on the work,
+  not on how it is executed or delivered.
 - The note was **stamped resolved** if its work finished this session (all plan-file tasks done) or
   it was superseded by a nested `/mentor:handoff` — and left **live** otherwise.
 
@@ -261,7 +271,11 @@ Do **not** copy or duplicate the note into the repo source tree — it lives in 
   superseding handoff resolves it; an unfinished note must stay listed.
 - Do **not** skip the stamp when the work DID finish — an unstamped solved note WILL be re-listed
   and re-worked by a later session.
-- Do **not** create handoff notes here — that is `/mentor:handoff`.
+- Do **not** hand-write a note into `.mentor/` — `/mentor:handoff` owns a resume point for
+  **unfinished** work here, `/mentor:defer` owns work that **outlives this topic** (a flaky test,
+  debt, a follow-up), and they are not interchangeable. A hand-composed name lands in Step 2's
+  skipped list instead of the resume list; a follow-up misfiled as a handoff after the work shipped
+  is retired by the next handoff's supersede sweep. Either way it is lost.
 - Do **not** rename a skipped non-conforming file unasked — surface it and wait for the user.
 - Do **not** echo a live secret found in a note — warn and redact.
 - Do **not** copy the note into the repo working tree.
