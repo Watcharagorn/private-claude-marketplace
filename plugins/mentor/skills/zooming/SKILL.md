@@ -6,7 +6,8 @@ description: |
   or just the thing under discussion. No plan file and no planning session
   required. Trigger phrases: `/zoom`, `/mentor:zoom`, "zoom into X", "show me
   X as an HTML page", "render a visual preview of this", "make a diagram page
-  for X", "I want to SEE this instead of reading markdown". Resolves
+  for X", "I want to SEE this instead of reading markdown",
+  "update/refresh the zoom", "the zoom is stale". Resolves
   topic(s) × perspective(s) (End user / Implementor / Reviewer-Architect /
   QA-Tester), then dispatches one agent per combo, each writing ONE
   self-contained HTML file to .mentor/zooms/<subject-slug>/ — auto-opened

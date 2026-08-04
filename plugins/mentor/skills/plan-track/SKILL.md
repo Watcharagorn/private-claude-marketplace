@@ -227,7 +227,11 @@ A plan arrives here still `draft` for one of two other reasons: the user approve
 earlier session but the approval was never recorded (pre-v2.14 `--handoff`/`--deliver`
 didn't record one), or they never approved it and want to now. Both land in the same
 place, so ask once with `AskUserQuestion` — approved earlier / approve it now / not yet
-— and never infer the answer. On "not yet", stop and point them at `/mentor:plan`.
+— and never infer the answer. Same test as `planning` Step 6: only a **returned answer**
+approves. A prose claim ("I approved that one already, just build it") is the reason this
+question exists, not a substitute for it — if the question was interrupted or rejected,
+ask it again rather than reading the claim as consent. On "not yet", stop and point them
+at `/mentor:plan`.
 
 On either yes, move the state first:
 

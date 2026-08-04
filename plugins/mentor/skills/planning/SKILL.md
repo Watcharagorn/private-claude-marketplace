@@ -387,6 +387,17 @@ If the plan is long, let them scroll; do not summarize instead. Then, in the
 same turn, ask via `AskUserQuestion` — `header: "Approve"`, question *"The plan is
 ready. What happens next?"* — with the option set the table below selects.
 
+**Only a returned answer approves.** If the approval question was interrupted,
+rejected, or never came back — or the user asserts approval in prose ("the plan was
+approved", "go ahead, I already okayed it") — ask it again before running
+`approve-plan.sh`. Prose selects no option, and this question is the only thing
+standing between planning and repo edits; releasing the gate on a remembered or
+claimed approval is the one failure this harness exists to prevent. It also costs you
+the routing: which flag to run (none, `--deliver`, `--handoff`) is decided by *which
+option came back*, so an unanswered question means you are guessing the outcome as
+well as the consent. Re-surface the plan body only if it changed since the user last
+saw it (or never was surfaced); otherwise name its path and Rev and re-ask.
+
 ### Is the plan oversized?
 
 Decide this **before** asking, because it changes which options you offer. The plan is

@@ -251,6 +251,7 @@ delegates to), `plan-review`, `tour`, and
   ```
   Do not call the Agent/Task tool — you have no sub-agents. Complete this alone,
   or stop and report the blocker.
+  If a correction to this brief arrives mid-run, apply it before you return.
   Deliver your full result (final text / message per your runtime) BEFORE going
   idle — an idle signal with no delivered result is a contract violation.
   ```
@@ -278,10 +279,18 @@ delegates to), `plan-review`, `tour`, and
   2:50pm") is a quota wall, not an infra blip: don't wait it out, don't
   resume-message. Snapshot what each dead agent already landed, report the
   reset time, and end the turn.
-- **Follow-up vs re-dispatch.** A small fix or clarification on work an idle
-  agent already owns → message that same agent (its context is warm). A failed
-  `Done when:` needing a clean rebrief → re-dispatch the role once (per the
-  orchestrator contract above).
+- **Follow-up vs re-dispatch.** A small fix or clarification on work an agent
+  already owns — idle **or still running** → send ONE message to that same
+  agent (its context is warm; use your runtime's agent-messaging tool — in
+  Claude Code that is `SendMessage`, which may need fetching via `ToolSearch`
+  before it can be called). State that the correction must be applied before
+  the agent returns. This matters most when something you learn *after*
+  dispatching invalidates part of a brief already in flight — a reviewer's
+  finding landing while a writer works from the superseded version. Correcting
+  it in place beats both alternatives: letting a known-wrong artifact land, or
+  re-dispatching a whole combo that was 90% right. A failed `Done when:`
+  needing a clean rebrief → re-dispatch the role once (per the orchestrator
+  contract above).
 - **Close out.** Once a dispatch's output is consumed and its `Done when:`
   verified, stop/release the agent — finished agents left idling interrupt
   the session with stray notifications and pile up until manually killed.

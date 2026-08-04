@@ -10,13 +10,11 @@ description: |
   Reads the current mentor plan (.md) and, with the edit gate closed, runs a
   staged review: Stage 1 judgment reviewers (practicality,
   comprehensiveness), then a fold gate that walks their recommended edits
-  ONE AT A TIME — each edit is its own question carrying the reviewer's
-  case with the key words highlighted, and the user verdicts fold/skip;
-  then Stage 2 mechanical reviewers (cleanliness + a spec-kit-analyze-style
-  consistency check over related artifacts) against the updated plan, whose
-  safe MECHANICAL fixes are auto-folded — findings needing a substantive
-  decision are asked the same way, one verdict per finding, and applied
-  only on the user's verdict. Stage 2 is also invocable on its own.
+  ONE AT A TIME — each edit its own question carrying the reviewer's case,
+  verdicted fold/skip; then Stage 2 mechanical reviewers (cleanliness + a
+  spec-kit-analyze-style consistency check over related artifacts) against
+  the updated plan, whose safe fixes auto-fold while decision-level findings
+  are asked the same one-at-a-time way. Stage 2 is also invocable on its own.
 ---
 
 # Plan Review — Judgment, Fold, then Mechanical Auto-Fold

@@ -6,15 +6,14 @@ description: |
   test, or sign off on delivered work, even if they don't say "tour":
   "editable review artifact", "guided tour / walkthrough page", "UAT or
   acceptance review", "let reviewers mark pass/not-pass and leave feedback",
+  "update/revise the tour", "re-publish the review page with these fixes",
   "/tour". Builds one self-contained HTML page per audience (end-user
-  walkthrough / technical deep-dive) from an agent-derived scenario manifest:
-  scenario cards with copy-paste commands, expected-behavior checklists,
-  pass/not-pass toggles, feedback capture, scrollspy sidebar, completion
-  banner, and self-identifying MD/JSON report export — published via the
-  Artifact tool to a stable URL that revisions republish in place. Subject
-  defaults to the newest mentor plan (.mentor/plans/<slug>/plan.md) but works
-  standalone from any topic. Refuses to run while a fresh .planning marker is
-  armed. Distinct from /mentor:zoom, which renders local-only, never-published
+  walkthrough / technical deep-dive) from an agent-derived scenario manifest —
+  scenario cards, checklists, pass/not-pass toggles, feedback capture, report
+  export — published via the Artifact tool to a stable URL that revisions
+  republish in place. Subject defaults to the newest mentor plan but works
+  standalone from any topic.
+  Distinct from /mentor:zoom, which renders local-only, never-published
   visual pages of any subject with no reviewer interaction — a tour is
   published on purpose and captures pass/not-pass verdicts.
 ---
