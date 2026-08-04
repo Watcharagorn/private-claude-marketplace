@@ -181,6 +181,21 @@ chk "the Python-shaped check is BLIND to the bash file (why F exists)" \
 chk "kit stays silent under the shell patterns too"  fsilent copied_view.py
 
 echo
+echo "== F2. the kit's width source stays tmux, not the environment =="
+# COLUMNS reads like a free convenience, and under viddy it even returns the right number —
+# viddy injects it at the full pane size and keeps it current. That is what makes restoring it
+# tempting and wrong: when it is wrong instead it carries the *client's* width, and nothing in
+# the render says so. A sandbox can't catch that, so pin it here.
+chk "kit does not trust COLUMNS/LINES while inside a pane" \
+  sh -c '! grep -nE "^ *(val|_PANE[A-Z_]*) *= *_?env_?int\(\"(COLUMNS|LINES)\"\)" "$1" \
+         && grep -q "if val is None and not pane" "$1"' _ "$KIT"
+chk "kit asks tmux about THIS pane (-t \$TMUX_PANE), not the active one" \
+  grep -qF '"display", "-p", "-t", pane' "$KIT"
+chk "kit ships both axes and a cache invalidator" \
+  sh -c 'grep -q "^def pane_width" "$1" && grep -q "^def pane_height" "$1" \
+         && grep -q "^def invalidate_pane_size" "$1"' _ "$KIT"
+
+echo
 echo "== G. the skill documents the non-Python branch and its fixture =="
 chk "skill carries the shell width-math pattern" \
   grep -qF '%-[0-9]+s|\$\{#' "$CONSOLE"

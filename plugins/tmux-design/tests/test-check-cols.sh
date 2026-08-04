@@ -111,7 +111,10 @@ echo "== D. the checker agrees with the kit's own vlen() =="
 # Assert the equality at its boundary: budget = vlen exactly → fits; budget = vlen-1 → over.
 edge() {
   fx="$1"
-  w="$(python3 - "$TEMPLATE" "$fx" <<'PY'
+  # -B: importing the kit by path would otherwise write __pycache__/ into the plugin's own
+  # scripts/ dir. check_cols.py sets sys.dont_write_bytecode for its sibling import for this
+  # reason, but that guard can't cover a test that loads the kit itself.
+  w="$(python3 -B - "$TEMPLATE" "$fx" <<'PY'
 import sys, importlib.util
 spec = importlib.util.spec_from_file_location("rt", sys.argv[1])
 rt = importlib.util.module_from_spec(spec); spec.loader.exec_module(rt)

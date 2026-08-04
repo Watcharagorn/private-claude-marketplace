@@ -220,6 +220,18 @@ Never pipe figlet through `lolcat` into anything width-aware — see rule 4 in t
   logical row is no longer one screen row. viddy handles mouse events itself, so once tmux has
   `mouse on` the wheel drives viddy's viewport rather than tmux copy-mode scrollback;
   `--disable_mouse` hands the scrollback back.
+- **The wrapper hands your renderer the pane's size in `COLUMNS`/`LINES`, and that is the pane — not
+  your content area.** Measured on viddy 1.3.1 in a 100×30 pane: a `viddy -p` child sees
+  `COLUMNS=100 LINES=30`, and both keep tracking a live `resize-window`; an unwrapped pane child sees
+  both unset. So the wrapper's cut in the table above is still yours to subtract — the injected
+  numbers have not had it taken off. The trap is that they are *usually right*, which buys them
+  trust they can't honor: when they are wrong instead — exported by the terminal that ran your
+  launcher, so carrying the **client's** size rather than the pane's — nothing in the render says so,
+  and the rows over-run by however far the client is wider. `tmux display -p -t "$TMUX_PANE"
+  '#{pane_width}x#{pane_height}'` is right either way, so ask it while you are inside a pane and keep
+  `COLUMNS`/`LINES` for when you are not (which is what the kit's `pane_width()`/`pane_height()` do).
+  To re-measure on any wrapper: point a pane at a command that echoes its own `COLUMNS`/`LINES`,
+  compare against `#{pane_width}x#{pane_height}`, then resize the window and read it again.
 - **Measure after loading chrome, not before.** `pane-border-status top` costs a row per pane and
   the theme generator sets it, so a height measured before the theme loads is one row too generous
   for every pane. `#{pane_height}` reports the true post-border size once it's on.

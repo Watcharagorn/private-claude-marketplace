@@ -45,15 +45,16 @@ Two skills split the job cleanly:
   - `references/tooling.md` — gum/glow/bat cookbook and the force-color rules that make them
     work in a pane.
 - `scripts/renderer_template.py` — dependency-free (stdlib only) themed ANSI renderer with
-  `c() vlen() pad() trunc() sanitize() table() panel() divider() spread() bar() sparkline() badge()
-  kv() gauge() freshness()` and a `demo` mode. Copy it into the project and adapt.
+  `c() vlen() pad() trunc() sanitize() title() table() panel() divider() spread() bar() sparkline()
+  badge() kv() gauge() freshness()`, the pane-size primitives `pane_width() pane_height()
+  invalidate_pane_size()`, and a `demo` mode. Copy it into the project and adapt.
 - `scripts/tmux_theme.sh` — emits a tmux chrome snippet for a named theme, on stdout only.
 - `scripts/check_cols.py` — the verify loop's width assertion: reads a renderer's stdout, reports
   lines over a column budget using the same `vlen()` the renderers pad with, and reports lines that
   aren't valid UTF-8 rather than smoothing them into plausible widths. Silence and a zero exit is
   the pass.
-- `tests/` — `test-check-cols.sh`, `test-unfold-sweep.sh`, `test-renderer-reuse.sh` and
-  `test-command-routing.sh`, run by `/verify-plugin-edits`.
+- `tests/` — `test-check-cols.sh`, `test-unfold-sweep.sh`, `test-renderer-reuse.sh`,
+  `test-pane-size.sh` and `test-command-routing.sh`, run by `/verify-plugin-edits`.
 - `commands/console.md`, `commands/decorate.md`.
 
 No hooks.

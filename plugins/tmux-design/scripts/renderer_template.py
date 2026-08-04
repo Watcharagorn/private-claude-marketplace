@@ -425,8 +425,17 @@ def _bset():
     return BORDERS.get(BORDER_STYLE, BORDERS["rounded"])
 
 
-def title(text):
-    print(c(TITLE, f"▌ {sanitize(text)}"))
+def title(text, width=None):
+    """The pane's headline — capped like every other primitive.
+
+    It was the one text helper with no width awareness, and it is the line most
+    likely to be composed against a wide pane and read in a narrow one (a theme
+    name and three flags is already 69 columns). A title that wraps costs a row
+    and shoves the whole frame down; under viddy that is also how the
+    scrollbar-feeds-wrapping cycle starts.
+    """
+    width = width or pane_width()
+    print(c(TITLE, trunc(f"▌ {sanitize(text)}", width)))
 
 
 def divider(label=None, width=None, style=None):
@@ -492,16 +501,21 @@ def table(headers, rows, ralign=(), width=None):
     """Aligned columns: bold header, thin rule, 2-space gaps, column-safe padding.
 
     ralign = set of column indexes to right-align (numerics).
-    width  = hard cap in display columns. When the natural width exceeds it the
-             widest column is trimmed until it fits — a table that wraps is
-             worse than the raw text it replaced, so truncating one cell beats
-             letting the terminal fold every row.
+    width  = hard cap in display columns, defaulting to the pane like every
+             sibling primitive. When the natural width exceeds it the widest
+             column is trimmed until it fits — a table that wraps is worse than
+             the raw text it replaced, so truncating one cell beats letting the
+             terminal fold every row. It used to cap only when a width was
+             passed, so the helper whose docstring promises this most loudly was
+             the one that silently wrapped: demo data fits and a long branch name
+             or a CJK product name does not.
     """
     widths = [vlen(h) for h in headers]
     for row in rows:
         for i, cell in enumerate(row):
             widths[i] = max(widths[i], vlen(cell))
 
+    width = width or pane_width()
     if width:
         gaps = 2 + 2 * (len(widths) - 1)
         while sum(widths) + gaps > width and max(widths) > 3:
@@ -606,57 +620,135 @@ def freshness(age_s, ts=None, fresh_s=300, stale_s=900):
     return c(role, f"● {stamp}") + c(DIM, f" ({ago} ago)")
 
 
-_PANE_WIDTH = None
+_PANE_SIZE = {}
 
 
-def pane_width(default=80):
-    """The pane's real width.
+def _pane_dim(axis, knob, fmt, envvar, default, refresh=False):
+    """One precedence, two axes — the resolver behind pane_width()/pane_height().
 
-    tput and COLUMNS report 80 when stdout is not a terminal, which is exactly
-    the situation a pane renderer runs in — so ask tmux instead. Cached: this
-    renderer re-runs every few seconds forever, and one subprocess per call
-    would be a wasted fork on every redraw.
+    Both axes share this body on purpose: the order below is subtle enough that a
+    second hand-written copy is where the two would drift apart.
+
+    1. The explicit knob (`$TMUX_PANE_WIDTH` / `$TMUX_PANE_HEIGHT`). The verify
+       loop drives it to sweep sizes, so nothing may outrank it.
+    2. tmux, asked about **this** pane via `-t "$TMUX_PANE"`. Untargeted,
+       `tmux display -p '#{pane_width}'` answers about the server's *active*
+       pane — whichever window happens to be focused — so a renderer running
+       outside tmux got a live stranger's width instead of `default`, and one in
+       an unfocused pane got the focused pane's. Nothing raises; the table is
+       just silently sized to a pane nobody was looking at.
+    3. `$COLUMNS` / `$LINES`, and only when `$TMUX_PANE` is unset — when there
+       is genuinely no pane to ask about, they are the only signal left. Inside
+       a pane they are refused deliberately, and measuring them is what shows
+       why: under viddy 1.3.1 they are *correct* (viddy sets the child's
+       COLUMNS/LINES to the full pane size and updates them on resize), which is
+       exactly what makes trusting them a trap. When they are wrong instead —
+       exported by the terminal that launched the workspace, so carrying the
+       client's size rather than the pane's — they are wrong silently and look
+       just as plausible. tmux is right in both cases, so ask tmux.
+    4. `default`.
+
+    Cached per axis: a pane renderer re-runs every few seconds forever and one
+    subprocess per call would be a wasted fork on every redraw. A renderer that
+    owns its own paint loop has to refetch on resize — pass `refresh=True` or
+    call `invalidate_pane_size()`, because a stale height makes the body keep
+    painting the pre-resize row count, which reads as a clean frame with its
+    last rows simply missing.
     """
-    global _PANE_WIDTH
-    if _PANE_WIDTH is not None:
-        return _PANE_WIDTH
-    # These two are explicit operator overrides, not detection — unset, COLUMNS is
-    # unreliable inside a pane, which is why tmux is asked next.
-    for var in ("TMUX_PANE_WIDTH", "COLUMNS"):
+    if not refresh and axis in _PANE_SIZE:
+        return _PANE_SIZE[axis]
+
+    def _env_int(name):
         try:
-            _PANE_WIDTH = int(os.environ[var])
-            return _PANE_WIDTH
+            return int(os.environ[name])
         except (KeyError, ValueError):
-            pass
-    try:
-        import subprocess
-        out = subprocess.run(["tmux", "display", "-p", "#{pane_width}"],
-                             capture_output=True, text=True, timeout=1)
-        _PANE_WIDTH = int(out.stdout.strip())
-    except Exception:
-        _PANE_WIDTH = default
-    return _PANE_WIDTH
+            return None
+
+    val = _env_int(knob)
+    pane = os.environ.get("TMUX_PANE")
+    if val is None and pane:
+        try:
+            import subprocess
+            out = subprocess.run(["tmux", "display", "-p", "-t", pane, fmt],
+                                 capture_output=True, text=True, timeout=1)
+            val = int(out.stdout.strip())
+        except Exception:
+            val = None
+    if val is None and not pane:
+        val = _env_int(envvar)
+    _PANE_SIZE[axis] = default if val is None else val
+    return _PANE_SIZE[axis]
+
+
+def pane_width(default=80, refresh=False):
+    """The pane's width in columns — the PANE, not the area you get to draw in.
+
+    Subtract the refresh wrapper's cut yourself: 1 column under `viddy -p`, 0
+    under `watch -c` or an own loop. The reserve depends on flags this function
+    cannot see, and `check_cols.py --reserve` subtracts it once at check time, so
+    pre-subtracting here would double-count it. See primitives.md, "Motion,
+    repaint, and the wrapper's cut".
+    """
+    return _pane_dim("width", "TMUX_PANE_WIDTH", "#{pane_width}", "COLUMNS",
+                     default, refresh)
+
+
+def pane_height(default=24, refresh=False):
+    """The pane's height in rows — the PANE, not the area you get to draw in.
+
+    Same contract as pane_width(): subtract the wrapper's rows yourself (4 for a
+    default-header viddy pane, 1 under `viddy -t`, 2 under `watch -c`), and
+    derive that total once. The same number written twice misdimensions the body
+    the first time a row is added or cut, silently and only at some heights.
+    """
+    return _pane_dim("height", "TMUX_PANE_HEIGHT", "#{pane_height}", "LINES",
+                     default, refresh)
+
+
+def invalidate_pane_size():
+    """Drop the cached pane size so the next call re-asks tmux.
+
+    For the own-loop shape: call it on SIGWINCH (or once a tick) so the body
+    refits now rather than at the next slow redraw.
+    """
+    _PANE_SIZE.clear()
 
 
 # ---------------------------------------------------------------------- demo
 
 def demo():
-    w = min(pane_width(), 78)
-    title(f"DEMO · tmux-design · theme={THEME_NAME} depth={DEPTH} border={BORDER_STYLE}")
+    # This demo is the standard rendered, so it budgets the way the standard says
+    # to: start from the pane, subtract the wrapper's cut ONCE, draw in the
+    # remainder. The reserve is 1 because `viddy -p` claims the right-hand column
+    # for its scrollbar as soon as content *reaches* the content area rather than
+    # after it overflows (primitives.md, "Motion, repaint, and the wrapper's
+    # cut"); a renderer under `watch -c`, or one owning its loop, sets it to 0.
+    # Drawing to the full pane_width() instead is why the demo used to fail the
+    # plugin's own `check_cols.py 60 --reserve 1`.
+    VIDDY_RESERVE = 1
+    w = min(pane_width() - VIDDY_RESERVE, 78)
+    title(f"DEMO · tmux-design · theme={THEME_NAME} depth={DEPTH} border={BORDER_STYLE}",
+          width=w)
     print("  " + freshness(120, "14:32") + c(DIM, "  ·  state: ") + badge("LIVE", OK))
     print()
-    table(
-        ["item", "state", "value", "delta", "signal"],
-        [
-            [c(TEXT, "ALPHA"), c(OK, "✓ ok"), "1,234.56", c(OK, "+$31.57"), gauge(3.4)],
-            [c(TEXT, "BETA"), c(WARN, "◐ pending"), num("60800.00000000"),
-             c(ERR, "-$150.78"), gauge(14.1)],
-            [c(TEXT, "GAMMA"), c(DIM, "· off"), "-", c(DIM, "untracked"),
-             c(ERR, "⛔ blocked")],
-            [c(TEXT, "日本語"), c(OK, "✓ ok"), "42", c(OK, "+$1.00"), gauge(9.0)],
-        ],
-        ralign={2, 3},
-    )
+    rows = [
+        [c(TEXT, "ALPHA"), c(OK, "✓ ok"), "1,234.56", c(OK, "+$31.57"), gauge(3.4)],
+        [c(TEXT, "BETA"), c(WARN, "◐ pending"), num("60800.00000000"),
+         c(ERR, "-$150.78"), gauge(14.1)],
+        [c(TEXT, "GAMMA"), c(DIM, "· off"), "-", c(DIM, "untracked"),
+         c(ERR, "⛔ blocked")],
+        [c(TEXT, "日本語"), c(OK, "✓ ok"), "42", c(OK, "+$1.00"), gauge(9.0)],
+    ]
+    # rule 7's wide-glyph fixture. The skill tells you to re-run the renderer with
+    # WIDTH_FIXTURE set, and says in the same breath that a fixture the renderer
+    # ignores is a check that always passes — so the shipped starter reads it,
+    # or it fails its own instruction on the very first copy.
+    fixture = os.environ.get("WIDTH_FIXTURE")
+    if fixture:
+        rows.append([c(TEXT, "FIXTURE"), c(WARN, "◐ wide"), sanitize(fixture),
+                     c(DIM, "—"), gauge(11.0)])
+    table(["item", "state", "value", "delta", "signal"], rows,
+          ralign={2, 3}, width=w)
     spread(c(MUTED, "pane title"), freshness(12, "14:32"), width=w)
     divider("throughput", width=w)
     kv([

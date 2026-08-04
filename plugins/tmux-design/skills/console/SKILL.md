@@ -145,9 +145,10 @@ Enforce these in every pane you create or touch:
    cp "${CLAUDE_PLUGIN_ROOT}/scripts/renderer_template.py" scripts/<name>_view.py
    python3 "${CLAUDE_PLUGIN_ROOT}/scripts/renderer_template.py" demo   # see the standard rendered
    ```
-   It ships `c() vlen() pad() trunc() sanitize() table() panel() divider() spread() bar() sparkline() badge() kv()
-   gauge() freshness()` plus theme resolution and local-timezone handling, so the fiddly parts
-   (display-column padding, palette, degradation) are already right. Richer tools only if already
+   It ships `c() vlen() pad() trunc() sanitize() title() table() panel() divider() spread() bar() sparkline()
+   badge() kv() gauge() freshness() pane_width() pane_height() invalidate_pane_size()` plus theme
+   resolution and local-timezone handling, so the fiddly parts (display-column padding, palette,
+   degradation, and asking tmux for the pane's real size) are already right. Richer tools only if already
    installed — `command -v gum viddy lnav jq bat glow`; `${CLAUDE_PLUGIN_ROOT}/skills/decorate/references/tooling.md` has the
    invocations and the force-color rules that make them work in a pane.
 
@@ -448,12 +449,44 @@ were launched with, which is why "I edited it but nothing changed" happens. Afte
    [ "$a" = "$b" ] && echo "width knob IGNORED — this sweep is measuring one width three times"
    ```
    Three identical renders make `check_cols 60`, `100` and `160` silent by construction, which is a
-   pass-shaped failure inside the step built to catch pass-shaped width checks. Renderers should take
-   the width from `TMUX_PANE_WIDTH` when set and fall back to `$TMUX_PANE` via
-   `tmux display -p -t "$TMUX_PANE" '#{pane_width}'` — never `tput cols`, which answers about the
-   *client's* terminal: under `viddy -p` the child pty carries the client size, so a 97-column pane
-   reads back as 188 and every row overflows while the check that would have caught it was reading
-   the same wrong number.
+   pass-shaped failure inside the step built to catch pass-shaped width checks.
+
+   **Where a renderer reads its width from**, in order: `TMUX_PANE_WIDTH` when set, then
+   `tmux display -p -t "$TMUX_PANE" '#{pane_width}'`. The `-t` is load-bearing — untargeted,
+   `tmux display -p '#{pane_width}'` answers about the server's *active* pane, so a renderer in an
+   unfocused pane gets sized to the focused one, and one running outside tmux gets a stranger's
+   window instead of its own default. Neither `tput cols` (80 out of terminfo inside a pane, tty or
+   not) nor `COLUMNS`/`LINES` (injected by viddy at the **full pane** size — usually right, silently
+   wrong when it isn't) is a source; both are measured in `decorate/references/primitives.md`,
+   "Motion, repaint, and the wrapper's cut". The bundled `pane_width()`/`pane_height()` consult
+   `COLUMNS`/`LINES` only when `$TMUX_PANE` is unset, i.e. when there is no pane to ask about.
+
+   That precedence hides the second pass-shaped failure in this step: `TMUX_PANE_WIDTH` outranks
+   every other source and the sandbox exports no `COLUMNS`, so a sweep can move the knob, pass, and
+   never once exercise the branch production takes.
+
+   **Budget the rows too**, once the column sweep is green — in that order, because a too-wide line
+   costs two screen rows in the wrapping fallbacks, so a row count means nothing until the width
+   check passes at that width. The failure it catches is the one that looks most like success:
+   content taller than the content area scrolls, so the pane shows a clean, well-aligned frame with
+   its last rows simply absent.
+   ```bash
+   reserve=4                    # viddy default header; `viddy -t` 1, `watch -c` 2, own loop 0
+   hrc=0
+   for h in 30 20 12; do
+     n=$(TMUX_PANE_HEIGHT=$h <renderer command> | wc -l)
+     [ "$n" -le "$((h - reserve))" ] || { echo "rows: $n > $((h - reserve)) at h=$h"; hrc=1; }
+   done
+   a=$(TMUX_PANE_HEIGHT=12 <renderer command> | wc -l); b=$(TMUX_PANE_HEIGHT=30 <renderer command> | wc -l)
+   [ "$a" = "$b" ] && { echo "height knob IGNORED — one height measured three times"; hrc=1; }
+   [ "$hrc" = 0 ] || echo "row check FAILED"
+   ```
+   Read `reserve` off the wrapper's actual flags, exactly as `--reserve` is read for columns: writing
+   `h - 4` hardcodes the default-header cut into a check for a renderer rule 2 recommends running
+   under `-t`, where the cut is 1. The knob probe earns its place here even more than it does for
+   width — a renderer that never consumes `pane_height()` ignores `TMUX_PANE_HEIGHT` entirely, which
+   makes the whole loop silent by construction. And `wc -l` counts newlines, so a final line without
+   one undercounts by exactly the off-by-one the reserve exists to absorb.
 
    Two things a silent run does **not** prove. It doesn't prove the columns line up: an
    over-measured cell makes a row too *short*, which fits the budget and still looks crooked. And

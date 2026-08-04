@@ -69,9 +69,11 @@ looks broken, not themed. When you theme panes, theme the status bar, window tab
 borders in the same pass. → `references/tmux-chrome.md`
 
 **7. Budget the real estate first.** `tmux display -p -t <pane> "#{pane_width}x#{pane_height}"`
-is the only correct source for the **pane's** size inside tmux — `tput cols` returns its 80-column
-fallback when stdout isn't a terminal, which is exactly the situation a pane renderer is in, and
-`COLUMNS` is ignored by gum and glow. But the pane's size is not the size you get to draw in. The
+is the only correct source for the **pane's** size inside tmux — `tput cols` answers out of terminfo
+and reports 80 in a pane whether or not stdout is a terminal, and `COLUMNS` is ignored by gum and
+glow while being *injected at the full pane size* by viddy, so it is inert exactly where you might
+reach for it and misleadingly authoritative where you shouldn't (→ `references/primitives.md`). But
+the pane's size is not the size you get to draw in. The
 refresh wrapper takes its cut first (under viddy: 4 rows, plus the right-hand column as soon as
 content fills the pane), and these costs compose rather than replace each other — a frame costs 2
 columns and 2 rows, so a panel inside a default-header viddy pane has an inner width of
