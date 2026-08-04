@@ -42,7 +42,9 @@ Enforce these in every pane you create or touch:
 2. **No `clear`-loop refreshers** (`while :; do clear; …; sleep N; done`) — they flicker, hide
    staleness, and swallow Ctrl-C mid-child-call. Wrap a one-shot renderer with
    `viddy -p --unfold -n <secs> -- <cmd>` instead: in-place redraw, diff-highlight (`-d`) that
-   "pulses" changed cells, and scrollable snapshot history for free. `--unfold` (`-w`) is not
+   "pulses" changed cells, and scrollable snapshot history for free — its scroll keys are in
+   "Motion, repaint, and the wrapper's cut" in `decorate/references/primitives.md`, because
+   `viddy --help` documents none of them. `--unfold` (`-w`) is not
    optional: without it, a live pane resize makes viddy WRAP its last (stale-width) frame instead
    of cropping it, visibly garbling a 3-row header into 5 for up to a full refresh cycle —
    confirmed by shrinking a sandbox pane mid-render. Add `--no-title` (`-t`) only when the
@@ -89,7 +91,11 @@ Enforce these in every pane you create or touch:
    renderer the project already has — `ls scripts/` for a `*view*.py` / `*pane*.py`, `scripts/watch-*`
    wrappers, or read what the tmux/tmuxp config already launches. Extend that instead of
    duplicating its data-loading logic; keep its default output unchanged and add a flag or
-   subcommand for the new view so other consumers don't break. If there is none, copy the bundled
+   subcommand for the new view so other consumers don't break. What you inherit is the *loader*,
+   not the invocation: a `scripts/watch-*` written before this standard is no evidence its flags
+   are right, and copying a sibling's command line is how rule 2's mandatory `-w` goes missing
+   from a brand-new pane while every visible sign says you matched the house style. Re-check the
+   flags against rule 2 after mirroring the shape. If there is none, copy the bundled
    starter into the project's `scripts/` and adapt it:
    ```bash
    cp "${CLAUDE_PLUGIN_ROOT}/scripts/renderer_template.py" scripts/<name>_view.py
@@ -143,6 +149,17 @@ this through from 3.7 onward and ignores it harmlessly before that.
    ```
 4. Build the renderer per the standard above, then run the **verify loop** (below).
 
+**Splitting a pane into an already-running window** is the same job with a sibling to pay for.
+`tmux split-window` takes the new pane's rows entirely from the pane it split, and tmux rebalances
+nothing afterwards — a 32-row pane becomes a 16 and a 15, and the one you weren't looking at is now
+half the height its renderer was sized for. So resize the column explicitly rather than leaving the
+accidental ratio (`tmux resize-pane -t <pane> -y <rows>`, or `select-layout` for an even column),
+then persist it, or the next `tmuxp load` hands the ratio back to chance: tmuxp splits panes with no
+size argument of its own (1.74.0, `workspace/builder/classic.py`), so the number lives in the
+**window's** `options:` — `main-pane-height` for a horizontal main, `main-pane-width` for a vertical
+one — and not on the pane entry. Finish with the sibling check in the verify loop, since the pane
+that shrank is the one nobody captures.
+
 ### redesign — reformat an existing pane
 
 1. Locate the pane: `tmux list-panes -s -t <session> -F "#{window_name} #{pane_id} #{pane_current_command}"`.
@@ -163,7 +180,15 @@ this through from 3.7 onward and ignores it harmlessly before that.
 1. `tmux list-panes -s -t <session> -F "#{window_name} #{pane_id} #{pane_current_command}"`.
 2. `tmux capture-pane -e -p -t <pane>` for each; flag violations: no ANSI colors in output,
    `clear`-loop wrappers, wall-of-text (no table/section structure), raw `tail`/`cat` panes,
-   non-local timestamps, flicker-prone full-redraw loops.
+   non-local timestamps, flicker-prone full-redraw loops, and `viddy` invoked without `-w`/`--unfold`
+   — which the wrappers answer faster than the panes do:
+   ```bash
+   grep -LE -- '--unfold|(^|[[:space:]])-[a-z]*w([[:space:]]|$)' scripts/watch-*   # -L: files MISSING it
+   ```
+   Match both spellings and allow the clustered short form (`-pw`), or the sweep reports wrappers
+   that are already correct and you learn to ignore it. This violation is worth sweeping for even
+   when every pane looks fine: it renders correctly right up until the pane is resized, and wrappers
+   copied from one another share the omission, so one pass clears the whole set.
 3. Report a per-pane verdict table (rendered to the standard, naturally), then fix via
    **redesign** on request.
 
@@ -195,13 +220,27 @@ were launched with, which is why "I edited it but nothing changed" happens. Afte
    `decorate/references/tmux-chrome.md`'s "Verifying rendered chrome" section instead.
 2. **Check width and resize behavior**, same isolated server. A single-size render misses two
    real classes of bug: overflow at other pane widths, and viddy re-wrapping a stale frame on a
-   live resize (rule 2) — both are cheap to catch here rather than after they ship:
+   live resize (rule 2) — both are cheap to catch here rather than after they ship.
+
+   Improvising the assertion is where this step quietly fails: `awk`'s `length()` counts bytes and
+   Python's `len()` counts code points, so a 96-column `─` divider measures 288 or 96 and a
+   byte-counting check reports "no line exceeds 106" about rows that visibly wrap. That is rule 4's
+   `vlen()` problem reappearing inside the harness meant to catch it — so measure in display
+   columns, strip SGR first, and budget against the pane **minus the wrapper's cut**, not the pane:
    ```bash
-   for w in 60 100 160; do TMUX_PANE_WIDTH=$w <renderer command> | <assert every line's width>; done
+   cols() { python3 -c 'import sys,re,unicodedata as u
+b=int(sys.argv[1])
+for i,l in enumerate(sys.stdin,1):
+    s=re.sub(r"\x1b\[[0-9;]*[A-Za-z]","",l.rstrip("\n"))
+    n=sum(0 if u.combining(c) else 2 if u.east_asian_width(c) in "WF" else 1 for c in s)
+    if n>b: print(f"line {i}: {n} cols > {b}")' "$1"; }
+   for w in 60 100 160; do TMUX_PANE_WIDTH=$w <renderer command> | cols $((w-1)); done   # -1: scrollbar
    tmux -L _tmuxdesign_sbx resize-window -t _sbx -x 60 && sleep 1 \
      && tmux -L _tmuxdesign_sbx capture-pane -e -p -t _sbx | head -5   # header row count unchanged?
    tmux -L _tmuxdesign_sbx kill-server
    ```
+   Silence is the pass. A check that prints its own "looks clean" banner will print it underneath
+   the offending lines too, and that reads as a pass at a glance.
 3. **Respawn the live pane** — `tmux respawn-pane -k -t <pane_id> "<command with absolute path>"`.
    Don't Ctrl-C + retype via send-keys: if the old process is mid-child-call the interrupt is
    swallowed and the typed command lands as inert text. Respawn is deterministic. Caveat: a
@@ -209,6 +248,14 @@ were launched with, which is why "I edited it but nothing changed" happens. Afte
    "Pane is dead" until the next full workspace launch.
 4. **Verify live** — `sleep 5 && tmux capture-pane -e -p -t <pane_id>`; confirm the new render
    and that `#{pane_current_command}` is the expected process (e.g. `viddy`). Iterate on failure.
+5. **If the change split a pane, verify the siblings too** — the loop above only ever looks at the
+   pane you touched, and a split is the one edit that changes a pane you didn't. Diff the
+   `list-panes` geometry against what it was before the split and `capture-pane -e -p` every pane
+   whose size moved. No respawn is needed: a renderer that reads `$TMUX_PANE` picks the new size up
+   on its next refresh. The capture is still worth its five seconds, because a content-fit renderer
+   *truncates* rather than scrolls — a halved sibling paints a clean, plausible, well-aligned frame
+   with its last rows simply absent, which passes every glance until someone asks why a row they
+   expect isn't there.
 
 ### Verifying an own-loop pane
 

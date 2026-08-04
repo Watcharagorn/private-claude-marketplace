@@ -210,6 +210,16 @@ Never pipe figlet through `lolcat` into anything width-aware — see rule 4 in t
   because the failure feeds itself: lines written to the full pane width wrap the moment the
   scrollbar takes that column, wrapping adds rows, and the extra rows keep the scrollbar there.
   Reserve the column and none of it starts.
+- **viddy scrolls by line, sideways as well as down, and only while nothing wraps.** `viddy --help`
+  documents no keybindings at all, so the map is recoverable only from the binary
+  (`strings "$(command -v viddy)" | grep Result`). On 1.3.1: `↑`/`↓`/`k`/`j` move **one line**,
+  `PgUp`/`PgDn`/`Ctrl-b`/`Ctrl-f` a page, `Ctrl-u`/`Ctrl-d` a half, `gg`/`Home` and `G`/`End` the
+  ends — and `←`/`→`/`h`/`l` scroll **horizontally**, which is what makes rule 2's mandatory `-w`
+  livable: with `-w` an over-wide row is cropped and its tail is still reachable sideways, while
+  without it the row wraps, and a wrapped row breaks vertical scrolling outright because one
+  logical row is no longer one screen row. viddy handles mouse events itself, so once tmux has
+  `mouse on` the wheel drives viddy's viewport rather than tmux copy-mode scrollback;
+  `--disable_mouse` hands the scrollback back.
 - **Measure after loading chrome, not before.** `pane-border-status top` costs a row per pane and
   the theme generator sets it, so a height measured before the theme loads is one row too generous
   for every pane. `#{pane_height}` reports the true post-border size once it's on.

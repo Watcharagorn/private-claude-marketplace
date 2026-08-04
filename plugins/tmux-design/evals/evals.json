@@ -25,7 +25,7 @@
     {
       "id": 5,
       "prompt": "Audit my tmux panes and tell me which ones need work.",
-      "expected_output": "Lists panes with `tmux list-panes -s -F \"#{window_name} #{pane_id} #{pane_current_command}\"`, captures each with `tmux capture-pane -e -p`, and flags: absent ANSI color, clear-loop wrappers, wall-of-text with no structure, raw tail/cat panes, non-local timestamps, flicker-prone full redraws. Reports a verdict table rendered to the standard, and stays read-only until asked to fix."
+      "expected_output": "Lists panes with `tmux list-panes -s -F \"#{window_name} #{pane_id} #{pane_current_command}\"`, captures each with `tmux capture-pane -e -p`, and flags: absent ANSI color, clear-loop wrappers, wall-of-text with no structure, raw tail/cat panes, non-local timestamps, flicker-prone full redraws, and viddy invoked without -w/--unfold (a sweep over scripts/watch-*, since copied wrappers share the omission). Reports a verdict table rendered to the standard, and stays read-only until asked to fix."
     },
     {
       "id": 6,
@@ -86,6 +86,11 @@
       "id": 17,
       "prompt": "Polish my `invest` tmux workspace to maximize the UX — the panes, the status bar, the borders, all of it.",
       "expected_output": "A whole-workspace request that lands in console but crosses into decorate's territory. Wires and verifies panes in console, but hands off to tmux-design:decorate BEFORE writing any chrome: does not hand-author `status-*` / `window-status-*` / `pane-border-*` as raw `colour###` or hex literals, and does not bake a color into a `#()` status-helper script. Gets the theme from decorate (which asks whether the terminal is light or dark, and matches an already-themed sibling session by naming the closest bundled theme rather than copying its numbers) and sets TMUX_DESIGN_THEME so panes and chrome agree. Notes that tmux_theme.sh emits global `set -g` options, which restyles every session on the server."
+    },
+    {
+      "id": 18,
+      "prompt": "Add a triggers pane to the right-hand column of my running monitor window — split it off the strategy pane.",
+      "expected_output": "Splits with tmux split-window, then recognizes that the split took its rows from the strategy sibling and that tmux rebalances nothing: resizes the column explicitly (tmux resize-pane -y, or select-layout) instead of keeping the accidental ratio, and persists it in the WINDOW's options: (main-pane-height/main-pane-width) — not a per-pane size: key, which tmuxp has no such thing. Runs the verify loop on the new pane AND captures the shrunken sibling (verify-loop step 5), since a content-fit renderer truncates rather than scrolls and a halved sibling renders a clean-looking frame with its bottom rows missing. New wrapper is checked against rule 2's flags rather than copied wholesale from a sibling watch-* script, so -w/--unfold is present."
     }
   ]
 }
