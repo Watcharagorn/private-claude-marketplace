@@ -18,7 +18,7 @@
     },
     {
       "name": "tmux-design",
-      "description": "A design standard for tmux console surfaces: every pane renders themed, column-correct, in-place-refreshing content instead of raw text. One skill wires panes up and verifies them live via a sandbox → respawn → capture loop; the other owns the visual vocabulary — named themes with truecolor degradation, drawing primitives, and status-bar and pane-border chrome.",
+      "description": "A design standard for tmux console surfaces: panes render themed, column-correct, in-place-refreshing content instead of raw text, verified live in the pane rather than assumed from a file edit.",
       "source": "./plugins/tmux-design",
       "category": "development"
     }

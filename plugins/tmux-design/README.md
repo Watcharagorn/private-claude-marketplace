@@ -23,7 +23,7 @@ Two skills split the job cleanly:
 
 | Skill | Role |
 |---|---|
-| `console` | The 8-rule standard, three actions (**setup** / **redesign** / **audit**), the viddy refresh rules, and the sandbox → respawn → capture verify loop. |
+| `console` | The 9-rule standard, three actions (**setup** / **redesign** / **audit**), the viddy refresh rules, and the sandbox → respawn → capture verify loop. |
 | `decorate` | Semantic roles and named themes, drawing primitives, display-column width math, and tmux chrome. References load on demand: `palette.md`, `primitives.md`, `tmux-chrome.md`, `tooling.md`. |
 
 ## What's in it

@@ -3,16 +3,17 @@ name: console
 description: >-
   Set up, redesign, and audit tmux windows/panes so every console surface shows formatted,
   live-refreshing content (tables, gauges, TUIs) — never raw text. Owns pane WIRING and
-  verification: tmuxp layouts, viddy/watch refresh, renderer wrappers, lnav log formats, and the
-  sandbox → respawn-pane → capture-pane loop that makes pane edits actually appear. Use whenever
-  the task touches tmux or tmuxp — adding or changing a window, pane, or layout; redesigning what
-  a pane displays; making terminal output "a table"; fixing a flickering, raw, stale, or
+  verification: tmuxp layouts, viddy/watch refresh, renderer wrappers, lnav formats, and the
+  sandbox → respawn → capture loop that makes pane edits actually appear. Use whenever
+  the task touches tmux or tmuxp — adding or changing a window, pane or layout; redesigning what
+  a pane displays; adding a hotkey that toggles what a pane shows; making
+  terminal output "a table"; fixing a flickering, raw, stale or
   monochrome pane; building an lnav log format; or when an edited pane script "isn't showing
   changes". Reach for it even when the user never says "tmux" — "why is my watch pane stale"
-  counts. Trigger phrases — "audit my tmux panes", /tmux-design:console
-  [setup|redesign|audit]. For how a surface should LOOK — themes, boxes, bars, sparklines,
-  badges, status-bar and border styling — use tmux-design:decorate; a whole-workspace polish
-  runs both.
+  counts. Trigger phrases — "audit my tmux panes", "add a shortcut to this pane",
+  /tmux-design:console [setup|redesign|audit]. For how it should LOOK — themes, boxes,
+  bars, badges, status-bar and border styling — use tmux-design:decorate; a whole-workspace
+  polish runs both.
 ---
 
 # Console design for tmux panes
@@ -146,6 +147,54 @@ Enforce these in every pane you create or touch:
 8. **Refresh cadence matches data cadence** — 90s for fast-moving state, 120s+ for slow. Render
    only the data the pane needs: never run a full fetch to display one section (the pane refreshes
    forever; wasted calls compound).
+9. **A keybinding advertises itself, and outlives the server.** A binding that changes what a pane
+   shows — a view toggle, a filter, a sort flip — is invisible on a surface that is only ever glanced
+   at, so wiring it is not shipping it. `list-keys` can print the binding, the sandbox can fire it,
+   the pane can redraw, and the feature still be unusable today and gone tomorrow.
+
+   **Advertise it in the content.** A row the renderer prints itself — `prefix+h → tree view`, in the
+   kit's `DIM` role rather than a literal dim attribute, so a theme swap still reads it — is the
+   default, because content is the one channel `capture-pane -e` can verify. A `[bars]`/`[tree]`
+   suffix in the pane title is a fine addition on a workspace already paying for
+   `pane-border-status top`, but never a substitute: the default is `off`, `capture-pane` never
+   returns borders (see the verify loop), and `display -p '#{pane_title}'` hands back the title
+   regardless — so a title-only hint can be set, confirmed, and shipped invisible. Checking that one
+   needs the read-only-attach probe in `decorate/references/tmux-chrome.md`'s "Verifying rendered
+   chrome".
+
+   **Budget its row in the same pass, on every branch.** The hint costs a content row, so it belongs
+   in the height math `redesign` step 2 already asks for — reserved unconditionally, not only on the
+   branch that already truncates. Retrofitting is never one edit: the row re-opens a budget the table
+   was sized against, so the fix lands in the renderer's budget, in every view branch, and in the
+   docs. Reserve it even when the pane looks roomy, for the reason `primitives.md` gives about
+   viddy's scrollbar column — one more row toward the threshold is what starts the
+   wrap-feeds-scrollbar cycle.
+
+   **Choose the key from the tradeoff, not a hunch** — there are three shapes and no default worth
+   recommending blind. `bind -T prefix <k>`: collision-safe inside the prefix table, two keystrokes,
+   invisible without the hint above. `bind -n <k>`: one keystroke, and it takes that key from every
+   program in every pane on the server while it stays bound. `bind -n <k> if-shell -F '<the pane's
+   own condition>' '<action>' 'send-keys <k>'`: one keystroke with no theft, at the cost of a
+   condition that must identify the pane correctly — a wrong one steals the key silently. Function
+   keys are the cheap candidates; most TUIs don't claim them. Check collisions against the whole
+   table — `tmux list-keys -T prefix | grep -E "^bind-key +-T prefix +<k> "` — because the obvious
+   shortcut lies: `list-keys -T prefix <k>` prints nothing and exits 0 whether the key is bound or
+   free (3.7b), so it reads "available" for every key you ask about. Key tables are **server**-wide
+   (`list-keys` takes no `-t`), so the collision surface is every session on that socket.
+
+   **Persist it where the workspace is rebuilt from.** tmuxp has no yaml key for a binding — its
+   `options:`/`global_options:` map to `set-option` only (1.74.0, `workspace/builder/classic.py`) —
+   and key tables are server state, not session options. So a `bind-key` typed at a prompt is this
+   skill's own founding failure with no file to point at: it dies with the server, and the next
+   `tmuxp load` brings the pane back without it. Put the `bind-key` in a repo-owned file the launcher
+   sources after `tmuxp load`, or generate a file the user includes from their own config — the
+   pattern `decorate/references/tmux-chrome.md` already prescribes for themes. Then `list-keys` on
+   the **user's** server earns its keep: worthless in the sandbox, it is the only evidence there that
+   the binding actually loaded.
+
+   Verify it per "Verifying a pane keybinding" below. There is deliberately no `audit` sweep for this
+   rule — `list-keys` cannot say which pane a binding targets, so a sweep would flag correct
+   bindings, and a check that flags correct work is one you learn to ignore.
 
 A finished workspace has three moving parts: a declarative `.tmuxp.yaml` (or tmux config), one
 small `scripts/watch-<name>` wrapper per non-interactive pane, and one renderer that each wrapper
@@ -381,6 +430,73 @@ exists — the marker gives you something to wait for and the sleep holds the se
 Assert the **side effect**, not the frame: a TUI paints a plausible "saved" frame whether or not the
 write landed, and the datastore row is the only evidence that it did.
 
+### Verifying a pane keybinding
+
+A `bind-key` lives in the **client's** key dispatch, not in the pane's stdin, so nothing in the loop
+above reaches it and `send-keys` aimed at the session under test cannot fire it: `send-keys -t
+<target> C-b` then `h` writes two bytes to whatever the pane is running, the binding never runs, and
+both sends exit 0 (measured, 3.7b) — a pass-shaped failure in the only step that could have caught
+it. `list-keys` is no substitute here; in the sandbox it proves the bind took, not that pressing the
+key does anything. Drive it through a real attached client:
+
+```bash
+sbx()  { tmux -L _tmuxdesign_sbx  "$@"; }
+view() { tmux -L _tmuxdesign_view "$@"; }             # a second server holding nothing but the client
+pane=_sbx:<win>.<idx>
+await_opt() {   # the previous subsection's await, watching an option instead of a frame
+  for _ in $(seq 40); do
+    [ "$(sbx show -p -v -t "$pane" "$1" 2>/dev/null)" = "$2" ] && return 0
+    sleep 0.25
+  done
+  echo "timeout: $1 never became $2" >&2; sbx capture-pane -e -p -t "$pane" >&2; return 1
+}
+sbx set -g window-size manual                          # or the client's size silently becomes the pane's
+sbx source-file <the repo file holding the bind-key>   # step 1's -f /dev/null means it isn't loaded yet
+view -f /dev/null new-session -d -s _view -x 200 -y 50 \
+  "TMUX= tmux -L _tmuxdesign_sbx attach -t _sbx"       # TMUX= or the client refuses to nest
+sleep 1
+sbx select-pane -t "$pane"                             # #{pane_id} resolves against the ACTIVE pane
+p=$(sbx show -gv prefix)                               # read the prefix; never hardcode C-b
+view send-keys -t _view "$p" && sleep 0.3 && view send-keys -t _view h
+await_opt @<mode> tree && sbx capture-pane -e -p -t "$pane" | head -5
+view kill-server; sbx kill-server
+```
+
+Every line there is load-bearing, and each one fails quietly:
+
+- **`TMUX=`.** A client launched inside a tmux pane refuses to nest, and the session created to hold
+  it dies with it — ask a second later and tmux answers `can't find session`, so the capture races a
+  client that never existed. Same clearing the chrome probe in
+  `decorate/references/tmux-chrome.md` does, for the same reason.
+- **A second socket, and never the ambient server.** A viewer on the user's live server does work,
+  and leaks a session into their workspace — the leak step 1's explicit `-L` exists to prevent.
+  Address the viewer with the socket it lives on, too: a `-L foo` viewer poked by a bare
+  `tmux send-keys -t viewer` is a different server, and on the ambient one target names
+  *prefix-match*, so that stray send can land in a live session whose name merely starts the same.
+- **`window-size manual`.** A 200×50 client turns a 100×30 sandbox into 200×49 and it does **not**
+  revert when the client dies, so every later capture answers a question about a width nobody asked
+  for. `-r` is not the lever here even though the chrome probe uses it: a read-only client dispatches
+  no bindings, so the keys you send do nothing (measured) — and `ignore-size` alone doesn't hold the
+  size either when it is the only client.
+- **Read the prefix.** Under `prefix C-a` a hardcoded `C-b` + `h` leaves the option unset after two
+  exit-0 sends — this subsection's own failure mode, reintroduced by its own first keystroke.
+- **Poll, don't sleep** — for the reason the previous subsection gives; `show -p -v` on an unset user
+  option exits 1, so the wait is assertable rather than eyeballed.
+
+Assert the option the binding sets **and** that the pane changed. Either alone is pass-shaped: a
+toggle whose script died leaves the previous frame on screen, and a toggle that sets the option but
+fails to respawn leaves the option right and the frame stale — so take the two differing captures
+"Verifying an own-loop pane" takes.
+
+On the user's real session, don't re-send a prefix; the sandbox already proved the binding. Run what
+it runs — `run-shell -t <pane> "<the binding's command verbatim>"` expands `#{pane_id}` against `-t`,
+so nothing needs hand-resolving — and drop the `-b` while you do. `run-shell -b` returns 0 for a
+missing script, a cleared execute bit or a crash and logs nothing to `show-messages`, which is
+precisely why a keypress can never report failure; without `-b` you get 127, or the script's own exit
+status, back. If the command prints anything it leaves that pane in view-mode
+(`#{pane_in_mode}` → 1), which will poison the step-4 capture — `send-keys -X cancel` first, or run
+the script yourself and resolve the id with `display -p -t <pane> '#{pane_id}'`.
+
 ## Log-viewer panes (lnav)
 
 Raw log lines in an lnav pane still violate the standard — the fix is a format file, so fields
@@ -394,4 +510,7 @@ SQL validation loop.
 - Every touched pane shows colored, structured content live in the real session (verified by
   `capture-pane -e`, not assumed from a successful file edit).
 - `.tmuxp.yaml` + wrapper scripts reproduce the design on the next `tmuxp load`.
+- Any keybinding added is visible in the pane's own content, persisted in a file the launcher reloads
+  (tmuxp cannot carry it), and was driven through a real attached client — not inferred from
+  `list-keys` in the sandbox, and not from a title suffix `capture-pane` can never see.
 - No `clear`-loops, no raw-text panes, timestamps localized, palette consistent.
