@@ -34,7 +34,10 @@ Two skills split the job cleanly:
     install + SQL validation. Loaded only when a pane tails a log.
   - `references/verifying-pane-shapes.md` — the three pane shapes that never settle for a capture:
     a renderer that owns its own paint loop, a keystroke-driven TUI, and a `bind-key` (which lives
-    in the client's key dispatch, where no `send-keys` at the pane can reach it).
+    in the client's key dispatch, where no `send-keys` at the pane can reach it). Includes
+    verifying an own-loop pane inside a live, multi-window session, where the viewer gate makes
+    `capture-pane` come back empty and exit 0 — and how to give the window a viewer through a
+    grouped probe session instead of stealing the user's focus.
 - `skills/decorate/` — the visual standard.
   - `references/palette.md` — the semantic roles, seven themes (six in hex, plus the original 256-index palette), the color-depth
     ladder, the 256-quantization trap, contrast and colorblind guidance.

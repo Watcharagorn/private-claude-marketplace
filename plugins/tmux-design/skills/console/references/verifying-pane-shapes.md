@@ -24,10 +24,14 @@ A pane whose renderer owns its own paint loop (rule 2) never settles, so three t
   flag: one synchronous fetch, one paint, exit); that is the artifact to sandbox. Because it exits
   by itself, the `| cat; sleep 60` + `sleep 5` scaffolding collapses to `| cat` and an immediate
   capture — keep the `| cat`, for the same reason as above.
-- **The one-shot must bypass the inactive-window paint skip.** A sandbox session is detached, so a
-  loop that declines to paint an inactive window paints *nothing* here and the capture comes back
-  empty — a pass-shaped failure in the one step meant to catch it. Gate that skip on "not
-  one-shot".
+- **The one-shot must bypass the viewer gate.** A sandbox session is detached and nothing is attached
+  to it, so `#{window_active_clients}` is 0 (measured, 3.7b) and a loop that declines to paint when
+  nobody is viewing paints *nothing* here: the capture comes back empty **and exits 0**, a
+  pass-shaped failure in the one step meant to catch it. Gate that skip on "not one-shot".
+  This is also the sharpest argument for `primitives.md` gating on the viewer count rather than
+  `#{window_active}` — a detached sandbox's only window *is* its session's current window, so it reads
+  `window_active=1` (measured) and a `window_active`-gated loop paints here quite happily. That
+  version of the gate hides its own bug in the sandbox and ships it to the pane.
 - **Step 2 measures the one-shot, and its resize half runs the loop itself.** Wherever the check
   pipes `<renderer command>` into `check_cols.py` — step 2's width sweep, and rule 7's
   foreign-language branch — an own-loop renderer **hangs** it: the check reads stdin to EOF and the
@@ -42,11 +46,109 @@ A pane whose renderer owns its own paint loop (rule 2) never settles, so three t
 - **Step 4's process assertion changes.** `#{pane_current_command}` is the loop's own process, never
   `viddy` — assert that instead, and assert the frame *differs* between two captures a second
   apart, which is the only direct evidence the loop is still running rather than stopped on a
-  plausible-looking frame.
+  plausible-looking frame. **Assert both captures are non-empty before comparing them**, or the check
+  inverts: two *blank* captures are equal, so a diff that finds no change reports "a live loop stopped
+  on a good frame" about a pane painting nothing at all. And under a correct viewer gate the diff
+  cannot hold when nobody is attached — the loop paints its first frame and then legitimately stops,
+  making two captures a second apart identical *by design*. So when `#{window_active_clients}` is 0,
+  take liveness from `freshness()` or the cache file's mtime across its atomic rename, exactly as
+  step 4 does for a two-clock pane, and take the frame diff in the sandbox where the loop runs under a
+  shrink. An assertion that cannot pass is the one that gets abandoned — the argument step 2 makes
+  about itself above. **Verifying this pane in the user's live session has its own procedure**, below,
+  because that is where the gate turns into a blank capture.
 
 If Ctrl-C is wired to force an immediate refresh instead of exiting — reasonable for a monitoring
 pane — then `respawn-pane`/`kill-pane` is the only way to stop it, and step 3's "Pane is dead"
 caveat applies with nothing to work around it.
+
+### Verifying an own-loop pane inside a live, multi-window session
+
+Everything above verifies the *renderer*. Step 4 verifies *this pane*, in the user's real session, and
+that is where the viewer gate turns into a blank capture. A workspace has one current window and n−1
+that are not; `tmuxp load -d` leaves the whole session unviewed. A gated loop paints nothing in any of
+them, and then **all three of step 4's signals agree it is healthy**: the capture is empty but exits
+0, `#{pane_dead}` reads 0 because the loop is alive and waiting, and the two-capture diff finds no
+change. This is the plugin's own worst case — not an error, an answer — and it is the default state of
+every window an agent didn't happen to be looking at.
+
+**Diagnose before acting.** One query separates the causes, and costs nothing:
+
+```bash
+tmux display -p -t <pane_id> \
+  'dead=#{pane_dead} win=#{window_active} viewers=#{window_active_clients} attached=#{session_attached}'
+```
+
+`dead=1` is a broken renderer — step 4's existing check owns it. `viewers=0` is the gate working as
+designed: not a failure, and not something to debug. Blank with `viewers` ≥ 1 and `dead=0` is the
+real bug. Note the target **type** decides what `window_active` means, which is a trap worth knowing
+before you read one: `-t <pane_id>` resolves against the session where that window is current, while
+`-t <session>:<window>` resolves in that session — so the same window can answer 1 and 0 to the two
+spellings (measured, 3.7b). A renderer asking through `$TMUX_PANE` gets the first.
+
+**The cheapest fix is sequencing, not tmux gymnastics.** Batch step 3 by window and make the window
+viewable *before* respawning the panes in it, so the first frame lands while a client is watching —
+one select per window, not one per capture. Then, cheapest-first:
+
+1. **`attached=0` → select freely.** Nothing is looking at this session, so there is no focus to
+   steal. This is the normal shape for a workspace built with `tmuxp load -d`.
+2. **Attached → give the window a viewer without touching the user's view, via a grouped probe.**
+   `new-session -t <session>` joins the target's session group: the windows are shared, but the
+   current window is per-session (`man tmux`: "The current and previous window ... remain
+   independent"), so the probe can make the target window current while the user's session stays put.
+   Attach a **read-only** client to the probe and the window has a viewer:
+   ```bash
+   win='<session>:<window>'
+   tmux new-session -d -s _tdprobe -t '<session>'   # shares windows; its current window is its own
+   tmux set -w -t "$win" window-size manual         # BEFORE the client — see below
+   tmux select-window -t '_tdprobe:<window>'        # only the PROBE's current window moves
+   tmux -L _tdprobe_view -f /dev/null new-session -d -s V -x 200 -y 50 \
+     "TMUX= tmux attach -r -t _tdprobe"             # -r read-only; TMUX= or the client won't nest
+   sleep 2                                          # one paint tick, not a guess at the fetch cadence
+   tmux capture-pane -e -p -t <pane_id>
+   tmux -L _tdprobe_view kill-server                # teardown, in this order
+   tmux kill-session -t _tdprobe
+   tmux set -w -t "$win" -u window-size             # the leak — never skip this
+   ```
+   Measured end to end on 3.7b: during the probe the window reads `window_active_clients=1` while the
+   user's session's current window is **unchanged**, and afterwards the window's size, its
+   `window-size` option, the session's current window and the viewer count are all back exactly where
+   they started. Killing a group member is safe (`man tmux`: any session in a group may be killed
+   without affecting the others). Because a pane target resolves to the session where its window is
+   current, `display -p -t <pane_id> '#{window_active}'` also answers **1** here — so this route
+   unblanks a loop gated either way, including a renderer you can't edit.
+
+   Two lines are load-bearing and both fail quietly:
+   - **`window-size manual`, set before the client attaches.** `-r` is *not* the size lever here — a
+     read-only 200×50 client still resized an 80×24 shared window to 200×49, and it did **not** revert
+     when the client died (measured, 3.7b). On a grouped session that reflows a window the user's
+     session shares, so every later capture answers a question about a width nobody asked for. This is
+     the same hazard the keybinding subsection documents below, and sizing the viewer to match doesn't
+     dodge it either: an exactly-matched client still costs a row to its own status line (80×24 →
+     80×23, measured).
+   - **`set -w -u window-size` on teardown.** The option is a **window** option and the window is
+     shared, so it outlives the probe: measured, it was still `manual` on the user's window after the
+     probe session was killed, having been unset before. Fixing a blank capture by permanently
+     changing how the user's window resizes is not a fix.
+3. **Focus theft, last** — for a session you can't probe. Record the current window, select the
+   target, wait one paint tick, capture, restore, **all in one bash invocation**: a capture that fails
+   between the select and the restore leaves the user's focus parked on a pane they weren't looking
+   at, which is how the improvised version of this ends. Record and restore by **id** (`#{window_id}`
+   `@N`), never name or index — session and window targets prefix-match and glob (`=` forces exact),
+   and indexes shift under `renumber-windows` or a window the user opens mid-probe.
+   ```bash
+   orig=$(tmux display -p -t '<session>' '#{window_id}')
+   tmux select-window -t '<session>:<window>'
+   sleep 2 && tmux capture-pane -e -p -t <pane_id>
+   tmux select-window -t "$orig"
+   ```
+   Name its costs rather than implying a clean revert. **`last-window` is rewritten**: measured on
+   3.7b, select→restore moves the last-window flag onto the window you probed, so the user's
+   `prefix-l` now goes there; restoring that too means `select-window <orig_last>; select-window
+   <orig>`, which clears alerts on a third window — say the cost, don't hide it. **Every attached
+   client jumps**, which is the whole reason this ranks last. What you *don't* owe is a pane restore:
+   each window keeps its own active-pane pointer and `select-window` doesn't touch it (measured —
+   away and back left the active pane where it was). Only a `select-pane` owes one, which is why the
+   keybinding subsection below restores it.
 
 ## Verifying a keystroke-driven pane
 

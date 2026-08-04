@@ -297,8 +297,22 @@ Requirements of owning the loop:
 - **Wrap each frame in synchronized output** (above). A sub-second full-frame repaint is the
   highest tearing-risk surface in this guide; it composes with home-and-overwrite rather than
   replacing it, so this is not a choice between recipes.
-- **Stop painting when the window is inactive** (`#{window_active}`) while still refreshing data —
-  animating a pane nobody is looking at burns a core to no effect.
+- **Stop painting when nobody is viewing** (`#{window_active_clients}`) while still refreshing data —
+  animating a pane nobody is looking at burns a core to no effect. Gate on the **viewer count, not
+  `#{window_active}`**: `window_active` means "this window is its session's current window", which is
+  1 in a fully **detached** session (measured, 3.7b — a detached session's current window reads
+  `window_active=1`, `window_active_clients=0`), so a `window_active` gate animates at full cadence
+  for an audience of nobody, the exact waste this rule exists to prevent. `window_active_clients` is
+  0 there, and 1 as soon as any client views the window, including a read-only one.
+  Two halves of this are easy to leave out, and each one leaves a **blank pane** — the failure mode
+  `console`'s verify loop then has to diagnose. **Paint the first frame unconditionally**, before the
+  gate can suppress anything: a fresh or respawned pane's screen grid is empty, so a gate applied to
+  frame 1 leaves nothing on screen and is indistinguishable from a renderer that died — the same
+  reason this section already insists on painting both waiting states. And **repaint on becoming
+  viewed**, not at the next slow tick: if the gate is only re-read on the fetch cadence, a window the
+  reader just switched to stays blank for up to rule 8's 90–120s, which is the staleness the gate was
+  supposed to be saving effort for. Re-read the gate on the slow clock or every Nth frame rather than
+  every frame — the query is a `tmux` fork, and one per paint burns the core this rule is protecting.
 - **Refetch on resize**, so the body refits now rather than at the next slow tick.
 - **Keep a one-variable path back to a static refresher.** An own loop is the most fragile thing in
   the pane; falling back to `viddy` by flipping one environment variable is what makes it safe to

@@ -451,9 +451,33 @@ were launched with, which is why "I edited it but nothing changed" happens. Afte
    tmux -L _tmuxdesign_sbx kill-server 2>/dev/null   # a leaked sandbox doesn't error — it ANSWERS
    tmux -L _tmuxdesign_sbx -f /dev/null new-session -d -s _sbx -x <w> -y <h> \
      "<renderer command> | cat; sleep 60" \
-     && sleep 5 && tmux -L _tmuxdesign_sbx capture-pane -e -p -t _sbx | head -30
+     && sleep 5 && cap=$(tmux -L _tmuxdesign_sbx capture-pane -e -p -t _sbx)
    tmux -L _tmuxdesign_sbx kill-server
+   printf '%s' "$cap" | tr -d '[:space:]' | grep -q . \
+     || echo "EMPTY CAPTURE — this step proved nothing"
+   printf '%s\n' "$cap" | head -30
+   printf '%s\n' "$cap" | sed -n l | head -5    # the bytes themselves, for the SGR check above
    ```
+   **Assert the capture is non-empty**, rather than piping it straight to `head`. A blank pane prints
+   nothing and exits 0, so the unasserted form prints nothing and says nothing — a clean-looking pass
+   for a renderer that exited before printing (the normal outcome when a refactor broke one view) or
+   declined to paint at all, and this is the one step whose entire job is catching that. Verified both
+   ways on 3.7b: a renderer that exits 0 silently yields a zero-length capture and the guard fires,
+   while the unasserted form emits nothing at all. It is the same guard the own-loop and
+   keystroke-driven shapes each need for their own reasons
+   (`references/verifying-pane-shapes.md`), and the same shape as `check_cols.py` exiting 0 on zero
+   lines. `tr -d '[:space:]'` because a capture of a painted-then-cleared pane is rows of blanks
+   rather than an empty string.
+
+   Note what a non-empty capture buys you beyond the assertion: **stderr lands in the pane too**
+   (measured — a renderer that dies writing to stderr shows its message in the capture), so printing
+   the capture after the guard usually hands you the actual error rather than just the absence of a
+   frame.
+
+   `sed -n l` is how you look at the bytes to tell real SGR output from literal `[38;5;…m` garbage —
+   it renders escapes as `\033[1m…` and is portable. Reach for it rather than `cat -A`, which is a GNU
+   flag: on macOS `cat -A` fails with `cat: illegal option -- A` (measured), and a verification step
+   that errors out is one that gets skipped.
    Open with the `kill-server`, on every sandbox block in this loop. If a previous run aborted before
    its own teardown, `new-session` fails with `duplicate session: _sbx`, the `&&` drops the capture
    that would have told you — and the next command in the block still succeeds against the **stale**
@@ -495,11 +519,27 @@ were launched with, which is why "I edited it but nothing changed" happens. Afte
    tmux -L _tmuxdesign_sbx kill-server 2>/dev/null
    tmux -L _tmuxdesign_sbx -f /dev/null new-session -d -s _sbx -x 100 -y 30 \
      "viddy -p --unfold -n 2 -- <renderer command>" && sleep 3 \
-     && tmux -L _tmuxdesign_sbx capture-pane -e -p -t _sbx | head -5   # header rows before
+     && wide=$(tmux -L _tmuxdesign_sbx capture-pane -e -p -t _sbx)
    tmux -L _tmuxdesign_sbx resize-window -t _sbx -x 60 && sleep 3 \
-     && tmux -L _tmuxdesign_sbx capture-pane -e -p -t _sbx | head -5   # header row count unchanged?
+     && narrow=$(tmux -L _tmuxdesign_sbx capture-pane -e -p -t _sbx)
    tmux -L _tmuxdesign_sbx kill-server
+   for c in "$wide" "$narrow"; do
+     printf '%s' "$c" | tr -d '[:space:]' | grep -q . || echo "EMPTY CAPTURE — this half proved nothing"
+   done
+   [ "$wide" = "$narrow" ] \
+     && echo "IDENTICAL at 100 and 60 — the resize never reached the pane; this half proved nothing"
+   printf '%s\n' "$wide"   | head -5
+   printf '%s\n' "$narrow" | head -5    # the SAME header row count, re-wrapped — not more rows
    ```
+   The two mechanical assertions are the whole of what can be *asserted* here, and both catch a
+   pass-shaped failure the eyeball version misses. An **empty** capture makes the comparison
+   meaningless. A **bit-identical** pair means the `resize-window` never reached the pane at all — the
+   commonest way this half silently passes, since a stale-width wrap and a pane that was never resized
+   look the same in a capture you only skim. Comparing the header rows themselves stays a *read*,
+   deliberately: a capture is already hard-wrapped at pane width (the reason spelled out at the end of
+   this step), so `check_cols.py` can't measure it, and reaching for `awk 'length($0) > 60'` instead
+   would re-introduce the very byte-counting bug this step exists to catch. What you are looking for is
+   the header block occupying **more rows** at 60 than at 100.
    Silence **and a zero exit** is the pass — `check_cols.py` exits non-zero when any line is over,
    so the check is assertable rather than eyeballed. A check that prints its own "looks clean"
    banner will print it underneath the offending lines too, and that reads as a pass at a glance.
@@ -576,9 +616,13 @@ were launched with, which is why "I edited it but nothing changed" happens. Afte
    edited=scripts/<the file you changed>
    pat=$(printf '%s\n' "$edited" $(grep -rl "$(basename "$edited")" scripts/watch-* 2>/dev/null) \
         | xargs -n1 basename | sort -u | paste -sd'|' -)
-   tmux list-panes -s -t <session> -F '#{pane_id} #{pane_dead} #{pane_start_command}' \
+   tmux list-panes -s -t <session> \
+     -F '#{pane_id} #{pane_dead} #{window_active_clients} #{pane_start_command}' \
      | grep -E "$pat"
    ```
+   `#{window_active_clients}` rides along for the same reason `#{pane_dead}` does — step 4 needs it to
+   tell a broken renderer from an own-loop pane in a window nobody is viewing, and reading it here
+   costs nothing.
    **An empty result is a finding, not a pass.** `#{pane_start_command}` is only populated for a pane
    tmux launched *with* a command; a pane started as a shell that was then fed its command by
    `send-keys` reports an empty string (measured, 3.7b) — and that is how tmuxp builds panes. So a
@@ -602,6 +646,16 @@ were launched with, which is why "I edited it but nothing changed" happens. Afte
    after a respawn reads as "it hasn't painted yet, give it another second", which is why this one
    survives a careful look. `#{pane_dead}` says so in one field, and `#{pane_dead_status}` carries the
    exit code that explains it — both already in step 3's format string, so this costs nothing.
+
+   **A blank capture has a second cause, and `#{pane_dead}` reads 0 for it.** An own-loop pane that
+   gates painting on `#{window_active_clients}` (`decorate/references/primitives.md`) paints nothing in
+   a window nobody is viewing — which is every window but the current one, and *all* of them in a
+   session started with `tmuxp load -d`. The loop is alive and waiting, so `pane_dead` is 0, the
+   capture is empty, and it exits 0. Check `#{window_active_clients}` from step 3's format before
+   concluding anything about a blank own-loop pane, and follow the live-session procedure in
+   `references/verifying-pane-shapes.md` ("Verifying an own-loop pane inside a live, multi-window
+   session") — it gives the window a viewer without stealing the user's focus. Never read the gate's
+   own correct behavior as a broken renderer.
    Respawn rather than waiting out the interval, too — **and not only after an edit**. These panes
    refresh every 90–120s by rule 8, so a capture taken before the first tick shows the pre-edit frame
    and sends you debugging a renderer that was never wrong. The same holds when what changed was
