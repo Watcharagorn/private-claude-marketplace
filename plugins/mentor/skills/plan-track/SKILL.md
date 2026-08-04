@@ -267,16 +267,29 @@ here rather than straight from `mentor:planning`:
   implementation agent's prompt, so the sibling boundary travels with the work.
 - When the plan states **`Dispatch: skipped`**, there are no agents to dispatch —
   implement in the main thread under `mentor:planning` Step 6's rule for that case, and keep
-  everything around it (step ticks — `✅` appended to the step's own `Step N — …` line, the
-  only line mentor counts — `Done when:` verification, the **No busy-wait** rule
-  from `mentor:dispatch-agents`, close-out) exactly as the dispatch path does it.
-  Arriving here does not make that path unowned.
+  everything around it (step ticks, `Done when:` verification, the **No busy-wait** rule
+  from `mentor:dispatch-agents`, and its **CLOSING CHECKLIST** — the `/mentor:tour`
+  offer and the `/mentor:defer` sweep) exactly as the dispatch path does it.
+  Arriving here does not make that path unowned. A skipped plan usually writes its
+  steps as plain numbered items rather than `Step N — …` lines, so **that numbered
+  item is the step's own line** — the one the `✅` goes on. Mentor counts either
+  form; what it cannot see is a tick on an indented `Done when:` or any other
+  sub-line.
 
 ## Step 4 — Close out
 
 When every `Done when:` has passed, `set <slug> implemented`. When the remediation
 re-dispatch has failed and you are escalating to the user, `set <slug> failed --note
 "<what broke>"` — the note is what makes the retry cheap next time.
+
+**Reconcile the ticks before writing `implemented`.** Read this plan's
+`steps: {ticked, total}` from `plan-state.sh overview --json`; if `ticked < total`,
+either tick the step lines that actually passed or tell the user which steps are
+closing untracked and why. Nothing downstream will catch this for you: the
+tick-derived state is deliberately one-directional, so it can *raise* a stale
+sidecar but stays silent when there are no ticks to read — a plan closed at 0 of 6
+draws no warning here and simply resurfaces as `implemented (0/6 steps)` in a later
+hierarchy, with nothing left to explain the gap.
 
 Then report what is left (re-running Step 1's hierarchy is enough) and, if the group has more plans,
 recommend a **fresh session** for the next one: a plan that just consumed a full

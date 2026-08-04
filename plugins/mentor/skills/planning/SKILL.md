@@ -17,7 +17,8 @@ The flow: resolve the mode & load the constitution → clarify if needed →
 research (delegation suggested) → domain routing → resolve open decisions
 with the user → write the Markdown plan
 (with a Constitution Check when a constitution exists) → (optional
-topic × perspective HTML zooms via `mentor:zooming` on request) → approve & release →
+topic × perspective HTML zooms via `mentor:zooming`, or a plan tour via
+`mentor:plan-touring`, on request) → approve & release →
 subagents-first implementation (dispatch-agents).
 
 While the `.planning` marker is armed, `plan-gate.sh` blocks every
@@ -74,10 +75,10 @@ always offered there, and you never ask the user to pick a mode upfront:
   the WARN row of Step 6's option set (it leads with **"Hand off to next agent"**).
   Nothing about *how* you plan changes.
 - **`CONTEXT: HANDOFF`** — critically large, and the user already chose to proceed
-  (gate bypassed). Everything WARN does, plus: do not propose a zoom (Step 5) or
-  plan-review yourself — an explicit user ask for either is still honored — and use
-  the HANDOFF row at Step 6. "Keep the plan lean", if the command layer said it,
-  means exactly those two omissions: Step 4's content spec never shrinks.
+  (gate bypassed). Everything WARN does, plus: do not propose a zoom or plan tour
+  (Step 5) or plan-review yourself — an explicit user ask for any of these is still
+  honored — and use the HANDOFF row at Step 6. "Keep the plan lean", if the command
+  layer said it, means exactly those omissions: Step 4's content spec never shrinks.
 - **`CONTEXT: ASK`** never reaches this skill — the command layer resolves it with the
   user first; noted for completeness.
 
@@ -360,7 +361,7 @@ truncates the note — use `,` or `+`.
 define jargon at first use, state why each step matters, prefer concrete
 examples. The plan must be approvable by someone outside the domain.
 
-## Step 5 — Optional HTML zoom (explicit user opt-in only) {#html-zoom}
+## Step 5 — Optional HTML zoom & plan tour (explicit user opt-in only) {#html-zoom}
 
 The topic × perspective HTML zoom is its own skill — `zoom` — and this step is
 pure delegation. Only when the **user asks** for an HTML zoom / visual preview
@@ -388,13 +389,19 @@ re-dispatch EVERY matching combo in one batched message). Wait for those
 agents to complete before dispatching `plan-review`, so a reviewer never reads
 a zoom mid-write.
 
+**Plan tour.** Only when the user asks for a walkthrough or tour of *how the
+plan will execute* — never by default — invoke `Skill(skill="mentor:plan-touring")`
+with the current plan as the subject; its artifacts land in
+`.mentor/plans/<plan-slug>/tour/`.
+
 ## Step 6 — Approve & release {#approve}
 
 > **🚫 No edits or implementation until the plan is APPROVED.** During planning,
 > only read-only agents (Explore, Plan, plan-review reviewers) may be
-> dispatched — the sole exception is `mentor:zooming`'s combo agents (Step 5),
+> dispatched — the sole exceptions are `mentor:zooming`'s combo agents (Step 5),
 > which write ONLY zoom artifacts under `.mentor/zooms/` (gate-exempt
-> `.mentor/` tree), never repo source files.
+> `.mentor/` tree), and `mentor:plan-touring`'s combo agents (Step 5), which
+> write ONLY under `.mentor/plans/*/tour/` — never repo source files.
 > Every editing/implementation agent comes AFTER approval.
 
 First **surface the complete plan body** in your message — plain markdown,
@@ -488,8 +495,15 @@ re-invocation only if it is already loaded in this session), then follow its
 `Run in parallel:` group's agents in ONE message (multiple `Agent` calls), run
 `Sequential:` steps one at a time, and verify each step's `Done when:` before
 starting the next. Mark each step done in the plan file as it passes — append
-`✅` to the step's own `Step N — …` line, which is the only line mentor counts
-ticks on, never to the `Done when:` line that just passed. Its
+`✅` to the step's own top line, never to the `Done when:` line that just passed
+or any other sub-line. Which line carries the tick is load-bearing, not cosmetic:
+mentor counts a step line as either a `Step N — …` line **or** a numbered item
+(`3. …`), so an annotated plan ticks its `Step N — …` line while a
+`Dispatch: skipped` plan ticks the numbered item itself — a `✅` parked on a
+sub-line is invisible to the counter and the step reads as never started. For the
+same reason keep a step's own body on `-` bullets: the counter cannot tell a
+numbered sub-item from a step, and an inflated denominator strands a finished plan
+at `in_progress` forever. Its
 **No busy-wait** rule applies to every wait on this path, dispatched or not.
 The main thread orchestrates and verifies; it does not re-do or re-read the
 work it delegated. Only when the plan opens its Implementation steps with
@@ -511,6 +525,19 @@ because the **`Dispatch: skipped`** path never loads that skill, and direct
 implementation must not be the one route that leaves no record. Missing a transition
 is survivable — state also derives from the `✅` step ticks you mark as each step
 passes — but `failed` cannot be derived from ticks, so that one is worth remembering.
+
+**Close out the skipped path too.** For the same reason, that skill's CLOSING
+CHECKLIST is unreachable here, so carry its two user-facing items across — there
+are no agents to release, but there is still work to hand back:
+
+- **Offer `/mentor:tour`** — one line: a hands-on acceptance pass building an
+  editable guided-tour review artifact (pass/not-pass scenarios) of what shipped.
+  Do not auto-run it; it publishes to a stable URL, so the user chooses.
+- **Sweep the report you're about to write** — every follow-up, gap, or
+  known-broken item in it goes through `/mentor:defer` first.
+
+Skipping dispatch is a decision about *who types the edits*, not a discount on
+what the user gets at the end.
 
 On **Deliver plan only**, run:
 

@@ -22,7 +22,12 @@ the user has said so.
 ## When NOT to use
 
 - The PR isn't on GitHub or `gh` is unavailable — say so and print the PR URL; there
-  is no polling fallback worth an agent's turns.
+  is no polling fallback worth an agent's turns. This is a `gh` scope line, not a
+  domain check: a **self-hosted GitLab** remote lands here too, and so does anything
+  else `gh` doesn't speak. Say the tail is manual on that host rather than leaving the
+  user to infer it from "isn't on GitHub" — `/mentor:ship` opens the MR fine and
+  already closes plan state when it does, so nothing is stuck; only the watch-and-merge
+  half is theirs to finish in the web UI.
 - The user wants to *create* the PR — that is `/mentor:ship`.
 
 ## Step 1 — Resolve the PR

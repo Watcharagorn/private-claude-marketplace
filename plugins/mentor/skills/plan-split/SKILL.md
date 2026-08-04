@@ -135,8 +135,9 @@ Author one plan file. You are writing a plan, not implementing anything.
    block, filled in>.
 6. Every "## Out of scope" entry must name the sibling slug that owns it.
    [if carrying ticks:] These steps are already done — keep their ✅: <list>.
-   Put each ✅ on the step's own `Step N — …` line; that is the only line mentor
-   counts ticks on, so a tick placed anywhere else reads as work never started.
+   Put each ✅ on the step's own top line — its `Step N — …` line, or its numbered
+   item if that is how the step is written — never on an indented sub-line, which
+   mentor cannot see and reads as work never started.
 7. Write exactly one file, with a single Write call:
    <REPO>/.mentor/plans/<CHILD-SLUG>/plan.md
    Create no other files. Edit no repo source. Return only the path and a

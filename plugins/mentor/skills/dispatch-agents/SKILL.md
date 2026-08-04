@@ -75,6 +75,16 @@ A skipping plan MUST open its `## Implementation steps` section with one line �
 at approval. No line, no skip. If a skipped implementation turns out
 non-trivial mid-flight, stop and dispatch normally per this skill.
 
+**Check the skip against the plan you actually wrote.** The step count is the
+cheapest honest test: a plan carrying more than about two steps, or any step whose
+`Done when:` needs a service brought up, a browser driven, or a screenshot compared,
+is not "a small mechanical change" however mechanical each individual edit looks —
+re-annotate it. The reason to be strict here is that this line is load-bearing far
+beyond dispatch: everything downstream of it — step ticks, `/simplify`, the closing
+checklist, the acceptance pass — is written once for the dispatch path and only
+*restated* for the skipped one, so an over-claimed skip is how a plan quietly loses
+all of it at once.
+
 ## Context efficiency — the orchestrator contract
 
 The point of SDD: quality through narrow focus, and a lean main thread.

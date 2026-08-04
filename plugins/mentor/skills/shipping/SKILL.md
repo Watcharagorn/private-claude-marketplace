@@ -121,6 +121,14 @@ review agents: while they run, **No busy-wait** applies here too
 harness re-invoke you when they report. A `Bash true` poll burns a whole turn and returns
 nothing.
 
+That fallback is for simplify being **unavailable** — not for it being available and
+its agents declined. The agents belong to simplify's own documented behavior; mentor
+is not dispatching them. If a standing instruction in this environment still reads
+as blocking them, that tension is the user's to resolve, not yours to resolve
+silently: ask once, in one line, whether to let simplify run its review. Either way,
+a solo diff review is reported **as** a solo diff review — reporting the substitute
+as though this step ran is what turns a judgment call into a false green.
+
 Mentor is subagents-first for *implementation*, which makes wrapping this call in an
 `Agent` dispatch a tempting read — but it is the one thing that breaks the step. Simplify
 already runs its own agents, so the wrapper adds no parallelism; what it does add is a
@@ -196,7 +204,10 @@ root:**
 Pick the first match and tell the user which command will run, adding the hint
 `(override with "test_command" in .mentor/config.json)` so the key is
 discoverable where the misfire happens. If none match, ask the user for a
-command (explicit empty input = skip).
+command (explicit empty input = skip) — and keep that answer, because **Step 7
+offers to save it**. A repo with no `package.json`, no pytest, no `go.mod` and no
+`Makefile` test target will miss the table on every future ship too, so the branch
+that costs the user a question is the one branch that currently learns nothing.
 
 Run it inside a subshell, re-deriving `repo_root` in that same Bash call:
 
@@ -373,14 +384,52 @@ if `<topic>` resolves to a split parent, `implemented` overwrites `superseded`.
 
 **Stop here.** Ship's job ends at the open PR/MR. Emit one line in the ship report naming
 where the tail lives: **GitHub + `gh`** → `Watch CI and merge with /mentor:merge`;
-**any other host** (GitLab included — `/mentor:merge` is GitHub-only) →
+**any other host** — GitLab included, self-hosted GitLab very much included, since
+`/mentor:merge` is scoped to GitHub via `gh` rather than to any particular domain →
 `Watch the pipeline and merge at <URL>`, reusing the URL 5A already surfaced.
+Say plainly that the tail is manual on this host, so the user is choosing to finish
+in the web UI rather than wondering which mentor command they missed.
 Keeping the tail in `/mentor:merge` is what makes it re-enterable after a stalled CI run
 without re-running ship.
 
 Do **not** watch checks, poll `gh run`, or `sleep` after the push — `/mentor:merge`
 Step 2 owns the one bounded watch, and chaining sleeps or re-checks is the **No busy-wait**
 rule owned by `mentor:dispatch-agents` ("Async runtime & lifecycle").
+
+**Offer to save a hand-supplied test command.** If Step 4 had to ask the user for a
+command (the table missed) **and that command passed**, offer here to record it as
+`test_command`, so the next ship in this repo reads it instead of asking again. Only
+a command that actually passed is worth saving — Step 4 uses a configured value
+verbatim, so persisting a broken one hands the next ship a bad default it will trust.
+
+This lands in Step 7 and not in Step 4 on purpose. `.mentor/config.json` is
+deliberately **not** gitignored — it is meant to be committed and shared — so writing
+it is a working-tree change, and Step 4 sits *after* the Step 2/3 clean gate and
+*before* the Step 5 push. Writing it there would leave the tree dirty at push time in
+a skill whose Step 2 refuses to stage anything on the user's behalf, and the next
+`/mentor:ship` would then abort at that very gate. After the push, the same write is
+just a file waiting to be committed. Say that plainly in the offer: this file is
+committed, and ship will not commit it for them.
+
+```bash
+repo_root="$(git rev-parse --show-toplevel)"   # re-derive: separate Bash call (see Step 2)
+state_dir="$repo_root/.mentor"; config="$state_dir/config.json"
+mkdir -p -m 700 "$state_dir"
+if [ -f "$config" ]; then
+  tmp="$(mktemp "${state_dir}/.config.XXXXXX")"
+  jq --arg c "<the command that passed>" '.test_command = $c' "$config" > "$tmp" && mv "$tmp" "$config"
+else
+  jq -n --arg c "<the command that passed>" '{test_command: $c}' > "$config"
+fi
+```
+
+That is `set-mode.sh`'s own idiom, and reusing it is the point: the `.k = $v`
+assignment preserves `mode`, `constitution_path` and the context-gate keys, and the
+`&&` means a `jq` failure leaves the original byte-identical — so there is no second
+backup-and-restore dance to keep true for the same file. On the create branch, a
+config written without `.mentor/.gitignore` beside it would leave `plans/`, `zooms/`
+and `tours/` committable, so run `mentor_ensure_gitignore` (as every hook that writes
+this file does) or create the config only in a repo that already planned.
 
 One carve-out worth naming, because it is the reason this gets overridden: when the plan's
 own `Done when:` requires a green CI run, that obligation is real — but it does not license
