@@ -144,10 +144,71 @@ python3 "${CLAUDE_PLUGIN_ROOT}/scripts/renderer_template.py" demo --theme catppu
 python3 "${CLAUDE_PLUGIN_ROOT}/scripts/renderer_template.py" demo --theme catppuccin-mocha --depth 16
 ```
 
-At 16 colors a theme is *nearly* gone: hues map through `_rgb_to_16` to the eight basic colors, so
-`ok`/`warn`/`err` stay distinguishable but every surface and border role collapses together. The
-attribute layer and the glyph vocabulary do most of the work. That is the tier the accessibility
-rule below is really protecting.
+At 16 colors a theme is *nearly* gone: hues map through `_rgb_to_16` to the eight basic colors, and
+every surface and border role collapses together. How much of the semantic layer survives depends on
+the theme, and **not always enough** — `_rgb_to_16` picks the nearest basic color by RGB distance, so
+a pastel theme lands on white almost everywhere. Measured at 8 colors: `ansi256-legacy` and
+`catppuccin-latte` keep `ok`/`warn`/`err` fully distinct (3/3), `nord` keeps 2/3, and
+`catppuccin-mocha` collapses `title`/`head`/`ok`/`warn`/`err`/`hot` **all to white** (1/3) — its
+accents are light enough that white really is the nearest of the sixteen. So at this tier the
+attribute layer and the glyph vocabulary aren't doing "most of the work", they are the only work, and
+the "never encode meaning in hue alone" rule below stops being an accessibility nicety and becomes
+the thing keeping the pane readable at all. Check your theme at `--depth 16` rather than assuming
+the roles survived.
+
+## Curses renderers
+
+A curses TUI reaches the screen through `init_pair`, which takes a color **number**, not an SGR
+string — so `c()` and `sgr()` don't apply and the role vocabulary appears to stop at the widget
+boundary. It doesn't: `role_index(role, colors)` is the same resolution with a numeric answer, and it
+is the whole reason a curses pane never has to hand-roll a palette. Re-deriving the quantization
+here is rule 7's re-derivation trap in a third language — the kit already owns the only correct
+converter, and `role_index` is verified to agree with `_color_params` at both 256 and 16.
+
+```python
+import curses, os
+from renderer_template import role_index, THEME, TITLE, HEAD, TEXT, DIM, OK, WARN, ERR, HOT
+
+ROLES = (TITLE, HEAD, TEXT, DIM, OK, WARN, ERR, HOT)
+PAIR = {}
+
+def init_theme():
+    if os.environ.get("NO_COLOR"):
+        return                                # rule 3's opt-out reaches curses too
+    curses.start_color()
+    curses.use_default_colors()               # -1 now means "the terminal's own default"
+    for i, role in enumerate(ROLES, start=1):
+        if i >= curses.COLOR_PAIRS:
+            break                             # the pair table is finite; overflowing it raises
+        idx = role_index(role, curses.COLORS)
+        curses.init_pair(i, -1 if idx is None else idx, -1)
+        PAIR[role] = i
+
+def attr(role):
+    a = curses.color_pair(PAIR.get(role, 0))
+    return a | curses.A_DIM if THEME.get(role) == "@dim" else a
+```
+
+Four things there are not decoration, and each is a different way the pane goes wrong without it:
+
+- **`use_default_colors()` and the `-1` background.** Without it curses has no concept of "the
+  terminal's own background" and every pair falls back to black, which paints a black rectangle over
+  a themed terminal. It also makes `role_index`'s `None` directly usable: `None` means the role
+  carries no hue of its own (`TEXT`, and the `@dim` sentinel), and `-1` is exactly how you say that
+  to curses. Verified in a pane: the reset comes back as `\033[39m` — default foreground — rather
+  than a hardcoded color.
+- **`curses.COLORS`, not a constant 256.** Pass it and the 16-color tier degrades through the same
+  path `c()` uses; hardcode 256 and an 8-color terminal gets indices it cannot render.
+- **`@dim` is an attribute, not a hue.** `role_index` returns `None` for it because there is no color
+  to return — `A_DIM` is the answer, and a renderer that only reads the number silently loses the
+  dim role.
+- **Init pairs once, at startup.** `init_pair` is global state, not a per-paint call, and
+  `COLOR_PAIRS` is finite (32767 under `tmux-256color`, far smaller on older ncurses — hence the
+  guard).
+
+Curses also puts the pane on the **alternate screen**, which changes what verification can see —
+`capture-pane` still works, scrollback does not. That is measured and spelled out in "Verifying a
+keystroke-driven pane" (`console/references/verifying-pane-shapes.md`); read it before verifying one.
 
 ## Contrast and accessibility
 

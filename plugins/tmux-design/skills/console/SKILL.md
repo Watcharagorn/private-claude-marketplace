@@ -77,10 +77,16 @@ Enforce these in every pane you create or touch:
    can't be re-themed, so route palette questions there rather than hardcoding here.
 
    That routing is easy to skip once you are already deep in a console task and chrome is the last
-   thing left, so treat these three as the moment to load `tmux-design:decorate` *before* typing the
+   thing left, so treat these four as the moment to load `tmux-design:decorate` *before* typing the
    next command: you are about to set `status-*`, `window-status-*`, or `pane-border-*`; you are
-   about to write a literal `colour###` or `#rrggbb` anywhere; or you are writing a `#()` helper
-   whose stdout lands in the status line. That last one hides the most — a `scripts/status-<name>`
+   about to write a literal `colour###` or `#rrggbb` anywhere; you are about to name a color for a
+   **TUI you are writing** — a curses `init_pair`, an attribute table, any color constant the widget
+   layer wants up front; or you are writing a `#()` helper
+   whose stdout lands in the status line. The TUI trigger is the one that fires earliest and saves
+   the most: a widget palette is declared once at startup and then referenced from every paint call,
+   so choosing it unthemed costs one line now and a rewrite of every call site later. Rule 7's audit
+   sweep catches the same mistake, but only *after* the file exists — this is the moment it is still
+   free. That `#()` one hides the most — a `scripts/status-<name>`
    sets no tmux option and lives in no config, so it looks like plain scripting right up until it
    is the one thing a theme swap cannot reach. Have it emit plain text and let the format color it,
    or use `#[fg=…]` resolved from the loaded theme. Two answers from `decorate` are cheap now and
@@ -145,7 +151,7 @@ Enforce these in every pane you create or touch:
    cp "${CLAUDE_PLUGIN_ROOT}/scripts/renderer_template.py" scripts/<name>_view.py
    python3 "${CLAUDE_PLUGIN_ROOT}/scripts/renderer_template.py" demo   # see the standard rendered
    ```
-   It ships `c() vlen() pad() trunc() sanitize() title() table() panel() divider() spread() bar() sparkline()
+   It ships `c() role_index() vlen() pad() trunc() sanitize() title() table() panel() divider() spread() bar() sparkline()
    badge() kv() gauge() freshness() pane_width() pane_height() invalidate_pane_size()` plus theme
    resolution and local-timezone handling, so the fiddly parts (display-column padding, palette,
    degradation, and asking tmux for the pane's real size) are already right. Richer tools only if already
@@ -161,14 +167,41 @@ Enforce these in every pane you create or touch:
    Step 2 proves the file fits *today's* rows; it says nothing about the row that arrives next month
    carrying an emoji or a CJK product name. So check the file you just made from the starter:
    ```bash
-   r=scripts/<name>_view.py                    # the copy you just created, not a renderer you extended
+   r=scripts/<name>_view.py                    # any renderer you WROTE this pass — the starter copy,
+                                               # or a from-scratch TUI; not one you merely extended
    [ -f "$r" ] || echo "MISSING: $r"           # a typo'd path must not read as a clean run
    grep -q 'def cluster_width' "$r" \
      || grep -nE '^ *def (vlen|pad|trunc)\b' "$r" | sed 's/^/re-derived width math /'
    grep -nE '^[A-Z][A-Z0-9_]* *= *"[0-9]+(;[0-9]+)+"' "$r" | sed 's/^/raw SGR palette /'
+   grep -nE '\.(ljust|rjust|center)\(|\{:[<>^][0-9]' "$r" | sed 's/^/hand-rolled padding /'
+   grep -qE 'TMUX_DESIGN_THEME|role_index' "$r" \
+     || grep -nE 'init_pair\(|init_color\(|COLOR_(BLACK|RED|GREEN|YELLOW|BLUE|MAGENTA|CYAN|WHITE)' "$r" \
+        | sed 's/^/unthemed curses palette (see "Curses renderers" in decorate\/references\/palette.md) /'
    ```
 
-   **Those two patterns are Python-shaped, so run the shell/jq ones too whenever `$r` isn't
+   **The scope line is the load-bearing one, and it used to be too narrow.** Read literally as "the
+   copy you just created", it excluded a TUI written from scratch — which is neither a starter copy
+   nor an extended project renderer — so a from-scratch curses pane fell out of the check in both
+   directions and every branch below became dead code for the one file shape that needed them most.
+   What the check is scoped *out* of is a pre-existing renderer you extended, whose own `pad()` is
+   built on its own width model; a file you authored this pass is in scope however it was started.
+
+   The last two lines exist because the first two are blind in ways that don't look blind. **Padding
+   runs unguarded, outside the `cluster_width` allowlist, on purpose** — that guard silences the whole
+   width branch on a faithful kit copy, so hand-padding *inside* a compliant copy is the one width
+   violation nothing else can see, and `.ljust()` on a colored or wide cell is wrong for exactly rule
+   4's reason (`primitives.md` says never to, and nothing enforced it). It is allowlist-clean by
+   construction: `.ljust|.rjust|.center|{:<N}` returns zero hits on both `renderer_template.py` and
+   `check_cols.py`, so a hit is always yours. **Curses is checked by its guard, not by its digits** —
+   a raw palette hides at the call site (`mkpair(1, 212, curses.COLOR_MAGENTA)`) as readily as at
+   `init_pair`, and rewriting `212` as `curses.COLOR_MAGENTA` is the same un-themeable pane spelled
+   differently, so a digit pattern would just teach you to launder it. Keying off "this file drives
+   curses color and never names `TMUX_DESIGN_THEME` or `role_index`" catches every spelling and stays
+   silent on a renderer that resolves the theme — verified on the four shapes: the session's
+   `mkpair` file fires, a kit-importing TUI and an env-var-reading TUI stay silent, and the kit
+   itself stays silent.
+
+   **Those patterns are Python-shaped, so run the shell/jq ones too whenever `$r` isn't
    Python** — otherwise the check meant to catch re-derived width math reports a clean run on the
    file that commits it most often. A bash renderer's palette is `RED=$'\033[38;5;203m'`, which the
    double-quoted-digits pattern above cannot match, and its width math is `printf '%-44s'`, which no
@@ -190,8 +223,10 @@ Enforce these in every pane you create or touch:
    (rule 3) — `grep -c TMUX_DESIGN_THEME "$r"` returning 0 alongside it confirms it.
    The `cluster_width` guard is what keeps this quiet on a renderer that copied the kit wholesale —
    that file defines `vlen` legitimately, and a check that flags correct files is one you learn to
-   ignore. It also fixes the scope: run this on the copy, not on a pre-existing project renderer you
-   extended, whose own `pad()` is built on its own width model. The `;` in the palette pattern earns
+   ignore. What it does **not** do is fix the scope, and reading it that way is what left a
+   from-scratch TUI unchecked: it silences the *width-definition* line on a kit copy, while the scope
+   line above decides which files run at all — any renderer you wrote this pass, excluding only a
+   pre-existing one you extended, whose own `pad()` is built on its own width model. The `;` in the palette pattern earns
    its place the same way — `PORT = "8080"` is not a color, and flagging it would spend the check's
    credibility on a constant. A hit on either line means you re-derived: take the width helpers from
    the kit, and the color literal to `tmux-design:decorate` as a named role. A silent run still owes
@@ -204,6 +239,11 @@ Enforce these in every pane you create or touch:
    shows — a view toggle, a filter, a sort flip — is invisible on a surface that is only ever glanced
    at, so wiring it is not shipping it. `list-keys` can print the binding, the sandbox can fire it,
    the pane can redraw, and the feature still be unusable today and gone tomorrow.
+
+   **Read "keybinding" as the pane's whole keymap, not just tmux `bind-key`s.** A keystroke-driven
+   TUI's own arrow/Enter/quit keys are invisible in exactly the same way and owe the same advertised
+   row; the persistence half below is the only part that doesn't apply, since those keys live in the
+   renderer rather than in a server that forgets them.
 
    **Advertise it in the content.** A row the renderer prints itself — `prefix+h → tree view`, in the
    kit's `DIM` role rather than a literal dim attribute, so a theme swap still reads it — is the
@@ -219,7 +259,20 @@ Enforce these in every pane you create or touch:
    in the height math `redesign` step 2 already asks for — reserved unconditionally, not only on the
    branch that already truncates. Retrofitting is never one edit: the row re-opens a budget the table
    was sized against, so the fix lands in the renderer's budget, in every view branch, and in the
-   docs. Reserve it even when the pane looks roomy, for the reason `primitives.md` gives about
+   docs.
+
+   **"In the docs" is a list, not a judgement call** — and enumerating it once beats rediscovering it
+   three greps later, which is what happens when the search term grows with each pass (pane name →
+   wrapper name → keybinding). The surfaces a renamed pane, wrapper, view flag or binding actually
+   hides in: `.tmuxp.yaml` (or the launcher script that replaces it), `scripts/watch-<name>`, the
+   renderer filename and **every view argument it serves**, the repo file holding the `bind-key`, the
+   pane's own hint row, and whatever inventory the project keeps — `AGENTS.md`, `CLAUDE.md`, a README
+   pane table. Sweep them in one pass with the old name, then prove the sweep: grep the **old** name
+   expecting zero *and* the **new** name expecting at least one. Zero on both means your pattern was
+   wrong, not that the work is done — an empty result is a finding, not a pass, the same as the audit
+   sweep's zero-file guard.
+
+   Reserve it even when the pane looks roomy, for the reason `primitives.md` gives about
    viddy's scrollbar column — one more row toward the threshold is what starts the
    wrap-feeds-scrollbar cycle.
 
@@ -319,6 +372,20 @@ that shrank is the one nobody captures.
    *without* the wrapper's cut step 2 just subtracted. Read that list before the first line rather
    than after the first render — every item on it is structural, so retrofitting one ("refetch on
    resize" is the one that gets missed) costs a second edit pass.
+
+   **The keystroke-driven shape owes its own three answers before the first line**, for the same
+   reason and at the same cost — each one, discovered later, is a rewrite rather than an edit:
+   - **Does any selection level open a detail view, and what is its column budget?** A detail panel
+     is a two-column split, which halves the tree's width and re-opens the rule 4 column math the
+     single-column layout was sized against. A keystroke pane has no wrapper cut to subtract, so its
+     budget is the pane itself minus `pane-border-status` — but half of that is a different table.
+     Deciding "rows are selectable too, and Enter shows detail" after the fact is the expensive
+     version of this question, and it is the one that gets asked late.
+   - **What happens on resize?** `KEY_RESIZE` is this shape's "refetch on resize": curses does not
+     re-lay-out for you, and a TUI that ignores it paints its old geometry into a new pane.
+   - **Which keys does it advertise, and where does that row go?** Rule 9's hint row is written for
+     tmux `bind-key`s, but a TUI's own keymap is exactly as invisible and owes the same advertised
+     row — budgeted on every view branch, before the table is sized, not after.
 4. Rewire the wrapper to `exec viddy … -- <renderer>` and run the **verify loop** — except for an own
    loop, which *replaces* viddy rather than being wrapped by it: exec the loop itself, and let the
    requirements list's one-variable fallback be the thing that flips the pane back to viddy when the
@@ -581,7 +648,9 @@ SQL validation loop.
 - Every pane the edit reaches — enumerated per verify-loop step 3, not just the one you were
   reading — shows colored, structured content live in the real session, with `#{pane_dead}` 0
   (verified by `capture-pane -e`, not assumed from a successful file edit or a reload's pane count).
-- `.tmuxp.yaml` + wrapper scripts reproduce the design on the next `tmuxp load`.
+- `.tmuxp.yaml` + wrapper scripts reproduce the design on the next `tmuxp load`, and every doc
+  surface rule 9 enumerates names the pane as it is now — proved by the two-sided grep (old name
+  zero, new name non-zero), not by a single sweep that returned nothing.
 - Any keybinding added is visible in the pane's own content, persisted in a file the launcher reloads
   (tmuxp cannot carry it), and was driven through a real attached client — not inferred from
   `list-keys` in the sandbox, and not from a title suffix `capture-pane` can never see.

@@ -253,6 +253,36 @@ def sgr(role, bg=None, attrs=()):
     return ";".join(p for p in params if p)
 
 
+def role_index(role, colors=256):
+    """Resolve a semantic role to a *color index*, for output APIs that take a
+    number instead of an SGR string — curses (`init_pair`) above all.
+
+    Returns None when the role carries no hue of its own: `TEXT` (terminal
+    default) and the `@dim` sentinel, which is an attribute rather than a color.
+    None is the correct argument to pass curses for "leave it alone" — pair it
+    with `A_DIM` for the sentinel — so it is a value to forward, not an error.
+
+    `colors` is the terminal's palette size (`curses.COLORS`); below 256 the
+    role degrades to a basic 0-7 index the same way `_color_params` degrades to
+    SGR 30-37, rather than dropping out. This exists so a curses renderer never
+    has to re-derive quantization — that is rule 7's re-derivation trap in a
+    third language, and the kit already owns the only correct converter."""
+    value = THEME.get(role)
+    if value is None or value == "@dim":
+        return None
+    if colors >= 256:
+        return value if isinstance(value, int) else _rgb_to_256(*_hex_rgb(value))
+    # Degrade from the ORIGINAL value, exactly as _color_params does — never from
+    # the 256 index. Quantizing to the cube and inverting it back is lossy twice,
+    # and it collapses a whole theme: measured on catppuccin-mocha, that route
+    # sent title/head/ok/warn/err/hot all to 7 (white), destroying the very
+    # ok/warn/err separation the 16-color tier is supposed to preserve.
+    rgb = _idx_to_rgb(value) if isinstance(value, int) else _hex_rgb(value)
+    code = _rgb_to_16(*rgb)                    # SGR 30-37 (dim) or 90-97 (bright)
+    basic = code - 30 if code < 90 else code - 90 + 8
+    return basic if basic < colors else basic % 8
+
+
 def c(spec, s, bg=None, attrs=()):
     """Colorize `s`.
 

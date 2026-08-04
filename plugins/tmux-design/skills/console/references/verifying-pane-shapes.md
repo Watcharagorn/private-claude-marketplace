@@ -88,6 +88,60 @@ exists — the marker gives you something to wait for and the sleep holds the se
 Assert the **side effect**, not the frame: a TUI paints a plausible "saved" frame whether or not the
 write landed, and the datastore row is the only evidence that it did.
 
+### Rule 4 still applies, and here a one-shot dump is the only way to check it
+
+SKILL.md binds this shape to rules 1, 3, 4 and 5, but everything above verifies the *write* — nothing
+measures the **columns**, and for this shape there is no other route to them. The renderer paints
+through the tty rather than stdout, so `<renderer> | check_cols.py` receives nothing; and a
+`capture-pane` capture cannot stand in, because the pane's screen grid is already hard-wrapped at
+pane width, so every line fits by construction (`check_cols.py`'s own scope note says feed it the
+renderer's stdout, never a capture). So a keystroke-driven TUI **owes a one-shot dump mode** for the
+same reason an own-loop renderer owes a one-shot frame mode — and it is checked the same way:
+
+```bash
+w=100
+<tui> --dump --width "$w" | python3 "${CLAUDE_PLUGIN_ROOT}/scripts/check_cols.py" "$w" --reserve 0
+WIDTH_FIXTURE='⛔ blocked  日本語製品  🧑‍🌾 farmer' \
+  <tui> --dump --width "$w" | python3 "${CLAUDE_PLUGIN_ROOT}/scripts/check_cols.py" "$w" --reserve 0
+a=$(<tui> --dump --width 60 | wc -l); b=$(<tui> --dump --width 160 | wc -l)
+[ -n "$a" ] && [ "$a" -gt 0 ] || echo "EMPTY DUMP — the sweep proved nothing"
+```
+
+Five things that make this a real check rather than a second one that always passes:
+
+- **The dump writes composed rows to plain stdout, bypassing curses entirely** — the same strings the
+  paint path hands to `addstr`, after `pad()`/`trunc()`. A `--dump` that re-implements the layout is
+  a second renderer measuring itself, and the pane keeps its crooked columns.
+- **`--reserve 0`, not step 2's `--reserve 1`.** This shape has no wrapper, so there is no scrollbar
+  column to give back — the same reasoning the own-loop subsection spells out.
+- **Assert the dump is non-empty.** `check_cols.py` exits 0 on zero lines (measured), so a `--dump`
+  that no-ops without a tty passes the entire sweep in silence — this shape's version of the
+  own-loop's empty-capture trap.
+- **The width comes from an argument, not from `curses.COLS`.** Curses reads the terminal; a dump
+  that ignores the knob measures one width three times and reports a sweep it never ran.
+- **`WIDTH_FIXTURE` is mandatory here, not optional.** A tree of ASCII task names fits 60/100/160 by
+  construction whatever the width model is, so the wide-glyph row is the entire value of the sweep.
+  Have the dump take a selection/expansion state too, or it only ever measures the initial collapsed
+  view — and the deepest view is the one whose columns are tightest.
+
+### What a curses TUI does to the capture — measured, tmux 3.7b
+
+`curses.initscr()` puts the pane on the **alternate screen**, which `primitives.md`'s "stay on the
+normal screen" rule warns about. Measured rather than assumed, the split is not what that rule's
+phrasing suggests:
+
+- **`capture-pane -p` and `-e` both work.** `-e` returns real SGR bytes
+  (`\033[1m\033[38;5;212m…`), so rule 3 *is* checkable on this shape — assert color at a settled
+  prompt rather than trusting that the TUI emits it.
+- **Scrollback is gone.** `#{alternate_on}` is 1, `#{history_size}` is 0, and `capture-pane -S -100`
+  returns only the visible rows. Anything that reaches back through history — diffing against an
+  earlier frame, reading a message the TUI printed before it initialized — has nothing to read.
+- **`#{pane_current_command}` reads the shell, not the TUI, under this section's own scaffolding.**
+  Launched with `exec` it answers `Python`; launched as `<tui>; echo __DONE__; sleep 60` — the form
+  prescribed above, which exists so the marker survives the exit — it answers `zsh`. So step 4's
+  process assertion is inert here by construction. Assert the frame and the side effect instead, and
+  don't read a shell name as evidence the TUI died.
+
 ## Verifying a pane keybinding
 
 A `bind-key` lives in the **client's** key dispatch, not in the pane's stdin, so nothing in the loop

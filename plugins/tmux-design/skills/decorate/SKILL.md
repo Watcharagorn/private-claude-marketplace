@@ -109,10 +109,12 @@ python3 "${CLAUDE_PLUGIN_ROOT}/scripts/renderer_template.py" demo --depth 16 --a
 "${CLAUDE_PLUGIN_ROOT}/scripts/tmux_theme.sh" nord
 ```
 
-`renderer_template.py` provides `c() vlen() pad() trunc() sanitize() table() panel() divider()
+`renderer_template.py` provides `c() role_index() vlen() pad() trunc() sanitize() table() panel() divider()
 spread() bar() sparkline() badge() kv() gauge() freshness()`. Copy it into the project's `scripts/` and
 adapt it; the fiddly parts — column math, theme resolution, degradation — are already correct.
 Its `c()` still accepts raw SGR strings, so renderers written before themes existed keep working.
+`role_index()` is the same resolution for output APIs that take a color *number* rather than an SGR
+string — curses above all; see "Curses renderers" in `references/palette.md`.
 
 ## Actions
 
