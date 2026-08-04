@@ -471,7 +471,9 @@ re-invocation only if it is already loaded in this session), then follow its
 "Executing the dispatches" section: read the approved plan file, dispatch each
 `Run in parallel:` group's agents in ONE message (multiple `Agent` calls), run
 `Sequential:` steps one at a time, and verify each step's `Done when:` before
-starting the next. Mark each step done in the plan file as it passes. Its
+starting the next. Mark each step done in the plan file as it passes — append
+`✅` to the step's own `Step N — …` line, which is the only line mentor counts
+ticks on, never to the `Done when:` line that just passed. Its
 **No busy-wait** rule applies to every wait on this path, dispatched or not.
 The main thread orchestrates and verifies; it does not re-do or re-read the
 work it delegated. Only when the plan opens its Implementation steps with

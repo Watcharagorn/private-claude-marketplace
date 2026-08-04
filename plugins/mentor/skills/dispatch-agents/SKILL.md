@@ -89,12 +89,16 @@ The point of SDD: quality through narrow focus, and a lean main thread.
 - **On a failed `Done when:`**, re-dispatch the same role once with the failure
   evidence (diff + command output) as inputs. If it fails again, surface to the
   user — only then may the main thread read the files and take over.
-- **Track progress in the plan file:** as each step's `Done when:` passes, mark
-  its line in `plan.md` (append `✅`), so a resumed or handed-off session knows
-  exactly what already ran. These ticks are also what makes plan state
-  self-healing — mentor derives `in_progress` / `implemented` from them, so a
-  forgotten state write below costs nothing, but a missing tick costs the next
-  session its picture of what landed.
+- **Track progress in the plan file:** as each step's `Done when:` passes, append
+  `✅` to that step's own `Step N — …` line — **not** to the indented `Done when:`
+  line that just passed — so a resumed or handed-off session knows exactly what
+  already ran. Which line carries the tick is load-bearing, not cosmetic: mentor
+  counts ticks by scanning step lines only, so a `✅` parked on a `Done when:` or
+  any other sub-line is invisible to it and the step reads as never started.
+  These ticks are also what makes plan state self-healing — mentor derives
+  `in_progress` / `implemented` from them, so a forgotten state write below costs
+  nothing, but a tick on the wrong line silently costs the next session its
+  picture of what landed.
 - **Move the plan's state as you go**, so `/mentor:track` can answer "what is
   built?" in a fresh session without re-reading anything:
   ```bash
@@ -141,6 +145,10 @@ Step N — <short title>  [role: <subagent_type> · model: <opus|sonnet|haiku> �
   Prompt sketch: <2–4 lines briefing the agent like a smart colleague who just walked in>
   Done when: <observable acceptance criterion>
 ```
+
+Nothing is ticked at authoring time. Later, when a step's `Done when:` passes,
+the `✅` from the tracking rule above is appended to that step's `Step N —` line —
+the top line of the block, never one of the indented fields under it.
 
 Group steps that have no dependencies under a **"Run in parallel:"** header so they dispatch in a single message. Dependent steps go under **"Sequential:"**.
 

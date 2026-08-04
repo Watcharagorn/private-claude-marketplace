@@ -267,7 +267,8 @@ here rather than straight from `mentor:planning`:
   implementation agent's prompt, so the sibling boundary travels with the work.
 - When the plan states **`Dispatch: skipped`**, there are no agents to dispatch —
   implement in the main thread under `mentor:planning` Step 6's rule for that case, and keep
-  everything around it (step ticks, `Done when:` verification, the **No busy-wait** rule
+  everything around it (step ticks — `✅` appended to the step's own `Step N — …` line, the
+  only line mentor counts — `Done when:` verification, the **No busy-wait** rule
   from `mentor:dispatch-agents`, close-out) exactly as the dispatch path does it.
   Arriving here does not make that path unowned.
 
