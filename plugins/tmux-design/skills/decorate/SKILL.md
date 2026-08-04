@@ -4,16 +4,13 @@ description: >-
   Owns the VISUAL VOCABULARY of tmux surfaces — theme, frame, chart, badge, status bar, popup.
   Ships named themes (Catppuccin, Tokyo Night, Nord, Gruvbox, Rose Pine) in truecolor with
   256/16/no-color degradation, box-drawing and block primitives (panels, bars, sparklines,
-  badges), column-correct width math for emoji/CJK/ANSI, and tmux chrome — status bar, window
-  tabs, pane borders, popups. Use whenever the question is how something should LOOK: "make this
-  pane prettier", "theme my tmux", "style my status bar", "add a progress bar or sparkline", "my
-  table columns are misaligned", "these colors are unreadable on my light terminal", "put a box
-  around this output", "which animation layers should I keep or cut" — or when picking colors for
-  any terminal output. Reach for it even when
-  tmux is never mentioned; "my CLI output looks ugly" counts. For WIRING a pane — adding a pane,
-  viddy refresh, lnav formats, auditing a session, "I edited the script but the pane didn't
-  change" — use tmux-design:console: this skill styles what a pane shows, console operates the
-  pane.
+  badges), column-correct width math for emoji/CJK/ANSI, and tmux chrome — status bar, tabs,
+  borders, popups. Use whenever the question is how something should LOOK: "make this pane
+  prettier", "theme my tmux", "style my status bar", "add a progress bar or sparkline", "my table
+  columns are misaligned", "these colors are unreadable on my light terminal", "put a box around
+  this output". Reach for it even when tmux is never mentioned; "my CLI output looks ugly" counts.
+  For WIRING a pane — adding panes, viddy refresh, lnav formats, session audits — use
+  tmux-design:console: this skill styles what a pane shows, console operates the pane.
 ---
 
 # Decoration for tmux surfaces

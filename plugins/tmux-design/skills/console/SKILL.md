@@ -183,12 +183,21 @@ that shrank is the one nobody captures.
    non-local timestamps, flicker-prone full-redraw loops, and `viddy` invoked without `-w`/`--unfold`
    — which the wrappers answer faster than the panes do:
    ```bash
-   grep -LE -- '--unfold|(^|[[:space:]])-[a-z]*w([[:space:]]|$)' scripts/watch-*   # -L: files MISSING it
+   for f in scripts/watch-*; do
+     line=$(grep -m1 'viddy' "$f") || continue          # non-viddy wrappers aren't rule 2 violations
+     printf '%s\n' "${line%% -- *}" \
+       | grep -qE -- '--unfold|(^|[[:space:]])-[a-z]*w([[:space:]]|$)' || echo "$f"
+   done
    ```
-   Match both spellings and allow the clustered short form (`-pw`), or the sweep reports wrappers
-   that are already correct and you learn to ignore it. This violation is worth sweeping for even
-   when every pane looks fine: it renders correctly right up until the pane is resized, and wrappers
-   copied from one another share the omission, so one pass clears the whole set.
+   Three details carry this, and dropping any one makes the sweep lie. Match **both** spellings and
+   allow the clustered short form (`-pw`), or it reports wrappers that are already correct and you
+   learn to ignore it. Skip files that never invoke viddy, or the skill's own sanctioned `watch`
+   fallback gets flagged as a violation. And cut the line at ` -- ` before matching, because
+   everything after it is the renderer's own argv: `viddy -p -n 90 -- wc -w file` has no `--unfold`
+   anywhere, yet a whole-line match sees the payload's `-w` and reports it compliant — a false pass
+   in the check meant to find false passes. This violation is worth sweeping for even when every
+   pane looks fine: it renders correctly right up until the pane is resized, and wrappers copied
+   from one another share the omission, so one pass clears the whole set.
 3. Report a per-pane verdict table (rendered to the standard, naturally), then fix via
    **redesign** on request.
 
@@ -225,22 +234,36 @@ were launched with, which is why "I edited it but nothing changed" happens. Afte
    Improvising the assertion is where this step quietly fails: `awk`'s `length()` counts bytes and
    Python's `len()` counts code points, so a 96-column `─` divider measures 288 or 96 and a
    byte-counting check reports "no line exceeds 106" about rows that visibly wrap. That is rule 4's
-   `vlen()` problem reappearing inside the harness meant to catch it — so measure in display
-   columns, strip SGR first, and budget against the pane **minus the wrapper's cut**, not the pane:
+   `vlen()` problem reappearing inside the harness meant to catch it — and a hand-rolled fix
+   reappears one layer down, because "strip the color codes and count characters" is wrong too:
+   an SGR-only strip leaves an OSC-8 hyperlink's URL in the count, measuring a 10-column linked
+   cell at 43 and failing a row that fits. So don't measure by hand. `check_cols.py` measures with
+   the kit's own `vlen()` — the same function the renderers pad and truncate with — and budgets
+   against the pane **minus the wrapper's cut** rather than the pane:
    ```bash
-   cols() { python3 -c 'import sys,re,unicodedata as u
-b=int(sys.argv[1])
-for i,l in enumerate(sys.stdin,1):
-    s=re.sub(r"\x1b\[[0-9;]*[A-Za-z]","",l.rstrip("\n"))
-    n=sum(0 if u.combining(c) else 2 if u.east_asian_width(c) in "WF" else 1 for c in s)
-    if n>b: print(f"line {i}: {n} cols > {b}")' "$1"; }
-   for w in 60 100 160; do TMUX_PANE_WIDTH=$w <renderer command> | cols $((w-1)); done   # -1: scrollbar
-   tmux -L _tmuxdesign_sbx resize-window -t _sbx -x 60 && sleep 1 \
+   check="${CLAUDE_PLUGIN_ROOT:?unset — the plugin loader sets it}/scripts/check_cols.py"
+   for w in 60 100 160; do
+     TMUX_PANE_WIDTH=$w <renderer command> | python3 "$check" "$w" --reserve 1   # 1: viddy's scrollbar
+   done
+   # Resize half. Step 1 killed the server, so start a fresh one — and run the REAL wrapper here,
+   # not the bare renderer: tmux reflows already-printed static text identically with and without
+   # --unfold, so a sandbox running the one-shot renderer cannot catch the rule 2 bug this checks.
+   tmux -L _tmuxdesign_sbx -f /dev/null new-session -d -s _sbx -x 100 -y 30 \
+     "viddy -p --unfold -n 2 -- <renderer command>" && sleep 3 \
+     && tmux -L _tmuxdesign_sbx capture-pane -e -p -t _sbx | head -5   # header rows before
+   tmux -L _tmuxdesign_sbx resize-window -t _sbx -x 60 && sleep 3 \
      && tmux -L _tmuxdesign_sbx capture-pane -e -p -t _sbx | head -5   # header row count unchanged?
    tmux -L _tmuxdesign_sbx kill-server
    ```
-   Silence is the pass. A check that prints its own "looks clean" banner will print it underneath
-   the offending lines too, and that reads as a pass at a glance.
+   Silence **and a zero exit** is the pass — `check_cols.py` exits non-zero when any line is over,
+   so the check is assertable rather than eyeballed. A check that prints its own "looks clean"
+   banner will print it underneath the offending lines too, and that reads as a pass at a glance.
+
+   Two things a silent run does **not** prove. It doesn't prove the columns line up: an
+   over-measured cell makes a row too *short*, which fits the budget and still looks crooked. And
+   it only means anything on the renderer's **stdout** — piping a `capture-pane` capture into it
+   always passes, because without `-J` a capture returns the pane's screen grid already hard-wrapped
+   at pane width, so no line can exceed it.
 3. **Respawn the live pane** — `tmux respawn-pane -k -t <pane_id> "<command with absolute path>"`.
    Don't Ctrl-C + retype via send-keys: if the old process is mid-child-call the interrupt is
    swallowed and the typed command lands as inert text. Respawn is deterministic. Caveat: a

@@ -91,6 +91,12 @@
       "id": 18,
       "prompt": "Add a triggers pane to the right-hand column of my running monitor window — split it off the strategy pane.",
       "expected_output": "Splits with tmux split-window, then recognizes that the split took its rows from the strategy sibling and that tmux rebalances nothing: resizes the column explicitly (tmux resize-pane -y, or select-layout) instead of keeping the accidental ratio, and persists it in the WINDOW's options: (main-pane-height/main-pane-width) — not a per-pane size: key, which tmuxp has no such thing. Runs the verify loop on the new pane AND captures the shrunken sibling (verify-loop step 5), since a content-fit renderer truncates rather than scrolls and a halved sibling renders a clean-looking frame with its bottom rows missing. New wrapper is checked against rule 2's flags rather than copied wholesale from a sibling watch-* script, so -w/--unfold is present."
+    },
+    {
+      "id": 19,
+      "prompt": "I tweaked my portfolio renderer — make sure it still fits the pane before I ship it.",
+      "expected_output": "Runs the bundled `scripts/check_cols.py` over the RENDERER'S STDOUT at several widths (e.g. `TMUX_PANE_WIDTH=$w <renderer> | python3 \"$CLAUDE_PLUGIN_ROOT/scripts/check_cols.py\" \"$w\" --reserve 1`) rather than hand-rolling an `awk length()` / `len()` / strip-SGR-and-count check — the point being that display width is measured with the same `vlen()` the renderer pads with, so the check and the renderer cannot disagree. Treats silence AND a zero exit as the pass. Does not false-alarm on a row containing an OSC-8 hyperlinked cell or a ZWJ emoji (an SGR-only strip measures a 10-column linked cell at 43). Does not pipe a `capture-pane` capture into it — without -J a capture is already hard-wrapped at pane width, so every line fits by construction and the check cannot fail.",
+      "files": []
     }
   ]
 }

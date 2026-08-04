@@ -45,6 +45,10 @@ Two skills split the job cleanly:
   `c() vlen() pad() trunc() sanitize() table() panel() divider() spread() bar() sparkline() badge()
   kv() gauge() freshness()` and a `demo` mode. Copy it into the project and adapt.
 - `scripts/tmux_theme.sh` — emits a tmux chrome snippet for a named theme, on stdout only.
+- `scripts/check_cols.py` — the verify loop's width assertion: reads a renderer's stdout, reports
+  lines over a column budget using the same `vlen()` the renderers pad with. Silence and a zero
+  exit is the pass.
+- `tests/` — `test-check-cols.sh` and `test-unfold-sweep.sh`, run by `/verify-plugin-edits`.
 - `commands/console.md`, `commands/decorate.md`.
 
 No hooks.
