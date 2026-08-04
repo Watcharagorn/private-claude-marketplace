@@ -23,10 +23,12 @@
 # commands like /mentor:handoff, /compact, /mentor:mode) — checked FIRST, before any
 # measurement, so the gate can never slow down the tools that fix it.
 #
-# Harness-synthetic prompts (an inbound agent report or task notification — no human
-# behind them) are MEASURED like any prompt but never get the ASK question: nobody is
-# there to answer it, and a question would stall an autonomous flow. They pass with a
-# loud stdout advisory instead.
+# Harness-synthetic prompts (an inbound agent/teammate report, a task notification, a
+# background-agent stop notice — no actionable human REQUEST behind them) are MEASURED
+# like any prompt but never get the ASK question: there is nothing to act on, nobody is
+# necessarily there to answer, and a question would stall an autonomous flow. They pass
+# with a loud stdout advisory instead. They also never consume the once-per-session WARN
+# (see the WARN tier) — that notice belongs to the human's next real prompt.
 #
 # Fail-soft everywhere: no jq / no transcript / no usage record in the tail window /
 # malformed input → exit 0. Never brick a session.
@@ -49,9 +51,21 @@ PROMPT="$(printf '%s' "$INPUT" | jq -r '.prompt // ""' 2>/dev/null)" || exit 0
 case "$PROMPT" in /*) exit 0 ;; esac
 
 # Harness-synthetic prompt? Still measured below, but never asked a question (see header).
+# Patterns are ANCHORED at position 0 on purpose: a leading `*…*` would exempt a real
+# human prompt that merely QUOTES one of these phrases (e.g. asking about a log line).
+# Shapes below were measured against this machine's transcript corpus (2026-08-04); the
+# bare tags are kept because they are the inner tags of the wrapper form and the shape
+# subagent threads already use — a harness change could hoist them to the front.
 SYNTHETIC=0
 case "$PROMPT" in
   '<agent-message'* | '<teammate-message'* | '<task-notification'*) SYNTHETIC=1 ;;
+  # Inter-session / teammate reports arrive WRAPPED — the tag sits on line 2, so the
+  # bare-tag arms above never fire for them. This is the dominant real shape.
+  'Another Claude session sent a message:'*) SYNTHETIC=1 ;;
+  # Background-agent stop notices: `Background agent "…" was stopped by the user.` and
+  # `<N> background agent(s) was|were stopped by the user: …`.
+  'Background agent "'*' was stopped by the user'*) SYNTHETIC=1 ;;
+  [0-9]*' background agent'*' stopped by the user'*) SYNTHETIC=1 ;;
 esac
 
 CWD="$(mentor_cwd "$INPUT")"
@@ -116,7 +130,11 @@ if [ "$TOKENS" -ge "$WARN_HIGH_AT" ]; then
 fi
 
 # --- WARN tier (once per session) ------------------------------------------
-if [ "$TOKENS" -ge "$WARN_AT" ]; then
+# Synthetic prompts skip this tier entirely. The notice fires ONCE per session, and in a
+# fan-out-heavy session the prompt that first crosses the threshold is almost always an
+# inbound agent report — burning the marker there spends the human's one warning on a
+# turn they never see. WARN-HIGH and ASK are unconditional, so nothing is lost above them.
+if [ "$SYNTHETIC" = "0" ] && [ "$TOKENS" -ge "$WARN_AT" ]; then
   # Prune stale warn markers (>24h) so a long-lived repo re-warns in later sessions.
   find "$state_dir" -maxdepth 1 -name '.context-warned-*' -mmin +1440 -delete 2>/dev/null || true
   marker="${state_dir}/.context-warned-${SESSION_ID:-nosession}"

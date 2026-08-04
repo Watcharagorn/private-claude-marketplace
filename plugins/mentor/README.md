@@ -283,8 +283,10 @@ tiers — it **never blocks or erases a prompt**; it warns, then asks:
   `.context-bypass-<session_id>` marker — warnings continue, and a fresh session
   re-arms the gate) and your original request runs immediately in the same turn.
   A fresh handoff note (<30 min old) suppresses the question — the advisory just
-  points at `/mentor:resume`. Harness-synthetic prompts (subagent reports) get a loud
-  advisory instead of a question, so autonomous flows are never stalled.
+  points at `/mentor:resume`. Harness-synthetic prompts (inbound agent/teammate reports,
+  task notifications, background-agent stop notices) get a loud advisory instead of a
+  question, so autonomous flows are never stalled — and they never spend the
+  once-per-session warn, which belongs to your next real prompt.
   `/mentor:plan` gets the same treatment: over the threshold `begin-plan.sh` asks
   first (hand off & plan fresh, or bypass + lean plan) before arming.
 

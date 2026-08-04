@@ -110,6 +110,15 @@ chk "same session → silent"        test -z "$OUT"
 chk "same session → still exit 0"  test "$RC" = "0"
 run "hello" warnsess2 "$TX_WARN"
 chk "new session → warns again"    contains "getting large" "$OUT"
+# A synthetic prompt must NOT spend the human's once-per-session warn: in a fan-out
+# session the first prompt over the threshold is usually an inbound agent report.
+run "<task-notification>reviewer finished</task-notification>" warnsyn "$TX_WARN"
+chk "synthetic at warn → exit 0"            test "$RC" = "0"
+chk "synthetic at warn → silent"            test -z "$OUT"
+chk "synthetic at warn → no marker burned"  test ! -e "$(marker warnsyn)"
+run "hello" warnsyn "$TX_WARN"
+chk "human after synthetic → still warns"   contains "getting large" "$OUT"
+chk "human after synthetic → marker now set" test -e "$(marker warnsyn)"
 
 echo "== B2. Warn-high tier (near-limit, re-fires) =="
 TX_HIGH="$ROOT/high.jsonl"; mktx "$TX_HIGH" usage:320000   # ≥ 315000 (90% of 350k), < 350000
@@ -170,14 +179,40 @@ run "" ask4 "$TX_ASK"
 chk "empty prompt passes"                 test "$RC" = "0"
 chk "empty prompt → silent"               test -z "$OUT$ERR"
 # Harness-synthetic prompts at ask level: measured, advised loudly, never questioned.
-run "<task-notification>reviewer finished: verdict Approved</task-notification>" ask5 "$TX_ASK"
-chk "synthetic task-notification at 365k → exit 0" test "$RC" = "0"
-chk "synthetic at 365k → loud advisory"   contains "agent report" "$OUT"
-chk "synthetic → never AskUserQuestion"   sh -c '! printf "%s" "$1" | grep -q "AskUserQuestion"' _ "$OUT"
-run "<agent-message from=\"step6-docs\">fix summary body</agent-message>" ask6 "$TX_ASK"
-chk "synthetic agent-message at 365k → exit 0"    test "$RC" = "0"
-run "<teammate-message>idle ping</teammate-message>" ask7 "$TX_ASK"
-chk "synthetic teammate-message at 365k → exit 0" test "$RC" = "0"
+#
+# SYNTHETIC_SHAPES is the observed wire contract, kept as verbatim first lines so a
+# harness wording change is a one-line fixture edit rather than an archaeology dig.
+# Every entry MUST assert all three properties — an `exit 0` check alone proves nothing
+# here, since the gate never blocks and an UNDETECTED prompt also exits 0.
+SYNTHETIC_SHAPES=(
+  # wrapper form — the tag is on line 2, so the bare-tag patterns cannot match it
+  $'Another Claude session sent a message:\n<teammate-message teammate_id="etl-research" color="green">\n{"type":"idle_notification","from":"etl-research"}\n</teammate-message>'
+  $'Another Claude session sent a message:\n<agent-message from="step6-docs">fix summary body</agent-message>'
+  # task notification
+  '<task-notification>reviewer finished: verdict Approved</task-notification>'
+  # background-agent stop notices (all three observed numeric/quoted forms)
+  'Background agent "You are finishing the google-compat repair ..." was stopped by the user.'
+  '3 background agents were stopped by the user: "You are a READ-ONLY reviewer...", "You are a READ-ONLY reviewer..."'
+  '1 background agent was stopped by the user'
+  # bare tags — unexercised on the main thread today, kept as the inner/sidechain shape
+  '<agent-message from="step6-docs">fix summary body</agent-message>'
+  '<teammate-message>idle ping</teammate-message>'
+)
+i=0
+for shape in "${SYNTHETIC_SHAPES[@]}"; do
+  i=$((i+1))
+  label="$(printf '%s' "$shape" | head -1 | cut -c1-46)"
+  run "$shape" "asksyn$i" "$TX_ASK"
+  chk "synthetic [$label] → exit 0"              test "$RC" = "0"
+  chk "synthetic [$label] → loud advisory"       contains "agent report" "$OUT"
+  chk "synthetic [$label] → no AskUserQuestion"  sh -c '! printf "%s" "$1" | grep -q "AskUserQuestion"' _ "$OUT"
+done
+# NEGATIVE: a HUMAN prompt that merely quotes a synthetic phrase must still be asked.
+# This is what forbids relaxing the anchored patterns into leading-wildcard matches.
+run 'why did I see "3 background agents were stopped by the user" in my log?' asksynneg "$TX_ASK"
+chk "human quoting a synthetic phrase → still asks" contains "CONTEXT: ASK" "$OUT"
+run 'summarize what Another Claude session sent a message: means' asksynneg2 "$TX_ASK"
+chk "human quoting the wrapper mid-sentence → still asks" contains "CONTEXT: ASK" "$OUT"
 
 echo "== D. Kill switch =="
 run "do thing" ks1 "$TX_ASK" MENTOR_CONTEXT_GATE=off
