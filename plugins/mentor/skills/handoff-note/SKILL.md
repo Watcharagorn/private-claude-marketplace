@@ -137,6 +137,12 @@ Pick the entries that fit the current state, tailored to the next-session focus:
     send the next agent to `/mentor:plan`: a second plan of record competes with the one already
     governing the work. You lived the session, so you know which harness ran — decide from that, not
     from sniffing the repo for another tool's files.
+- **Shipped — a PR/MR is open and CI is pending or red** → `/mentor:merge`. This is the state a
+  handoff written right after `/mentor:ship` is usually in, and it is not a resume: the work is
+  built and pushed, so pointing the next agent at `/mentor:resume` alone invites them to re-derive
+  the CI picture or re-implement. `mentor:resuming` already says this from its side ("Nothing else
+  routes a later session into the merge tail"); name `/mentor:merge` here so the note and the
+  resume path agree.
 - **Repeated manual work worth capturing** → `/loom:harvest`.
 - **Heavy multi-area work** → dispatch subagents per `mentor:dispatch-agents`.
 - If `.mentor/config.json` exists (a persisted mode — `/mentor:mode status` shows it), cite the repo's approval-gate default so the next agent knows whether "Proceed" or "Deliver plan only" is listed first at plan approval.
@@ -244,6 +250,11 @@ point.
 - Secrets are redacted.
 - The content is tailored to the next-session focus.
 - The recommended next-step mentor commands are listed.
+- Work the note surfaced that **outlives the note** — repo-wide breakage, a follow-up feature, debt
+  discovered while shipping — was captured with `/mentor:defer` so `/mentor:track` can see it. The
+  note's own next steps need no stub: the note itself is durable and will be resumed. What needs one
+  is everything that stays true after this topic closes, which otherwise survives only as prose in a
+  document nobody re-reads once its work is done.
 - The report **ends with literal copy-paste resume prompts** (`/mentor:resume <slug>` + the
   plugin-free alternative) — real values filled in, no placeholders.
 

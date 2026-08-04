@@ -8,8 +8,9 @@ allowed-tools: [Bash, Read, Grep, Skill, AskUserQuestion]
 
 Invoke `Skill({"skill": "mentor:merging"})` and follow it end to end: it resolves
 the open PR for the current branch (or `$ARGUMENTS` as a PR number), runs one
-bounded `gh pr checks --watch`, triages a failure once (flake → single rerun;
-regression → stop and report), and merges only on your explicit choice.
+bounded `gh pr checks --watch`, triages a failure once — flake, this diff's
+regression, or rot already on the base branch — and merges only on your explicit
+choice.
 
 
 $ARGUMENTS

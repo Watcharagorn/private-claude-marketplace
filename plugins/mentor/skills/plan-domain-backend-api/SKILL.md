@@ -1,12 +1,15 @@
 ---
 name: plan-domain-backend-api
 description: >
-  Domain planning skill for BACKEND API work, invoked ONCE by `plan`
-  (Step 3 domain routing) when the task touches routes, endpoints, handlers,
-  services, schemas/DTOs, or API contracts. Not a /command. Shapes the
-  research (find route definitions, handlers, schemas, callers) and the
-  Markdown plan to carry a before/after API contract comparison —
-  per-endpoint diff tables, schema diffs, and a Mermaid sequence-flow per
+  Domain planning skill for BACKEND API and DATA-MODEL work, invoked ONCE by
+  `plan` (Step 3 domain routing) when the task touches routes, endpoints,
+  handlers, services, schemas/DTOs, API contracts — or the persistence layer
+  behind them: a migration, or an added/changed/removed table, column, index,
+  constraint, enum, or RLS/row-level policy. Not a /command. Shapes the
+  research (find route definitions, handlers, schemas, callers, migrations)
+  and the Markdown plan to carry a before/after contract comparison —
+  per-endpoint diff tables, schema diffs, a per-column delta table plus a
+  Mermaid ER diff when the change is DDL, and a Mermaid sequence-flow per
   changed flow. No mockup contract; richer styled panels are reserved
   for the opt-in topic × perspective HTML zoom (`mentor:zooming`).
 ---
@@ -40,6 +43,10 @@ backend-relevant research agents' prompts; when researching directly, cover the 
   endpoint in scope.
 - Locate the **request/response schemas or DTOs**, validation rules, and the distinct
   **status-code paths**.
+- When the change reaches the **persistence layer**, locate the **live table definitions** —
+  the migration dir, schema dump, or ORM models — and read the real column names, types,
+  nullability, defaults, constraints, and any RLS/row-level policies for every table in scope.
+  Recalled column names are how a plan ends up describing a table that doesn't exist.
 - Locate the **API-client callers** — who consumes each endpoint (frontend services, other
   backends, jobs) — so contract changes name their blast radius.
 - For each endpoint, **classify the change as backward-compatible or BREAKING** (a removed/renamed
@@ -63,6 +70,17 @@ canonical plan):
   The `Callers affected` cell lists consumers from research EVIDENCE (or `none in repo`).
 - A **schema diff** per changed DTO — added / removed / changed fields, with types — written as
   `+`/`-`/`~`-prefixed lines.
+- **When the change reaches DDL** — a migration, or an added/changed/removed table, column, index,
+  constraint, enum, or RLS policy — the schema diff is written at the persistence level too:
+  - a **per-column delta table** for each changed entity —
+    `Column · Type · Nullable · Default · Constraint / policy · Change`,
+  - and a **Mermaid `erDiagram`** carrying **only the changed entities** plus the ones they
+    relate to, with the change marked in each entity's comment column.
+
+  Include every column of a changed table, not only the moved ones. A plan that lists just the new
+  column reads fine at review time and is useless later, when the question is what the row actually
+  looks like — and the answer gets guessed instead of read. This is also why the entities go in the
+  plan body rather than only in a migration filename: the plan is what the next session opens.
 - A **sequence-flow viz** per changed flow (caller → endpoint → handler → downstream). Encode the
   diff: **unchanged** hops plain; **new** hops marked as added; **removed** hops marked as removed
   (labelled "removed"); **changed** hops marked as changed. Label each arrow with the moved

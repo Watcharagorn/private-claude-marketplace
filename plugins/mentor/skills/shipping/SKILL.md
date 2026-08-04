@@ -114,11 +114,22 @@ ship invented is the one commit it must never author.
 
 ## Step 3 — Run `/simplify`
 
-Invoke `Skill(skill="simplify")` (a Claude Code built-in; if unavailable, do a
-quick review of the branch diff yourself instead). It fans out its own review
-agents: while they run, **No busy-wait** applies here too (`mentor:dispatch-agents`,
-"Async runtime & lifecycle") — end the turn and let the harness re-invoke you when
-they report. A `Bash true` poll burns a whole turn and returns nothing.
+Invoke `Skill(skill="simplify")` **in this thread** (a Claude Code built-in; if
+unavailable, do a quick review of the branch diff yourself instead). It fans out its own
+review agents: while they run, **No busy-wait** applies here too
+(`mentor:dispatch-agents`, "Async runtime & lifecycle") — end the turn and let the
+harness re-invoke you when they report. A `Bash true` poll burns a whole turn and returns
+nothing.
+
+Mentor is subagents-first for *implementation*, which makes wrapping this call in an
+`Agent` dispatch a tempting read — but it is the one thing that breaks the step. Simplify
+already runs its own agents, so the wrapper adds no parallelism; what it does add is a
+delegate that commits its own result and returns "done". Everything numbered below then
+becomes dead code — including the out-of-scope question — and the **Re-entry** paragraph
+that lands you at Step 4 never fires, so the ship tail's two `AskUserQuestion` gates are
+skipped and the push happens without the user ever choosing to test or choosing where the
+branch goes. Keep the call in-thread and this step keeps its checks.
+
 After it returns:
 
 1. **Re-run the clean check** — simplify may have edited files. Step 2's
@@ -186,6 +197,18 @@ Pick the first match and tell the user which command will run, adding the hint
 `(override with "test_command" in .mentor/config.json)` so the key is
 discoverable where the misfire happens. If none match, ask the user for a
 command (explicit empty input = skip).
+
+Run it inside a subshell, re-deriving `repo_root` in that same Bash call:
+
+```bash
+repo_root="$(git rev-parse --show-toplevel)"   # re-derive: separate Bash call (see Step 2)
+(cd "$repo_root" && <the resolved command>)
+```
+
+Monorepo test commands routinely start with their own `cd` into a workspace, and cwd
+persists across Bash calls — so a bare `cd apps/web && npm run test:e2e` leaves every
+later block running one directory down, where `git add CLAUDE.md` fails with `pathspec
+did not match any files`. The parentheses confine the move to the test run.
 
 On failure, ask: "Tests failed. What now?" — Stop and fix (default, exit 1) /
 Ship anyway.
@@ -375,6 +398,8 @@ done by something that knows how to wait.
 | Tempted to watch CI after the push | Stop and hand to `/mentor:merge`. Never a `seq`/`sleep` poll loop — that is the **No busy-wait** rule. |
 | Simplify edited out-of-scope files | Ask before committing. |
 | Tests fail | Default: stop; branch intact for iteration. |
+| A test command with its own `cd` ran unconfined | cwd persists across Bash calls, so later `git add <path>` fails with `pathspec did not match any files`. Wrap it — `(cd "$repo_root" && <cmd>)` — and re-derive `repo_root` in any block that moved. |
+| Tempted to dispatch an Agent to run `/simplify` | Keep Step 3 in-thread. The delegate commits its own result and returns "done", so the clean check, the out-of-scope question, and the Step 4/5 gates all silently never run. |
 | Push rejected | `! [rejected]` (non-fast-forward) → offer `pull --rebase` + retry, or stop. `! [remote rejected]` (server hook / protected branch) → rebase cannot help; cut a feature branch and redo via 5A, then realign `$base` to `origin/$base`. Never force-push. |
 | `gh pr create` fails: PR already exists for this branch | Do NOT open a duplicate — print the existing PR's URL (`gh pr list --head "$branch"`) and confirm with the user it now contains what they meant to ship (Step 1's ownership answer applies). |
 | MR/PR creation fails (other) | The branch is already pushed and safe — print the compare URL. |

@@ -200,9 +200,17 @@ Then resolve a selection:
 6. **Act on the note's "Recommended mentor commands for the next agent."** **Bound "act":** invoke the
    listed mentor command(s) **exactly as the note states** — do not infer extra steps or expand beyond
    what the note recommends. If the note recommends `/mentor:plan <focus>`, run that. If it recommends
-   resuming implementation of an **approved plan**, implementation is subagents-first: invoke
-   `Skill(skill="mentor:dispatch-agents")` and follow its "Executing the dispatches" section (the same
-   SDD path plan Step 6 and handoff prescribe).
+   resuming implementation of an **approved plan**, run **`/mentor:track <slug>`** with the plan slug
+   the note names. Track is not an extra step you inferred — it is how that recommendation is honored:
+   it re-enters at the first unticked step instead of rebuilding from step 1, runs the context check
+   that decides whether this session is big enough to finish, and then executes through
+   `mentor:dispatch-agents` anyway. `mentor:dispatch-agents` says the same thing from its side ("When
+   NOT to use — starting from a plan this session didn't write"), and a resumed note is exactly that
+   case. Older notes phrase the recommendation as "implementation via `mentor:dispatch-agents`" —
+   honor those **through** `/mentor:track` too; it is the same work, and passing the slug means the
+   user who already chose a note isn't asked to choose a plan again. Invoke
+   `Skill(skill="mentor:dispatch-agents")` directly only when the note's work has no plan record at
+   all, so there is no state for track to read.
 7. **Stamp the note resolved when — and only when — its work is done.** Track the note's path for the
    rest of the session; the stamp fires on the first of these:
    - **All the note's tasks completed per the plan file** — every recommended command ran to

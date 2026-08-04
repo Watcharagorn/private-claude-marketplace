@@ -1,12 +1,13 @@
 ---
 name: merging
 description: >
-  Watch a PR's CI checks, triage a failure once (flake vs regression), and merge on
-  green — always with the user's explicit go-ahead. User-invoked via /mentor:merge
-  after /mentor:ship (or for any open PR on the current branch, mentor-made or not).
-  Use when the user says "watch the PR and merge when green", "check CI and merge",
-  "merge if checks pass". GitHub-only (needs gh); one bounded watch, one rerun max,
-  never a busy-poll loop.
+  Watch a PR's CI checks, triage a failure once (flake vs regression vs a base branch
+  that was already broken), and merge on green — always with the user's explicit
+  go-ahead. User-invoked via /mentor:merge after /mentor:ship (or for any open PR on
+  the current branch, mentor-made or not). Use when the user says "watch the PR and
+  merge when green", "check CI and merge", "merge if checks pass", or "is this failure
+  even mine". GitHub-only (needs gh); one bounded watch, one rerun max, never a
+  busy-poll loop.
 ---
 
 # merge — watch checks, triage once, merge on green
@@ -14,8 +15,9 @@ description: >
 `/mentor:ship` deliberately ends at "PR open" — re-running ship to get a merge would
 re-run simplify, the clean check, tests and the push, and ship has already retired the
 topic's handoff notes, so there is nothing to resume from either. This skill is the
-re-entry point for the tail: watch CI, distinguish a flake from a regression **once**,
-and merge only when the user has said so.
+re-entry point for the tail: watch CI, work out **once** whether a failure is a flake,
+this diff's regression, or rot that was already on the base branch, and merge only when
+the user has said so.
 
 ## When NOT to use
 
@@ -73,10 +75,38 @@ run_id="$(gh run list --branch "$branch" --limit 1 --json databaseId -q '.[0].da
 gh run view "$run_id" --log-failed
 ```
 
+**Ask whether the failure is even yours before spending the rerun.** "Unrelated to the
+diff" reads like a flake, so a deterministic environment failure (a missing binary, a
+service that never comes up — `supabase: not found`, exit 127) routes to *flake*, burns
+the one-ever rerun on something that cannot pass, then gets relabelled a regression of a
+PR that never caused it. Two commands separate rot from a flake — and if the topic's live
+handoff note already records a base-branch finding, read it instead of re-deriving:
+
+```bash
+# Re-derive here: $branch and $run_id from the block above are gone with their Bash call.
+branch="$(git branch --show-current)"
+base="$(git symbolic-ref --short refs/remotes/origin/HEAD 2>/dev/null | sed 's#^origin/##')"
+[ -n "$base" ] || base="$(gh repo view --json defaultBranchRef -q .defaultBranchRef.name)"
+[ -n "$base" ] || { echo "ERROR: cannot resolve base branch" >&2; exit 1; }   # unset $base makes the diff below a fatal ambiguous-argument
+wf="<the failing workflow name from gh run view>"
+gh run list --workflow "$wf" --branch "$base" -L 20 \
+  --json conclusion,createdAt,url -q '.[] | "\(.createdAt) \(.conclusion) \(.url)"'
+git diff --stat "origin/${base}...HEAD" -- .github/ docker-compose*.yml compose*.yaml Makefile
+```
+
+The 20-run history is what distinguishes rot from one bad night on the base: one red run
+proves nothing, a red streak since a datable commit proves the base was already broken.
+
 Then decide:
 
-- **Plausible flake** (infra timeout, known-flaky test, unrelated to the diff):
-  `gh run rerun "$run_id" --failed` — **once, ever** — then repeat Step 2's watch.
+- **Pre-existing (broken base)** — the same job fails the same way on `$base`, the streak
+  predates this branch, and the diff touched no CI or environment files. **Don't spend the
+  rerun**: it can only fail identically. Report both run URLs and the date the streak
+  started, then carry this verdict into Step 4, which is where the user chooses what to do
+  about a PR that can never go green on its own.
+- **Plausible flake** (infra timeout, known-flaky test, unrelated to the diff **and** the
+  base is green): `gh run rerun "$run_id" --failed` — **once, ever** — then repeat Step 2's
+  watch.
 - **The same job fails the same way twice, or the failure touches this diff**: it is
   a regression. Stop, report the failing test + log excerpt, and leave the PR open.
   Fixing it is a new working session, not a merge step.
@@ -90,6 +120,14 @@ Never merge on your own judgment. Ask via `AskUserQuestion`:
 - **Auto-merge on green** — `gh pr merge <number> --auto --squash`: GitHub merges when
   checks pass, no further watching needed; end the session after confirming it queued.
 - **Leave open** — report status and stop.
+
+**On a `pre-existing (broken base)` verdict the option set changes**, because the PR
+cannot reach green by waiting: drop **Auto-merge on green** (it would queue forever) and
+offer instead **Merge anyway** — stating plainly which jobs *did* pass, so the user is
+weighing real evidence rather than a bare override — alongside **Leave open**. Whichever
+they pick, the rot itself outlives this PR, so capture it with `/mentor:defer "<failing
+job> broken on <base> since <date>"` before you finish; a verdict that lives only in this
+turn's output is how the same five `gh` calls get spent again next week.
 
 Report the result (merged SHA or queued state) and, if the branch is deletable
 per repo convention, mention `--delete-branch` as an option — don't apply it
@@ -139,6 +177,11 @@ missing the result. On yes, resolve the run **by the merge SHA**, never "newest 
 (a second merge can land first):
 
 ```bash
+# Derive both here: every earlier assignment died with its own Bash call.
+pr="<the PR number from Step 1>"
+base="$(gh pr view "$pr" --json baseRefName -q .baseRefName)"
+sha="$(gh pr view "$pr" --json mergeCommit -q '.mergeCommit.oid')"
+[ -n "$base" ] && [ -n "$sha" ] || { echo "ERROR: no base/merge SHA for PR $pr" >&2; exit 1; }
 gh run list --branch "$base" --limit 10 --json databaseId,headSha \
   -q "[.[] | select(.headSha==\"$sha\")][0].databaseId"
 ```
@@ -157,6 +200,10 @@ the base branch is a fresh working session, not a tail on this one.
   state through at most one watch + one rerun + one more watch, any regression was
   reported with the failing test named, and a merge happened only through the user's
   explicit choice — or the PR was left open with its status stated plainly.
+- A red check was sorted into flake / regression / **pre-existing (broken base)** before
+  the rerun was spent, using the base-branch run history and the CI-file diff — and a
+  pre-existing verdict reached Step 4 as its own option set plus a `/mentor:defer` capture,
+  never as a third dead end.
 - A landed merge either closed its plan's state on the user's say-so, or reported that
   no plan matched the branch — never left a shipped plan silently `in_progress`. A PR
   merged outside the session still reached this step, rather than being reported as

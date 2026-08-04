@@ -261,6 +261,11 @@ delegates to), `plan-review`, `tour`, and
   Never poll to pass time (`Bash true`, chained `sleep`s). Wait with ONE bounded
   call: `until <check>; do sleep N; done` (under 600s), a backgrounded run, or a
   monitor tool.
+  If this step runs long, send a one-line progress message at each phase boundary
+  (what just finished, what is next). The orchestrator ended its turn after
+  dispatching you, so your messages are the only thing that can wake it — silence
+  is indistinguishable from a hang, and the session's only remaining recovery is a
+  human noticing.
   If a correction to this brief arrives mid-run, apply it before you return.
   Deliver your full result (final text / message per your runtime) BEFORE going
   idle — an idle signal with no delivered result is a contract violation.
@@ -301,6 +306,28 @@ delegates to), `plan-review`, `tour`, and
   re-dispatching a whole combo that was 90% right. A failed `Done when:`
   needing a clean rebrief → re-dispatch the role once (per the orchestrator
   contract above).
+- **Step stalled / the user interrupts it.** A step that goes dark — no output, no idle
+  signal, no death — has no notification coming, so the wake-up is usually the user
+  asking why it is taking so long. The temptation then is to start debugging the step's
+  subject matter by hand: container logs, database queries, reading the artifacts. That
+  is the escape hatch reserved above for a *second* failed `Done when:`, and reaching for
+  it early means the main thread inherits a debugging session it has no context for —
+  guessed column names, dead ends, and a context window spent on someone else's step.
+  Stay orchestrator-shaped instead:
+  1. **Snapshot observable state only** — `git log --oneline -5`, `git status --short`,
+     `git diff --stat`, a listing of the step's artifact dir. Kill processes the step
+     leaked (a browser runner, a stray container) so the re-dispatch starts clean.
+  2. **Delegate the diagnosis** — dispatch ONE read-only `Explore` agent pointed at the
+     artifact paths and the failing command, and let it return a cause.
+  3. **Re-dispatch the role with that diagnosis attached**, counted against the
+     one-remediation budget above. Handing a warm diagnosis to a fresh agent is what
+     actually closes these steps.
+
+  Keep secrets out of the snapshot: commands that print a process or container
+  environment (`docker inspect` over `.Config.Env`, `printenv`, `env`) dump live API keys
+  straight into the transcript, and the transcript outlives the turn — `/mentor:handoff`
+  reads it back, and so does anyone reviewing the session. Name the one variable you
+  need, or check a value's *presence* rather than printing it.
 - **Close out.** Once a dispatch's output is consumed and its `Done when:`
   verified, stop/release the agent — finished agents left idling interrupt
   the session with stray notifications and pile up until manually killed.
