@@ -48,7 +48,8 @@ Two skills split the job cleanly:
 - `scripts/check_cols.py` — the verify loop's width assertion: reads a renderer's stdout, reports
   lines over a column budget using the same `vlen()` the renderers pad with. Silence and a zero
   exit is the pass.
-- `tests/` — `test-check-cols.sh` and `test-unfold-sweep.sh`, run by `/verify-plugin-edits`.
+- `tests/` — `test-check-cols.sh`, `test-unfold-sweep.sh` and `test-renderer-reuse.sh`, run by
+  `/verify-plugin-edits`.
 - `commands/console.md`, `commands/decorate.md`.
 
 No hooks.

@@ -55,6 +55,17 @@ Enforce these in every pane you create or touch:
    data** *and* the paint cadence must exceed the data cadence. Anything short of both: use viddy.
    See "Status-driven animated glyphs" in `decorate/references/primitives.md` for what that owes
    you, and "Verifying an own-loop pane" below for how to check it.
+
+   A pane the user **types into** — gum prompts, a menu loop — is a third shape, and neither the
+   wrapper nor the own-loop carve-out covers it: it repaints on input, not on a clock, so there is no
+   interval to get right and nothing for viddy to wrap. It is still bound by rules 1, 3, 4 and 5; a
+   prompt-driven TUI shows raw monochrome text as easily as a `cat` pane does. Two things follow from
+   its having no wrapper. The tmuxp entry launches the TUI directly, so the force-color and theme
+   environment a `watch-*` wrapper would have carried (`CLICOLOR_FORCE=1` for gum,
+   `TMUX_DESIGN_THEME`) has to be set on that entry or inside the TUI script — otherwise rule 3 fails
+   the moment the pane isn't a TTY, with nowhere left to fix it. And it can't be verified by capturing
+   a settled frame, because the frame is a function of what has been typed: see "Verifying a
+   keystroke-driven pane" below.
 3. **Always emit color.** Panes aren't TTYs — never rely on a library's auto-detection, it will
    silently strip everything. `NO_COLOR` (non-empty) is the opt-out, and `FORCE_COLOR=0` or an empty/`dumb` `TERM` also
    disable it. *Which* colors is
@@ -88,7 +99,8 @@ Enforce these in every pane you create or touch:
    than the hues, so a theme swap still reads correctly. Pin a fixed zone only when
    the pane tracks one market's clock, and label it when you do.
 7. **Renderer scripts stay dependency-free** (Python stdlib ANSI). Before writing one, look for a
-   renderer the project already has — `ls scripts/` for a `*view*.py` / `*pane*.py`, `scripts/watch-*`
+   renderer the project — or the sibling workspace you were asked to copy a pane from — already has:
+   `ls scripts/` for a `*view*.py` / `*pane*.py`, `scripts/watch-*`
    wrappers, or read what the tmux/tmuxp config already launches. Extend that instead of
    duplicating its data-loading logic; keep its default output unchanged and add a flag or
    subcommand for the new view so other consumers don't break. What you inherit is the *loader*,
@@ -106,6 +118,31 @@ Enforce these in every pane you create or touch:
    (display-column padding, palette, degradation) are already right. Richer tools only if already
    installed — `command -v gum viddy lnav jq bat glow`; `${CLAUDE_PLUGIN_ROOT}/skills/decorate/references/tooling.md` has the
    invocations and the force-color rules that make them work in a pane.
+
+   Adapting the starter means importing or copying its helpers, **not re-deriving them** — and
+   re-deriving looks exactly like diligence while you do it. A fresh renderer grows its own
+   `vlen(s) = len(ANSI_RE.sub("", s))`, which counts *characters* after stripping SGR: `⛔ blocked`
+   measures 9 instead of 10, and an OSC-8 linked cell measures its whole URL. Every column padded
+   with it is crooked in the exact way rule 4 exists to prevent, and it stays invisible for as long
+   as the data is ASCII — which is why the verify loop's width check can't stand in for this one.
+   Step 2 proves the file fits *today's* rows; it says nothing about the row that arrives next month
+   carrying an emoji or a CJK product name. So check the file you just made from the starter:
+   ```bash
+   r=scripts/<name>_view.py                    # the copy you just created, not a renderer you extended
+   [ -f "$r" ] || echo "MISSING: $r"           # a typo'd path must not read as a clean run
+   grep -q 'def cluster_width' "$r" \
+     || grep -nE '^ *def (vlen|pad|trunc)\b' "$r" | sed 's/^/re-derived width math /'
+   grep -nE '^[A-Z][A-Z0-9_]* *= *"[0-9]+(;[0-9]+)+"' "$r" | sed 's/^/raw SGR palette /'
+   ```
+   The `cluster_width` guard is what keeps this quiet on a renderer that copied the kit wholesale —
+   that file defines `vlen` legitimately, and a check that flags correct files is one you learn to
+   ignore. It also fixes the scope: run this on the copy, not on a pre-existing project renderer you
+   extended, whose own `pad()` is built on its own width model. The `;` in the palette pattern earns
+   its place the same way — `PORT = "8080"` is not a color, and flagging it would spend the check's
+   credibility on a constant. A hit on either line means you re-derived: take the width helpers from
+   the kit, and the color literal to `tmux-design:decorate` as a named role. A silent run still owes
+   you one look at the padding path, because no name-based grep can see a file that defines *two*
+   width functions and pads with the ASCII-only one while a correct one sits unused beside it.
 8. **Refresh cadence matches data cadence** — 90s for fast-moving state, 120s+ for slow. Render
    only the data the pane needs: never run a full fetch to display one section (the pane refreshes
    forever; wasted calls compound).
@@ -180,7 +217,8 @@ that shrank is the one nobody captures.
 1. `tmux list-panes -s -t <session> -F "#{window_name} #{pane_id} #{pane_current_command}"`.
 2. `tmux capture-pane -e -p -t <pane>` for each; flag violations: no ANSI colors in output,
    `clear`-loop wrappers, wall-of-text (no table/section structure), raw `tail`/`cat` panes,
-   non-local timestamps, flicker-prone full-redraw loops, and `viddy` invoked without `-w`/`--unfold`
+   non-local timestamps, flicker-prone full-redraw loops, hand-rolled width math in a renderer script
+   (rule 7's reuse check finds it), and `viddy` invoked without `-w`/`--unfold`
    — which the wrappers answer faster than the panes do:
    ```bash
    for f in scripts/watch-*; do
@@ -302,6 +340,46 @@ A pane whose renderer owns its own paint loop (rule 2) never settles, so three t
 If Ctrl-C is wired to force an immediate refresh instead of exiting — reasonable for a monitoring
 pane — then `respawn-pane`/`kill-pane` is the only way to stop it, and step 3's "Pane is dead"
 caveat applies with nothing to work around it.
+
+### Verifying a keystroke-driven pane
+
+Rule 2's third shape can't be verified by capturing a settled frame — what it shows depends on what
+has been typed, so you have to drive it. `send-keys` is the only way in: the widgets these panes are
+built from read their keys from the terminal rather than stdin, so nothing can be piped at them (the
+"TTY safety" table in `decorate/references/tooling.md` has which gum commands this hits). That does
+not undo step 3's prohibition — driving a program that is already reading is fine; using `send-keys`
+to *restart* one is what gets swallowed mid-child-call and lands as inert text.
+
+Drive it on step 1's isolated server, and point it at a **scratch copy of the datastore**. This is
+the only step in the whole loop that writes, so aiming it at the real file means the verification
+mutates the thing it was verifying.
+
+```bash
+scratch="$(mktemp)"; cp <the real datastore> "$scratch"   # verification writes — never to the original
+sbx() { tmux -L _tmuxdesign_sbx "$@"; }
+await() {   # await <marker> — no -e here: SGR bytes can split a marker mid-word
+  for _ in $(seq 40); do
+    sbx capture-pane -p -t _sbx | grep -qF "$1" && return 0
+    sleep 0.25
+  done
+  echo "timeout waiting for: $1" >&2; sbx capture-pane -e -p -t _sbx >&2; return 1
+}
+sbx -f /dev/null new-session -d -s _sbx -x 100 -y 30 \
+  "<tui command, its datastore pointed at $scratch>; echo __DONE__; sleep 60"
+await 'Title:' && sbx send-keys -t _sbx -l 'buy milk' && sbx send-keys -t _sbx Enter
+await __DONE__ && grep -q 'buy milk' "$scratch"      # the write, not the frame
+sbx kill-server
+```
+
+**Poll, don't sleep.** A hand-picked `sleep` is guesswork that passes on a fast machine and lands the
+next keystroke in the wrong prompt on a slow one, and the run still reports a pass — so `await` has
+to *fail* at its timeout rather than fall through. `grep -qF`, not `grep -q`, because prompts
+routinely contain `?`, `[` and `(`. And `; echo __DONE__; sleep 60` is there for step 1's reason: the
+TUI exits, tmux tears the session down with it, and the final assertion races a pane that no longer
+exists — the marker gives you something to wait for and the sleep holds the session open to read it.
+
+Assert the **side effect**, not the frame: a TUI paints a plausible "saved" frame whether or not the
+write landed, and the datastore row is the only evidence that it did.
 
 ## Log-viewer panes (lnav)
 

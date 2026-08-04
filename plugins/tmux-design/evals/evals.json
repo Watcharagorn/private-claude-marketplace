@@ -1,6 +1,6 @@
 {
   "skill_name": "tmux-design",
-  "note": "Behavior-trace evals. The console skill mutates a live tmux session (respawns panes, rewrites project scripts), so most are answered by an agent that READS the skill files and traces the flow — verifying the text produces the intended behavior unambiguously rather than executing against a real session. Evals 9-11 check routing between the two sibling skills (console = wiring and verification, decorate = visual vocabulary) from the user's opening prompt; eval 17 checks the harder case, where a console-framed task drifts into chrome mid-flow and must hand off rather than improvise. Routing is the main ambiguity risk in this plugin. Evals 12-16 are live: they execute the bundled scripts and assert on real output.",
+  "note": "Behavior-trace evals. The console skill mutates a live tmux session (respawns panes, rewrites project scripts), so most are answered by an agent that READS the skill files and traces the flow — verifying the text produces the intended behavior unambiguously rather than executing against a real session. Evals 9-11 check routing between the two sibling skills (console = wiring and verification, decorate = visual vocabulary) from the user's opening prompt; eval 17 checks the harder case, where a console-framed task drifts into chrome mid-flow and must hand off rather than improvise. Routing is the main ambiguity risk in this plugin. Evals 12-16 and 21 are live: they execute the bundled scripts and assert on real output. Evals 20-22 cover rule 7's kit-reuse check and the keystroke-driven pane shape.",
   "evals": [
     {
       "id": 1,
@@ -97,6 +97,21 @@
       "prompt": "I tweaked my portfolio renderer — make sure it still fits the pane before I ship it.",
       "expected_output": "Runs the bundled `scripts/check_cols.py` over the RENDERER'S STDOUT at several widths (e.g. `TMUX_PANE_WIDTH=$w <renderer> | python3 \"$CLAUDE_PLUGIN_ROOT/scripts/check_cols.py\" \"$w\" --reserve 1`) rather than hand-rolling an `awk length()` / `len()` / strip-SGR-and-count check — the point being that display width is measured with the same `vlen()` the renderer pads with, so the check and the renderer cannot disagree. Treats silence AND a zero exit as the pass. Does not false-alarm on a row containing an OSC-8 hyperlinked cell or a ZWJ emoji (an SGR-only strip measures a 10-column linked cell at 43). Does not pipe a `capture-pane` capture into it — without -J a capture is already hard-wrapped at pane width, so every line fits by construction and the check cannot fail.",
       "files": []
+    },
+    {
+      "id": 20,
+      "prompt": "Copy the todo pane from my other tmuxp session into this one and build its renderer.",
+      "expected_output": "Treats the sibling workspace's existing renderer as rule 7's \"a renderer the project already has\" and reuses it, or copies renderer_template.py into scripts/<name>_view.py and imports/keeps its vlen()/pad() rather than re-deriving them. Names palette roles (TITLE = \"title\") instead of writing SGR literals like \"1;38;5;212\", routing color questions to tmux-design:decorate. Runs rule 7's reuse check on the file it just created and reads a `def vlen` with no `cluster_width` as the finding. Knows the verify loop's width check would NOT have caught this while the pane's data is ASCII, so the check is not redundant with step 2."
+    },
+    {
+      "id": 21,
+      "prompt": "Run rule 7's reuse check against the bundled renderer template and confirm it stays silent.",
+      "expected_output": "Executes the check from console/SKILL.md rule 7 against scripts/renderer_template.py and gets no output: the `grep -q 'def cluster_width'` guard short-circuits even though the kit does define vlen(), pad() and trunc(), and the SGR-constant grep finds nothing because the kit's palette constants are role names. Then demonstrates the positive cases — a file with `def vlen` and no `cluster_width`, and one with TITLE = \"1;38;5;212\" — both report. Notes that PORT = \"8080\" is not flagged because the pattern requires a ';'."
+    },
+    {
+      "id": 22,
+      "prompt": "The add-task flow in my todo pane doesn't seem to save. Check it.",
+      "expected_output": "Recognizes a keystroke-driven pane — rule 2's third shape, neither viddy-wrapped nor own-loop — so a settled-frame capture cannot verify it. Drives it with `send-keys -l` plus a separate key send on the -L _tmuxdesign_sbx isolated server, not the ambient one, and points the datastore at a scratch copy first because this is the only verify step that writes. Polls `capture-pane -p` (no -e, since SGR bytes split a marker) with `grep -qF` until the expected prompt appears and FAILS at the timeout rather than picking a sleep. Launches with a `; echo __DONE__; sleep 60` tail so the final assertion doesn't race the pane's exit, and asserts the datastore row rather than the success frame. Does not read verify-loop step 3's send-keys prohibition as forbidding this."
     }
   ]
 }
