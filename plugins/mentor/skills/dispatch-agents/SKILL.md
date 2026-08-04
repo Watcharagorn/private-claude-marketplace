@@ -107,7 +107,9 @@ The point of SDD: quality through narrow focus, and a lean main thread.
   worth remembering, because unlike the others it cannot be derived from ticks,
   and the note is what makes the retry cheap.
 - **Prompt sketches must be self-contained.** Each agent starts with zero
-  memory of this conversation: give exact file paths, the approved plan path,
+  memory of this conversation **and no inherited project context — assume it
+  never read CLAUDE.md or your repo's conventions**: give exact file paths,
+  the approved plan path,
   the distilled facts it needs from research or prior steps (paste result
   lines, not files), and its `Done when:` verbatim. Every **implementation**
   brief additionally carries the solution-quality line: `Implement the most
@@ -180,7 +182,7 @@ Effort and model are independent levers: a `low`-effort `opus` step is fine, and
 5. **Assign roles.** Smallest specialist that covers the work.
 6. **Assign models.** Default `sonnet`; upgrade only with a reason.
 7. **Assign effort.** Default `medium`; upgrade for design/cross-cutting, downgrade for trivial.
-8. **Write prompt sketches.** Each agent has zero memory of this conversation — the brief must stand alone.
+8. **Write prompt sketches.** Each agent has zero memory of this conversation — the brief must stand alone. If a `Done when:` is a long test suite, brief the agent to iterate on a filtered subset and run the suite whole only as the final gate.
 9. **State done-when.** Observable, verifiable, no "looks good".
 
 ## Example
@@ -244,13 +246,21 @@ delegates to), `plan-review`, `tour`, and
   `until ! pgrep -f <proc>; do sleep 5; done`, or a monitor/wait tool — sized under
   the Bash timeout ceiling (600s). A chain of short sleeps burns a turn apiece, and
   the harness blocks bare foreground `sleep` outright, so the chain tends to fail in
-  the middle and leave the wait half-done.
+  the middle and leave the wait half-done. The block below carries an
+  agent-shaped copy of this rule — deliberately without "end the turn", which a
+  dispatched agent must never do undelivered.
 - **Deliver before idling — the standing prompt contract.** Every dispatched
-  prompt, on every surface, ends with this block pasted verbatim:
+  prompt, on every surface, ends with this block pasted verbatim. The other
+  surfaces cite this section by name rather than copying the block, so a skill
+  that dispatches without loading this one must `Read` this block first —
+  otherwise the contract never reaches the agent:
 
   ```
   Do not call the Agent/Task tool — you have no sub-agents. Complete this alone,
   or stop and report the blocker.
+  Never poll to pass time (`Bash true`, chained `sleep`s). Wait with ONE bounded
+  call: `until <check>; do sleep N; done` (under 600s), a backgrounded run, or a
+  monitor tool.
   If a correction to this brief arrives mid-run, apply it before you return.
   Deliver your full result (final text / message per your runtime) BEFORE going
   idle — an idle signal with no delivered result is a contract violation.

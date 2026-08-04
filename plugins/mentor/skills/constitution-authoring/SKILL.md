@@ -118,8 +118,10 @@ or re-author its content. Adopt it by reference instead:
    backup, edit with `jq`, validate, restore on failure):
 
    ```bash
-   cfg="$REPO_ROOT/.mentor/config.json"
-   mkdir -p "$REPO_ROOT/.mentor"   # bare on purpose: constitution.md is committed, not private
+   # Re-derive: each fenced block is its own Bash call, so Step 1's value is gone.
+   repo_root="$(git rev-parse --show-toplevel)"
+   cfg="$repo_root/.mentor/config.json"
+   mkdir -p "$repo_root/.mentor"   # bare on purpose: constitution.md is committed, not private
    [ -f "$cfg" ] || echo '{}' > "$cfg"
    cp "$cfg" "$cfg.bak"
    jq --arg p "docs/constitution.md" '.constitution_path = $p' "$cfg" > "$cfg.tmp" \
@@ -221,7 +223,9 @@ On approval, create the dir and write the file with `Write` (it is in-repo, but 
 plan gate is armed, so the write is allowed):
 
 ```bash
-mkdir -p "$REPO_ROOT/.mentor"   # bare on purpose: constitution.md is committed, not private
+# Re-derive: each fenced block is its own Bash call, so Step 1's value is gone.
+repo_root="$(git rev-parse --show-toplevel)"
+mkdir -p "$repo_root/.mentor"   # bare on purpose: constitution.md is committed, not private
 ```
 
 Write the assembled document to `$REPO_ROOT/.mentor/constitution.md`. Then report:
