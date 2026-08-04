@@ -26,9 +26,14 @@ chk() { desc="$1"; shift
 }
 
 # The idiom under test, kept byte-for-byte in step with the one documented in the skill
-# (section C below fails if the skill drifts away from this shape).
+# (section D below fails if the skill drifts away from this shape). The live-pane enumeration
+# the skill puts first can't run here, so this exercises the glob fallback plus the zero-file
+# guard — which is the half that decides whether an empty sweep reads as a pass.
 sweep() {
-  for f in "$1"/watch-*; do
+  files=$(find "$1" -maxdepth 1 -name 'watch-*' 2>/dev/null)
+  [ -z "$files" ] && echo "SWEEP FOUND NO FILES — enumerate from the launcher before reporting a pass"
+  for f in $files; do
+    [ -f "$f" ] || continue
     line=$(grep -m1 'viddy' "$f") || continue
     printf '%s\n' "${line%% -- *}" \
       | grep -qE -- '--unfold|(^|[[:space:]])-[a-z]*w([[:space:]]|$)' || echo "$(basename "$f")"
@@ -62,16 +67,20 @@ chk "non-viddy fallback is not a rule 2 violation"    lacks watch-fallback
 
 echo
 echo "== C. degenerate inputs don't produce a false all-clear =="
+# The distinction this section pins: "examined files, found no violations" is a pass, while
+# "examined nothing" is not — and the two used to be the same empty output. A workspace whose
+# layout lives in a launcher script rather than .tmuxp.yaml has no scripts/watch-* at all, so
+# the sweep that silently examined zero files was reporting a clean bill on every pane.
 EMPTY="$ROOT/empty"; mkdir -p "$EMPTY"
-# An unmatched glob stays literal, the grep fails, `|| continue` absorbs it — so a
-# directory with no wrappers must read as "nothing to report", never as an error.
 out_empty="$(sweep "$EMPTY" 2>/dev/null)"; rc=$?
-chk "empty dir → exits 0"              test "$rc" = "0"
-chk "empty dir → prints nothing"       test -z "$out_empty"
+chk "no wrappers → still exits 0 (a notice, not a crash)"  test "$rc" = "0"
+chk "no wrappers → says it examined nothing"               sh -c 'printf "%s" "$0" | grep -q "SWEEP FOUND NO FILES"' "$out_empty"
+chk "no wrappers → does NOT read as a clean pass"          test -n "$out_empty"
 ONLYNON="$ROOT/onlynon"; mkdir -p "$ONLYNON"
 printf 'exec tail -f /var/log/x\n' > "$ONLYNON/watch-tail"
 out_non="$(sweep "$ONLYNON")"
-chk "dir with no viddy wrapper → prints nothing" test -z "$out_non"
+chk "wrappers present but none use viddy → prints nothing (a real pass)" test -z "$out_non"
+chk "that pass is not the zero-file notice"  sh -c '! printf "%s" "$0" | grep -q "SWEEP FOUND NO FILES"' "$out_non"
 
 echo
 echo "== D. the skill still documents this idiom, not the old whole-line one =="
@@ -81,6 +90,12 @@ chk "skill cuts the renderer payload at ' -- '" \
   grep -q 'line%% -- \*' "$CONSOLE"
 chk "skill no longer greps whole wrapper files" \
   sh -c '! grep -q "grep -LE -- .--unfold" "$0"' "$CONSOLE"
+chk "skill guards against a zero-file sweep" \
+  grep -q 'SWEEP FOUND NO FILES' "$CONSOLE"
+chk "skill enumerates from live panes before the glob" \
+  grep -q 'pane_start_command' "$CONSOLE"
+chk "skill uses find, not a bare glob (zsh nomatch aborts)" \
+  grep -q "find scripts -maxdepth 1 -name 'watch-\*'" "$CONSOLE"
 
 echo
 echo "RESULT: PASS=$PASS FAIL=$FAIL"

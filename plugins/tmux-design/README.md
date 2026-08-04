@@ -28,10 +28,13 @@ Two skills split the job cleanly:
 
 ## What's in it
 
-- `skills/console/` — the wiring standard and verify loop, including panes whose renderer owns its
-  own repaint loop and so never settle for a capture.
+- `skills/console/` — the wiring standard and verify loop, including how to verify every pane one
+  edited renderer feeds and how to do width math in a renderer that isn't Python.
   - `references/lnav-formats.md` — lnav format schema, the mutually-exclusive-regex trap, headless
     install + SQL validation. Loaded only when a pane tails a log.
+  - `references/verifying-pane-shapes.md` — the three pane shapes that never settle for a capture:
+    a renderer that owns its own paint loop, a keystroke-driven TUI, and a `bind-key` (which lives
+    in the client's key dispatch, where no `send-keys` at the pane can reach it).
 - `skills/decorate/` — the visual standard.
   - `references/palette.md` — the semantic roles, seven themes (six in hex, plus the original 256-index palette), the color-depth
     ladder, the 256-quantization trap, contrast and colorblind guidance.
@@ -46,10 +49,11 @@ Two skills split the job cleanly:
   kv() gauge() freshness()` and a `demo` mode. Copy it into the project and adapt.
 - `scripts/tmux_theme.sh` — emits a tmux chrome snippet for a named theme, on stdout only.
 - `scripts/check_cols.py` — the verify loop's width assertion: reads a renderer's stdout, reports
-  lines over a column budget using the same `vlen()` the renderers pad with. Silence and a zero
-  exit is the pass.
-- `tests/` — `test-check-cols.sh`, `test-unfold-sweep.sh` and `test-renderer-reuse.sh`, run by
-  `/verify-plugin-edits`.
+  lines over a column budget using the same `vlen()` the renderers pad with, and reports lines that
+  aren't valid UTF-8 rather than smoothing them into plausible widths. Silence and a zero exit is
+  the pass.
+- `tests/` — `test-check-cols.sh`, `test-unfold-sweep.sh`, `test-renderer-reuse.sh` and
+  `test-command-routing.sh`, run by `/verify-plugin-edits`.
 - `commands/console.md`, `commands/decorate.md`.
 
 No hooks.

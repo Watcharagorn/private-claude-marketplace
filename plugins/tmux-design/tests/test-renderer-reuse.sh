@@ -126,6 +126,77 @@ chk "skill's palette pattern requires a ';'" \
 chk "skill handles the missing-file case" \
   grep -q 'MISSING: \$r' "$CONSOLE"
 
+# ── The non-Python half ───────────────────────────────────────────────────────────────────
+# The two patterns above are Python-shaped, so they report a clean run on the file that
+# commits this rule's violation most often: a bash renderer whose palette is
+# RED=$'\033[38;5;203m' and whose width math is printf '%-44s'. A check that is silent on
+# the worst case is the pass-shaped failure this plugin exists to hunt, so the shell/jq
+# patterns get the same both-halves treatment — they must fire on hand-rolled shell width
+# math and stay silent on the kit and on fixed-width ASCII padding.
+foreign_check() {
+  r="$1"
+  grep -nE '\\033\[|\\e\[[0-9;]*m' "$r" | sed 's/^/raw SGR palette /'
+  grep -nE '%-[0-9]+s|\$\{#|\$\{[A-Za-z_][A-Za-z0-9_]*: *-?[0-9]' "$r" \
+    | sed 's/^/shell width math /'
+  grep -nE '\.\[0:[^]]+\]|\+ *" +"\)' "$r" | sed 's/^/jq width math /'
+}
+fout_of() { foreign_check "$W/$1" 2>/dev/null; }
+ffires()  { [ -n "$(fout_of "$1")" ]; }
+fsilent() { [ -z "$(fout_of "$1")" ]; }
+fsays()   { case "$(fout_of "$1")" in *"$2"*) return 0 ;; *) return 1 ;; esac; }
+
+# The session's actual bash failure: char-slicing truncation, byte-padding printf, raw SGR.
+cat > "$W/handrolled_view.sh" <<'EOF'
+#!/bin/bash
+RED=$'\033[38;5;203m'
+_wt_row() {
+  short="$1"
+  [ ${#short} -gt 44 ] && short="${short: -44}"
+  printf '%-44s %s\n' "$short" "$2"
+}
+EOF
+
+# jq-side padding — a different language, same class, and routinely in the same file.
+cat > "$W/jqrow_view.sh" <<'EOF'
+#!/bin/bash
+row() { jq -r '((.status + "         ")[0:9]) + ((.jobName // "?")[0:32])'; }
+EOF
+
+# The credibility case: padding a fixed-width ASCII id is correct and must not be flagged.
+cat > "$W/fixedwidth_view.sh" <<'EOF'
+#!/bin/bash
+render() { printf '%s %s\n' "$sha" "$region"; }
+EOF
+
+echo
+echo "== F. the shell/jq patterns catch what the Python ones can't see =="
+chk "bash char-slice + byte-pad fires"              ffires handrolled_view.sh
+chk "reported as shell width math"                  fsays handrolled_view.sh 'shell width math'
+chk "bash \$'\\033[' palette reported as raw SGR"     fsays handrolled_view.sh 'raw SGR palette'
+chk "jq code-point padding fires"                   ffires jqrow_view.sh
+chk "reported as jq width math"                     fsays jqrow_view.sh 'jq width math'
+chk "no printf padding at all → silent"             fsilent fixedwidth_view.sh
+chk "the Python-shaped check is BLIND to the bash file (why F exists)" \
+  silent handrolled_view.sh
+chk "kit stays silent under the shell patterns too"  fsilent copied_view.py
+
+echo
+echo "== G. the skill documents the non-Python branch and its fixture =="
+chk "skill carries the shell width-math pattern" \
+  grep -qF '%-[0-9]+s|\$\{#' "$CONSOLE"
+chk "skill carries the shell SGR palette pattern" \
+  grep -qF "grep -nE '\\\\033\\[" "$CONSOLE"
+chk "skill carries the jq width-math pattern" \
+  grep -qF '.[0:' "$CONSOLE"
+# Prose alone can't separate a correct width model from ${#s} — only a row with a wide
+# glyph can, and it has to reach the renderer. Pin the fixture so it can't quietly vanish.
+chk "skill prescribes a wide-glyph fixture row" \
+  grep -q 'WIDTH_FIXTURE' "$CONSOLE"
+chk "fixture carries a wide glyph, a VS/ZWJ sequence and a mark" \
+  sh -c 'grep -A0 "WIDTH_FIXTURE=" "$0" | grep -q "⛔" && grep -A0 "WIDTH_FIXTURE=" "$0" | grep -q "日本語"' "$CONSOLE"
+chk "skill says shell printf pads by bytes" \
+  grep -q 'budgets \*\*bytes\*\*' "$CONSOLE"
+
 echo
 echo "RESULT: PASS=$PASS FAIL=$FAIL"
 [ "$FAIL" = "0" ]

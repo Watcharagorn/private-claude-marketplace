@@ -1,12 +1,12 @@
 ---
 name: console
 description: >-
-  Set up, redesign, and audit tmux windows/panes so every console surface shows formatted,
+  Set up, redesign, and audit tmux windows/panes so every surface shows formatted,
   live-refreshing content (tables, gauges, TUIs) — never raw text. Owns pane WIRING and
   verification: tmuxp layouts, viddy/watch refresh, renderer wrappers, lnav formats, and the
-  sandbox → respawn → capture loop that makes pane edits actually appear. Use whenever
+  sandbox → respawn → capture loop that makes pane edits appear. Use whenever
   the task touches tmux or tmuxp — adding or changing a window, pane or layout; redesigning what
-  a pane displays; adding a hotkey that toggles what a pane shows; making
+  a pane displays; adding a hotkey that toggles a pane's view; making
   terminal output "a table"; fixing a flickering, raw, stale or
   monochrome pane; building an lnav log format; or when an edited pane script "isn't showing
   changes". Reach for it even when the user never says "tmux" — "why is my watch pane stale"
@@ -55,7 +55,8 @@ Enforce these in every pane you create or touch:
    A renderer may own the redraw itself rather than being wrapped — but only when motion **encodes
    data** *and* the paint cadence must exceed the data cadence. Anything short of both: use viddy.
    See "Status-driven animated glyphs" in `decorate/references/primitives.md` for what that owes
-   you, and "Verifying an own-loop pane" below for how to check it.
+   you, and "Verifying an own-loop pane" in
+   `${CLAUDE_PLUGIN_ROOT}/skills/console/references/verifying-pane-shapes.md` for how to check it.
 
    A pane the user **types into** — gum prompts, a menu loop — is a third shape, and neither the
    wrapper nor the own-loop carve-out covers it: it repaints on input, not on a clock, so there is no
@@ -88,7 +89,10 @@ Enforce these in every pane you create or touch:
 4. **Tables**: bold header row, thin rule under it, two-space column gaps, right-aligned
    numerics. Pad with **display-column** width math, not `len()` — `⛔ blocked` is 9 characters
    and 10 columns, and colored or hyperlinked cells are mostly invisible bytes. Use the kit's
-   `vlen()`/`pad()`; see `${CLAUDE_PLUGIN_ROOT}/skills/decorate/references/primitives.md`. Strip trailing zeros from exchange
+   `vlen()`/`pad()`; see `${CLAUDE_PLUGIN_ROOT}/skills/decorate/references/primitives.md`. If the
+   renderer you are extending isn't Python, those helpers aren't reachable and the shell's own
+   padding is wrong in a way that hides — read rule 7's foreign-language branch before padding
+   anything. Strip trailing zeros from exchange
    decimals (`60800.00000000` → `60800`). Negative money as `-$150.78`, never `$-150.78`.
 5. **Semantic marks**: a mark is read faster than a word — `▰▱` proximity gauges, category dots,
    `∅ none` (dim) for empty sections. Prefer marks that are one column wide in every locale;
@@ -108,7 +112,33 @@ Enforce these in every pane you create or touch:
    not the invocation: a `scripts/watch-*` written before this standard is no evidence its flags
    are right, and copying a sibling's command line is how rule 2's mandatory `-w` goes missing
    from a brand-new pane while every visible sign says you matched the house style. Re-check the
-   flags against rule 2 after mirroring the shape. If there is none, copy the bundled
+   flags against rule 2 after mirroring the shape.
+
+   **The renderer you inherit may not be Python, and then rule 4's remedy doesn't exist.** Shell has
+   no `vlen()` and no way to grow one: measured under bash 3.2 on `日本語` — 3 characters, 9 bytes,
+   6 display columns — `${#s}` answers 3 (and 9 under `sh`/`dash`, which counts bytes), while
+   `printf '[%-10s]'` emits `[日本語 ]`, one space where a 10-column field owes four, because
+   `printf` budgets **bytes**. `${s: -N}` slices characters, and jq's `.[0:N]` and `+ "   "` pad by
+   code points. So all four of the idioms a bash renderer reaches for are wrong, and every one of
+   them looks perfect for as long as the data is ASCII — which is why the verify loop's width check
+   can't stand in for this either. Don't hand-roll a shell equivalent; that is this rule's
+   re-derivation trap in a second language, where it is harder to get right, not easier. Move the
+   width-sensitive rows into a small `python3 -` heredoc that imports the copied kit, or emit
+   unpadded fields and let a Python formatter lay them out. Then prove it on a row the current data
+   doesn't contain:
+   ```bash
+   w=100
+   <renderer command> | python3 "${CLAUDE_PLUGIN_ROOT}/scripts/check_cols.py" "$w" --reserve 1
+   WIDTH_FIXTURE='⛔ blocked  日本語製品  🧑‍🌾 farmer' \
+     <renderer command> | python3 "${CLAUDE_PLUGIN_ROOT}/scripts/check_cols.py" "$w" --reserve 1
+   ```
+   Silence and a zero exit on **both** is the pass. The first line is verify-loop step 2 and it
+   passes on ASCII data no matter how the padding was computed — only a row carrying a wide glyph, a
+   variation selector or a ZWJ sequence separates a correct width model from `${#s}`. Have the
+   renderer read that fixture into one row (a debug flag works as well as an env var); a fixture the
+   renderer ignores is a check that always passes.
+
+   If there is none, copy the bundled
    starter into the project's `scripts/` and adapt it:
    ```bash
    cp "${CLAUDE_PLUGIN_ROOT}/scripts/renderer_template.py" scripts/<name>_view.py
@@ -135,6 +165,27 @@ Enforce these in every pane you create or touch:
      || grep -nE '^ *def (vlen|pad|trunc)\b' "$r" | sed 's/^/re-derived width math /'
    grep -nE '^[A-Z][A-Z0-9_]* *= *"[0-9]+(;[0-9]+)+"' "$r" | sed 's/^/raw SGR palette /'
    ```
+
+   **Those two patterns are Python-shaped, so run the shell/jq ones too whenever `$r` isn't
+   Python** — otherwise the check meant to catch re-derived width math reports a clean run on the
+   file that commits it most often. A bash renderer's palette is `RED=$'\033[38;5;203m'`, which the
+   double-quoted-digits pattern above cannot match, and its width math is `printf '%-44s'`, which no
+   `def vlen` grep will ever see:
+   ```bash
+   r=scripts/<the renderer you edited>         # re-stated: each block runs on its own, so $r is unset here
+   [ -f "$r" ] || echo "MISSING: $r"           # …and an unset $r greps nothing and prints nothing
+   grep -nE '\\033\[|\\e\[[0-9;]*m' "$r" | sed 's/^/raw SGR palette /'
+   grep -nE '%-[0-9]+s|\$\{#|\$\{[A-Za-z_][A-Za-z0-9_]*: *-?[0-9]' "$r" \
+     | sed 's/^/shell width math /'
+   grep -nE '\.\[0:[^]]+\]|\+ *" +"\)' "$r" | sed 's/^/jq width math /'
+   ```
+   Read the hits, don't just count them — `printf '%-8s'` over a fixed-width ASCII id (a git short
+   sha, an AWS region) is correct and flagging it spends the check's credibility, which is the same
+   reason `cluster_width` guards the Python branch. What a hit *is* good for is deciding: a padded
+   field that can ever hold a name, a path, a branch or a status glyph belongs in the
+   foreign-language branch above, and a palette hit belongs in `tmux-design:decorate` as a named
+   role. A raw-palette hit is also the one reliable signal that the pane can't be re-themed
+   (rule 3) — `grep -c TMUX_DESIGN_THEME "$r"` returning 0 alongside it confirms it.
    The `cluster_width` guard is what keeps this quiet on a renderer that copied the kit wholesale —
    that file defines `vlen` legitimately, and a check that flags correct files is one you learn to
    ignore. It also fixes the scope: run this on the copy, not on a pre-existing project renderer you
@@ -192,7 +243,9 @@ Enforce these in every pane you create or touch:
    the **user's** server earns its keep: worthless in the sandbox, it is the only evidence there that
    the binding actually loaded.
 
-   Verify it per "Verifying a pane keybinding" below. There is deliberately no `audit` sweep for this
+   Verify it per "Verifying a pane keybinding" in
+   `${CLAUDE_PLUGIN_ROOT}/skills/console/references/verifying-pane-shapes.md` — a `bind-key` is the
+   one shape no capture can reach. There is deliberately no `audit` sweep for this
    rule — `list-keys` cannot say which pane a binding targets, so a sweep would flag correct
    bindings, and a check that flags correct work is one you learn to ignore.
 
@@ -270,12 +323,29 @@ that shrank is the one nobody captures.
    (rule 7's reuse check finds it), and `viddy` invoked without `-w`/`--unfold`
    — which the wrappers answer faster than the panes do:
    ```bash
-   for f in scripts/watch-*; do
+   # Source the file list from the LIVE panes first, and fall back to the glob — a workspace that
+   # keeps its layout in a launcher script instead of .tmuxp.yaml has no scripts/watch-* at all.
+   files=$(tmux list-panes -s -t <session> -F '#{pane_start_command}' \
+           | tr -s ' "' '\n' | grep -E '\.(sh|py|zsh)$|watch-' | sort -u)
+   [ -z "$files" ] && files=$(find scripts -maxdepth 1 -name 'watch-*' 2>/dev/null)
+   [ -z "$files" ] && echo "SWEEP FOUND NO FILES — enumerate from the launcher before reporting a pass"
+   for f in $files; do
+     [ -f "$f" ] || continue
      line=$(grep -m1 'viddy' "$f") || continue          # non-viddy wrappers aren't rule 2 violations
      printf '%s\n' "${line%% -- *}" \
        | grep -qE -- '--unfold|(^|[[:space:]])-[a-z]*w([[:space:]]|$)' || echo "$f"
    done
    ```
+   The zero-file guard is the load-bearing line, and `find` rather than a bare glob is why it gets to
+   run. Over a workspace with no `scripts/watch-*` — a layout kept in a launcher script, which is
+   common — `for f in scripts/watch-*` fails two different ways and neither is a finding: under
+   `sh`/`bash` it iterates once over the literal unmatched pattern, finds no `viddy`, `continue`s, and
+   the sweep exits clean having examined nothing; under `zsh` (which these wrappers are written in)
+   `nomatch` aborts the command outright, before any `2>/dev/null` you attached to it can help. Either
+   way the report is "no rule 2 violations" about a session whose every pane may be missing
+   `--unfold`. And this is the one violation no capture can find — it only surfaces on resize — so a
+   silent sweep is the only evidence there is, which makes an empty file list the one result that must
+   never be allowed to look like a pass.
    Three details carry this, and dropping any one makes the sweep lie. Match **both** spellings and
    allow the clustered short form (`-pw`), or it reports wrappers that are already correct and you
    learn to ignore it. Skip files that never invoke viddy, or the skill's own sanctioned `watch`
@@ -299,11 +369,17 @@ were launched with, which is why "I edited it but nothing changed" happens. Afte
    `kill-session` here creates and destroys `_sbx` on the user's **live** server, the same class
    of leak as the theming sandbox documented in `decorate/references/tmux-chrome.md`:
    ```bash
+   tmux -L _tmuxdesign_sbx kill-server 2>/dev/null   # a leaked sandbox doesn't error — it ANSWERS
    tmux -L _tmuxdesign_sbx -f /dev/null new-session -d -s _sbx -x <w> -y <h> \
      "<renderer command> | cat; sleep 60" \
      && sleep 5 && tmux -L _tmuxdesign_sbx capture-pane -e -p -t _sbx | head -30
    tmux -L _tmuxdesign_sbx kill-server
    ```
+   Open with the `kill-server`, on every sandbox block in this loop. If a previous run aborted before
+   its own teardown, `new-session` fails with `duplicate session: _sbx`, the `&&` drops the capture
+   that would have told you — and the next command in the block still succeeds against the **stale**
+   session, handing back a plausible frame from an older render at a width nobody asked for. That is
+   the worst shape a verification failure can take: not an error, an answer.
    The `| cat; sleep 60` is doing real work, not padding. Renderers here are one-shot by rule 7, so
    the command exits the instant it has printed, tmux tears the session down with it, and the
    capture fails with `can't find pane: _sbx` — the sleep just holds the session open long enough
@@ -329,12 +405,15 @@ were launched with, which is why "I edited it but nothing changed" happens. Afte
    against the pane **minus the wrapper's cut** rather than the pane:
    ```bash
    check="${CLAUDE_PLUGIN_ROOT:?unset — the plugin loader sets it}/scripts/check_cols.py"
+   rc=0
    for w in 60 100 160; do
-     TMUX_PANE_WIDTH=$w <renderer command> | python3 "$check" "$w" --reserve 1   # 1: viddy's scrollbar
-   done
+     TMUX_PANE_WIDTH=$w <renderer command> | python3 "$check" "$w" --reserve 1 || rc=1
+   done                                        # --reserve 1: viddy's scrollbar column
+   [ "$rc" = 0 ] || echo "width check FAILED at one or more widths"
    # Resize half. Step 1 killed the server, so start a fresh one — and run the REAL wrapper here,
    # not the bare renderer: tmux reflows already-printed static text identically with and without
    # --unfold, so a sandbox running the one-shot renderer cannot catch the rule 2 bug this checks.
+   tmux -L _tmuxdesign_sbx kill-server 2>/dev/null
    tmux -L _tmuxdesign_sbx -f /dev/null new-session -d -s _sbx -x 100 -y 30 \
      "viddy -p --unfold -n 2 -- <renderer command>" && sleep 3 \
      && tmux -L _tmuxdesign_sbx capture-pane -e -p -t _sbx | head -5   # header rows before
@@ -345,19 +424,76 @@ were launched with, which is why "I edited it but nothing changed" happens. Afte
    Silence **and a zero exit** is the pass — `check_cols.py` exits non-zero when any line is over,
    so the check is assertable rather than eyeballed. A check that prints its own "looks clean"
    banner will print it underneath the offending lines too, and that reads as a pass at a glance.
+   The `rc` accumulator is why the loop can make that claim: a bare `for` leaves you the **last**
+   iteration's status, so a failure at `w=60` followed by a clean `w=160` exits 0 and the step's own
+   pass condition reports a pass.
+
+   **Confirm the width injection actually reaches the renderer**, or the sweep is one width measured
+   three times. `TMUX_PANE_WIDTH` is the bundled starter's knob (`renderer_template.py`'s
+   `pane_width()`); a project renderer you extended under rule 7 has its own, or asks tmux directly
+   via `$TMUX_PANE`. Point the loop at whichever knob *this* renderer reads, and prove it moved:
+   ```bash
+   a=$(TMUX_PANE_WIDTH=60 <renderer command> | head -3); b=$(TMUX_PANE_WIDTH=160 <renderer command> | head -3)
+   [ "$a" = "$b" ] && echo "width knob IGNORED — this sweep is measuring one width three times"
+   ```
+   Three identical renders make `check_cols 60`, `100` and `160` silent by construction, which is a
+   pass-shaped failure inside the step built to catch pass-shaped width checks. Renderers should take
+   the width from `TMUX_PANE_WIDTH` when set and fall back to `$TMUX_PANE` via
+   `tmux display -p -t "$TMUX_PANE" '#{pane_width}'` — never `tput cols`, which answers about the
+   *client's* terminal: under `viddy -p` the child pty carries the client size, so a 97-column pane
+   reads back as 188 and every row overflows while the check that would have caught it was reading
+   the same wrong number.
 
    Two things a silent run does **not** prove. It doesn't prove the columns line up: an
    over-measured cell makes a row too *short*, which fits the budget and still looks crooked. And
    it only means anything on the renderer's **stdout** — piping a `capture-pane` capture into it
    always passes, because without `-J` a capture returns the pane's screen grid already hard-wrapped
    at pane width, so no line can exceed it.
-3. **Respawn the live pane** — `tmux respawn-pane -k -t <pane_id> "<command with absolute path>"`.
-   Don't Ctrl-C + retype via send-keys: if the old process is mid-child-call the interrupt is
-   swallowed and the typed command lands as inert text. Respawn is deterministic. Caveat: a
-   respawned pane runs the command directly (no shell under it), so quitting it shows
+3. **Respawn every pane the edit reaches** — `tmux respawn-pane -k -t <pane_id> "<command with
+   absolute path>"`. Don't Ctrl-C + retype via send-keys: if the old process is mid-child-call the
+   interrupt is swallowed and the typed command lands as inert text. Respawn is deterministic.
+   Caveat: a respawned pane runs the command directly (no shell under it), so quitting it shows
    "Pane is dead" until the next full workspace launch.
-4. **Verify live** — `sleep 5 && tmux capture-pane -e -p -t <pane_id>`; confirm the new render
-   and that `#{pane_current_command}` is the expected process (e.g. `viddy`). Iterate on failure.
+
+   **One renderer commonly feeds several panes**, invoked with a different mode argument per pane —
+   that is the shape rule 7's reuse branch and the wrapper-per-pane convention both produce. Edit it
+   and you have changed every one of them, while the loop's remaining steps look at the single pane
+   you happened to be reading. So resolve the affected set *before* respawning anything, and resolve
+   it from the **wrappers** as well as the renderer, because a pane launched the house way runs
+   `scripts/watch-<name>` and never names the file you edited:
+   ```bash
+   edited=scripts/<the file you changed>
+   pat=$(printf '%s\n' "$edited" $(grep -rl "$(basename "$edited")" scripts/watch-* 2>/dev/null) \
+        | xargs -n1 basename | sort -u | paste -sd'|' -)
+   tmux list-panes -s -t <session> -F '#{pane_id} #{pane_dead} #{pane_start_command}' \
+     | grep -E "$pat"
+   ```
+   **An empty result is a finding, not a pass.** `#{pane_start_command}` is only populated for a pane
+   tmux launched *with* a command; a pane started as a shell that was then fed its command by
+   `send-keys` reports an empty string (measured, 3.7b) — and that is how tmuxp builds panes. So a
+   grep that matches nothing means "these panes were launched some other way", not "this edit reaches
+   one pane": read `.tmuxp.yaml` (or the launcher) and enumerate from there instead. Expect the count
+   to equal the number of view arguments the renderer serves, and treat a shortfall as unfinished
+   work rather than a clean sweep.
+
+   A bulk reload the project already ships — a `reload` subcommand that respawns every matching pane
+   and prints `reloaded 6 panes` — satisfies this step, and its output is the thing most likely to
+   end the verification early: that number is a **respawn** count, not a verified count. Six panes
+   respawned with one captured is one pane verified.
+4. **Verify live — every id from step 3**, not just the one you were reading:
+   `sleep 5 && tmux capture-pane -e -p -t <pane_id>`; confirm the new render and that
+   `#{pane_current_command}` is the expected process (e.g. `viddy`). Iterate on failure.
+
+   **Assert `#{pane_dead}` is 0 while you are there.** A renderer that dies on its first refresh —
+   the normal outcome when a refactor broke one view — leaves a pane that answers every question you
+   ask it: `capture-pane` returns an **empty** capture and **exits 0**, and `#{pane_current_command}`
+   reads the corpse (`sh`, `printf`), not `viddy` (all measured, 3.7b). A blank capture five seconds
+   after a respawn reads as "it hasn't painted yet, give it another second", which is why this one
+   survives a careful look. `#{pane_dead}` says so in one field, and `#{pane_dead_status}` carries the
+   exit code that explains it — both already in step 3's format string, so this costs nothing.
+   Respawn rather than waiting out the interval, too: these panes refresh every 90–120s by rule 8, so
+   a capture taken before the first tick shows the pre-edit frame and sends you debugging a renderer
+   that was never wrong.
 5. **If the change split a pane, verify the siblings too** — the loop above only ever looks at the
    pane you touched, and a split is the one edit that changes a pane you didn't. Diff the
    `list-panes` geometry against what it was before the split and `capture-pane -e -p` every pane
@@ -367,135 +503,17 @@ were launched with, which is why "I edited it but nothing changed" happens. Afte
    with its last rows simply absent, which passes every glance until someone asks why a row they
    expect isn't there.
 
-### Verifying an own-loop pane
+### Verifying a pane that never settles
 
-A pane whose renderer owns its own paint loop (rule 2) never settles, so three things above change:
-
-- **Step 1 has nothing stable to sample.** Capturing after a sleep returns whichever animation
-  frame happened to be on screen — a different one each run, so there is nothing to diff. Such a
-  renderer must ship a **one-shot frame mode** (`<renderer> --frame <name>`, or an equivalent env
-  flag: one synchronous fetch, one paint, exit); that is the artifact to sandbox. Because it exits
-  by itself, the `| cat; sleep 60` + `sleep 5` scaffolding collapses to `| cat` and an immediate
-  capture — keep the `| cat`, for the same reason as above.
-- **The one-shot must bypass the inactive-window paint skip.** A sandbox session is detached, so a
-  loop that declines to paint an inactive window paints *nothing* here and the capture comes back
-  empty — a pass-shaped failure in the one step meant to catch it. Gate that skip on "not
-  one-shot".
-- **Step 4's process assertion changes.** `#{pane_current_command}` is the loop's own process, never
-  `viddy` — assert that instead, and assert the frame *differs* between two captures a second
-  apart, which is the only direct evidence the loop is still running rather than stopped on a
-  plausible-looking frame.
-
-If Ctrl-C is wired to force an immediate refresh instead of exiting — reasonable for a monitoring
-pane — then `respawn-pane`/`kill-pane` is the only way to stop it, and step 3's "Pane is dead"
-caveat applies with nothing to work around it.
-
-### Verifying a keystroke-driven pane
-
-Rule 2's third shape can't be verified by capturing a settled frame — what it shows depends on what
-has been typed, so you have to drive it. `send-keys` is the only way in: the widgets these panes are
-built from read their keys from the terminal rather than stdin, so nothing can be piped at them (the
-"TTY safety" table in `decorate/references/tooling.md` has which gum commands this hits). That does
-not undo step 3's prohibition — driving a program that is already reading is fine; using `send-keys`
-to *restart* one is what gets swallowed mid-child-call and lands as inert text.
-
-Drive it on step 1's isolated server, and point it at a **scratch copy of the datastore**. This is
-the only step in the whole loop that writes, so aiming it at the real file means the verification
-mutates the thing it was verifying.
-
-```bash
-scratch="$(mktemp)"; cp <the real datastore> "$scratch"   # verification writes — never to the original
-sbx() { tmux -L _tmuxdesign_sbx "$@"; }
-await() {   # await <marker> — no -e here: SGR bytes can split a marker mid-word
-  for _ in $(seq 40); do
-    sbx capture-pane -p -t _sbx | grep -qF "$1" && return 0
-    sleep 0.25
-  done
-  echo "timeout waiting for: $1" >&2; sbx capture-pane -e -p -t _sbx >&2; return 1
-}
-sbx -f /dev/null new-session -d -s _sbx -x 100 -y 30 \
-  "<tui command, its datastore pointed at $scratch>; echo __DONE__; sleep 60"
-await 'Title:' && sbx send-keys -t _sbx -l 'buy milk' && sbx send-keys -t _sbx Enter
-await __DONE__ && grep -q 'buy milk' "$scratch"      # the write, not the frame
-sbx kill-server
-```
-
-**Poll, don't sleep.** A hand-picked `sleep` is guesswork that passes on a fast machine and lands the
-next keystroke in the wrong prompt on a slow one, and the run still reports a pass — so `await` has
-to *fail* at its timeout rather than fall through. `grep -qF`, not `grep -q`, because prompts
-routinely contain `?`, `[` and `(`. And `; echo __DONE__; sleep 60` is there for step 1's reason: the
-TUI exits, tmux tears the session down with it, and the final assertion races a pane that no longer
-exists — the marker gives you something to wait for and the sleep holds the session open to read it.
-
-Assert the **side effect**, not the frame: a TUI paints a plausible "saved" frame whether or not the
-write landed, and the datastore row is the only evidence that it did.
-
-### Verifying a pane keybinding
-
-A `bind-key` lives in the **client's** key dispatch, not in the pane's stdin, so nothing in the loop
-above reaches it and `send-keys` aimed at the session under test cannot fire it: `send-keys -t
-<target> C-b` then `h` writes two bytes to whatever the pane is running, the binding never runs, and
-both sends exit 0 (measured, 3.7b) — a pass-shaped failure in the only step that could have caught
-it. `list-keys` is no substitute here; in the sandbox it proves the bind took, not that pressing the
-key does anything. Drive it through a real attached client:
-
-```bash
-sbx()  { tmux -L _tmuxdesign_sbx  "$@"; }
-view() { tmux -L _tmuxdesign_view "$@"; }             # a second server holding nothing but the client
-pane=_sbx:<win>.<idx>
-await_opt() {   # the previous subsection's await, watching an option instead of a frame
-  for _ in $(seq 40); do
-    [ "$(sbx show -p -v -t "$pane" "$1" 2>/dev/null)" = "$2" ] && return 0
-    sleep 0.25
-  done
-  echo "timeout: $1 never became $2" >&2; sbx capture-pane -e -p -t "$pane" >&2; return 1
-}
-sbx set -g window-size manual                          # or the client's size silently becomes the pane's
-sbx source-file <the repo file holding the bind-key>   # step 1's -f /dev/null means it isn't loaded yet
-view -f /dev/null new-session -d -s _view -x 200 -y 50 \
-  "TMUX= tmux -L _tmuxdesign_sbx attach -t _sbx"       # TMUX= or the client refuses to nest
-sleep 1
-sbx select-pane -t "$pane"                             # #{pane_id} resolves against the ACTIVE pane
-p=$(sbx show -gv prefix)                               # read the prefix; never hardcode C-b
-view send-keys -t _view "$p" && sleep 0.3 && view send-keys -t _view h
-await_opt @<mode> tree && sbx capture-pane -e -p -t "$pane" | head -5
-view kill-server; sbx kill-server
-```
-
-Every line there is load-bearing, and each one fails quietly:
-
-- **`TMUX=`.** A client launched inside a tmux pane refuses to nest, and the session created to hold
-  it dies with it — ask a second later and tmux answers `can't find session`, so the capture races a
-  client that never existed. Same clearing the chrome probe in
-  `decorate/references/tmux-chrome.md` does, for the same reason.
-- **A second socket, and never the ambient server.** A viewer on the user's live server does work,
-  and leaks a session into their workspace — the leak step 1's explicit `-L` exists to prevent.
-  Address the viewer with the socket it lives on, too: a `-L foo` viewer poked by a bare
-  `tmux send-keys -t viewer` is a different server, and on the ambient one target names
-  *prefix-match*, so that stray send can land in a live session whose name merely starts the same.
-- **`window-size manual`.** A 200×50 client turns a 100×30 sandbox into 200×49 and it does **not**
-  revert when the client dies, so every later capture answers a question about a width nobody asked
-  for. `-r` is not the lever here even though the chrome probe uses it: a read-only client dispatches
-  no bindings, so the keys you send do nothing (measured) — and `ignore-size` alone doesn't hold the
-  size either when it is the only client.
-- **Read the prefix.** Under `prefix C-a` a hardcoded `C-b` + `h` leaves the option unset after two
-  exit-0 sends — this subsection's own failure mode, reintroduced by its own first keystroke.
-- **Poll, don't sleep** — for the reason the previous subsection gives; `show -p -v` on an unset user
-  option exits 1, so the wait is assertable rather than eyeballed.
-
-Assert the option the binding sets **and** that the pane changed. Either alone is pass-shaped: a
-toggle whose script died leaves the previous frame on screen, and a toggle that sets the option but
-fails to respawn leaves the option right and the frame stale — so take the two differing captures
-"Verifying an own-loop pane" takes.
-
-On the user's real session, don't re-send a prefix; the sandbox already proved the binding. Run what
-it runs — `run-shell -t <pane> "<the binding's command verbatim>"` expands `#{pane_id}` against `-t`,
-so nothing needs hand-resolving — and drop the `-b` while you do. `run-shell -b` returns 0 for a
-missing script, a cleared execute bit or a crash and logs nothing to `show-messages`, which is
-precisely why a keypress can never report failure; without `-b` you get 127, or the script's own exit
-status, back. If the command prints anything it leaves that pane in view-mode
-(`#{pane_in_mode}` → 1), which will poison the step-4 capture — `send-keys -X cancel` first, or run
-the script yourself and resolve the id with `display -p -t <pane> '#{pane_id}'`.
+Three of rule 2's shapes break the loop above rather than pass it, each at a different step: a
+renderer that **owns its paint loop** has no stable frame for step 1 to sample, a **keystroke-driven**
+pane shows a function of what has been typed, and a **`bind-key`** lives in the client's key dispatch
+where no `send-keys` at the pane can reach it. Each needs its own procedure, and each is
+reference-grade depth rather than something to re-derive at the keyboard — read
+`${CLAUDE_PLUGIN_ROOT}/skills/console/references/verifying-pane-shapes.md` and follow the subsection
+matching the pane in front of you. Skipping it is the expensive move here: every one of these shapes
+has a *pass-shaped* failure (an empty capture, a plausible "saved" frame, two exit-0 key sends that
+did nothing), so improvising the verification tends to produce a confident pass over a broken pane.
 
 ## Log-viewer panes (lnav)
 
@@ -507,8 +525,9 @@ SQL validation loop.
 
 ## Done when
 
-- Every touched pane shows colored, structured content live in the real session (verified by
-  `capture-pane -e`, not assumed from a successful file edit).
+- Every pane the edit reaches — enumerated per verify-loop step 3, not just the one you were
+  reading — shows colored, structured content live in the real session, with `#{pane_dead}` 0
+  (verified by `capture-pane -e`, not assumed from a successful file edit or a reload's pane count).
 - `.tmuxp.yaml` + wrapper scripts reproduce the design on the next `tmuxp load`.
 - Any keybinding added is visible in the pane's own content, persisted in a file the launcher reloads
   (tmuxp cannot carry it), and was driven through a real attached client — not inferred from

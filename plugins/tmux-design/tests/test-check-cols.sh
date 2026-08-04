@@ -41,6 +41,11 @@ printf 'テストト\n'                                                > "$F/cjk
 printf '\033[2Kabcdefghij\n'                                      > "$F/erase10"
 printf '\tabc\n'                                                  > "$F/tab11"
 python3 -c 'print("─"*96)'                                   > "$F/div96"
+# The `printf '%*s' N '' | tr ' ' '─'` divider: BSD/macOS tr is byte-oriented, so it maps each
+# space to the FIRST BYTE of ─ and the row is N invalid bytes rather than N dividers. Built here
+# from raw bytes so the fixture is identical on GNU tr, where the pipeline itself behaves.
+printf '\xe2\xe2\xe2\xe2\xe2\xe2\xe2\xe2\xe2\xe2\n'               > "$F/mojibake10"
+printf 'ok \xe2\xe2 more\n'                                       > "$F/mojibake_mid"
 
 echo "== A. escape-bearing lines measure their VISIBLE width =="
 # Each of these is 10 visible columns. Budget 12 → must be silent and exit 0.
@@ -65,6 +70,24 @@ chk "div96: 96-col divider > 60 → exit 1"  test "$?" = "1"
 chk "div96: measured as 96, not 288"       sh -c 'printf "%s" "$0" | grep -q "96 cols"' "$out"
 run "$F/tab11" 6
 chk "tab11: tab expands, does not measure 0 → exit 1" test "$?" = "1"
+
+echo
+echo "== B2. undecodable bytes are a failure, not a coincidence =="
+# Decoding with errors="replace" made each bad byte one 1-column glyph, so a row of tofu
+# measured exactly its intended width and passed in silence — the checker reporting a clean
+# run on the most visible defect a pane can have. It must fail on the bytes themselves.
+run "$F/mojibake10" 40
+chk "mojibake divider → exit 1 (was 0)"        test "$?" = "1"
+chk "names the line and says invalid UTF-8"    sh -c 'printf "%s" "$0" | grep -q "line 1: invalid UTF-8"' "$out"
+chk "does NOT report it as a width overflow"   sh -c '! printf "%s" "$0" | grep -q "cols >"' "$out"
+run "$F/mojibake_mid" 40
+chk "bad bytes mid-line also caught"           test "$?" = "1"
+# Valid wide/ZWJ content must stay silent, or the new strictness would flag every correct
+# non-ASCII row and become the check people learn to ignore.
+run "$F/cjk8" 40
+chk "valid CJK still silent under strict decode"  test -z "$out"
+run "$F/zwj5" 40
+chk "valid ZWJ still silent under strict decode"  test -z "$out"
 
 echo
 echo "== C. the budget arithmetic the doc relies on =="

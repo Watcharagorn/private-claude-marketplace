@@ -6,8 +6,14 @@ allowed-tools: [Bash, Read, Write, Edit, Glob, Grep]
 
 # tmux-design — decorate
 
-Follow the `decorate` skill end to end. It owns the visual vocabulary: semantic roles and named
-themes, the drawing primitives, display-column width math, and tmux's own chrome.
+**First, before anything else, run** `cat "${CLAUDE_PLUGIN_ROOT}/skills/decorate/SKILL.md"` — that
+file is the standard and this command body is only an argument router. Don't go looking for it with
+`find` or `Glob`: the plugins cache holds every installed version side by side, so a `find` sweep
+returns whichever one it hits first, and an older copy reads as a clean run while missing whole
+mandatory steps. Where this file and the skill disagree, the skill wins.
+
+The skill owns the visual vocabulary: semantic roles and named themes, the drawing primitives,
+display-column width math, and tmux's own chrome.
 
 Parse the arguments:
 
