@@ -97,8 +97,10 @@ Write a Markdown document with these sections (skip a section only if genuinely 
 - **Goal / next-session focus** — from `$ARGUMENTS`; what the next agent should accomplish.
 - **What happened** — a tight summary of the conversation and the progress made. Narrative, not a transcript.
 - **Current state** — branch, what is done vs pending, any failing checks or known-broken bits.
-  Paste the output of
-  `bash "${CLAUDE_PLUGIN_ROOT}/hooks/plan-state.sh" overview` here. A table of real plan states
+  Paste a rendering of
+  `bash "${CLAUDE_PLUGIN_ROOT}/hooks/plan-state.sh" overview --json` here — `--json` is required
+  (the subcommand exits 1 without it; there is no human-table mode), so read the JSON and write
+  the table yourself. A table of real plan states
   beats a prose recollection of what got built, and it is exactly what the next agent needs before
   running `/mentor:track`. Use `overview`, **not** `list`: `list` only tables topics that already
   have a `plan.md`, so on work done outside a plan it prints "No plans …" and you will wrongly
@@ -121,6 +123,15 @@ Write a Markdown document with these sections (skip a section only if genuinely 
 Pick the entries that fit the current state, tailored to the next-session focus:
 
 - **Unclear approach / unfinished design** → `/mentor:plan <focus>` (runs the gated plan harness).
+- **A plan file exists but was never approved** (state `draft`, gate still armed — the
+  "Pause — still drafting" handoff) → `/mentor:plan <slug>`, continuing the existing draft at
+  `<repo>/.mentor/plans/<slug>/plan.md`. Three things to spell out, because the next agent cannot
+  infer any of them: **reuse that slug** (a `/mentor:plan` derived from a re-typed request can mint
+  a second plan dir and orphan this draft); **do not point at `/mentor:track`**, which refuses a
+  `draft` plan by design; and **re-write the plan file before approving it** — `/mentor:plan`
+  re-arms the marker with a fresh mtime and `approve-plan.sh` rejects any `plan.md` older than the
+  marker, so an unedited draft fails approval with "Newest plan predates this planning session".
+  Say plainly that the armed gate is intentional, not a crashed session.
 - **A plan exists but its decisions feel shaky** → `/mentor:grill` to pressure-test it, then re-plan / approve.
 - **Approved plan(s), ready to build** → `/mentor:track` — it lists each plan's state, lets the next agent pick one, and executes it via `mentor:dispatch-agents`; `/mentor:ship` when done. Point there rather than at "resume implementation": the next agent needs to know *which* plan and *how far it got*, and `/mentor:track` is the only thing that answers both.
 - **Work planned outside mentor** → which branch depends on whether anything still *owns* the planning:

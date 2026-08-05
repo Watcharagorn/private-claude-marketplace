@@ -182,9 +182,16 @@ Then resolve a selection:
    test -f "$mentor_dir/plans/.planning" && echo ARMED || echo RELEASED
    ```
 
-   If the marker state contradicts the note, say so and follow the marker, not the note. When the
-   note resumes **implementation**, also glance at branch ownership before the first edit — GitHub +
-   `gh` only, fail-soft:
+   If the marker state contradicts the note, say so and follow the marker, not the note.
+
+   **One exception, and it runs the other way:** when the note resumes **planning** (its plan is
+   still `draft`) and the marker reads `RELEASED`, that is usually just the 8h self-release, not
+   evidence the plan was approved. Do not start drafting or editing on a released marker — run
+   `/mentor:plan <slug>` first to re-arm it. `mentor:planning`'s own unarmed-gate check cannot save
+   you here, because skipping the command means the skill never loads to run it.
+
+   When the note resumes **implementation**, also glance at branch ownership before the first edit
+   — GitHub + `gh` only, fail-soft:
 
    ```bash
    command -v gh >/dev/null && git remote get-url origin 2>/dev/null | grep -qi github && \

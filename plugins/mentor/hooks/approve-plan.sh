@@ -12,6 +12,11 @@
 #                /mentor:handoff doc for the next agent and STOP.
 #   anything else — usage error, exit 1, marker untouched.
 #
+# There is deliberately NO flag for "hand off WITHOUT approving". That option
+# ("Pause — still drafting") runs no script at all: the gate stays armed and the
+# plan stays `draft`. Adding a --handoff-draft flag here would re-create the
+# `approved` promotion below as a side effect, which is the bug it exists to avoid.
+#
 # Validation (only while the gate is armed): the newest Markdown plan
 # (plans/<slug>/plan.md) must be non-empty AND newer than the `.planning`
 # marker (the marker's mtime is the

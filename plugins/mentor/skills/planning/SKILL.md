@@ -416,9 +416,10 @@ approved", "go ahead, I already okayed it") — ask it again before running
 `approve-plan.sh`. Prose selects no option, and this question is the only thing
 standing between planning and repo edits; releasing the gate on a remembered or
 claimed approval is the one failure this harness exists to prevent. It also costs you
-the routing: which flag to run (none, `--deliver`, `--handoff`) is decided by *which
-option came back*, so an unanswered question means you are guessing the outcome as
-well as the consent. Re-surface the plan body only if it changed since the user last
+the routing: which flag to run — none, `--deliver`, `--handoff`, or **no script at
+all** for "Pause — still drafting", the one option that does not approve — is decided
+by *which option came back*, so an unanswered question means you are guessing the
+outcome as well as the consent. Re-surface the plan body only if it changed since the user last
 saw it (or never was surfaced); otherwise name its path and Rev and re-ask.
 
 ### Is the plan oversized?
@@ -449,24 +450,42 @@ moment:
 | Condition | Options, in order | Yields to "Other" |
 |---|---|---|
 | neither | Proceed · Deliver plan only · Review the plan (staged) · Keep planning | — |
-| `CONTEXT: WARN` only | Hand off to next agent · Deliver plan only · Proceed · Keep planning | Review |
-| `CONTEXT: HANDOFF` only | **Hand off to next agent (Recommended)** · Deliver plan only · Proceed · Keep planning | Review |
+| `CONTEXT: WARN` only | Hand off to next agent · Pause — still drafting · Deliver plan only · Proceed | Review, Keep planning |
+| `CONTEXT: HANDOFF` only | **Hand off to next agent (Recommended)** · Pause — still drafting · Deliver plan only · Proceed | Review, Keep planning |
 | oversized only | **Split into multiple plans** · Proceed · Review the plan (staged) · Deliver plan only | Keep planning |
-| oversized **and** `CONTEXT: WARN` | **Split into multiple plans** · Hand off to next agent · Deliver plan only · Proceed | Review, Keep planning |
-| oversized **and** `CONTEXT: HANDOFF` | **Hand off to next agent (Recommended)** · Split into multiple plans · Deliver plan only · Proceed | Review, Keep planning |
+| oversized **and** `CONTEXT: WARN` | **Split into multiple plans** · Hand off to next agent · Deliver plan only · Proceed | Review, Keep planning, Pause |
+| oversized **and** `CONTEXT: HANDOFF` | **Hand off to next agent (Recommended)** · Pause — still drafting · Deliver plan only · Proceed | Review, Keep planning, Split |
 
 In the first row only, `MODE: plan-only` swaps the leading two so "Deliver plan only"
 comes first. Anything yielded to "Other" stays reachable — the user can just say it.
 Under `CONTEXT: HANDOFF`, also note in the question text that the session is
 critically large.
 
+**Whenever both handoff options are listed, say in the question text which options
+release the gate.** They differ only in consent — one approves, one does not — and a
+label alone cannot carry that. A user who is out of room reads "hand off" and picks
+the first match; if that silently approves, a fresh agent starts implementing a plan
+they never approved, which is the one failure this harness exists to prevent. Naming
+the consequence in the question costs a sentence and removes the guess.
+
 Split leads on an oversized plan because handing one off whole only moves the problem
 to the next session, while the split's authoring cost lands in dispatched agents
 rather than in this thread. **`CONTEXT: HANDOFF` outranks even that**: at that size the
 safest possible act is to write the handoff and stop, and the split can happen in the
-fresh session with room to verify it. Review stays visible in the oversized-only row
-because an oversized plan is exactly the kind most worth reviewing; *Keep planning*
-yields instead.
+fresh session with room to verify it — which is also why *Split* is the option that
+yields in the oversized **and** `CONTEXT: HANDOFF` row. Review stays visible in the
+oversized-only row because an oversized plan is exactly the kind most worth reviewing;
+*Keep planning* yields instead.
+
+**Why *Keep planning* yields to the new option once a context verdict fires.** Both
+mean "do not approve yet", so listing both wastes one of four slots — and of the two,
+*Keep planning* is the one that needs no button: the user just keeps talking and
+planning continues. "Pause — still drafting" cannot be improvised that way, because it
+has to write the handoff **without** approving, and every other listed option at that
+point releases the gate. *Proceed* and *Deliver plan only* both stay visible in every
+row: the `MODE:` default must always be offered (Step 0), and pushing the option that
+starts implementation into free text would make the highest-consequence answer the
+hardest one to give.
 
 | Label | Description |
 |---|---|
@@ -476,6 +495,7 @@ yields instead.
 | Keep planning | Do not release — keep refining. Re-write the plan file and ask again when ready. |
 | Split into multiple plans | Slice this plan into independently buildable sibling plans, each with explicit scope isolation. Stays in planning; asks again afterwards. |
 | Hand off to next agent | Approve and release, then write a handoff doc so a fresh agent implements it — this session is getting large. |
+| Pause — still drafting | Write a handoff doc and stop **without approving**: the gate stays armed and the plan stays `draft`, so the next session continues *planning*, not implementing. For when the session is out of room but the plan is not settled. |
 
 On **Proceed**, run:
 
@@ -549,8 +569,7 @@ Same validation + release, then **follow the DELIVER-ONLY directive it prints** 
 report where the plan lives and STOP. Do not implement and do not dispatch in
 this session.
 
-On **Hand off to next agent** (or an "Other" answer expressing handoff intent),
-run:
+On **Hand off to next agent**, run:
 
 ```bash
 bash "${CLAUDE_PLUGIN_ROOT}/hooks/approve-plan.sh" --handoff
@@ -559,6 +578,35 @@ bash "${CLAUDE_PLUGIN_ROOT}/hooks/approve-plan.sh" --handoff
 Same validation + release, then **follow the hand-off directive it prints** —
 invoke the handoff skill for this approved plan and stop. Do not implement and
 do not dispatch in this session.
+
+An **"Other" answer expressing handoff intent** does *not* route here by default.
+There are two handoff outcomes now and they differ on consent, so free text like
+"let's hand this off" names the outcome without settling whether the plan is
+approved — exactly the inference the rule above forbids. Route it only when the
+answer also expresses approval ("looks good, hand it off"). Otherwise ask **one**
+follow-up `AskUserQuestion`: approve and hand off, or hand off still drafting.
+
+On **Pause — still drafting**, run **no script at all** — not
+`approve-plan.sh`, not with any flag. The gate must stay armed and the plan must
+stay `draft`; that is the whole point of the option, and every flag this skill
+has approves. Instead invoke `Skill(skill="mentor:handoff-note")` with a focus
+that states the planning is unfinished, then print its resume prompt and stop.
+
+Give the handoff note these three facts explicitly, because the next agent cannot
+infer them and each one has bitten a real session:
+
+- **The plan is `draft` and the gate is deliberately still ARMED** — `mentor:resuming`
+  tells the next agent to trust the marker over the note when they disagree, so an
+  armed marker with no explanation reads like a crashed session rather than an
+  intentional pause.
+- **Continue the *existing* plan** at `.mentor/plans/<slug>/plan.md` — reuse that slug.
+  A fresh `/mentor:plan` derived from a re-typed request can mint a second plan dir and
+  orphan this draft.
+- **Re-write the plan file before approving it.** Whoever resumes runs `/mentor:plan`,
+  which re-arms the marker with a *fresh* mtime, and `approve-plan.sh` refuses any
+  `plan.md` older than the marker. Any real revision (a Rev bump) clears it; without
+  this line the next approval fails with "Newest plan predates this planning session"
+  and no hint of the cause.
 
 On **Review the plan (staged)**, invoke `Skill(skill="mentor:plan-review")` and
 prepend: *"The user selected 'Review the plan (staged)' — skip the Step 2 gate
@@ -584,3 +632,39 @@ On **Keep planning**, do not run the script; return to planning.
 **Not in a git repo?** begin-plan reported the gate was NOT armed — skip
 `approve-plan.sh` (it would fail outside a repo) and honor the user's choice
 directly.
+
+### Retracting an approval {#retract}
+
+Sometimes an approval lands that the user did not intend — they pick an approving
+option, then immediately say "no, that wasn't approved yet". Re-arming the gate is the
+obvious half of the fix and the only half people remember, so state the rest here:
+
+```bash
+bash "${CLAUDE_PLUGIN_ROOT}/hooks/begin-plan.sh"                                       # re-arm the gate
+bash "${CLAUDE_PLUGIN_ROOT}/hooks/plan-state.sh" set <slug> draft --note "approval retracted"
+```
+
+The second line is not optional. **Every** approval path — no-arg, `--deliver`,
+`--handoff` — promotes the plan's `.state.json` to `approved` before it exits, and
+`begin-plan.sh` touches only the marker. Re-arm alone therefore leaves a plan recorded
+as `approved` behind a closed gate: `/mentor:track` reads the sidecar, not the marker,
+so a later session sees a green light and dispatches implementation agents into a gate
+that denies their first write.
+
+Two consequences to tell the user about while you do it:
+
+- **The plan must be re-written before it can be approved again.** Re-running
+  `begin-plan.sh` resets the marker's mtime, and `approve-plan.sh` refuses any
+  `plan.md` older than the marker. This is the same staleness defense that stops an
+  old plan being resurrected, and here it fires on the plan you just retracted. Any
+  genuine revision (a Rev bump per Step 4) clears it.
+- **Retraction is a pre-implementation act.** Effective state is the *more advanced* of
+  the stored state and what the plan's `✅` step ticks imply, so storing `draft` on a
+  plan that already has ticks is silently outranked — `plan-state.sh` even says so as it
+  writes. If any step is ticked, work has already shipped: surface that to the user as a
+  rollback decision (revert the work, or keep it and re-plan the remainder) instead of
+  quietly writing a state that will not take.
+
+The cleaner escape is not to need this: when the user is out of room but not ready to
+approve, "Pause — still drafting" hands off with the gate still armed and nothing to
+retract.

@@ -196,6 +196,34 @@ when it does, clearing `origin` so the normal approval sweep can pick it up afte
 on the table below for a deferred stub, and do not offer to build it directly — that is exactly
 the shortcut the `origin` shield exists to prevent.
 
+**A live planning session short-circuits it too, whatever the state.** Check for a *fresh*
+marker before acting on the table:
+
+```bash
+state_dir="$(bash "${CLAUDE_PLUGIN_ROOT}/hooks/plan-state.sh" dir)"
+# fresh only — plan-gate.sh treats a .planning older than 8h (480 min) as released
+[ -f "$state_dir/plans/.planning" ] && [ -z "$(find "$state_dir/plans/.planning" -mmin +480 2>/dev/null)" ] \
+  && echo "PLANNING_ACTIVE"
+```
+
+`PLANNING_ACTIVE` means the edit gate is armed, so `plan-gate.sh` will deny the first write
+every implementation agent attempts. Dispatching anyway burns the whole batch on a wall — a
+dispatch you cannot finish is worse than one you never started. Say the gate is armed and stop
+before dispatching; do **not** run `approve-plan.sh` to clear it, because it takes no slug and
+promotes every plan newer than the marker, which would silently approve whatever draft that live
+session is still writing.
+
+Two things put you here, and the plan's own sidecar note tells them apart — read
+`.mentor/plans/<slug>/.state.json` directly, since `overview --json` does not carry `note`:
+
+- note says `approval retracted` → this plan's approval was taken back (`planning`'s
+  [Retracting an approval](#retract)). Point the user at `/mentor:plan <slug>` to finish planning it.
+- no such note → some *other* plan is being planned right now, and this one is simply waiting.
+  Say so and let the user finish or approve that session rather than guessing on their behalf.
+
+Both readings share the same conclusion — don't dispatch — which is why the check itself is
+state-agnostic and the diagnosis is only there to make the message useful.
+
 Otherwise, act on the effective state:
 
 | Effective state | What to do |
@@ -204,7 +232,7 @@ Otherwise, act on the effective state:
 | `failed` | Show the sidecar's note — it says what broke last time — then set `in_progress` and retry, feeding that note to the first agent. |
 | `in_progress` | An interrupted run. Re-enter execution **from the first unticked step**; never restart from step 1. |
 | `implemented` | Say so and offer another. Do not rebuild it. |
-| `draft` | **Not buildable as it stands.** The approval gate never released this plan, and in a fresh session there is no `.planning` marker, so `plan-gate.sh` would happily allow the edits — this refusal is what keeps that from becoming a hole in the gate. There is exactly one authorized way through, on the user's explicit say-so: **"Approving a draft plan here"** below. |
+| `draft` | **Not buildable as it stands.** The approval gate never released this plan, and once the marker has aged out (or the session that armed it ended) `plan-gate.sh` would happily allow the edits — this refusal is what keeps that from becoming a hole in the gate. A `draft` plan *with* a fresh marker is a paused planning session and never reaches this row: the preflight above catches it. There is exactly one authorized way through, on the user's explicit say-so: **"Approving a draft plan here"** below. |
 | `unknown` | A pre-2.4.0 plan with nothing on record. Never show the approval pointer — it would be false for a plan that shipped months ago. Offer: mark it implemented, or leave it alone. |
 
 To move state:

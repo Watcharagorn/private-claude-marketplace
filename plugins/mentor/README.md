@@ -27,8 +27,11 @@ review and are the single source of truth for implementation, handoff, and revie
    option), then a
    Markdown plan written to `<repo>/.mentor/plans/<slug>/plan.md` (in-repo, gitignored).
 3. At approval you choose the outcome — **Proceed** (implement), **Deliver plan
-   only** (the plan file is the deliverable), review, or keep planning. The
-   chosen approval runs `approve-plan.sh`, which validates the plan (non-empty,
+   only** (the plan file is the deliverable), hand off, review, keep planning, or
+   **Pause — still drafting** (hand off *without* approving: the gate stays armed
+   and the plan stays `draft`, for when the session runs out of room before the
+   plan is settled — the one option that runs no script). Any *approving*
+   choice runs `approve-plan.sh`, which validates the plan (non-empty,
    and newer than the marker, so a stale plan from a prior session can never
    release the gate) and deletes the marker. The gate opens; the chosen outcome
    follows. On Proceed, implementation is **subagents-first**: the plan's steps
@@ -48,7 +51,7 @@ review and are the single source of truth for implementation, handoff, and revie
 | `/mentor:ship` | Finish the current branch: clean-check → `/simplify` → optional tests → push + auto-open PR/MR (or push to upstream). Never force-pushes. |
 | `/mentor:merge [PR#]` | The tail `/mentor:ship` leaves off: one bounded `gh pr checks --watch`, then one triage — flake (one rerun max) / regression (stop and report) / already broken on the base branch (don't spend the rerun; capture the rot with `/mentor:defer`) — then merge only on your explicit choice. GitHub-only. |
 | `/mentor:grill [topic]` | One-question-at-a-time interview that sharpens a design's open decisions before you build. Conversation only; no repo edits. |
-| `/mentor:handoff "<focus>"` | Compact the session into a handoff document (in its plan-topic folder, `.mentor/plans/<topic>/handoffs/`, gitignored) for a fresh agent; ends with copy-paste resume prompts (`/mentor:resume <slug>` + a plugin-free alternative). Also offered as **Hand off to next agent** at the approval gate — leading the options (marked **(Recommended)**) when the context gate warns or asks. |
+| `/mentor:handoff "<focus>"` | Compact the session into a handoff document (in its plan-topic folder, `.mentor/plans/<topic>/handoffs/`, gitignored) for a fresh agent; ends with copy-paste resume prompts (`/mentor:resume <slug>` + a plugin-free alternative). Also offered at the approval gate in two flavors — **Hand off to next agent** (approves and releases first; leads the options, marked **(Recommended)**, when the context gate warns or asks) and **Pause — still drafting** (hands off with the gate still armed and the plan still `draft`, so the next session continues planning). |
 | `/mentor:resume [slug\|number]` | List this repo's live handoff notes (across all plan topics) and continue the chosen one. A note is stamped **resolved** (moved to a `resolved/` subdir, never re-listed) only when its work completes per the plan file (`/mentor:ship` stamps too) or a nested `/mentor:handoff` supersedes it — unfinished work stays resumable. |
 | `/mentor:plan-tour [plan slug] [area] [perspective]` | **Pre-approval storytelling walkthrough**: a paged, local-only HTML tour of how a plan will execute — one persistent diagram evolving alongside narrative text, per chosen area × perspective, with per-page notes exportable as a self-identifying MD report. Never published; distinct from `/mentor:tour` below (published, post-approval, pass/not-pass acceptance). Artifacts live in `.mentor/plans/<slug>/tour/` (gitignored). |
 | `/mentor:tour [user\|dev\|both] [subject]` | **Post-approval acceptance review**: an editable guided-tour artifact — scenario cards with pass/not-pass toggles, feedback capture, and MD/JSON report export — published to a stable URL that revisions republish in place. Subject defaults to the newest plan; artifacts live in `.mentor/tours/` (gitignored). |

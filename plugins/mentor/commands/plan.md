@@ -51,8 +51,10 @@ Do these in order:
    with **Split into multiple plans**). Do not improvise the list here: one copy of
    it, in the skill, is the only way it stays right. Each option maps to an
    `approve-plan.sh` invocation the skill specifies; all of them validate the plan
-   and release the gate except Review, Split, and Keep planning, which stay in
-   planning.
+   and release the gate except Review, Split, Keep planning, and **Pause — still
+   drafting**, which stay in planning. That last one runs no script at all: it writes
+   a handoff doc and stops with the gate still armed, so a session that runs out of
+   room mid-plan can continue next session without an approval it never gave.
 
 **Never re-run step 1 once it has run.** `begin-plan.sh` resets the `.planning` marker's
 mtime, and `approve-plan.sh` then refuses to release a plan file older than the marker —
