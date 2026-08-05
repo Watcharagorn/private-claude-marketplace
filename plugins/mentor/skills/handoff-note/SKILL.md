@@ -79,9 +79,14 @@ snippet falls back to `$HOME/.claude/mentor/_no-repo/plans/<topic>/handoffs/`.)
 
 > **The directory AND filename are computed by the snippet above — never infer them from an existing
 > file.** The canonical location is `<repo>/.mentor/plans/<topic>/handoffs/<YYYYMMDD-HHMMSS>-<slug>.md`.
-> Do **not** read a prior handoff to copy its path or naming: older notes may use a stale layout
-> (e.g. the flat `.mentor/handoffs/` dir, or `…/plans/HANDOFF-<slug>.md`), and Step 3 below fully
-> specifies the section structure, so you never need a sample to imitate. **Discoverability
+> Do **not** open a prior handoff **as a template** — not for its path, not for its filename, not
+> for its section structure, not for anything else. (Reading one is fine when it *is* the work — the
+> note this session resumed from; imitating one never is.) Older notes may use a stale layout (e.g.
+> the flat `.mentor/handoffs/` dir, `…/plans/HANDOFF-<slug>.md`, or a `YYYY-MM-DD` filename that
+> predates the timestamp pattern), Step 2's snippet computes the path and Step 3 below fully
+> specifies the section structure — so there is nothing a sample can tell you that this skill does
+> not, and "I was only matching the established format" is how a legacy filename convention gets
+> copied into a note `/mentor:resume` cannot find. **Discoverability
 > contract:** `/mentor:resume` lists ONLY notes under a `plans/*/handoffs/` dir (plus the legacy flat
 > `handoffs/` dir, read-only) whose name matches `^[0-9]{8}-[0-9]{6}-.+\.md$`, and never descends into
 > a `resolved/` subdir — that is where it stamps notes it has already consumed. A note saved in any
@@ -277,6 +282,7 @@ point.
   `handoffs/` notes stay readable, but nothing new is written there).
 - Do **not** write into a `resolved/` subdir — that is `/mentor:resume`'s stamp for consumed notes;
   a new note placed there would never be listed.
-- Do **not** read a prior handoff to copy its path/naming — compute the path in Step 2.
+- Do **not** open a prior handoff as a template — for its path, naming, structure, or anything else.
+  Path comes from Step 2's snippet; structure comes from Step 3.
 - Do **not** paste large artifacts (full diffs, whole plan bodies, file dumps) — reference them.
 - Do **not** carry secrets or PII into the file.

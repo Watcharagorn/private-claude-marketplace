@@ -124,9 +124,15 @@ and silently hide every note while the hooks still see them.
 
 ## Step 3 — Empty case
 
-If no conforming notes are found, tell the user **this repo has no handoff notes yet** and suggest
-running `/mentor:handoff` (in a session with work to hand off) to create one. Then **stop** — there is
-nothing to resume.
+If no conforming notes are found **and Step 2 skipped nothing**, tell the user **this repo has no
+handoff notes yet** and suggest running `/mentor:handoff` (in a session with work to hand off) to
+create one. Then **stop** — there is nothing to resume.
+
+If the listing is empty **only because every candidate was skipped as non-conforming**, do NOT
+report "no handoff notes" — that is false, and it sends the user off to write a second note while a
+real one sits unreadable on disk. The skip warnings land in bash output, which the user never sees,
+so this step is the only place the miss can surface. Name each skipped file to the user, then
+continue to **Step 4's recovery path** instead of stopping here.
 
 ## Step 4 — Select a note
 

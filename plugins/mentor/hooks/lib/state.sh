@@ -331,6 +331,11 @@ mentor_plan_would_cycle() {
 # exclusion (`-not -path '*/handoffs/resolved/*'`) /mentor:resume uses, so a repo path
 # or topic slug literally named "resolved" is never false-excluded. Empty when the
 # handoffs dir doesn't exist or holds nothing live.
+# The exclusion is shared with /mentor:resume; the NAME filter deliberately is not.
+# /mentor:resume lists only `^[0-9]{8}-[0-9]{6}-.+\.md$` and skips the rest, so a
+# misnamed note is invisible there — which is exactly why `overview` must still show
+# it: this is the only surface that can tell the user the note exists and needs
+# renaming. Applying resume's filter here would hide it from both sides at once.
 mentor_plan_live_handoffs() {
   local d="${1:-}"
   [ -n "$d" ] || return 0

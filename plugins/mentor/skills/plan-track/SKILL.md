@@ -188,7 +188,31 @@ No deps, or all deps already `implemented` → nothing to say; continue.
 
 ## Step 3 — Act on the plan's effective state
 
-**A deferred stub short-circuits this step, first.** If the selected entry's `origin ==
+**Check `kind` before anything else in this step.** A selected `kind: "no_plan_topic"` entry is a
+topic dir holding conversation history and no `plan.md` — no `.state.json`, so no row of the table
+below applies, and no implementation steps, so there is nothing to dispatch. Do not fall through to
+the table: the closest-looking row (`unknown`) offers "mark it implemented", and `plan-state.sh set`
+will accept it — `require_slug` only checks that the dir exists — writing a sidecar no `overview`
+branch ever reads, under a report that says the work is done. Say plainly that this topic has no plan
+of record, then route:
+
+- **Continue the conversation** → `/mentor:resume <the note's filename slug>` — the part of the
+  handoff basename *after* the `YYYYMMDD-HHMMSS-` prefix, taken from this entry's `handoffs` array
+  (unsorted — take the highest timestamp if more than one is live). Not the topic slug:
+  `mentor:resuming` Step 4 matches its argument against the note's filename slug, and the two are
+  only sometimes the same string. That skill loads the note and acts on its "Recommended mentor
+  commands for the next agent" section, so do not re-derive the next steps here.
+- **Make it buildable** → `/mentor:plan <this topic's slug>`, naming the slug explicitly so `plan.md`
+  lands in this same dir beside its handoffs; `mentor:planning` otherwise derives a slug from the
+  request and can mint a second topic dir that orphans these notes.
+
+One caveat before recommending resume: `overview` lists every live `*.md` in the topic's `handoffs/`,
+while `/mentor:resume` lists only names matching `^[0-9]{8}-[0-9]{6}-.+\.md$`. If the basename
+rendered above does not match, say so — the note is real but invisible to resume until it is renamed,
+and `mentor:resuming` Step 4 owns that recovery on the user's explicit ask. Never dispatch a
+`no_plan_topic` entry, and never offer to.
+
+**A deferred stub short-circuits it next.** If the selected entry's `origin ==
 "deferred"` (same `overview --json`), it is an unclaimed `/mentor:defer` stub — a
 Goal/Context/Why-deferred skeleton, not a plan ready to build. Say so, then point the user at
 `/mentor:plan <the stub's slug or its Goal>` to flesh it out — that skill runs `claim` on the stub
@@ -345,6 +369,8 @@ implementation pass has left little room for another.
   approve it through the step above first, or stop.
 - Do **not** build or approve a deferred stub directly, however the user phrases the ask — point
   at `/mentor:plan <slug>` every time; only `claim` (run by that skill) lifts the shield.
+- Do **not** dispatch a `kind: "no_plan_topic"` entry or write state for it — it has no plan and no
+  steps; route it per Step 3's first short-circuit.
 - Do **not** hard-block on unmet deps — Step 2.5 is advisory; the decision to proceed anyway is
   the user's.
 - Do **not** **arm** the edit gate, and release it only through "Approving a draft plan
