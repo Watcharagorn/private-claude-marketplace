@@ -1,7 +1,7 @@
 {
   "name": "loom",
   "description": "Session harvesting and plugin lifecycle tools: harvest sessions into reusable artifacts, learn from usage to auto-improve plugins, run daily unattended per config dir, and publish releases with synced manifests.",
-  "version": "4.3.0",
+  "version": "4.4.0",
   "author": {
     "name": "NTBX"
   }
