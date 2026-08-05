@@ -152,6 +152,15 @@ Then resolve a selection:
     "latest handoff") → **ordinal 1** (the newest note).
   - **Otherwise** → a **case-insensitive substring match against the slug** (the filename part after
     the timestamp).
+  - A **note path or plan slug embedded in a longer phrase** → select from what is embedded. This
+    plugin produces that shape itself: `/mentor:handoff` Step 5 prints a plugin-free resume prompt
+    that is an absolute note path wrapped in prose, and users paste task briefs ("implement the
+    approved X plan: read `<path>`, then …"). Such a phrase substring-matches no slug, so the rule
+    below would re-ask — pedantry against someone who named the file, and an agent that overrides it
+    here is off-script for every step after. Take the embedded path/slug; any task instructions
+    riding along are **context for the work**, never a replacement for Step 6's routing. An embedded
+    path may name a file Step 2 skipped as non-conforming — load it anyway (an explicit path is
+    better evidence than the listing) and offer the rename recovery above.
   - A **unique** match is selected directly. If the input is **ambiguous** (matches >1 note) or
     **matches nothing**, **never auto-pick** — re-print the list and re-ask. **Mechanical
     self-check before proceeding:** the selection must have resolved through one of the three
@@ -223,6 +232,27 @@ Then resolve a selection:
    user who already chose a note isn't asked to choose a plan again. Invoke
    `Skill(skill="mentor:dispatch-agents")` directly only when the note's work has no plan record at
    all, so there is no state for track to read.
+
+   **When the note names no commands at all** — no "Recommended mentor commands for the next agent"
+   section — you still have a route; do not improvise one, and do not re-derive plan state here.
+   Roughly a third of the notes on disk predate that section or drifted away from it, so this is the
+   common case, not the exotic one:
+   1. **Sweep the note body for `/mentor:<command>` tokens under any heading.** A note that says
+      "run `/mentor:ship`" under `## What REMAINS` is recommending a command — only its heading
+      drifted — and Step 6's bound applies to those exactly as if the section were canonical. Two or
+      more distinct commands: ask which.
+   2. **None anywhere → `/mentor:track <topic>`**, using the note's own topic slug (the
+      `plans/<topic>/` dir it lives in — `/mentor:handoff` writes notes there, so you already hold
+      the key). Track reads plan state and already triages an approved plan, a `draft`, a deferred
+      stub, and a topic with no plan record; re-deriving that here would fork a decision tree that
+      has one owner.
+   3. Only when the note's plan of record lives **outside** `.mentor/` — another framework owns it —
+      does the no-plan-record rule above apply directly, and `mentor:dispatch-agents` carries the
+      branch for it. `/mentor:track` refuses that case by design and sends you to `/mentor:plan`,
+      which re-plans decisions someone already made.
+
+   Step 2's `(no focus section)` label is the early tell: a note previewed that way is non-canonical,
+   so expect this branch before you start editing rather than after.
 
    **The bound is on the work, not on how it is executed or delivered.** Running the note's work by
    hand instead of through `/mentor:track` skips the step ticks and `mentor:dispatch-agents`' closing

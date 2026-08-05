@@ -52,6 +52,14 @@ backend-relevant research agents' prompts; when researching directly, cover the 
 - For each endpoint, **classify the change as backward-compatible or BREAKING** (a removed/renamed
   field, narrowed type, new required field, or changed status code is breaking) and **count the
   callers**, so FINDINGS can drive the status badge and the "Callers affected" cell.
+- When the change moves a table's **row volume**, sweep the test suite for assertions that hard-code
+  a count for that table — pgTAP `plan(N)`, `select count(*) = N`, fixture-length checks. A
+  **data-only** migration counts here (`UPDATE … SET active = true`, a seed insert); the rest of this
+  section is DDL-shaped, and reading it as columns-only is how a row-volume change gets planned as if
+  it touched nothing. Key the sweep on **the changed table**, not on the cardinality of what you are
+  adding: activating 8 rows breaks a test asserting the table holds 12, and grepping for `8` or the
+  feature's name will never find it. These break only when the whole suite runs — long after the plan
+  called itself done.
 
 The research return contract is unchanged (FINDINGS ≤ ~400 words / EVIDENCE `file:line` / OPEN
 QUESTIONS), with one addition: FINDINGS include a compact **current-contract snapshot** per
@@ -86,7 +94,8 @@ canonical plan):
   (labelled "removed"); **changed** hops marked as changed. Label each arrow with the moved
   field/status; include a legend line that decodes the markings.
 - Implementation steps name the real route/handler/schema files from research EVIDENCE and the
-  affected callers.
+  affected callers — including the **test files holding row-count assertions** on any table whose row
+  volume moves, so updating them is a planned step instead of a surprise at the final gate.
 
 The status badge tokens and `compat:` tags are what make "what breaks" scannable.
 

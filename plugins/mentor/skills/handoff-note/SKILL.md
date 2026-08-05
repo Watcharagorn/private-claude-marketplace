@@ -97,7 +97,12 @@ snippet falls back to `$HOME/.claude/mentor/_no-repo/plans/<topic>/handoffs/`.)
 
 ## Step 3 — Author the handoff document
 
-Write a Markdown document with these sections (skip a section only if genuinely empty):
+Write a Markdown document with these sections, each as a literal `##` heading carrying the name as
+written (skip a section only if genuinely empty). Two of them are read by machine, not just by the
+next agent: `/mentor:resume` matches **Goal / next-session focus** as a *heading* to build its focus
+preview, and routes on **Recommended mentor commands for the next agent**. A bold bullet where a
+heading belongs, or a renamed section, makes the note unreadable to the command written to consume
+it — Step 5's self-check catches that before you report.
 
 - **Goal / next-session focus** — from `$ARGUMENTS`; what the next agent should accomplish.
 - **What happened** — a tight summary of the conversation and the progress made. Narrative, not a transcript.
@@ -205,6 +210,13 @@ find "$hand_dir" -maxdepth 1 -type f -name '*.md' ! -name "$(basename "$out")" 2
 [ -f "$out" ] || echo "CHECK: \$out is not a file — the note is not where you think it is"
 live="$(find "$hand_dir" -maxdepth 1 -type f -name '[0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9]-[0-9][0-9][0-9][0-9][0-9][0-9]-*.md' 2>/dev/null | wc -l | tr -d ' ')"
 echo "CHECK: live notes now ${live} (expect 1 — the note just written)"
+# the two machine-read headings. Goal's pattern is resuming Step 2's awk verbatim, so this check
+# and that listing can never disagree; Recommended stays loose on purpose — only an agent reads it,
+# and real notes say "Recommended next mentor commands" / "Recommended commands for the next agent".
+miss=""
+grep -Eq '^#+[[:space:]].*[Gg]oal.*next-session focus' "$out" || miss="$miss Goal/next-session-focus"
+grep -Eq '^#+[[:space:]].*[Rr]ecommended.*commands' "$out"    || miss="$miss Recommended-mentor-commands"
+echo "CHECK: headings missing:${miss:- none (2/2 present)}"
 ```
 
 Read the `CHECK:` line before writing the report — it is the only evidence you have. `live notes
@@ -215,6 +227,12 @@ happened). `0` means the note is not on disk where you think it is — an empty 
 `mv` did not run: name the files still live and tell the user `$hand_dir` needs a manual check.
 **No `CHECK:` line at all means the snippet never ran — you have no basis for any claim about
 superseding.** Claiming supersession that did not happen is the failure this step exists to prevent.
+
+`CHECK: headings missing:` is the second verdict, and it names the sections `/mentor:resume` parses
+rather than merely reads. A missing `Goal/next-session-focus` renders the note as `(no focus
+section)` in the listing; a missing `Recommended-mentor-commands` leaves the next session's Step 6
+with nothing to route on, which is how a resumed session ends up improvising instead of running the
+harness. Fix the note and re-run the check — don't report the miss and move on.
 
 If this session was resumed from a note that lives **outside `$hand_dir`**, the snippet above cannot
 see it — stamp that specific note the same way (`mkdir -p` a `resolved/` beside it, `mv` it in). The
@@ -262,6 +280,9 @@ point.
 - The supersede snippet **ran**, and its `CHECK: live notes now` line reported `1` — the new note is
   the topic's only live resume point. Any other reading: the report names what is still live instead
   of claiming supersession.
+- Its `CHECK: headings missing:` line reported `none` — the note carries both machine-read sections
+  (`Goal / next-session focus`, `Recommended mentor commands …`) as `##` headings, so
+  `/mentor:resume` can preview and route on it.
 - Existing artifacts are referenced by path/URL, **not duplicated**.
 - Secrets are redacted.
 - The content is tailored to the next-session focus.
