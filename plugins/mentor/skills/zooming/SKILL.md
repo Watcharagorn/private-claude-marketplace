@@ -107,6 +107,18 @@ Every combo prompt carries the hard rule: **invent nothing** — every claim,
 color, code path, and step in a zoom traces to a real file from the source pack
 or to `_brief.md`.
 
+**Pre-assign ids that span files.** "Invent nothing" constrains claims, not
+identifiers — an agent minting `R3` for its own slice obeys it, and so does the
+sibling minting `R3` for a different one. When the subject carries an id scheme
+the combos share (rule ids, numbered callouts, scenario numbers, row labels read
+across files), resolve the concrete id→referent map here and paste it verbatim
+into every combo prompt — keyed by referent, and covering every namespace the
+files reuse, not just the one this revision introduced. Pinning the map also
+turns the check afterwards into a known-answer grep instead of an improvised
+one. `dispatch-agents`' shared-sequence rule says the same for plan steps; its
+`Sequential:` escape is unavailable here, since Step 3 dispatches all combos in
+one message.
+
 ## Step 2 — Selection gate
 
 Resolve two dimensions before generating anything:
@@ -143,9 +155,12 @@ context. Each agent's prompt carries: the source pack (Step 1), its topic, its
 perspective row from the catalog above, the output path
 `${zoom_dir}/<topic>-<perspective>.html`, the spec below, the invent-nothing
 rule, and the delivery prohibition: *"Do NOT call the `Artifact` tool and do NOT
-return any hosted URL. Return ONLY the file path + a `Self-check:` line —
-sections rendered, diagram count, tags balanced, spec constraints met — never
-the HTML body."* Perspective-conditional inputs: **Reviewer/Architect** combos
+return any hosted URL. Return ONLY the file path + a `Self-check:` line in named
+fields — `sections=N diagrams=N doctype=yes closing-html=yes tags-balanced=yes`
+— never the HTML body."* Named fields rather than free prose, because prose
+makes an **absence** invisible: a combo that quietly omits "full standalone
+document" reads just like the ones that claim it, and the omission is the signal
+worth catching. Perspective-conditional inputs: **Reviewer/Architect** combos
 also get the resolved constitution path (Step 0) when that file exists; a
 **UI-surface topic** gets the mockup contract inputs from
 `plan-domain-frontend` §4 whenever the perspective needs to *see* the surface to
@@ -172,10 +187,21 @@ outer file only; iframe `srcdoc` panes stay no-JS per `plan-domain-frontend`
 ## Step 4 — Completion check
 
 After the agents return, `ls "$zoom_dir"` against the expected combo files and
-read each agent's `Self-check:` line (do not re-derive ad-hoc grep probes);
-report any missing combo file and re-dispatch it once before giving up. Zoom
-dispatches follow `dispatch-agents`' "Async runtime & lifecycle" rules — close
-out finished combo agents after this check.
+confirm each file's structural bookends yourself — first bytes match `<!doctype`
+or `<html` case-insensitively, last non-whitespace is `</html>`, size non-zero —
+as one Bash loop over the dir emitting one `OK`/`BAD` line per file. Read each
+agent's `Self-check:` line for everything else. Those bookends are the **only**
+re-derivation worth running: they cost no context and catch the truncated page
+that an agent dying mid-`Write` still self-reports as balanced, whereas
+re-grepping a zoom's *content* to re-verify what the `Self-check:` already
+reports just drags HTML into the main thread.
+
+A missing file, a structurally invalid one, and a `Self-check:` missing a
+required field all take the same path — re-dispatch that combo once, naming the
+defect, before giving up. Zoom dispatches follow `dispatch-agents`' "Async
+runtime & lifecycle" rules — close out finished combo agents after the remedy
+rather than after the check, so a still-warm agent stays reachable for the
+repair.
 
 ## Step 5 — Re-zoom on revision (completeness-checked, not memory-driven)
 
@@ -185,6 +211,16 @@ When a revision of the subject — a plan edit, a product decision, a code chang
 message — never just the combo you remember changing. When the subject is a
 plan under review, wait for these agents to complete before any `plan-review`
 dispatch, so a reviewer never reads a zoom mid-write.
+
+Each re-dispatch prompt names the superseded term and the term replacing it, and
+requires the returned `Self-check:` to add `residual-<old>=N` — one short reason
+per remaining hit — plus `new-term-present=yes`. Then compare: `grep -c` the old
+term per regenerated file against the declared count, and re-dispatch once on a
+mismatch, or on a hit with no stated reason. The agent that wrote the file
+already knows which occurrences are deliberate before/after content, so asking
+it to declare them keeps that judgment where the evidence is — and keeps
+acceptance identical on the first regeneration and the third, instead of
+drifting with how thorough the orchestrator feels late in a session.
 
 ## Done when
 

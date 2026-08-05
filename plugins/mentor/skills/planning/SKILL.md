@@ -347,6 +347,19 @@ Required sections, in order:
 - Callouts / cautions → **GFM alert** (`> [!NOTE]`, `> [!WARNING]`, …).
 - Literal code / payloads → fenced code with a language tag.
 
+**State vocabulary rule.** When a plan introduces, renames, or re-scopes a named
+status for any entity (`MONITORING → PENDING`, `ACTIVE → TRIGGERED/CANCELLED`),
+render the *transitions*, not just the values. The `stateDiagram-v2` the idiom
+rule already selects shows the shape — which states reach which, added and
+removed edges marked; a companion `From · Event/verb · To · Trigger · Cascade`
+table carries what a shape cannot encode, and it is the table that exposes a
+**missing** edge, since reverse transitions and cascade side-effects are the
+ones that surface late. That pairing is complementary, not the same-thing-twice
+the rule below forbids. Skip it when no entity has more than one named state, or
+when the states are unchanged and only their storage moves — that delta is
+`plan-domain-backend-api`'s per-column table, and restating it here would
+duplicate.
+
 **Anti-duplication:** never restate in prose what a diagram already shows, and
 never show the same thing two ways. Prose next to a diagram is limited to a
 one-line caption, a legend, and the why/insight the diagram cannot encode.
