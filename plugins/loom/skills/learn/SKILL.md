@@ -55,6 +55,16 @@ echo "${common:-NO_COMMON}"
   **exactly ONE session per invocation** (the oldest eligible survivor) and reports how many remain,
   so the daily runner can fire once per session with a fresh wall-clock watchdog each time — a kill
   can then only ever cost the one in-flight session, never a finished batch.
+- **`--concurrent`** — batch mode, **only meaningful paired with `--headless`**: the daily runner's
+  multi-slot rounds (`loom:automate`) may fire several `learn <plugin> --headless` invocations against
+  this SAME plugin's backlog at once, and the plain "read candidates, take the oldest" pick above is a
+  TOCTOU race under that — two fires could independently land on the same session. In concurrent+headless
+  mode, Step 4's selection instead takes an **atomic claim** under a per-plugin lock (§K.8 in
+  `references/session-plugin-common.md`), and Step 5's end-of-session ledger write becomes a **result
+  sidecar** (also §K.8) instead of a direct `analyzed[]`/watermark write — the orchestrator, not this
+  invocation, decides when that entry is safe to fold in (after the session's commit has actually merged
+  onto main). Passed without `--headless` it's silently inert — a solo run never races, so the plain read
+  stays in force.
 
 `cfg="${CLAUDE_CONFIG_DIR:-$HOME/.claude}"` throughout — **not** §A's `$HOME/.claude` (see §K).
 
@@ -65,15 +75,18 @@ would be mistaken for a session id and misroute into single-session mode:
 
 ```bash
 args="$ARGUMENTS"
-dry=0; review=0; headless=0
-case " $args " in *" --dry-run "*)  dry=1;;      esac
-case " $args " in *" --review "*)   review=1;;   esac
-case " $args " in *" --headless "*) headless=1;; esac
-args="$(printf '%s' "$args" | sed 's/--dry-run//; s/--review//; s/--headless//' \
+dry=0; review=0; headless=0; concurrent=0
+case " $args " in *" --dry-run "*)    dry=1;;        esac
+case " $args " in *" --review "*)     review=1;;     esac
+case " $args " in *" --headless "*)   headless=1;;   esac
+case " $args " in *" --concurrent "*) concurrent=1;; esac
+args="$(printf '%s' "$args" | sed 's/--dry-run//; s/--review//; s/--headless//; s/--concurrent//' \
        | sed 's/^[[:space:]]*//; s/[[:space:]]*$//; s/[[:space:]][[:space:]]*/ /g')"
 set -- $args   # $1 = plugin, $2 = optional session id/path
-echo "plugin=$1 session=${2:-} dry=$dry review=$review headless=$headless"
+echo "plugin=$1 session=${2:-} dry=$dry review=$review headless=$headless concurrent=$concurrent"
 if [ "$headless" = 1 ]; then review=0; fi   # headless can never pause
+concurrent_mode=0
+[ "$headless" = 1 ] && [ "$concurrent" = 1 ] && concurrent_mode=1   # --concurrent alone is inert
 ```
 
 - **`$2` present → single-session mode.** Do **Step 1** (validate the plugin + resolve the chassis), then
@@ -81,8 +94,11 @@ if [ "$headless" = 1 ]; then review=0; fi   # headless can never pause
   confirm, implement), then **Steps 6–7** (publish, finalize). **Skip** Steps 2–4 (ledger load,
   discovery, cap) entirely — a single named run must never move the plugin-wide watermark or write the
   ledger, mirroring how `harvest-automations` single-mode leaves the watermark alone. Single-session
-  mode is always **interactive** (§I confirm) — it is the manual escape hatch.
-- **`$2` absent → batch mode.** Run Steps 1–7 in order, as written.
+  mode is always **interactive** (§I confirm) — it is the manual escape hatch. `--concurrent` never
+  applies here (batch-mode only).
+- **`$2` absent → batch mode.** Run Steps 1–7 in order, as written. `concurrent_mode=1` branches Step 4's
+  selection and Step 5's ledger write per §K.8, as detailed in those steps below — every other step is
+  unchanged by it.
 
 ---
 
@@ -159,6 +175,30 @@ only to the processed session's `endTs`, so every newer survivor still clears it
 entries needed). Record the count of unselected survivors: it becomes `lastRun.remaining` in Step 7,
 which is how the daily runner decides whether to fire again.
 
+**`concurrent_mode=1` replaces this read with an atomic claim (§K.8).** Several fires may be working
+this same plugin's backlog at once, so the plain "compute candidates, take the oldest" pick above is
+unsafe here — two fires could independently land on the same session. Instead:
+
+- Acquire the per-plugin claim lock (`$cfg/loom/learning/<plugin>.json.lock`, `mkdir`-based, stale and
+  stealable past `2 × maxRunSecs`) and hold it across the **entire** read → pick → write span — locking
+  only the final write would leave the race untouched, since the race is two workers *reading* the same
+  candidate list.
+- Compute candidates exactly as above (index-first §K.2/§K.3, unchanged), minus any session already
+  present in the ledger's live `claims[]` (a crashed worker's stale claim is GC'd in the same write).
+- **Candidates empty** → release the lock, write `.loom-learn-result.json` with `{"outcome":
+  "no-candidate"}` in the invoking cwd (this worker's own worktree), and stop — this still counts as one
+  fire toward the daily cap, but there is no session to process: skip Step 5 and Step 6 entirely and go
+  straight to Step 7's concurrent-mode note.
+- **Candidates non-empty** → take the oldest, append `{sessionId, sessionEndTs, slot, pid, claimedAt}`
+  to `claims[]` in the same write, release the lock, and proceed into Step 5 with that session. The
+  claim is **not** released here — it stays in place through analyze → implement → commit so the
+  orchestrator can find "this slot's session" at merge-back time, and so a crashed worker leaves it for
+  the orchestrator's staleness GC to reclaim.
+
+The **guard the working tree** check below and the unselected-survivor bookkeeping above are otherwise
+unchanged in concurrent mode — only *which* session gets selected, and how the pick is synchronized,
+differ.
+
 **Guard the working tree before implementing (batch mode).** If `git status --porcelain
 "plugins/<plugin>/"` is already dirty at this point, those are either a killed run's partial edits or
 the user's work in progress — this run cannot tell which, and a per-session commit would silently
@@ -234,6 +274,16 @@ session, in order:
    git add "plugins/<plugin>/" && git commit -m "learn(<plugin>): session <sid-8> — <what shipped>"
    ```
 
+   **In `concurrent_mode`**, the commit additionally carries a `Loom-Session: <sessionId>` git trailer —
+   the orchestrator's idempotency check at merge-back time (§K.8): if it crashes between successfully
+   cherry-picking this commit and writing the ledger entry, the trailer lets the next round recognize
+   the session's work is already on main instead of redoing it:
+
+   ```bash
+   git add "plugins/<plugin>/" && git commit -m "learn(<plugin>): session <sid-8> — <what shipped>" \
+     --trailer "Loom-Session=<full sessionId>"
+   ```
+
    The commit must come **before** item 5's ledger write, and the order is load-bearing: a kill
    between commit and ledger leaves the session re-eligible, and its re-analysis converges as
    `already-addressed` (a cheap no-op); the reversed order would mark a session `analyzed` while its
@@ -250,7 +300,25 @@ session, in order:
    ordering makes the incremental max equal this session's `endTs` (§K.4). Drop the session's raw
    return from context — keep only one-line run-manifest entries (item · files touched · verdict).
 
-**`--headless` exits the loop here:** its one selected session is done — skip straight to Step 6.
+   **In `concurrent_mode`, skip this ledger write entirely** — a concurrent worker never writes
+   `analyzed[]` or the watermark itself, because its commit may still fail to merge onto main, and an
+   entry written before that merge would have to be rolled back. Write the same fields instead as a
+   **result sidecar** at `.loom-learn-result.json` in the invoking cwd (§K.8):
+
+   ```json
+   { "outcome": "analyzed", "sessionId": "…", "transcriptPath": "…", "project": "…",
+     "sessionEndTs": "…", "lineCount": …, "markerHits": …, "viaSubagent": …,
+     "analyzedAt": "…", "findings": … }
+   ```
+
+   — exactly the `analyzed[]` entry above (`outcome` uses the same enum, plus `error` on a malformed
+   return), so the orchestrator folds it in as a copy, not a translation. The `reports/<plugin>-<ts>.md`
+   append still happens here (it's local to this worktree and purely informational); only the ledger
+   write moves to the orchestrator, once the commit has actually merged.
+
+**`--headless` exits the loop here:** its one selected session is done — skip straight to Step 6. In
+`concurrent_mode` this includes the sidecar path above — the worker's job ends at the sidecar write, and
+Step 6 is a no-op for it (see Step 6's concurrent-mode note).
 
 **Failure isolation:** an agent failure or implement failure ledgers that session `error` (re-eligible
 next run) and the loop **continues** — one bad session must not sink the run.
@@ -283,6 +351,11 @@ only when there is nothing left to wait for:
   in-flight session — everything committed is already in git, and the eventual publish (or the next
   run's catch-up) bundles it.
 - **Single-session mode:** unchanged — one implement, one publish, as before.
+- **`concurrent_mode`: never publish from inside the worker.** This worker's worktree isn't the shared
+  main checkout, and it has no visibility into sibling slots still in flight — whether the *whole*
+  backlog has drained is knowable only after every slot's commit for the round has actually merged. Skip
+  this step entirely; the orchestrator (`daily-run.sh`) evaluates the same `remaining == 0` gate and
+  runs the same `publish-plugin` flow once per round, after Step 5's sidecar has been folded in.
 
 The plugin being published is the **analyzed target plugin** — **loom itself when running
 `/learn loom`**. Tell `publish-plugin` when the run is `--headless` so it never pauses on an
@@ -302,6 +375,14 @@ and "next run only sees sessions newer than `<watermark>` plus any `skipped-cap`
 If `<plugin>` isn't tracked, add: "Tip: `/loom:track <plugin>` indexes future sessions at session-end,
 making discovery instant."
 
+**`concurrent_mode`: skip this ledger write too.** `lastRun` lives on the same per-plugin ledger file as
+`claims[]`/`analyzed[]`/the watermark, and this worker never holds that file's lock outside the claim
+span (§K.8) — writing `lastRun` here unlocked would reopen exactly the kind of race this plan exists to
+close. Everything the orchestrator needs (what was analyzed, how many findings, the commit SHA) already
+rode along in Step 5's sidecar. Print the same summary as above for this worker's own log, but note
+plainly that `lastRun`/`remaining`/publish bookkeeping for the round is the orchestrator's job, not this
+invocation's.
+
 **Single-session mode:** no ledger/watermark to finalize. Print a summary: the one session analyzed, the
 findings, what shipped, and an explicit note that the ledger/watermark were left untouched (a later batch
 `learn <plugin>` will still consider this session).
@@ -318,6 +399,11 @@ findings, what shipped, and an explicit note that the ledger/watermark were left
 - **`--headless` = exactly ONE session per invocation** (the oldest eligible), no cap question, no
   `skipped-cap` entries — unprocessed survivors stay eligible by watermark; `lastRun.remaining` tells
   the runner whether to fire again.
+- **`--concurrent` (with `--headless`) still takes exactly ONE session per invocation** — the atomic
+  claim (§K.8) replaces the unsynchronized "pick oldest" read with a lock-protected pick, but the count
+  is unchanged. That one session's ledger write is deferred to a result sidecar instead of a direct
+  write; the orchestrator, not this invocation, folds it into `analyzed[]`/watermark after merging the
+  session's commit, and never publishes from inside the worker.
 
 ## Rules
 
@@ -336,6 +422,10 @@ findings, what shipped, and an explicit note that the ledger/watermark were left
   itself tracks the pending bundle — never a ledger field.
 - **State in the config dir, never in this repo** — `$cfg/loom/learning/`; use `$cfg`, not §A's
   `$HOME/.claude`.
+- **`concurrent_mode` defers the ledger write to a result sidecar and never publishes from the worker** —
+  the commit-before-ledger-write ordering still holds (a crash between them is still safely
+  re-eligible), but "the ledger write" means the sidecar (§K.8) here, and the orchestrator alone decides
+  whether/when to fold it in and publish, once per round, after every slot's commit has actually merged.
 
 ## Done when
 
@@ -357,3 +447,7 @@ findings, what shipped, and an explicit note that the ledger/watermark were left
 - **`--headless`** never called `AskUserQuestion` on any path, processed at most ONE session, wrote
   `lastRun.remaining` on every exit path, and stopped cleanly (processing nothing) on a pre-dirty
   `plugins/<plugin>/` tree.
+- **`--concurrent`** (paired with `--headless`) claimed its one session under the §K.8 lock instead of
+  reading it, wrote a result sidecar (`.loom-learn-result.json`) instead of the ledger, added the
+  `Loom-Session:` trailer to its commit, and never attempted Step 6's publish or Step 7's `lastRun`
+  write — those, and the ledger fold-in, are the orchestrator's job once every slot's commit has merged.

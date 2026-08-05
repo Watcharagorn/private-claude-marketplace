@@ -1,6 +1,6 @@
 ---
 name: automate
-description: Set up (or manage) a DAILY scheduled headless run that harvests configured projects and learns tracked plugins automatically — launchd on macOS, cron on Linux, driving "claude -p '/loom:harvest --headless'" per project and a fire-per-session "/loom:learn <plugin> --headless" loop per tracked plugin (each fire gets its own wall-clock watchdog). Each CLAUDE_CONFIG_DIR gets its own fully isolated schedule (per-config launchd label / cron marker; the runner pins sessions + credentials to its own install's config dir) — setting up from one config dir never touches another's. Use when the user says "automate loom", "schedule daily harvest/learn", "run harvest every day", "set up the loom daily job", "/loom:automate", or asks how to make harvesting/learning happen without them. Also handles "--status" (show schedule + last run) and "--stop" (uninstall the schedule, keep config). Setup is idempotent — re-run anytime to change projects or the schedule time.
+description: Set up (or manage) a DAILY scheduled headless run that harvests configured projects and learns tracked plugins automatically — launchd on macOS, cron on Linux, driving "claude -p '/loom:harvest --headless'" per project and concurrent rounds of "/loom:learn <plugin> --headless --concurrent" per tracked plugin (up to 3 fires at once, each with its own wall-clock watchdog). Each CLAUDE_CONFIG_DIR gets its own fully isolated schedule (per-config launchd label / cron marker; the runner pins sessions + credentials to its own install's config dir) — setting up from one config dir never touches another's. Use when the user says "automate loom", "schedule daily harvest/learn", "run harvest every day", "set up the loom daily job", "/loom:automate", or asks how to make harvesting/learning happen without them. Also handles "--status" (show schedule + last run) and "--stop" (uninstall the schedule, keep config). Setup is idempotent — re-run anytime to change projects or the schedule time.
 version: 0.3.0
 ---
 
@@ -9,11 +9,15 @@ version: 0.3.0
 Install a once-a-day scheduled job that runs `loom:harvest` over a **configured list of projects** and
 `loom:learn` over every **tracked plugin** (from `loom:track`'s registry), fully unattended. Both
 skills' `--headless` flags guarantee zero prompts; their ledgers + watermarks make every run
-incremental and idempotent. Learn runs as a **fire-per-session loop**: each `claude -p` invocation
-processes exactly one session (committing its delta), the runner re-fires while the ledger's
-`lastRun.remaining` says more are queued (up to 12 fires/plugin/day), and the fire that drains the
-queue publishes the whole bundle — so the per-invocation watchdog bounds one session's work, never a
-batch's.
+incremental and idempotent. Learn runs as **concurrent rounds**: each round fires up to `concurrency`
+(config, 1–3, default 3) `claude -p "/loom:learn <plugin> --headless --concurrent"` invocations at
+once — one per isolated git worktree slot — each claiming and processing exactly one session
+(committing its delta inside its own worktree), and the runner keeps firing rounds while the plugin's
+backlog remains, up to 24 fires/plugin/day summed across every slot. The orchestrator alone owns
+everything shared — merging each round's worktree commits back onto the marketplace repo in claim
+order, writing the ledger only after a clean merge, and publishing the whole bundle once the backlog
+drains — so a kill still bounds at most one in-flight session per slot, never a whole round or a
+finished batch.
 
 **Say the tradeoff up front, before installing anything:** the scheduled runs use
 `--permission-mode bypassPermissions` — Claude edits files and (for `learn`) commits + pushes the
@@ -32,12 +36,26 @@ under `$cfg/loom/automation/`:
 $cfg/loom/automation/
 ├── config.json          # targets + schedule (schema below)
 ├── bin/daily-run.sh     # the installed runner (copied from this plugin)
-├── logs/daily-<date>.log    # + logs/launchd.log: anything emitted before the runner's own redirect
-├── run.lock/            # transient: held while a run is in flight (self-healing — the runner steals stale locks)
+├── logs/
+│   ├── daily-<date>.log          # + logs/launchd.log: anything before the runner's own redirect —
+│   │                              # shared orchestrator log (harvest, plus round-level learn events)
+│   └── daily-<date>-slot-N.log   # one per concurrent learn slot — that slot's own claude output only
+├── run.lock/             # transient: held while a run is in flight (self-healing — the runner steals stale locks)
+├── worktrees/<plugin>-slot-N/    # one isolated git worktree per concurrent learn slot (N = 1..concurrency);
+│                                 # set up once per plugin's daily batch, reset before every round, torn down
+│                                 # at the end — carries a `.loom-learn-result.json` sidecar (the worker's
+│                                 # analyzed[] entry + outcome) once that slot's claude exits
+├── slots/<plugin>-slot-N.{pid,ec}  # per-slot statefiles: POSIX sh has no arrays, so the round loop tracks
+│                                   # each backgrounded slot's pid, and — once it exits — its exit code, here
 └── stamps/
     ├── last-ok          # once-per-day SUCCESS stamp
     └── fail-<date>      # per-day failure markers (auto-pruned after 30 days)
 ```
+
+The per-plugin claim lock (`$cfg/loom/learning/<plugin>.json.lock`, `mkdir`-based) and the ledger it
+guards (`$cfg/loom/learning/<plugin>.json`) live next to `loom:track`'s registry, not under
+`automation/` — every concurrent slot's ledger write is serialized through that lock (Edge cases
+below).
 
 ## Step 1 — Resolve mode (from `$ARGUMENTS`)
 
@@ -60,7 +78,8 @@ $cfg/loom/automation/
    Learn's plugin list is **not** asked here — the runner reads `$cfg/loom/learning/config.json`
    (`loom:track`'s registry) live at run time, so `/loom:track <plugin>` additions are picked up with
    no re-setup. If nothing is tracked yet, note that the learn phase will no-op and point at
-   `/loom:track`. The model / effort / ceiling knobs aren't asked here either — Step 2.2 says why.
+   `/loom:track`. The model / effort / ceiling / concurrency knobs aren't asked here either — Step
+   2.2 says why.
 
 2. **Write `config.json`** under §E merge-json discipline (timestamped backup when it exists →
    `jq` → `jq empty` validate → restore on invalid; the chassis-resolution glob from `loom`'s other
@@ -74,13 +93,13 @@ $cfg/loom/automation/
      "marketplaceRepo": "/abs/path/to/marketplace-repo" }
    ```
 
-   The runner reads `projects`, `permissionMode`, `marketplaceRepo`, `model`, `effort`, and
-   `maxRunSecs` at every fire; `schedule` is read only by THIS skill when building the
-   plist/crontab — editing it in the file does nothing until `/loom:automate` is re-run. Learn's
-   plugin list is never stored here (it comes from track's registry, live).
+   The runner reads `projects`, `permissionMode`, `marketplaceRepo`, `model`, `effort`,
+   `maxRunSecs`, and `concurrency` at every fire; `schedule` is read only by THIS skill when
+   building the plist/crontab — editing it in the file does nothing until `/loom:automate` is
+   re-run. Learn's plugin list is never stored here (it comes from track's registry, live).
 
-   **Don't ask about `model`, `effort`, or `maxRunSecs`, and don't write them** — they carry
-   defaults that suit an unattended run, and an absent key is what lets a later default
+   **Don't ask about `model`, `effort`, `maxRunSecs`, or `concurrency`, and don't write them** —
+   they carry defaults that suit an unattended run, and an absent key is what lets a later default
    improvement reach existing installs the next time `/loom:automate` refreshes the runner copy.
    The runner is the source of truth and the table only mirrors it, so when the two disagree read
    `$cfg/loom/automation/bin/daily-run.sh` — the copy that actually fires. (The plugin's
@@ -88,25 +107,31 @@ $cfg/loom/automation/
 
    | key | default | why that default |
    |---|---|---|
-   | `model` | `claude-opus-5[1m]` | These runs read long transcripts whole and then rewrite plugin sources with nobody watching. Capable model, big context. |
-   | `effort` | `xhigh` | Same reason — a shallow pass produces edits the user unpicks by hand later, which costs more than the run saved. |
-   | `maxRunSecs` | `7200` | Per-invocation wall-clock ceiling. Learn does ONE session per invocation (the runner loops), so the ceiling bounds a single session's analyze→implement→commit — a kill costs at most that one in-flight session. |
+   | `model` | `claude-sonnet-5` | Sonnet is materially cheaper than the prior Opus default for a daily unattended job. `maxRunSecs` is deliberately **unchanged** by this switch — cheapening the model is the safe direction (see below), so the ceiling needs no matching cut. |
+   | `effort` | `xhigh` | These runs read long transcripts whole and then rewrite plugin sources with nobody watching — a shallow pass produces edits the user unpicks by hand later, which costs more than the run saved. |
+   | `maxRunSecs` | `7200` | Per-invocation wall-clock ceiling. Learn does ONE session per invocation per slot (the runner loops rounds), so the ceiling bounds a single session's analyze→implement→commit — a kill costs at most that one in-flight session, never a whole round. |
+   | `concurrency` | `3` | Learn slots fired per round — up to this many `/loom:learn <plugin> --headless --concurrent` invocations run at once, one per isolated git worktree, each claiming a different backlog session. Guarded to 1–3. |
 
    **During setup**, mention them only when the user asks how to make the runs cheaper, faster, or
    more thorough — `--status` reports them unconditionally (Step 3), which is a different job.
-   All three take effect on the next fire with no re-install (`schedule` is the exception), and
+   All four take effect on the next fire with no re-install (`schedule` is the exception), and
    `"model": ""` or `"effort": ""` passes no flag at all, falling back to the account default —
    which is also the escape hatch on a CLI too old for these flags, since an unknown option is a
    hard parse error that would kill every invocation. A `maxRunSecs` that isn't a *plain* positive
    integer — leading zeros included, since POSIX arithmetic reads `0700` as octal — is logged and
-   replaced with 7200 rather than crashing the fire.
+   replaced with 7200 rather than crashing the fire; a `concurrency` outside 1–3 is likewise logged
+   and replaced with 3 rather than crashing the fire. Setting `"concurrency": 1` is the supported
+   way to run the concurrent claim/worktree machinery one slot at a time — a staged rollout, not a
+   code change — while leaving the key out (or any value in 1–3) takes the machinery at full
+   strength.
 
    Treat model and ceiling as coupled when advising: a slower or harder-thinking model needs a
    *higher* `maxRunSecs`, not the same one. The failure it produces if you forget is a watchdog
    kill of the in-flight session — its work is redone next fire (finished sessions are already
    committed, so nothing else is lost), but repeated kills at the same session mean the ceiling
    never lets one session finish. Cheapening the model without lowering the ceiling is safe;
-   raising effort without raising the ceiling is not.
+   raising effort without raising the ceiling is not. The `claude-sonnet-5` default above is
+   exactly that safe case — `maxRunSecs` stays `7200`, unchanged from the prior Opus default.
 
 3. **Install the runner copy.** First the in-flight guard: if `$cfg/loom/automation/run.lock`
    exists and is younger than 2× `maxRunSecs` (4 hours at the default — the same staleness
@@ -182,6 +207,10 @@ $cfg/loom/automation/
    the overwrite with an ownership check — the same runner-path grep the legacy migration uses:
 
    ```bash
+   # Re-derive $slug/$label here — this is a fresh Bash invocation and does not inherit the
+   # block above's shell state.
+   slug="$(basename "$cfg" | sed 's/^\.*//; s/[^A-Za-z0-9-]/-/g')"
+   label="com.loom.daily.$slug"
    plist=~/Library/LaunchAgents/"$label".plist
    if [ -f "$plist" ] && ! grep -qF "$cfg/loom/automation/bin/daily-run.sh" "$plist"; then
      echo "ABORT: $label already belongs to a different config dir — rename one config dir instead of silently stealing its schedule"; exit 1
@@ -217,6 +246,9 @@ $cfg/loom/automation/
      ```
 
      ```bash
+     # Re-derive $slug/$label — a fresh Bash invocation, not a continuation of the block above.
+     slug="$(basename "$cfg" | sed 's/^\.*//; s/[^A-Za-z0-9-]/-/g')"
+     label="com.loom.daily.$slug"
      launchctl unload ~/Library/LaunchAgents/"$label".plist 2>/dev/null
      launchctl load ~/Library/LaunchAgents/"$label".plist
      ```
@@ -244,6 +276,13 @@ $cfg/loom/automation/
      idempotency-marker pattern as ntbx-infra's bootstrap):
 
      ```bash
+     # Re-derive every value this block needs — a fresh Bash invocation, not a continuation of
+     # the shared "Resolve now" block earlier in this step.
+     claude_dir="$(dirname "$(command -v claude)")"
+     runner="$cfg/loom/automation/bin/daily-run.sh"
+     HOUR=$(jq -r '.schedule.hour // 9' "$cfg/loom/automation/config.json")
+     MINUTE=$(jq -r '.schedule.minute // 0' "$cfg/loom/automation/config.json")
+     slug="$(basename "$cfg" | sed 's/^\.*//; s/[^A-Za-z0-9-]/-/g')"
      ( crontab -l 2>/dev/null | awk -v s="$slug" \
          'index($0, "# >>> loom-automate:" s " >>>"){skip=1} !skip; index($0, "# <<< loom-automate:" s " <<<"){skip=0}' ; \
        printf '# >>> loom-automate:%s >>>\n%d %d * * * PATH=%s:/usr/local/bin:/usr/bin:/bin CLAUDE_CONFIG_DIR=%s /bin/sh %s\n# <<< loom-automate:%s <<<\n' \
@@ -266,21 +305,23 @@ $cfg/loom/automation/
      block survives it.)
 
 5. **Confirm + first-run offer.** Print what was installed (schedule time, projects, tracked plugins
-   found, marketplace repo, log/stamp paths, and the model / effort / per-invocation ceiling the
-   runs will use — defaults unless `config.json` overrides them). Name those three even though
-   Step 2.2 says not to *ask* about them: the user is opting into unattended runs on a capable
-   model at high effort, and setup is where that gets said out loud rather than left for someone
-   to discover in `--status`. Then offer to fire the runner once now in the background
+   found, marketplace repo, log/stamp paths, and the model / effort / per-invocation ceiling /
+   concurrent-slot count the runs will use — defaults unless `config.json` overrides them). Name
+   those four even though Step 2.2 says not to *ask* about them: the user is opting into
+   unattended runs on a capable model at high effort, running up to `concurrency` sessions at
+   once, and setup is where that gets said out loud rather than left for someone to discover in
+   `--status`. Then offer to fire the runner once now in the background
    (`nohup sh "$cfg/loom/automation/bin/daily-run.sh" &`) so the user can inspect
    `logs/daily-<today>.log` instead of waiting for tomorrow.
 
 ## Step 3 — `--status`
 
 Report, without changing anything: whether `config.json` exists (print projects + schedule +
-marketplace repo, and the effective model / effort / `maxRunSecs` — printing the defaults when the
-keys are absent **or invalid**, applying the same positive-integer guard the runner does, because
-"what will tonight's run actually use" is the question `--status` answers and echoing a literal
-`"maxRunSecs": "abc"` answers it wrongly), whether **this config dir's** schedule is live (compute `$slug`/`$label` from
+marketplace repo, and the effective model / effort / `maxRunSecs` / `concurrency` — printing the
+defaults when the keys are absent **or invalid**, applying the same positive-integer (or, for
+`concurrency`, 1–3) guard the runner does, because "what will tonight's run actually use" is the
+question `--status` answers and echoing a literal `"maxRunSecs": "abc"` answers it wrongly),
+whether **this config dir's** schedule is live (compute `$slug`/`$label` from
 `$cfg` as in setup, then `launchctl list | awk '{print $3}' | grep -qxF "$label"` on macOS;
 `crontab -l | grep -F "loom-automate:$slug >>>"` on Linux — the match must be anchored:
 `com.loom.daily.claude` is a strict prefix of `com.loom.daily.claude-ntb`, so a bare substring
@@ -349,6 +390,19 @@ Say explicitly that config, logs, stamps, and all harvest/learn ledgers were lef
   schedule fires once, so a failed day waits for tomorrow's fire — or fire the runner manually
   (`sh $cfg/loom/automation/bin/daily-run.sh`) to retry today; the stamp guard only blocks re-runs
   after a *success*.
+- **A round's concurrent slots conflict, or a slot's worker crashes** — each of `concurrency`'s
+  slots claims a different backlog session under a per-plugin `mkdir`-based claim lock
+  (`$cfg/loom/learning/<plugin>.json.lock`), works in its own git worktree, and reports through a
+  result sidecar; the orchestrator alone merges each slot's commit back onto the marketplace repo,
+  in claim order, and only writes the ledger after a clean merge. Two slots that touched the same
+  file merge fine for whichever lands first; the second's cherry-pick conflicts, gets aborted, and
+  its claim is released — that session is requeued and claimable again next round (or tomorrow),
+  never lost and never double-ledgered, since a conflict simply never reaches the ledger. A slot
+  whose worker is killed (watchdog, crash, or worse) leaves its claim in place on purpose — nothing
+  reclaims it until its age exceeds `2 × maxRunSecs`, the same staleness rule `run.lock` itself
+  uses, because a still-running straggler must never have its session handed to a second worker in
+  the meantime. `--status`/log readers see this as `slot-N session <id> conflicted on merge —
+  requeued` or a claim that simply persists across a round or two before reclaiming.
 - **`plugins/<plugin>/ has uncommitted changes` in the learn log** — the tree was dirty before the
   fire (the user's WIP, or a kill mid-implement that predates this design). Headless learn refuses
   to touch it — it cannot tell WIP from wreckage, and a per-session commit would sweep both in.
@@ -368,10 +422,10 @@ Say explicitly that config, logs, stamps, and all harvest/learn ledgers were lef
   the label-collision ownership check passed before any overwrite, any legacy shared-label
   schedule (macOS plist or Linux unsuffixed cron block) migrated only when it points into this
   `$cfg`, and the confirmation + first-run offer printed — the confirmation naming the model,
-  effort, and per-invocation ceiling the runs will use.
+  effort, per-invocation ceiling, and concurrent-slot count the runs will use.
 - `--status` reported this config dir's schedule liveness (anchored label match), config, stamp,
-  the **effective** model / effort / `maxRunSecs` (defaults substituted for absent or invalid
-  keys, not echoed raw), and log tail without writing anything.
+  the **effective** model / effort / `maxRunSecs` / `concurrency` (defaults substituted for absent
+  or invalid keys, not echoed raw), and log tail without writing anything.
 - `--stop` removed only this config dir's schedule and said what was kept.
 - Setup and `--stop` checked `run.lock` before replacing the runner or touching the schedule, and
   the runner was installed via temp + `mv`, never an in-place `cp`.

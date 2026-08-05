@@ -4,7 +4,8 @@
 # Opt-in usage indexer. When the user has run `/loom:track <plugin>`, this appends ONE JSONL line
 # per finished session to $cfg/loom/learning/usage-index.jsonl recording how many usage markers each
 # tracked+enabled plugin left in the session transcript. `/loom:learn` reads that index to skip
-# scanning sessions it already knows about (chassis §K.5).
+# scanning sessions it already knows about (chassis §K.5). Markers are counted on the session's
+# INVOCATION SURFACE, never on raw transcript bytes — see invocation_surface() below.
 #
 # FAIL-SOFT CONTRACT: every exit path is `exit 0`. A session must NEVER fail to end because of
 # tracking. No config / no jq / no transcript / malformed input / unreadable settings → exit 0
@@ -88,8 +89,17 @@ effective_enabled() {
   return 1
 }
 
+# DUPLICATION NOTE — marker_pattern() and invocation_surface() below are independent copies of chassis
+#   §K.1/§K.2 (references/session-plugin-common.md). A hook cannot source a skill's reference doc, so
+#   the two live apart and MUST stay behaviorally identical: this hook writes the usage index (§K.5)
+#   that /loom:learn trusts as a fast path, so a divergence here silently re-opens the same bug in
+#   discovery. Consolidate both into a shared shell library if one ever lands.
+
 # marker_pattern <plugin> <mkt> — echo the §K.1 ERE, sourcing skill/command names from the plugin's
 #   OWN marketplace install location (works from any cwd; never assumes any repo is present).
+#   Command branches carry the CLOSING </command-name> tag: unlike `"skill":"…"` (whose quotes get
+#   escaped the moment the text is nested in a JSON string), `<command-name>/…` is byte-identical
+#   whether it is a real record or shell text building this very pattern.
 marker_pattern() {
   local plugin="$1" mkt="$2" inst src dir pat bare cmds
   inst="$(jq -r --arg m "$mkt" '.[$m].installLocation // ""' "$mkts" 2>/dev/null)" || inst=""
@@ -101,24 +111,57 @@ marker_pattern() {
     /* ) dir="$src" ;;
     * )  dir="$inst/${src#./}" ;;
   esac
-  pat="\"skill\":\"${plugin}:|<command-name>/${plugin}:"
+  pat="\"skill\":\"${plugin}:|<command-name>/${plugin}:[a-z0-9][a-z0-9-]*</command-name>"
   bare="$(ls "$dir/skills" 2>/dev/null | paste -sd'|' -)"
   [ -n "$bare" ] && pat="${pat}|\"skill\":\"(${bare})\""
   cmds="$(ls "$dir/commands" 2>/dev/null | sed 's/\.md$//' | paste -sd'|' -)"
-  [ -n "$cmds" ] && pat="${pat}|<command-name>/(${plugin}:)?(${cmds})<"
+  [ -n "$cmds" ] && pat="${pat}|<command-name>/(${plugin}:)?(${cmds})</command-name>"
   printf '%s' "$pat"
 }
 
+# invocation_surface <transcript> — emit ONLY the text where a genuine invocation can live (§K.2):
+#   a Skill tool_use (read structurally, so key order never matters) and a slash-command envelope.
+#   Everything else a transcript carries — Bash/Task tool_use inputs, tool_result bodies, echoed
+#   transcripts, prose about a command — is text the session HANDLED, not usage.
+invocation_surface() {
+  jq -Rr '
+    (fromjson? // empty) as $r
+    | ( $r.message.content? | select(type == "array") | .[]?
+        | select(.type == "tool_use" and .name == "Skill")
+        | "\"skill\":\"" + (.input.skill? // "") + "\"" ),
+      ( $r.message.content? | select(type == "string") | select(startswith("<command-")) )
+  ' "$1" 2>/dev/null
+}
+
 # --- 3+4+5. per tracked plugin: enablement gate → count markers → collect ----
+# Extract the invocation surface ONCE and match every plugin's pattern against that, not the raw
+# transcript. Costs about as much as the single grep it replaces (~20ms on a 2MB transcript).
+surface="$(mktemp "${TMPDIR:-/tmp}/loom-surface.XXXXXX" 2>/dev/null)" || surface=""
+trap 'rm -f "${surface:-}" 2>/dev/null; exit 0' EXIT INT TERM   # exit 0 even on signal: FAIL-SOFT contract
+have_surface=0
+[ -n "$surface" ] && invocation_surface "$tx" > "$surface" 2>/dev/null && have_surface=1
+
+# A transcript that parses to NOTHING is unreadable, not unused — an empty surface would otherwise be
+# indistinguishable from "this session used no plugins". The probe stops at the first parseable
+# record, so it costs one line on a healthy transcript and only walks a genuinely broken one.
+[ "$have_surface" = 1 ] && [ -s "$tx" ] \
+  && [ -z "$(jq -Rr '(fromjson? // empty) | "1"' "$tx" 2>/dev/null | head -1)" ] \
+  && have_surface=0
+
+# FAIL-SOFT: with no usable surface, record NO plugin keys rather than zeros. §K.5 reads a missing
+# key as "the hook never evaluated this plugin — rescan", but a 0 as "definitely unused, skip
+# forever" — so a false 0 here would silently drop the session from learning for good.
 counts='{}'
-while IFS=$'\t' read -r plugin mkt; do
-  [ -z "$plugin" ] && continue
-  effective_enabled "$plugin" "$mkt" || continue          # disabled for THIS session → skip
-  pat="$(marker_pattern "$plugin" "$mkt")"
-  n="$(command grep -cE "$pat" "$tx" 2>/dev/null)"; n=${n:-0}   # grep -c prints 0 AND exits 1 on no match
-  case "$n" in ''|*[!0-9]*) n=0 ;; esac
-  counts="$(printf '%s' "$counts" | jq -c --arg p "$plugin" --argjson n "$n" '. + {($p): $n}' 2>/dev/null)" || counts='{}'
-done < <(jq -r '(.track // [])[] | [.plugin, .marketplace] | @tsv' "$config" 2>/dev/null)
+if [ "$have_surface" = 1 ]; then
+  while IFS=$'\t' read -r plugin mkt; do
+    [ -z "$plugin" ] && continue
+    effective_enabled "$plugin" "$mkt" || continue          # disabled for THIS session → skip
+    pat="$(marker_pattern "$plugin" "$mkt")"
+    n="$(command grep -cE "$pat" "$surface" 2>/dev/null)"; n=${n:-0}   # grep -c prints 0 AND exits 1 on no match
+    case "$n" in ''|*[!0-9]*) n=0 ;; esac
+    counts="$(printf '%s' "$counts" | jq -c --arg p "$plugin" --argjson n "$n" '. + {($p): $n}' 2>/dev/null)" || counts='{}'
+  done < <(jq -r '(.track // [])[] | [.plugin, .marketplace] | @tsv' "$config" 2>/dev/null)
+fi
 
 # --- 6. session end timestamp: last transcript timestamp, else file mtime ----
 end="$(tail -n 50 "$tx" 2>/dev/null | command grep -o '"timestamp":"[^"]*"' | tail -1 | cut -d'"' -f4)"

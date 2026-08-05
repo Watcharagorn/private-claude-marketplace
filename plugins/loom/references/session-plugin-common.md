@@ -215,7 +215,9 @@ share below. `audit-plugin` and single-session `learn` work on **one** session (
 at §K.6/§K.7); batch `learn` works on **the whole history** for one plugin, so it needs a marker
 pattern, a config-dir-wide scan (every project under `$cfg/projects` — the active config dir, not
 the whole machine), a per-plugin ledger + watermark, and — when `track` is set up — a usage
-index that lets it skip most scanning.
+index that lets it skip most scanning. When several `learn` fires run against **one** plugin's backlog
+at once, §K.8 replaces the unsynchronized session pick with an atomic claim and defers the ledger
+write to a result sidecar.
 
 Everywhere in §K, `cfg="${CLAUDE_CONFIG_DIR:-$HOME/.claude}"` and scan `"$cfg/projects"` — §A now
 resolves the same `$cfg`, so there is no §A/§K divergence to guard against.
@@ -223,13 +225,28 @@ resolves the same `$cfg`, so there is no §A/§K divergence to guard against.
 ### §K.1 — Usage-marker pattern
 
 A session "used plugin X" if its transcript carries any marker: a namespaced Skill call
-(`"skill":"<plugin>:<skill>"`), a namespaced command marker (`<command-name>/<plugin>:<cmd>`), a
-**bare** skill name (`"skill":"publish-plugin"` — real transcripts drop the namespace), or an
-**unqualified command marker** (`<command-name>/plan` — the *dominant* form for command-driven plugins
-like mentor: verified 5 unqualified vs 2 namespaced hits). Bare/unqualified markers admit false
-positives (a `/plan` from another source); that is acceptable — the per-session agent returns
-`NO USAGE FOUND` → ledgered `no-usage`, never rescanned. Order namespaced hits ahead of bare-only ones
-(K.3) so false positives never crowd real sessions out of a capped run.
+(`"skill":"<plugin>:<skill>"`), a namespaced **command envelope**
+(`<command-name>/<plugin>:<cmd></command-name>`), a **bare** skill name (`"skill":"publish-plugin"` —
+real transcripts drop the namespace), or an **unqualified command envelope**
+(`<command-name>/plan</command-name>` — the *dominant* form for command-driven plugins like mentor:
+verified 5 unqualified vs 2 namespaced hits). Bare/unqualified markers admit false positives (a
+`/plan` from another source); that is acceptable — the per-session agent returns `NO USAGE FOUND` →
+ledgered `no-usage`, never rescanned. Order namespaced hits ahead of bare-only ones (K.3) so false
+positives never crowd real sessions out of a capped run.
+
+**Command branches must carry the closing `</command-name>` tag.** A transcript is JSON, so the two
+marker families survive nesting very differently. `"skill":"…"` contains quotes, which are escaped to
+`\"skill\":\"…` the moment the text is nested inside a JSON string (a `Bash` `input.command`, a
+`tool_result` body) — so it cannot be matched by accident. `<command-name>/…` contains no quotes and
+is therefore byte-identical whether it is a real invocation record or merely *text about* one. Matching
+the opening substring alone made every session that constructs, echoes, or documents the pattern a
+permanent phantom candidate: measured on one real transcript, 29 occurrences of `<command-name>/mentor:`
+— all inside constructed shell strings — scored 27 `markerHits` with zero real `mentor` invocations,
+and each such phantom burns a whole `--headless` fire resolving to `no-usage`. Requiring the closing
+tag removes that class at grep speed and costs nothing: every genuine command record in the transcript
+corpus carries it (753/753 sampled), while pattern-building shell text never does. Echoes that *do*
+carry the closing tag (a `tool_result` quoting a transcript, a file read of this very document) are
+removed structurally by §K.2's second stage.
 
 The builder takes a **surface root** so it works from either caller: the marketplace repo's `plugins/`
 (when `learn` runs, cwd = repo), or a marketplace **install location** (when the hook runs, any cwd):
@@ -238,12 +255,23 @@ The builder takes a **surface root** so it works from either caller: the marketp
 cfg="${CLAUDE_CONFIG_DIR:-$HOME/.claude}"
 sroot="$1"                             # "$repo/plugins"  OR  "$cfg/plugins/marketplaces/<mkt>/plugins"
 plugin="$2"
-pat="\"skill\":\"${plugin}:|<command-name>/${plugin}:"
+pat="\"skill\":\"${plugin}:|<command-name>/${plugin}:[a-z0-9][a-z0-9-]*</command-name>"
 bare="$(ls "$sroot/${plugin}/skills" 2>/dev/null | paste -sd'|' -)"
 [ -n "$bare" ] && pat="${pat}|\"skill\":\"(${bare})\""
 cmds="$(ls "$sroot/${plugin}/commands" 2>/dev/null | sed 's/\.md$//' | paste -sd'|' -)"
-[ -n "$cmds" ] && pat="${pat}|<command-name>/(${plugin}:)?(${cmds})<"   # unqualified commands too
+[ -n "$cmds" ] && pat="${pat}|<command-name>/(${plugin}:)?(${cmds})</command-name>"   # unqualified too
 ```
+
+The `[a-z0-9][a-z0-9-]*` class on the namespaced branch is deliberately narrow: it accepts every real
+command name while rejecting the regex/prose fragments that appear in sessions *about* this machinery
+(`<command-name>/<plugin>:[a-z…]*</command-name>`, `…/<plugin>:…</command-name>`) — the first character
+after the colon is `[` or `.` there, never a name character.
+
+> **Duplicated in `hooks/track-usage.sh`** (`marker_pattern()` + `invocation_surface()`). A hook cannot
+> source a skill's reference doc, so that copy is independent and **must stay byte-identical in
+> behavior** to this section and §K.2 — a divergence silently re-opens the phantom-candidate bug through
+> the usage index (§K.5), which `learn` trusts as a fast path. Consolidate both into a shared shell
+> library if one ever lands.
 
 ### §K.2 — Scan pipeline (backfill path)
 
@@ -251,30 +279,87 @@ The full config-dir-wide scan — used by `learn` for sessions the index has nev
 or projects where loom isn't enabled). `command grep` **throughout**: interactive `grep` here is a
 ugrep wrapper (`--ignore-files -I`) that silently skips `.jsonl` as "binary".
 
+Two stages, because the two jobs have opposite cost profiles. **Stage 1** must touch thousands of files,
+so it stays a flat `grep` that short-circuits on first match. **Stage 2** runs only on the handful that
+survived, so it can afford to parse and ask *where* each hit sits.
+
+**Stage 1 — cheap flat prefilter** (a superset: every genuine hit also matches flat, so this can never
+drop a real session):
+
 ```bash
-main=$(find "$cfg/projects" -maxdepth 2 -name '*.jsonl' -print0 \
-       | xargs -0 command grep -lE -m1 "$pat" 2>/dev/null)
-side=$(find "$cfg/projects" -mindepth 4 -maxdepth 4 -path '*/subagents/agent-*.jsonl' -print0 \
-       | xargs -0 command grep -lE -m1 "$pat" 2>/dev/null \
+main_raw=$(find "$cfg/projects" -maxdepth 2 -name '*.jsonl' -print0 \
+           | xargs -0 command grep -lE -m1 "$pat" 2>/dev/null)
+side_raw=$(find "$cfg/projects" -mindepth 4 -maxdepth 4 -path '*/subagents/agent-*.jsonl' -print0 \
+           | xargs -0 command grep -lE -m1 "$pat" 2>/dev/null)
+```
+
+**Stage 2 — authoritative count on the invocation surface.** A transcript records both what the session
+*did* and every piece of text it *handled*; only the first is usage. This extracts the two record shapes
+a real invocation can occupy and matches `$pat` against those alone:
+
+```bash
+invocation_surface() {          # <transcript> → only the text where a genuine invocation can live
+  jq -Rr '
+    (fromjson? // empty) as $r
+    | ( $r.message.content? | select(type == "array") | .[]?
+        | select(.type == "tool_use" and .name == "Skill")
+        | "\"skill\":\"" + (.input.skill? // "") + "\"" ),   # a real Skill call, re-emitted canonically
+      ( $r.message.content? | select(type == "string")
+        | select(startswith("<command-")) )                  # a real slash-command envelope
+  ' "$1" 2>/dev/null
+}
+```
+
+Reading the *parsed* record rather than its bytes is what makes this robust: the Skill branch keys off
+`.name == "Skill"` and pulls `.input.skill` by name, so it is immune to key reordering (never assume
+`skill` is serialized first), and the command branch requires the record to BE a command envelope —
+Claude Code opens every one with `<command-message>`/`<command-name>` (753/753 sampled). Everything
+else is excluded by construction: `Bash`/`Task`/`Agent` tool_use inputs (shell source), `tool_result`
+bodies and top-level `.toolUseResult` (echoed transcripts, file reads — including reads of *this*
+document, which spells out real marker text on purpose), and assistant prose discussing a command.
+Measured over the local corpus this removed 29 of 115 phantom `mentor` candidates and 2 of 93 `loom`
+ones, with zero false negatives against 158 transcripts independently confirmed as real usage by their
+`attributionPlugin` records. It costs ~20ms on a 2 MB transcript — the same as the flat grep it refines.
+
+Sidecars get the same treatment — a subagent transcript can construct the pattern just as a main one
+can, and its surface is its own, not its parent's — then surviving sidecars map to their parent
+session. Main transcripts need no separate filter pass: the row loop already computes their surface
+count and drops the empties, so each file is parsed exactly once.
+
+```bash
+surface_hits() { invocation_surface "$1" | command grep -cE "$pat"; }   # prints 0 AND exits 1 on none
+
+side=$(printf '%s\n' "$side_raw" | command grep . | while read -r f; do
+         [ "$(surface_hits "$f")" -gt 0 ] && printf '%s\n' "$f"; done \
        | sed 's|/subagents/agent-[^/]*\.jsonl$|.jsonl|')     # sidecar → parent transcript
 
 # dedupe + one TSV row per candidate:  tx  sid  proj  endTs  markerCount  viaSubagent
-printf '%s\n%s\n' "$main" "$side" | command grep . | sort -u | while read -r tx; do
+printf '%s\n%s\n' "$main_raw" "$side" | command grep . | sort -u | while read -r tx; do
   [ -e "$tx" ] || { echo "WARN: sidecar parent missing: $tx" >&2; continue; }   # orphan sidecar → skip
+  n=$(surface_hits "$tx"); n=${n:-0}
+  if printf '%s\n' "$side" | command grep -qxF "$tx"; then sub=1; else sub=0; fi   # exact-line match
+  # Flat hit with an empty surface = text ABOUT an invocation, not one → not a candidate at all.
+  # n=0 with sub=1 is legitimate: the real invocation lives in the subagent's own transcript.
+  [ "$n" = 0 ] && [ "$sub" = 0 ] && continue
   sid=$(basename "$tx" .jsonl); proj=$(basename "$(dirname "$tx")")
   end=$(tail -n 50 "$tx" | command grep -o '"timestamp":"[^"]*"' | tail -1 | cut -d'"' -f4)
   [ -z "$end" ] && end="$(date -u -r "$(stat -f %m "$tx")" +%Y-%m-%dT%H:%M:%SZ)"   # mtime fallback (macOS)
-  n=$(command grep -cE "$pat" "$tx" 2>/dev/null); n=${n:-0}   # NOT `|| echo 0`: grep -c prints 0 AND exits 1
-  if printf '%s\n' "$side" | command grep -qxF "$tx"; then sub=1; else sub=0; fi   # exact-line match
   printf '%s\t%s\t%s\t%s\t%s\t%s\n' "$tx" "$sid" "$proj" "$end" "$n" "$sub"
 done
 ```
 
+Dropping a phantom here rather than letting it through is the whole fix: an excluded session costs one
+`jq` parse, whereas a candidate that reaches the queue costs a full `--headless` fire to resolve to
+`no-usage`.
+
 Notes: the first/last physical lines can lack `timestamp` (hence `tail -n 50` + the mtime fallback — an
 **empty endTs must never reach the watermark comparison**). Z-suffixed UTC ISO-8601 → lexicographic
-compare is valid. `markers=0 & viaSub=1` = "used only inside a spawned agent". When a usage index exists
-(K.5), restrict the `find` set to sessionIds **absent from the index OR present without the target key**
-before grepping — that is the whole speedup.
+compare is valid. `markers=0 & viaSub=1` = "used only inside a spawned agent" — the parent's surface is
+legitimately empty there, which is why the sidecar list carries the session in on its own. `markerHits`
+now counts surface records rather than transcript lines, so it can differ slightly from the
+pre-hardening number for the same session; it feeds ordering and reporting only, never eligibility.
+When a usage index exists (K.5), restrict the stage-1 `find` set to sessionIds **absent from the index
+OR present without the target key** before grepping — that is the whole speedup.
 
 ### §K.3 — Filter + ordering
 
@@ -306,8 +391,15 @@ Survivors sort newest-first by mtime; namespaced-marker candidates ahead of bare
     { "sessionId": "0e7b241f-…", "transcriptPath": "/…/projects/…/0e7b241f-….jsonl",
       "project": "-Users-…-poc-eks-argo-workflow", "sessionEndTs": "2026-07-14T08:49:17.483Z",
       "lineCount": 1487, "markerHits": 2, "viaSubagent": false,
-      "analyzedAt": "2026-07-16T09:05:11Z", "findings": 3, "outcome": "analyzed" } ] }
+      "analyzedAt": "2026-07-16T09:05:11Z", "findings": 3, "outcome": "analyzed" } ],
+  "claims": [
+    { "sessionId": "a41c9d02-…", "sessionEndTs": "2026-07-14T09:12:03.221Z",
+      "slot": 2, "pid": 41234, "claimedAt": "2026-07-16T09:04:58Z" } ] }
 ```
+
+`claims[]` is **optional** and exists only while concurrent workers are in flight (§K.8). Read it as
+`(.claims // [])` everywhere so a ledger written before this field existed needs no migration and no
+`schemaVersion` bump — an absent key and an empty array mean the same thing: nobody holds a claim.
 
 `outcome` enum: `analyzed` · `no-usage` · `skipped-cap` · `error`. **`error` AND `skipped-cap` are
 re-eligible** (K.3 rule 1). Watermark rule (verbatim): `watermark = max(old, max sessionEndTs over
@@ -318,11 +410,34 @@ processed **oldest→newest** and each session's `analyzed[]` entry plus the wat
 **one** §K.7 write immediately after that session is disposed — the incremental max equals that
 session's `sessionEndTs`, so the rule holds after every write and a crash loses at most the in-flight
 session (`skipped-cap` remainders are ledgered up front at cap resolution; re-eligible by outcome, so
-the watermark passing them is sound). Grown-after-analysis sessions are not auto-re-analyzed
-in v1 (`lineCount` recorded; a run prints "N previously-analyzed sessions have grown — remove their
-ledger entries to re-learn"). Unknown/newer `schemaVersion` → treat as corrupt (move aside, warn,
-start fresh). Escape hatches: delete the ledger (full reset), or
-`jq 'del(.analyzed[] | select(.sessionId=="<sid>"))'` (targeted re-learn).
+the watermark passing them is sound).
+
+**Watermark guard (concurrent mode).** The rule above is sound only because a sequential run disposes
+sessions oldest→newest, so nothing older than the new watermark is still outstanding. Concurrency
+breaks that: workers finish in whatever order their sessions take, so a *newer* sibling can finalize
+while the *oldest* session's worker is still running — or has crashed. Advancing the watermark then
+would push it past that session's `endTs`; once its claim ages out of `claims[]` (§K.8), §K.3 rule 2
+filters it as "before the watermark" **forever** — silent, permanent backlog loss, the exact failure
+this machinery exists to prevent. So in concurrent mode the advance is clamped by the live claims:
+
+```
+watermark = max(old, max sessionEndTs over sessions disposed this run)
+            bounded below the MINIMUM sessionEndTs still present in claims[]
+```
+
+A blocked advance is **dropped, not deferred**: the watermark keeps its old value and that particular
+advance is not replayed later, so after a blocked round it can sit below the newest disposed session's
+`endTs` (verified: finalizing a 07-20 session behind a live 07-05 claim, then the 07-05 claim itself,
+leaves the watermark at 07-05, not 07-20). That is deliberate and safe — the watermark only ever gates
+**un-ledgered** sessions (§K.3 rule 2), so lagging costs a few extra already-ledgered candidates for
+§K.3 rule 1 to drop instantly, while overshooting costs a session forever. It stays monotonic and
+catches up on any later unblocked finalize.
+
+Grown-after-analysis sessions are not auto-re-analyzed in v1 (`lineCount` recorded; a run prints
+"N previously-analyzed sessions have grown — remove their ledger entries to re-learn").
+Unknown/newer `schemaVersion` → treat as corrupt (move aside, warn, start fresh). Escape hatches:
+delete the ledger (full reset), or `jq 'del(.analyzed[] | select(.sessionId=="<sid>"))'`
+(targeted re-learn).
 
 ### §K.5 — Usage index (hook-written)
 
@@ -435,4 +550,153 @@ jq --argjson batch "$entries" --arg wm "$endTs" \
 
 **Consumers:** `learn` Step 5 (per session, per-plugin ledger at §K.4), `harvest-automations`
 project-wide Phase B (per session, watermark advanced in the same write) and single-mode (one entry, no
-watermark clause, §K.6). This is the one place the recipe lives.
+watermark clause, §K.6), and every §K.8 claim/finalize write. This is the one place the recipe lives.
+
+### §K.8 — Concurrent mode: atomic claim + result sidecar
+
+Sequential `learn` picks its session with an unsynchronized read — "the oldest eligible survivor" — and
+that is safe only because exactly one fire is ever in flight. Run several fires against the **same
+plugin's** backlog and it becomes a textbook TOCTOU: each worker independently computes the same oldest
+survivor and they all analyze the same session, wasting every fire but one. Concurrent mode replaces
+the read with an atomic claim, and replaces the worker's ledger write with a sidecar the orchestrator
+folds in after the work has actually merged.
+
+The snippets below share the §K vocabulary (`$cfg`, `$plugin`, `$ledger` = `$cfg/loom/learning/<plugin>.json`)
+plus three values the caller supplies: `$maxRunSecs` and `$SLOT` from the runner's config/slot number,
+and `$cwd` = the worker's invoking directory (its own git worktree).
+
+#### The claim lock
+
+`$cfg/loom/learning/<plugin>.json.lock` — `mkdir`-based, exactly like harvest's `$ledger.lock`
+(`skills/harvest-automations/references/project-wide.md`). Two properties are load-bearing:
+
+- **Not `run.lock`.** `run.lock` is the whole-script single-flight guard; taking it here would
+  re-serialize the workers and delete the concurrency this exists to enable. A per-plugin claim lock is
+  held for milliseconds by each worker instead.
+- **`mkdir`, not `flock(1)`.** macOS ships no `flock`, and launchd on macOS is the real deployment
+  target. `mkdir` is atomic on every filesystem that matters and leaves a timestamped artifact, which is
+  what makes stale-stealing possible.
+
+Stale threshold matches `run.lock`'s: a lock older than `2 × maxRunSecs` belonged to a process that is
+certainly gone, so steal it.
+
+```bash
+lock="$cfg/loom/learning/${plugin}.json.lock"
+stale=$(( 2 * ${maxRunSecs:-3600} ))
+
+release() { rm -rf "$lock"; trap - EXIT INT TERM; }
+acquire() {                                   # bounded wait — a wedged lock must never hang the runner
+  deadline=$(( $(date +%s) + 120 ))
+  until mkdir "$lock" 2>/dev/null; do
+    age=$(( $(date +%s) - $(stat -f %m "$lock" 2>/dev/null || echo 0) ))   # GNU: stat -c %Y
+    [ "$age" -gt "$stale" ] && { rm -rf "$lock"; continue; }               # holder is long dead → steal
+    [ "$(date +%s)" -ge "$deadline" ] && return 1
+    sleep 1
+  done
+  # Arm the cleanup only once WE own the lock. A trap armed up front would make a worker that FAILED
+  # to acquire delete the live holder's lock on its way out — the opposite of mutual exclusion.
+  trap release EXIT INT TERM
+}
+```
+
+#### Claiming a session
+
+The lock covers the **entire read → pick → write span**. Locking only the final write leaves the race
+untouched, because the race is two workers *reading* the same candidate list.
+
+```bash
+acquire || { echo "claim lock busy — no session taken this fire"; exit 0; }
+now=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+cut=$(date -u -v-"${stale}"S +%Y-%m-%dT%H:%M:%SZ)   # GNU: date -u -d "@$(( $(date +%s) - stale ))" +%Y-%m-%dT%H:%M:%SZ
+
+# Live claims = those a worker could still be working on. Anything older is a crashed worker's
+# leftover and is garbage-collected in the same write that appends the new claim.
+live=$(jq -r --arg cut "$cut" '[(.claims // [])[] | select(.claimedAt >= $cut) | .sessionId] | .[]' "$ledger")
+
+# candidates = §K.2 discovery → §K.3 filter (both unchanged) minus analyzed[] minus $live
+```
+
+If no candidate survives, release the lock, write a `no-candidate` sidecar, and exit. **The sidecar is
+not optional on this path**: without it the orchestrator cannot tell "the worker ran and there was
+nothing left" from "the worker died before reporting" — the first means the backlog is drained, the
+second means a claim needs reclaiming. Same exit, opposite conclusions.
+
+```bash
+release
+jq -n --arg o no-candidate '{outcome:$o}' > "$cwd/.loom-learn-result.json"
+echo "no candidate available"; exit 0
+```
+
+Otherwise take the **oldest** candidate and record the claim. Every ledger write below is shown in its
+bare form for readability; each one belongs inside §K.7's backup → validate → restore-on-failure
+envelope, and each does its GC and its mutation in **one** write so a crash can never leave the ledger
+half-updated:
+
+```bash
+jq --arg sid "$sid" --arg end "$endTs" --arg now "$now" --arg cut "$cut" \
+   --argjson slot "$SLOT" --argjson pid "$$" \
+   '.claims = ((.claims // []) | map(select(.claimedAt >= $cut)))
+              + [{sessionId:$sid, sessionEndTs:$end, slot:$slot, pid:$pid, claimedAt:$now}]' \
+   "$ledger" > "$ledger.tmp" && jq empty "$ledger.tmp" && mv "$ledger.tmp" "$ledger"
+release
+```
+
+The claim then stays in place for the worker's whole analyze → implement → commit run. That is
+deliberate: it is how the orchestrator finds "this slot's session" at merge-back time, and it is what a
+crashed worker leaves behind for the staleness GC to reclaim. `sessionEndTs` is stored on the claim so
+the watermark guard (§K.4) can be evaluated without re-reading transcripts.
+
+#### The result sidecar
+
+A concurrent worker never writes `analyzed[]` itself — its commit may still fail to merge, and a ledger
+entry written before the merge would have to be rolled back. It writes `.loom-learn-result.json` in its
+invoking cwd (its own worktree) and lets the orchestrator decide:
+
+```json
+{ "outcome": "analyzed",
+  "sessionId": "0e7b241f-…", "transcriptPath": "/…/projects/…/0e7b241f-….jsonl",
+  "project": "-Users-…-poc-eks-argo-workflow", "sessionEndTs": "2026-07-14T08:49:17.483Z",
+  "lineCount": 1487, "markerHits": 2, "viaSubagent": false,
+  "analyzedAt": "2026-07-16T09:05:11Z", "findings": 3 }
+```
+
+The body is exactly the `analyzed[]` entry (§K.4) the sequential path would have written, so folding it
+in is a copy, not a translation. `outcome` is the §K.4 enum (`analyzed` · `no-usage` · `error`) plus one
+value with no ledger counterpart, `no-candidate` — the only outcome that yields no `analyzed[]` entry
+and nothing to merge. **A missing sidecar is meaningful**: it means the worker died, so its claim is
+left alone for staleness GC rather than being released early.
+
+#### Folding a result back (orchestrator, in claim order)
+
+After the worker's commit has actually landed on the main checkout, one locked write removes the claim,
+appends `$entry` (the sidecar body — carrying `outcome` through is harmless and records how the session
+was disposed), and advances the watermark under the §K.4 guard:
+
+```bash
+if acquire; then
+  jq --arg sid "$sid" --arg cut "$cut" --argjson entry "$entry" \
+     '.claims   = ((.claims // []) | map(select(.claimedAt >= $cut and .sessionId != $sid)))
+    | .analyzed = ([.analyzed[] | select(.sessionId != $sid)] + [$entry])
+    | .watermark = ( ([.watermark, $entry.sessionEndTs] | max) as $w
+                   | ([.claims[]?.sessionEndTs] | min) as $floor      # oldest session still in flight
+                   | if $floor != null and $w >= $floor then .watermark else $w end )' \
+     "$ledger" > "$ledger.tmp" && jq empty "$ledger.tmp" && mv "$ledger.tmp" "$ledger"
+  release
+else
+  # Never write without the lock. The work is already merged and the entry is del-then-append, so
+  # leaving it for a later finalize is safe — that retry is idempotent, a torn write would not be.
+  echo "WARN: claim lock unavailable — $sid merged but not ledgered; a later round finalizes it"
+fi
+```
+
+`.claims` is read back **after** its own reassignment, so the guard sees the post-GC, post-removal set —
+the sessions genuinely still outstanding. On a merge conflict the orchestrator instead removes only the
+claim and writes **no** `analyzed[]` entry, which requeues that session for the next round:
+
+```bash
+jq --arg sid "$sid" --arg cut "$cut" \
+   '.claims = ((.claims // []) | map(select(.claimedAt >= $cut and .sessionId != $sid)))' …
+```
+
+Merging *before* the ledger write is what makes this safe: there is never an entry to roll back, because
+a conflict never reaches the ledger.
