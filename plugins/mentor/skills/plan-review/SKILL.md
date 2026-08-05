@@ -25,8 +25,8 @@ it reads the current plan, confirms at the Step 2 gate, then fans out the
 per dimension in a **single message**. Their recommended edits go through a
 **fold gate** (Step 4): the user verdicts each edit **one question at a
 time** — every question presents the reviewer's case the way a human reviewer
-would, key words bolded — and the accepted edits are folded by re-writing the
-plan in place. Only then do the **mechanical reviewers** (cleanliness,
+would, self-contained and in plain language, key words bolded — and the
+accepted edits are folded by re-writing the plan in place. Only then do the **mechanical reviewers** (cleanliness,
 consistency) dispatch — against the UPDATED plan, so they also catch anything
 the fold introduced. Their `MECHANICAL`-tagged fixes are auto-folded;
 `DECISION-REQUIRED` findings are walked the same one-question-per-finding
@@ -199,52 +199,69 @@ Each `prompt` must contain:
 ## Step 4 — Fold gate: one verdict per edit, asked one at a time
 
 Surface both reviewers' `Strengths/Risks/Gaps/Recommended plan edits` blocks
-in full, numbering every recommended edit with a stable ID as you surface it —
-`P1, P2, …` (practicality), `C1, C2, …` (comprehensiveness). The IDs are the
-contract for the questions below and for "Other" answers.
+in full, giving every recommended edit a stable **handle** as you surface it —
+a 2–4 word plain-language name for what the edit does ("rollback step",
+"edge-case tests", "split the migration"). Handles are the contract for the
+questions below, for "Other" answers, and for the closing report. Never use
+letter-number codes (`P2`, `C3`) or any other shorthand the user would have
+to decode: a code forces a scroll-back to the surfaced block to learn what it
+means, while a handle carries its meaning with it.
 
 If neither reviewer returned recommended edits, say so and go straight to
-Step 6. Otherwise walk the edits **one at a time** (P-IDs in order, then
-C-IDs): each edit gets its own `AskUserQuestion` call containing exactly ONE
+Step 6. Otherwise walk the edits **one at a time** (practicality's edits in
+order, then comprehensiveness's): each edit gets its own `AskUserQuestion`
+call containing exactly ONE
 single-select question, and the next question is not asked until the current
 verdict lands. Never batch several edits into one question or one call — the
 point is that the user judges each finding on its own merits, the way a
 reviewer walks a colleague through a review, instead of skimming a checklist.
 
-**Each question must carry the full case, written like a human review.** The
-user should be able to verdict without scrolling back, so put the substance in
-the question itself and **bold the load-bearing words** — the **risk** being
-closed, the **section or step** touched, the **behavior** that changes — so
-the eye lands on what matters first:
+**Each question must carry the full case, written like a human review — and
+stand entirely on its own.** The user verdicts from the question alone,
+without opening the plan or scrolling back through the conversation, so put
+the substance in the question itself and **bold the load-bearing words** —
+the **risk** being closed, the **place in the plan** touched, the
+**behavior** that changes — so the eye lands on what matters first.
+Self-contained means no pointers of any kind: never name a plan location by
+bare label ("Section A", "Step 3", "the table above") — say what that part of
+the plan *does* ("the step that migrates the users table"), and when the edit
+rewords existing text, quote the plan's current sentence so the user reads
+the actual words. Never cite a reviewer or an earlier finding by code or
+position ("as the second practicality edit noted") — restate the point in
+place:
 
 ```
-question: "<ID> (<k> of <n>): <the reviewer's case in 2–4 sentences — what it
-           observed in the plan, why it matters (the concrete **risk**,
-           **gap**, or **cost** of leaving it), and what the edit changes —
-           with the key words/phrases in **bold**.>"
-header: the edit ID (e.g. "P2")
+question: "(<k> of <n>) <the reviewer's case in 2–4 sentences — what the plan
+           currently says (quoted or described by content, never by label),
+           why it matters (the concrete **risk**, **gap**, or **cost** of
+           leaving it), and what the edit changes — with the key
+           words/phrases in **bold**.>"
+header: the edit's handle, compressed to ≤12 chars (e.g. "Rollback")
 options:
   1. "Fold in (Recommended)" — description: the reviewer's one-line why this
-     edit is worth making, then the exact change to the plan — which
-     section, what is added/removed/reworded — and the payoff. When the
-     reviewer supplied concrete text, attach a `preview` showing the edit as
-     before → after, so the user reads the actual words, not a paraphrase.
+     edit is worth making, then the exact change to the plan — where (named
+     by what it does, not a section label), what is added/removed/reworded —
+     and the payoff. When the reviewer supplied concrete text, attach a
+     `preview` showing the edit as before → after, so the user reads the
+     actual words, not a paraphrase.
   2. "Skip" — description: leave the plan unchanged here, and what that
      accepts (the risk stays open / the gap stays uncovered).
   3. "Skip the rest" — description: skip this and every remaining edit and
      move on to Stage 2. (Offer only while more than one edit remains.)
   4. "Fold in the rest" — description: fold this and every remaining edit,
-     naming the exact IDs it covers ("folds this and C2, C3, C4"), so the
-     click is never blind. (Offer only while more than one edit remains.)
+     naming each one it covers by handle ("folds this plus the rollback step
+     and edge-case tests"), so the click is never blind. (Offer only while
+     more than one edit remains.)
 ```
 
 Every question at this gate carries the same binary, which is what makes a bulk
 answer well-defined here — and offering a bulk decline without a bulk accept
 quietly biases the gate toward skipping. If the user **rejects the question** and
 free-types an instruction instead ("fold in all"), map it onto the option set,
-then state the exact IDs you read it as covering and get confirmation before
-folding. The span is rarely as obvious as it looks: answered edits are already
-behind you, so "all" may mean the remainder or the whole set.
+then state the exact edits — each by handle — you read it as covering and get
+confirmation before folding. The span is rarely as obvious as it looks:
+answered edits are already behind you, so "all" may mean the remainder or the
+whole set.
 
 Mark `"Fold in"` as `(Recommended)` on every edit question — each surfaced
 edit is, by construction, one the reviewer already recommends (Step 3's
@@ -255,19 +272,20 @@ rest"` or `"Skip the rest"` as `(Recommended)`: a bulk verdict is the user's
 call to make, and nudging toward one would hollow out the one-edit-at-a-time
 design this gate exists for. An
 "Other" answer may accept a modified version of the edit
-("fold P2 but only for the rollout step") — fold the modified wording — or
-name earlier IDs to revisit. Skipping every edit is a valid outcome: fold
-nothing and continue to Step 6 regardless.
+("fold the rollback step, but only for the rollout phase") — fold the
+modified wording — or name earlier edits by handle to revisit. Skipping every
+edit is a valid outcome: fold nothing and continue to Step 6 regardless.
 
 **Re-entry dedup:** when the staged review runs again in the same session (the
 approval question loops back here), do not re-ask edits the user already
-declined — only new or changed findings get questions. Note the declined IDs
-in the surfaced text so the user can revive one via "Other" at any question.
+declined — only new or changed findings get questions. Note the declined
+edits by handle in the surfaced text so the user can revive one via "Other"
+at any question.
 
 ## Step 5 — Fold the accepted edits
 
 Apply exactly the edits the user accepted at the fold gate — including any
-modified wordings or revisited IDs accepted via "Other" — in ONE pass,
+modified wordings or revisited edits accepted via "Other" — in ONE pass,
 revising and re-writing the SAME plan file in place per `plan` Step 4 — never
 a second copy, never anywhere else. Do not apply skipped edits, and do not
 "improve" unrelated text while you're in the file — Stage 2 owns quality
@@ -433,11 +451,15 @@ in place (`plan` Step 4). Guards:
   the verdict walk below.
 
 **Ask** the DECISION-REQUIRED findings (including demotions) one at a time,
-CRITICAL → LOW, under Step 4's per-question contract: one `AskUserQuestion`
-call per finding, exactly one single-select question, the finding's ID as
-header, and the question text carrying the reviewer's case in 2–4 sentences
-with the **key words bolded** — what disagrees or is missing, **where**, and
-what each resolution costs. The options come from the finding itself:
+CRITICAL → LOW, under Step 4's per-question contract — self-containment
+included: one `AskUserQuestion` call per finding, exactly one single-select
+question, a ≤12-char plain-language handle for the finding as header (never
+the reviewer's table ID — the user hasn't memorized the table), and the
+question text carrying the reviewer's case in 2–4 sentences with the **key
+words bolded** — what disagrees or is missing, **where** (quote or describe
+the plan text in place; a bare `Location(s)` cell like "§Verification" or
+"Step 3" must be translated into what that part of the plan says), and what
+each resolution costs. The options come from the finding itself:
 
 - One option per substantive alternative the reviewer stated, ordered with
   the reviewer's recommended resolution **first** — per the Step 6 tagging
@@ -462,7 +484,8 @@ user verdicts it, the same guarantee that holds for every DECISION-REQUIRED
 finding. Apply the accepted resolutions in ONE second revision pass after the
 walk — these are user verdicts, not auto-folds.
 
-**Report** three groups, by ID: **applied** (MECHANICAL fixes and
+**Report** three groups, naming every entry by its handle plus a one-line
+summary — never a bare code: **applied** (MECHANICAL fixes and
 verdict-accepted resolutions), **left open** (findings the user left open or
 skipped, plus the consistency reviewer's coverage map + metrics as-is), and
 **dead lanes** (if any reviewer died). If the Step 5 fold or either Step 7

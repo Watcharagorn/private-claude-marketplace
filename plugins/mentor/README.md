@@ -409,6 +409,21 @@ extra deliverable. Instruction-only — no hooks.
 | `plan-domain-architecture` | Structural change — services, containers, datastores, queues, integrations, data flows (not pure content/config/doc/style/refactor) | Diff-highlighted C4-style Mermaid flowcharts, only the levels that change; a provenance list for any changed datastore field. |
 | `plan-domain-dynamic` | No registered domain matched, and no already-available project/plugin skill names the technology (fallback) | A dispatched domain-definer names the domain and returns a best-practices brief; the plan gains a practice→step mapping. A substituted available skill can supply the brief instead. |
 
+## Changes in v2.20.0
+
+**Review questions now stand on their own.** `/plan-review`'s fold gate and verdict walk
+used to lead every question with a letter-number code (`P2`, `C3`) as the header and prefix,
+and could point at plan locations by bare label ("Section B", "Step 3") — forcing the user to
+scroll back or open the plan just to understand what was being asked. Both gates now name each
+edit/finding by a 2–4 word plain-language **handle** ("rollback step", "edge-case tests") that
+doubles as the header chip, and every question must be **self-contained**: plan locations are
+described by what they do (quoting the plan's current sentence when the edit rewords text),
+never by section label; earlier findings are restated in place, never cited by code or
+position; a consistency finding's bare `Location(s)` cell is translated before it reaches the
+user. Bulk options ("Fold in the rest"), "Other" free-text mapping, re-entry dedup, and the
+closing report all follow the handles — the reviewer agents' internal output tables keep their
+IDs, since those are never shown as questions.
+
 ## Changes in v2.19.0
 
 **A plan can now be walked before it is approved.** mentor had two visual surfaces —
