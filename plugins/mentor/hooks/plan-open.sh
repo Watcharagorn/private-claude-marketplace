@@ -30,15 +30,20 @@ file=$(printf '%s' "$input" | jq -r '.tool_input.file_path // ""' 2>/dev/null)
 case "${MENTOR_PLAN_OPEN:-}" in off|0|false|no) exit 0 ;; esac
 
 # Only act on the plugin's own plan files: the canonical Markdown plan
-# (plans/<slug>/plan.md), or an opt-in HTML zoom artifact (mentor:zooming) in the
+# (plans/<slug>/plan.md), an opt-in HTML zoom artifact (mentor:zooming) in the
 # flat zooms tree — .mentor/zooms/<subject-slug>/ in a repo, or the _no-repo
-# fallback dir outside one. The legacy pre-v2.12 plans/<slug>/zoom/ location
-# still matches so any file begin-plan.sh has not yet migrated keeps opening.
-# Deliberately NOT matched: .mentor/tours/ (published via Artifact, never
-# auto-opened) and non-html files in zooms/ (e.g. the _brief.md source pack).
+# fallback dir outside one — or a local-only plan-tour artifact
+# (mentor:plan-touring) under plans/<slug>/tour/ (and its _no-repo fallback),
+# which DOES auto-open. The legacy pre-v2.12 plans/<slug>/zoom/ location still
+# matches so any file begin-plan.sh has not yet migrated keeps opening.
+# Deliberately NOT matched: .mentor/tours/ (published acceptance tours, via
+# Artifact, never auto-opened) and non-html files in zooms/ (e.g. the
+# _brief.md source pack).
 case "$file" in
   */.mentor/zooms/*/*.html) ;;
   */.claude/mentor/_no-repo/zooms/*/*.html) ;;
+  */.mentor/plans/*/tour/*.html) ;;
+  */.claude/mentor/_no-repo/plans/*/tour/*.html) ;;
   */.mentor/plans/*/zoom/*.html) ;;
   */.mentor/plans/*/plan.md) ;;
   *) exit 0 ;;

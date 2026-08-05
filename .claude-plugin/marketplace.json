@@ -6,7 +6,7 @@
   "plugins": [
     {
       "name": "mentor",
-      "description": "A lean planning harness for Claude Code: an edit gate keeps the repo read-only until the plan is approved, then implementation runs subagents-first — with staged plan review, per-plan build state (deps, deferred work), and local HTML zooms of any subject.",
+      "description": "A lean planning harness for Claude Code: an edit gate keeps the repo read-only until the plan is approved, then implementation runs subagents-first — with staged plan review, per-plan build state (deps, deferred work), and local HTML zooms and paged plan tours.",
       "source": "./plugins/mentor",
       "category": "development"
     },

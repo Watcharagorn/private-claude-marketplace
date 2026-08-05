@@ -50,6 +50,7 @@ review and are the single source of truth for implementation, handoff, and revie
 | `/mentor:grill [topic]` | One-question-at-a-time interview that sharpens a design's open decisions before you build. Conversation only; no repo edits. |
 | `/mentor:handoff "<focus>"` | Compact the session into a handoff document (in its plan-topic folder, `.mentor/plans/<topic>/handoffs/`, gitignored) for a fresh agent; ends with copy-paste resume prompts (`/mentor:resume <slug>` + a plugin-free alternative). Also offered as **Hand off to next agent** at the approval gate — leading the options (marked **(Recommended)**) when the context gate warns or asks. |
 | `/mentor:resume [slug\|number]` | List this repo's live handoff notes (across all plan topics) and continue the chosen one. A note is stamped **resolved** (moved to a `resolved/` subdir, never re-listed) only when its work completes per the plan file (`/mentor:ship` stamps too) or a nested `/mentor:handoff` supersedes it — unfinished work stays resumable. |
+| `/mentor:plan-tour [plan slug] [area] [perspective]` | **Pre-approval storytelling walkthrough**: a paged, local-only HTML tour of how a plan will execute — one persistent diagram evolving alongside narrative text, per chosen area × perspective, with per-page notes exportable as a self-identifying MD report. Never published; distinct from `/mentor:tour` below (published, post-approval, pass/not-pass acceptance). Artifacts live in `.mentor/plans/<slug>/tour/` (gitignored). |
 | `/mentor:tour [user\|dev\|both] [subject]` | **Post-approval acceptance review**: an editable guided-tour artifact — scenario cards with pass/not-pass toggles, feedback capture, and MD/JSON report export — published to a stable URL that revisions republish in place. Subject defaults to the newest plan; artifacts live in `.mentor/tours/` (gitignored). |
 | `/mentor:zoom [subject] [topic] [perspective]` | **Topic × perspective HTML zoom of any subject** — a repo subsystem, a doc, a mentor plan, or the thing under discussion; no plan file or planning session required. One dispatched agent per combo writes a self-contained page to `.mentor/zooms/<subject-slug>/` (gitignored), auto-opened locally and **never published**. `plan` Step 5 delegates here for in-planning zooms. |
 | `/mentor:defer <item(s)>` | `git stash`-like capture: park one or many mid-flow discoveries (mid-planning or mid-implementation) as draft plan stubs at the normal plans location (`origin: "deferred"` in the sidecar, no separate stash area), then return to the interrupted flow. Picked up later via `/mentor:track`, which routes it to `/mentor:plan` to be claimed before it can build. |
@@ -87,6 +88,7 @@ v2.2.0, handoffs inside them since v2.10.0):
 │       │            #   a /mentor:defer stub is an ordinary plan dir born small —
 │       │            #   same shape, same location, just origin:"deferred" (v2.17.0)
 │       ├── .state.json # lifecycle state + relations (v2.17.0) — written only by plan-state.sh
+│       ├── tour/      # /mentor:plan-tour artifacts — <area>-<perspective>.html (pre-approval walkthrough)
 │       └── handoffs/ #  handoff notes (/mentor:handoff → /mentor:resume);
 │           └── resolved/ # solved/superseded notes (stamped on completion or nested handoff)
 ├── zooms/           # /mentor:zoom artifacts — <subject-slug>/<topic>-<perspective>.html
@@ -404,6 +406,27 @@ extra deliverable. Instruction-only — no hooks.
 | `plan-domain-architecture` | Structural change — services, containers, datastores, queues, integrations, data flows (not pure content/config/doc/style/refactor) | Diff-highlighted C4-style Mermaid flowcharts, only the levels that change; a provenance list for any changed datastore field. |
 | `plan-domain-dynamic` | No registered domain matched, and no already-available project/plugin skill names the technology (fallback) | A dispatched domain-definer names the domain and returns a best-practices brief; the plan gains a practice→step mapping. A substituted available skill can supply the brief instead. |
 
+## Changes in v2.19.0
+
+**A plan can now be walked before it is approved.** mentor had two visual surfaces —
+`/mentor:zoom` (static topic × perspective review pages) and `/mentor:tour` (a *published*
+post-approval acceptance page where reviewers mark pass/not-pass). Neither told the story of
+**how a plan will execute**, which is exactly what a reviewer needs *before* approving it.
+
+`/mentor:plan-tour [plan slug] [area] [perspective]` builds a paged, local-only HTML
+walkthrough: an opening context page, one page per implementation step, then a closing page of
+done criteria and risks. One persistent inline-SVG diagram evolves from current to target state
+as pages advance — class-toggling only, so paging back reverses the story — beside narrative
+written for the perspective you name (free-form: "system architect", "on-call engineer",
+whatever lens matters). Notes can be left per page and copied out as a self-identifying Markdown
+report to paste back into the planning conversation.
+
+Artifacts land in `.mentor/plans/<slug>/tour/<area>-<perspective>.html` and auto-open once, the
+same way zooms do. **This is not acceptance touring:** `/mentor:tour` publishes an Artifact and
+captures pass/not-pass verdicts on *delivered* work; plan tours are local, capture free text, and
+preview *future* work. The two contracts stay mutually exclusive, and `.mentor/tours/` remains
+deliberately excluded from auto-open.
+
 ## Changes in v2.18.0
 
 **Every skill is now reachable.** Nine skills shared a name with their command
@@ -425,6 +448,7 @@ Each skill is renamed away from its command; **`/mentor:*` command names are unc
 | `/mentor:ship` | `ship` | `shipping` |
 | `/mentor:merge` | `merge` | `merging` |
 | `/mentor:tour` | `tour` | `touring` |
+| `/mentor:plan-tour` | — *(new in v2.19.0)* | `plan-touring` |
 | `/mentor:zoom` | `zoom` | `zooming` |
 | `/mentor:defer` | `defer` | `deferring` |
 | `/mentor:constitution` | `constitution` | `constitution-authoring` |
