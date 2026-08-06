@@ -207,6 +207,12 @@ Triage each item into exactly one bucket:
 - **Immaterial** — the plan comes out the same whichever way it lands. Drop
   it, or record it as a flagged assumption in the plan.
 
+**Mid-loop scope change.** A scope-change request (not a decision *answer* —
+a change to what the plan covers) pauses the per-item loop: confirm the scope
+delta itself — what's kept, what's cut — in one `AskUserQuestion` before
+resuming. A derived boundary question asked in its place resolves nothing,
+because the boundary it assumes was never agreed.
+
 Resolve the queued user decisions via `AskUserQuestion` — **one call, one
 question, one decision at a time**. Batching decisions into one call produces
 rushed, lower-quality answers. Order by dependency: resolve the decision other
@@ -215,15 +221,22 @@ decisions hang off first, and let each answer narrow the next question.
 **Every question ships with decision support, and stands on its own** — the
 user answers from the question screen alone, never sent to a file, a plan
 section, a coined id or code (`G14`, `P2`), or an earlier turn to learn what
-the question means. Name things in plain language, quote the evidence that
-decides it rather than citing where it lives, and say in each option what it
-changes and what it costs:
+the question means. A word the user could read as themselves — "user" above
+all — never names a domain entity; when a reviewer finding or a research
+return used it that way (a caller, a row, a consumer), rename it before the
+question reaches the screen. Name things in plain language, quote the
+evidence that decides it rather than citing where it lives, and say in each
+option what it changes and what it costs:
 
 - In the message text **before** the tool call, give a compact decision brief:
   what the decision is, why it matters to this plan, and the relevant evidence
   from research (observed behavior, constraints, and the code itself — quote
   the line that decides it and put its `file:line` beside the quote, so the
   address is a courtesy for the curious rather than homework for the answer).
+  When the decision turns on what is actually in a data or config artifact,
+  read the artifact — a research summary's or the plan's own description of
+  it is not the evidence. Enumerate the rows a rule applies to, not just the
+  rule.
 - `AskUserQuestion` needs 2–4 options per question. For open-ended decisions
   (naming, free-form scope), synthesize 2–4 concrete candidates from the
   research — the tool adds a free-text "Other" automatically, so a candidate
@@ -242,7 +255,11 @@ changes and what it costs:
 Each answer becomes a plan input. An "Other" answer may open new questions —
 triage those through the same buckets. If the user explicitly defers a
 decision, record the deferral in the plan (as a flagged assumption or under
-Out of scope) rather than silently choosing for them.
+Out of scope) rather than silently choosing for them. A rejected or
+interrupted question is neither an answer nor a deferral — when the
+clarification lands, re-issue the question; a recommendation given in prose
+does not resolve a decision, and an unresolved decision that is never
+re-asked is the shape a stalled plan takes.
 
 **Skip condition:** no open questions survived triage → proceed straight to
 Step 4. Never manufacture questions to fill the step — a well-specified task
