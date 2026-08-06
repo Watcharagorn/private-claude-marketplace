@@ -488,6 +488,20 @@ with the current plan as the subject; its artifacts land in
 > write ONLY under `.mentor/plans/*/tour/` — never repo source files.
 > Every editing/implementation agent comes AFTER approval.
 
+**Close out consumed dispatches before asking.** Every agent this session
+dispatched whose output is already folded into the plan — Step 2's research and
+plan-body agents, Step 3.5's Explores, Step 5's zoom and tour combos, and the
+reviewers or child-plan agents of a `plan-review` / `plan-split` pass that just
+returned here — gets stopped now, per the **Close out** rule in `dispatch-agents`'
+"Async runtime & lifecycle". This is the checkpoint where it costs the most: the
+question below can sit unanswered for hours of real wall-clock time, and a
+resident agent's idle notification landing mid-wait reads as new input and
+silently rejects the pending question, stalling the session until a human
+notices. If unsure what is still resident, enumerate live tasks first, diff
+against this session's own dispatch tree, and stop only what traces to it. (In
+Claude Code those are `TaskList` and `TaskStop`, either of which may need
+fetching via `ToolSearch`.)
+
 First **surface the complete plan body** in your message — plain markdown,
 verbatim, no commentary around it — so the user can review it in the transcript.
 If the plan is long, let them scroll; do not summarize instead. Then, in the
