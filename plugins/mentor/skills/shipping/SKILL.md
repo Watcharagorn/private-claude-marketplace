@@ -360,12 +360,17 @@ find "$hand_dir" -maxdepth 1 -type f -name '*.md' 2>/dev/null | while IFS= read 
       bash "${CLAUDE_PLUGIN_ROOT}/hooks/plan-state.sh" ensure-dir "$hand_dir/resolved" >/dev/null
       mv "$n" "$hand_dir/resolved/$(basename "$n")"
       echo "work shipped → resolved: $(basename "$n")" ;;
+    *)
+      echo "  (skipping non-conforming file: $(basename "$n"))" ;;
   esac
 done
 ```
 
 Run this only after the push actually succeeded. Skip silently when there are no
 live notes (`find` yields nothing) — this step never blocks the ship report. A
+`(skipping non-conforming file: …)` line is not a failure either: name that file in
+the ship report, then leave it alone — ship never renames or moves it to make it
+stampable (`/mentor:resume` holds the same rule), and never blocks on one. A
 stamp is reversible by moving the file back up one directory.
 
 **Also close the plan's state** — same trigger, same `<topic>` resolution, same

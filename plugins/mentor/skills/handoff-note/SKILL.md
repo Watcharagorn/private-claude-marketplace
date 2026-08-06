@@ -212,6 +212,8 @@ find "$hand_dir" -maxdepth 1 -type f -name '*.md' ! -name "$(basename "$out")" 2
         bash "${CLAUDE_PLUGIN_ROOT}/hooks/plan-state.sh" ensure-dir "$hand_dir/resolved" >/dev/null
         mv "$old" "$hand_dir/resolved/$(basename "$old")"
         echo "superseded → resolved: $(basename "$old")" ;;
+      *)
+        echo "  (skipping non-conforming file: $(basename "$old"))" ;;
     esac
   done
 # self-check — silence proves nothing, so print a verdict on every path
