@@ -160,6 +160,10 @@ human noticing.
 If a correction to this brief arrives mid-run, apply it before you return.
 Deliver your full result (final text / message per your runtime) BEFORE going
 idle — an idle signal with no delivered result is a contract violation.
+If you are producing a verdict or report (reviewer, verifier), also write a
+durable copy to `<repo>/.mentor/plans/<slug>/` (e.g. `step-N-review.md`)
+before returning — a dropped notification must never be the only copy of
+completed work.
 ```
 
 The block closing that template is `mentor:dispatch-agents`' standing contract

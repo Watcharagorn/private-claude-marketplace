@@ -313,12 +313,11 @@ the contract does not apply to them, which is exactly how a fan-out goes out raw
   If a correction to this brief arrives mid-run, apply it before you return.
   Deliver your full result (final text / message per your runtime) BEFORE going
   idle — an idle signal with no delivered result is a contract violation.
+  If you are producing a verdict or report (reviewer, verifier), also write a
+  durable copy to `<repo>/.mentor/plans/<slug>/` (e.g. `step-N-review.md`)
+  before returning — a dropped notification must never be the only copy of
+  completed work.
   ```
-
-  Verdict- or report-producing agents (reviewers, verifiers) additionally
-  **write a durable copy** to `<repo>/.mentor/plans/<slug>/` (e.g.
-  `step-N-review.md`) before returning — a dropped notification must never be
-  the only copy of completed work.
 - **Idle-before-report race.** An idle notification can arrive before the
   agent's actual report. On idle with no report in hand: check the message
   backlog, then send ONE nudge: "Status check on Step N: send your completed

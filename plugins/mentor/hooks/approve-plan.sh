@@ -105,9 +105,20 @@ if [ -f "$marker" ]; then
 else
   # Idempotency: gate already open (already approved, or never armed). Skip
   # validation/release but still honor the flag directive below.
+  #
+  # The marker keeps no history once it's gone, so this branch can never know
+  # which cause applies (another session's approve-plan.sh, plan-gate's stale
+  # self-heal, a manual rm — or the gate was simply never armed this session,
+  # e.g. begin-plan.sh's CONTEXT: ASK or foreign-marker guard exiting 0 without
+  # arming). Name the candidates instead of asserting one, and point at a
+  # command that actually answers "did MY plan promote?" (`list`, not
+  # `overview` — the latter is JSON-only and repo-wide, the wrong shape here).
   echo "[mentor approve-plan] Gate is already open — nothing to release."
-  echo "  (No approval this session? An 8h-stale marker may have self-released — plan-gate prints a notice when that happens.)"
-  [ -n "$newest_plan" ] && echo "  plan: ${newest_plan}"
+  echo "  (Could be: another session's approve-plan.sh, plan-gate's stale self-heal,"
+  echo "   a manual rm, or the gate was never armed this session. If YOU planned this"
+  echo "   session, check: bash \"${hook_dir}/plan-state.sh\" list — and if your plan is"
+  echo "   still draft, promote it: plan-state.sh set <slug> approved --note \"…\".)"
+  [ -n "$newest_plan" ] && echo "  plan (repo-wide newest, may not be yours): ${newest_plan}"
 fi
 
 # Promote plan state on EVERY approval path — this must run before the --handoff/
