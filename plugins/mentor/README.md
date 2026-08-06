@@ -409,6 +409,41 @@ extra deliverable. Instruction-only — no hooks.
 | `plan-domain-architecture` | Structural change — services, containers, datastores, queues, integrations, data flows (not pure content/config/doc/style/refactor) | Diff-highlighted C4-style Mermaid flowcharts, only the levels that change; a provenance list for any changed datastore field. |
 | `plan-domain-dynamic` | No registered domain matched, and no already-available project/plugin skill names the technology (fallback) | A dispatched domain-definer names the domain and returns a best-practices brief; the plan gains a practice→step mapping. A substituted available skill can supply the brief instead. |
 
+## Changes in v2.21.0
+
+**Every question stands on its own — now plugin-wide, not just in review.** v2.20.0 fixed
+`/plan-review`'s questions; the other eleven skills that call `AskUserQuestion` still had no
+such rule, so an interview could ask "G5 logs" or relay "It independently confirmed G14, G5
+and G6 … D23 is cheaper" and leave the user to go find what those meant. One canonical
+contract now travels with all thirteen asking surfaces — `grilling`, `plan`, `track`,
+`plan-split`, `resume`, `zoom`, `tour`, `plan-tour`, `ship`, `merge`, `constitution`,
+`dispatch-agents`, and `plan-review` (marked as its fullest statement): the user answers from
+the question screen alone, never sent to a file, a plan section, a coined id or code, or an
+earlier turn to learn what the question means. `grilling` carries the strongest form, since
+it is what mints the ids — say "the cross-tenant Secrets read", not "G14"; a definition given
+twenty turns ago is not one the user still has. `resume`'s note picker must say what a note is
+*about* rather than restate its slug, and `track`'s plan options describe the work and its
+state rather than a hierarchy position that scrolled away. `dispatch-agents` gains the relay
+case: an agent's report is written for the orchestrator, so its finding codes, table rows, and
+bare `Location(s)` cells get named, never pasted at the user.
+
+**Ad hoc fan-outs are contract-bound.** A handoff note reading "no single mentor command owns
+this — dispatch parallel `Explore` agents" led a session to issue nine raw `Agent()` calls with
+no "Deliver before idling" block; seven to eight idled without delivering and the work was
+redone by hand — the second session in a row to hit it. Five changes close the route: `resume`
+now triggers on the keystroke (about to issue an `Agent()` call → load `mentor:dispatch-agents`
+first, however the note phrased it) and reconciles direct dispatch against `/mentor:track` (a
+research fan-out has no plan steps to tick; an implementing one still routes through track);
+`resume`'s fallback command sweep matches bare `mentor:<skill>` tokens, not just
+`/mentor:<command>`, so a note naming a skill is no longer dropped; `dispatch-agents` now
+explicitly claims non-implementation fan-outs (research sweeps, gap audits) so the route stops
+dead-ending at "this is for plan implementation", and its async-surface roster is refreshed
+(`ship`, `merge`, `plan-tour`, `plan-split`, `resume` were dispatching or citing but unlisted);
+`plan-split`'s child prompt template now carries the standing contract block verbatim — it had
+the identical hole, with its missing-child re-dispatch loop absorbing the fallout; and
+`handoff-note` writes an executable dispatch instruction instead of the sentence that caused
+the failure.
+
 ## Changes in v2.20.0
 
 **Review questions now stand on their own.** `/plan-review`'s fold gate and verdict walk
