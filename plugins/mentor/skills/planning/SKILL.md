@@ -114,10 +114,21 @@ designing anything. Skip this for well-specified tasks.
 
 For multi-area or unfamiliar tasks, prefer dispatching **1–3 read-only `Explore`
 agents** over disjoint areas (issue the `Agent` calls in one message) — it keeps
-the main conversation lean. For small, well-scoped tasks, read the files and
-draft directly in the main thread. Nothing enforces delegation; use judgment.
+the main conversation lean. The strongest signal is an unfamiliar external
+platform (an integration, SDK, or cloud service this session has not already
+researched) **together with** 2+ pre-existing areas of the repo: each half alone
+looks manageable inline, and the pair is what actually exhausts a context
+window. For small, well-scoped tasks, read the files and draft directly in the
+main thread. Nothing enforces delegation; use judgment.
 (Research dispatches follow `dispatch-agents`' "Async runtime & lifecycle"
 rules: deliver-before-idle, one nudge on a silent idle, close out when consumed.)
+
+**Research the category, not just the named instance.** When the request names
+one instance of something the repo may have several of — one job to make
+continuous, one config to centralize, one surface to consolidate — search for
+its siblings before drafting, and carry each hit into Step 3.5 as a scope
+decision. A sibling found at the approval gate rewrites the plan; the same
+sibling found here costs one question.
 
 **Research return contract — put this in every research agent's prompt.** Each
 agent returns, and nothing more:
@@ -444,6 +455,28 @@ all** for "Pause — still drafting", the one option that does not approve — i
 by *which option came back*, so an unanswered question means you are guessing the
 outcome as well as the consent. Re-surface the plan body only if it changed since the user last
 saw it (or never was surfaced); otherwise name its path and Rev and re-ask.
+
+### Re-check context
+
+Decide this **before** asking too. Step 0's `CONTEXT:` line is a snapshot from
+before research, domain routing, and decision-resolution ran — precisely the
+steps that grow a session — so a plan that armed clean can still reach this
+question well past the WARN/HANDOFF thresholds with nothing in this skill
+having said so. Re-run the same check now:
+
+```bash
+bash "${CLAUDE_PLUGIN_ROOT}/hooks/plan-state.sh" context
+```
+
+- **`CONTEXT: ASK`** — do not ask the approval question yet. Ask via
+  `AskUserQuestion` (header "Context", two options) exactly as the command
+  layer's arm-time ASK does: hand off & stop (`Skill(skill="mentor:handoff")`),
+  or bypass (`bash "${CLAUDE_PLUGIN_ROOT}/hooks/bypass-context.sh"`, then
+  continue below).
+- **`CONTEXT: HANDOFF`** or **`CONTEXT: WARN`** — use the matching row below,
+  even if Step 0 printed a lower tier or nothing at all.
+- **`CONTEXT: OK` / `UNKNOWN`** — no verdict; the table's "neither"/oversized-only
+  rows apply.
 
 ### Is the plan oversized?
 
