@@ -56,6 +56,19 @@
 #       stdout. Skills call this instead of hand-rolling the derivation: the inlined
 #       copies drifted, and most dropped the no-repo fallback.
 #
+#   gate
+#       ARMED|RELEASED|STALE, exactly one token on stdout — the plan-gate marker's
+#       status, READ-ONLY (never deletes the marker; plan-gate.sh is its only
+#       writer/remover, so its self-heal notice is never silently swallowed
+#       elsewhere, and a guard run just past the threshold during genuinely live
+#       planning can never disarm the gate as a side effect). STALE means the
+#       marker is still on disk but older than MENTOR_PLAN_MARKER_STALE_MIN
+#       (lib/state.sh, ~8h) — plan-gate.sh hasn't self-healed it yet, but for
+#       every other caller it reads as not-armed. Outside a repo (or no marker)
+#       → RELEASED. This answers "is the gate armed", not "should it be" — a
+#       caller that instead needs "we're inside a repo and planning should have
+#       started" wants a different check.
+#
 # EFFECTIVE state (see lib/state.sh): the more advanced of the stored state and the
 # state derived from plan.md's ✅ step ticks. A forgotten `set` therefore costs
 # nothing, and a pre-2.4.0 plan dir with no sidecar reads `unknown` — never `draft`.
@@ -84,6 +97,7 @@ Usage: plan-state.sh <subcommand>
   overview --json                       repo-wide JSON: plans + deps + live handoffs + step counts
   context                               CONTEXT: ASK|HANDOFF|WARN|OK|UNKNOWN (~N tokens)
   dir [--plans]                         the repo-scoped mentor dir (or its plans dir)
+  gate                                  ARMED|RELEASED|STALE — read-only marker status
   ensure-dir <path>                     mkdir it + chmod 700 the whole path; echoes it
 EOF
 }
@@ -181,6 +195,32 @@ if [ "$sub" = "ensure-dir" ]; then
   esac
   mentor_ensure_private_dir "$ed_mdir" "$ed_canon"
   echo "$ed_canon"
+  exit 0
+fi
+
+# --- gate: read-only plan-gate marker status — needs neither a repo (fallback) nor a
+# plans dir, same as dir/ensure-dir above. Never deletes the marker — see the doc
+# comment near the top of this file for why plan-gate.sh stays its only remover.
+if [ "$sub" = "gate" ]; then
+  if [ "$#" -gt 0 ]; then
+    echo "[mentor plan-state] gate: unexpected argument ${1}" >&2
+    usage >&2
+    exit 1
+  fi
+  g_repo="$(mentor_repo_root "$(pwd)")"
+  if [ -n "$g_repo" ]; then
+    g_mdir="$(mentor_state_dir "$g_repo")"
+  else
+    g_mdir="$HOME/.claude/mentor/_no-repo"
+  fi
+  g_marker="${g_mdir}/plans/.planning"
+  if [ ! -e "$g_marker" ]; then
+    echo RELEASED
+  elif mentor_marker_stale "$g_marker"; then
+    echo STALE
+  else
+    echo ARMED
+  fi
   exit 0
 fi
 

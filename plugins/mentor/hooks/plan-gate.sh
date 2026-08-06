@@ -106,10 +106,10 @@ if [ -n "$FILE_CANON" ]; then
   esac
 fi
 
-# Stale marker (>8h) → treat as released; self-heal and allow. Reached only for
-# writes the gate would otherwise deny (exempt paths exited above), so an
-# ordinary .mentor/ write can never disarm the gate as a side effect.
-if [ -n "$(find "$marker" -mmin +480 2>/dev/null)" ]; then
+# Stale marker (>8h, MENTOR_PLAN_MARKER_STALE_MIN) → treat as released; self-heal and
+# allow. Reached only for writes the gate would otherwise deny (exempt paths exited
+# above), so an ordinary .mentor/ write can never disarm the gate as a side effect.
+if mentor_marker_stale "$marker"; then
   rm -f "$marker" 2>/dev/null || true
   echo "[mentor] Stale planning marker (>8h) released — the plan gate is no longer armed. If planning is still active, re-arm it by re-running /mentor:plan (begin-plan.sh)."
   exit 0

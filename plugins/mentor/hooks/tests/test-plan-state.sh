@@ -507,6 +507,26 @@ chk "row is still exactly 5 whitespace-separated columns" \
 chk "row carries no stray JSON from deps/origin" \
   sh -c '! printf "%s" "$0" | grep -qE "[][{}]"' "$row"
 
+echo "== P. gate: read-only plan-gate marker status, before every guard =="
+CWD="$REPO"
+GATE_MARKER="$REPO/.mentor/plans/.planning"
+rm -f "$GATE_MARKER"
+chk "no marker → RELEASED"                     test "$(psout gate)" = "RELEASED"
+: > "$GATE_MARKER"
+chk "fresh marker → ARMED"                     test "$(psout gate)" = "ARMED"
+touch -t "$(date -v-9H +%Y%m%d%H%M 2>/dev/null || date -d '9 hours ago' +%Y%m%d%H%M)" "$GATE_MARKER" 2>/dev/null || true
+chk "9h-old marker → STALE"                    test "$(psout gate)" = "STALE"
+chk "gate never deletes the marker"            test -e "$GATE_MARKER"
+rm -f "$GATE_MARKER"
+CWD="$BARE"
+chk "gate in a never-planned repo → RELEASED"  test "$(psout gate)" = "RELEASED"
+CWD="$NONGIT"
+chk "gate outside a repo → RELEASED"           test "$(psout gate)" = "RELEASED"
+CWD="$REPO"
+out="$(ps gate extra)"; rc=$?
+chk "gate rejects a stray argument → exit 1"   test "$rc" = "1"
+chk "gate rejects a stray argument → names it" has "unexpected argument" "$out"
+
 echo
 echo "RESULT: PASS=$PASS FAIL=$FAIL"
 [ "$FAIL" = "0" ]

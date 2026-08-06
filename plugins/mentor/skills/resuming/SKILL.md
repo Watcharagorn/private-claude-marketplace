@@ -192,22 +192,23 @@ Then resolve a selection:
 4. **Reference artifacts by their paths** — the plan file, PRDs/ADRs, issue/PR URLs, commit SHAs as
    the note lists them. Do **not** paste their contents; open/read them only as needed to act.
 5. **Verify the gate state on disk — never trust the note's claim.** A note may say the plan gate is
-   released (or armed); check the actual marker before acting. Derive the path *in the same command*
-   — shell variables don't survive between Bash calls, and a half-derived path makes this check
-   answer RELEASED every time, which is the one wrong answer it must never give:
+   released (or armed); check the actual marker before acting:
 
    ```bash
-   mentor_dir="$(bash "${CLAUDE_PLUGIN_ROOT}/hooks/plan-state.sh" dir)"
-   test -f "$mentor_dir/plans/.planning" && echo ARMED || echo RELEASED
+   bash "${CLAUDE_PLUGIN_ROOT}/hooks/plan-state.sh" gate   # ARMED | RELEASED | STALE
    ```
 
    If the marker state contradicts the note, say so and follow the marker, not the note.
 
-   **One exception, and it runs the other way:** when the note resumes **planning** (its plan is
-   still `draft`) and the marker reads `RELEASED`, that is usually just the 8h self-release, not
-   evidence the plan was approved. Do not start drafting or editing on a released marker — run
-   `/mentor:plan <slug>` first to re-arm it. `mentor:planning`'s own unarmed-gate check cannot save
-   you here, because skipping the command means the skill never loads to run it.
+   **`STALE` is not still-armed, but it is not plain `RELEASED` either — treat it as its own
+   determination.** The marker is still on disk (only `plan-gate.sh` deletes it, lazily, on the next
+   edit attempt it would otherwise deny) but past the self-heal threshold, which is itself positive
+   evidence: `approve-plan.sh` never ran to release it, so the plan was not approved — the gate has
+   merely lapsed from age, not from a decision. Do not start drafting or editing on a `STALE` (or
+   `RELEASED`) marker — run `/mentor:plan <slug>` first to re-arm it. `mentor:planning`'s own
+   unarmed-gate check cannot save you here, because skipping the command means the skill never loads
+   to run it. This is exactly the case a note resuming **planning** (its plan still `draft`) will
+   usually hit.
 
    When the note resumes **implementation**, also glance at branch ownership before the first edit
    — GitHub + `gh` only, fail-soft:

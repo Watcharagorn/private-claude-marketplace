@@ -184,6 +184,12 @@ mentor_cwd() {
 
 MENTOR_PLAN_STATES="draft approved in_progress implemented failed superseded"
 
+# The plan-gate marker (.planning) is treated as released once it is this old, in
+# minutes — a crashed planning session must never permanently lock out editing.
+# plan-gate.sh's self-heal and plan-state.sh's `gate` subcommand both read this ONE
+# number (via mentor_marker_stale below) so the two can never silently drift apart.
+MENTOR_PLAN_MARKER_STALE_MIN=480
+
 # mentor_plan_state_valid <state> — status 0 when <state> is one of the six above.
 # THE ONE NON-ZERO-EXITING HELPER HERE: only call it as a condition.
 mentor_plan_state_valid() {
@@ -193,6 +199,15 @@ mentor_plan_state_valid() {
     *" ${s} "*) return 0 ;;
   esac
   return 1
+}
+
+# mentor_marker_stale <marker_path> — status 0 when <marker_path> exists and is older
+# than MENTOR_PLAN_MARKER_STALE_MIN minutes; status 1 when missing or fresh. A
+# predicate, not an echo: always call it as a condition, never bare.
+mentor_marker_stale() {
+  local marker="${1:-}"
+  [ -n "$marker" ] && [ -e "$marker" ] || return 1
+  [ -n "$(find "$marker" -mmin "+${MENTOR_PLAN_MARKER_STALE_MIN}" 2>/dev/null)" ]
 }
 
 # mentor_plan_state_file <plan_dir> — echo <plan_dir>/.state.json (never created here).

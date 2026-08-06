@@ -230,10 +230,7 @@ the shortcut the `origin` shield exists to prevent.
 marker before acting on the table:
 
 ```bash
-state_dir="$(bash "${CLAUDE_PLUGIN_ROOT}/hooks/plan-state.sh" dir)"
-# fresh only — plan-gate.sh treats a .planning older than 8h (480 min) as released
-[ -f "$state_dir/plans/.planning" ] && [ -z "$(find "$state_dir/plans/.planning" -mmin +480 2>/dev/null)" ] \
-  && echo "PLANNING_ACTIVE"
+[ "$(bash "${CLAUDE_PLUGIN_ROOT}/hooks/plan-state.sh" gate)" = "ARMED" ] && echo "PLANNING_ACTIVE"
 ```
 
 `PLANNING_ACTIVE` means the edit gate is armed, so `plan-gate.sh` will deny the first write

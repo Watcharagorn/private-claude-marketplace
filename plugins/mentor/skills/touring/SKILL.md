@@ -54,8 +54,7 @@ Derive the project-scoped mentor state dir and check the planning gate (same der
 
 ```bash
 state_dir="$(bash "${CLAUDE_PLUGIN_ROOT}/hooks/plan-state.sh" dir)"   # worktree-safe; _no-repo fallback
-# fresh marker only — plan-gate.sh treats a .planning older than 8h (480 min) as released
-[ -f "$state_dir/plans/.planning" ] && [ -z "$(find "$state_dir/plans/.planning" -mmin +480 2>/dev/null)" ] && echo "PLANNING_ACTIVE"
+[ "$(bash "${CLAUDE_PLUGIN_ROOT}/hooks/plan-state.sh" gate)" = "ARMED" ] && echo "PLANNING_ACTIVE"
 ls -t "$state_dir"/plans/*/plan.md 2>/dev/null | head -3   # candidate plan subjects (newest first)
 ```
 
