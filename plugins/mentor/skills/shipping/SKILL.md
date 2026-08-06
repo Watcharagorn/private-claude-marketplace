@@ -402,6 +402,40 @@ in the web UI rather than wondering which mentor command they missed.
 Keeping the tail in `/mentor:merge` is what makes it re-enterable after a stalled CI run
 without re-running ship.
 
+**Marketplace repos: say whether the plugin is released.** When `$repo_root` holds a
+`.claude-plugin/marketplace.json`, shipping the branch and publishing the plugin are two
+different acts and only the first one just happened. Add one report line per plugin whose
+committed work sits ahead of its last manifest bump — that work is on the branch, in no
+release. Naming it here is what keeps "was this published?" from being asked three turns
+later and re-derived by hand from `git`, `plugin.json` and `marketplace.json`.
+
+```bash
+repo_root="$(git rev-parse --show-toplevel)"   # re-derive: separate Bash call (see Step 2)
+if [ -f "$repo_root/.claude-plugin/marketplace.json" ]; then
+  for pj in "$repo_root"/plugins/*/.claude-plugin/plugin.json; do
+    [ -f "$pj" ] || continue
+    name="$(basename "$(dirname "$(dirname "$pj")")")"
+    # The publish flow's bump commit is the last thing to touch this manifest, so it IS the
+    # release marker: anything committed under the plugin after it is shipped-but-unreleased.
+    bump="$(git -C "$repo_root" log -1 --format=%H -- "plugins/$name/.claude-plugin/plugin.json")"
+    [ -n "$bump" ] || continue
+    if [ -n "$(git -C "$repo_root" log --format=%H "$bump..HEAD" -- "plugins/$name/")" ]; then
+      echo "$name is still at $(jq -r .version "$pj") — not released; run /loom:publish-plugin"
+    fi
+  done
+fi
+```
+
+Deliberately **no `$base` and no `A...B` range.** The case this exists for is a ship
+straight to the integration branch (Step 1's `ON-BASE` → 5B), where `base` *is* `branch`,
+so `"$base"...HEAD` is `HEAD...HEAD`: empty, exit 0, nothing printed, in exactly the
+situation the line was added to catch. `origin/${base}...HEAD` is no better — this runs
+*after* the push, which already fast-forwarded the remote-tracking ref. Anchoring on the
+last manifest commit needs no range, and it also surfaces work an *earlier* ship left
+unreleased, which is what the user is really asking about. Every branch here exits 0 (an
+`if`, never a trailing `[ … ] && echo`) for Step 1's reason: that construct exits 1
+whenever the plugin *is* released, turning the healthy path into a failed step.
+
 Do **not** watch checks, poll `gh run`, or `sleep` after the push — `/mentor:merge`
 Step 2 owns the one bounded watch, and chaining sleeps or re-checks is the **No busy-wait**
 rule owned by `mentor:dispatch-agents` ("Async runtime & lifecycle").
@@ -462,3 +496,4 @@ done by something that knows how to wait.
 | Push rejected | `! [rejected]` (non-fast-forward) → offer `pull --rebase` + retry, or stop. `! [remote rejected]` (server hook / protected branch) → rebase cannot help; cut a feature branch and redo via 5A, then realign `$base` to `origin/$base`. Never force-push. |
 | `gh pr create` fails: PR already exists for this branch | Do NOT open a duplicate — print the existing PR's URL (`gh pr list --head "$branch"`) and confirm with the user it now contains what they meant to ship (Step 1's ownership answer applies). |
 | MR/PR creation fails (other) | The branch is already pushed and safe — print the compare URL. |
+| Shipped a marketplace repo; user asks "was it published?" | Ship pushes the branch; it never releases the plugin. Step 7's marketplace block names any plugin with commits after its last manifest bump — answer from that line, don't re-derive from `git`/`plugin.json`/`marketplace.json`. |
