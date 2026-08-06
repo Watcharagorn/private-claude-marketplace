@@ -39,7 +39,19 @@ review and are the single source of truth for implementation, handoff, and revie
    main thread orchestrates, subagents implement.
 
 > `/mentor:plan` is **namespaced** — it cannot collide with Claude Code's native
-> reserved `/plan` command.
+> reserved `/plan` command. The same holds for every mentor command: they exist
+> **only** in `/mentor:<name>` form. A bare `/ship` or `/plan` is not mentor's —
+> it is whatever else claims that name, or nothing at all, and "nothing at all"
+> is the dangerous case: the assistant may improvise a substitute flow rather
+> than report that the command didn't resolve.
+
+> Enabling mentor **mid-session** (e.g. toggling it on in `.claude/settings.json`)
+> doesn't make its commands or skills live in that same session — until you
+> `/reload-plugins` (or start a fresh session), neither `/mentor:ship` nor a
+> skill trigger like "dispatch agents" resolves, and Claude Code silently falls
+> back to whatever else claims the name, or improvises a substitute. Old
+> versions also linger in `~/.claude/plugins/cache/` — never `Read` one as if
+> it were current; check `.claude-plugin/plugin.json` for the live version.
 
 ## Commands
 
@@ -58,12 +70,14 @@ review and are the single source of truth for implementation, handoff, and revie
 | `/mentor:zoom [subject] [topic] [perspective]` | **Topic × perspective HTML zoom of any subject** — a repo subsystem, a doc, a mentor plan, or the thing under discussion; no plan file or planning session required. One dispatched agent per combo writes a self-contained page to `.mentor/zooms/<subject-slug>/` (gitignored), auto-opened locally and **never published**. `plan` Step 5 delegates here for in-planning zooms. |
 | `/mentor:defer <item(s)>` | `git stash`-like capture: park one or many mid-flow discoveries (mid-planning or mid-implementation) as draft plan stubs at the normal plans location (`origin: "deferred"` in the sidecar, no separate stash area), then return to the interrupted flow. Picked up later via `/mentor:track`, which routes it to `/mentor:plan` to be claimed before it can build. |
 | `/mentor:track [slug\|number\|status]` | Repo-wide remaining-work hierarchy — every plan's state, step progress, cross-plan `deps`, deferred stubs, and live handoffs — then build the one you pick. The way back into a `/plan-split` group. |
-| `/plan-split`* | Split an oversized plan into independently buildable sibling plans, each with explicit scope isolation; also offered as **Split into multiple plans** at the approval gate when a plan is oversized. |
-| `/plan-review`* | Staged review of the current plan: a judgment pass (practicality, comprehensiveness) with a **fold gate** that walks the recommended edits **one question at a time** — each question carries the reviewer's case with the key words bolded — then — against the updated plan — a mechanical pass (cleanliness + spec-kit-`analyze`-style **consistency** across related artifacts) whose safe fixes **auto-fold**; decision-level findings are asked the same one-by-one way, applied only on your verdict. The mechanical stage is invocable alone ("check plan consistency"). Also offered as **Review the plan (staged)** at the proceed gate. |
-| `/dispatch-agents`* | The **default implementation path** (subagents-driven development): every plan's steps are dispatch-annotated unless the plan states a `Dispatch: skipped` reason, and executed as subagent dispatches after approval. |
+| `plan-split`* | Split an oversized plan into independently buildable sibling plans, each with explicit scope isolation; also offered as **Split into multiple plans** at the approval gate when a plan is oversized. |
+| `plan-review`* | Staged review of the current plan: a judgment pass (practicality, comprehensiveness) with a **fold gate** that walks the recommended edits **one question at a time** — each question carries the reviewer's case with the key words bolded — then — against the updated plan — a mechanical pass (cleanliness + spec-kit-`analyze`-style **consistency** across related artifacts) whose safe fixes **auto-fold**; decision-level findings are asked the same one-by-one way, applied only on your verdict. The mechanical stage is invocable alone ("check plan consistency"). Also offered as **Review the plan (staged)** at the proceed gate. |
+| `dispatch-agents`* | The **default implementation path** (subagents-driven development): every plan's steps are dispatch-annotated unless the plan states a `Dispatch: skipped` reason, and executed as subagent dispatches after approval. |
 
-\* skill trigger phrases, not registered slash commands — typing them (or the
-matching natural language) invokes the skill.
+\* skill trigger phrases, not registered slash commands — there is no `/plan-split`,
+`/plan-review`, or `/dispatch-agents` command. They invoke only via
+`Skill({"skill": "mentor:<name>"})` or natural language matching the skill's
+`description:` (which may not be the literal name above).
 
 ## Repo modes (`/mentor:mode`)
 
