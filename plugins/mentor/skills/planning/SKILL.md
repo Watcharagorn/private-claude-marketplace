@@ -355,10 +355,14 @@ Required sections, in order:
 
 **State vocabulary rule.** When a plan introduces, renames, or re-scopes a named
 status for any entity (`MONITORING → PENDING`, `ACTIVE → TRIGGERED/CANCELLED`),
-render the *transitions*, not just the values. The `stateDiagram-v2` the idiom
-rule already selects shows the shape — which states reach which, added and
-removed edges marked; a companion `From · Event/verb · To · Trigger · Cascade`
-table carries what a shape cannot encode, and it is the table that exposes a
+or changes which transitions are legal between statuses that already exist —
+a new cascade side-effect where reaching one terminal status now forces
+another, say — render the *transitions*, not just the values. A status name
+staying put says nothing about its edges staying put. The `stateDiagram-v2`
+the idiom rule already selects shows the shape — which states reach which,
+added and removed edges marked; a companion
+`From · Event/verb · To · Trigger · Cascade` table carries what a shape
+cannot encode, and it is the table that exposes a
 **missing** edge, since reverse transitions and cascade side-effects are the
 ones that surface late. That pairing is complementary, not the same-thing-twice
 the rule below forbids. Skip it when no entity has more than one named state, or

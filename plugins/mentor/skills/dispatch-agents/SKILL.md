@@ -103,7 +103,13 @@ The point of SDD: quality through narrow focus, and a lean main thread.
   output are always in-bounds as diagnostics.
 - **Prefer executable pass/fail `Done when:` criteria** (the named test /
   typecheck / lint command) over presence checks; use grep/ls checks only when
-  no runnable check exists.
+  no runnable check exists. **When the check itself mutates the artifact it
+  verifies** (an importer, a migration runner, a `--write` formatter, a seed
+  script), running it live means the verification consumes the very thing it
+  was meant to confirm — run it against a `mktemp -d` copy outside the repo
+  instead, diff/compare, then discard. When the check can't run detached
+  (needs live git context, a database, or a running service), snapshot state
+  and restore it after, or point the check at a disposable instance.
 - **On a failed `Done when:`**, re-dispatch the same role once with the failure
   evidence (diff + command output) as inputs. If it fails again, surface to the
   user — only then may the main thread read the files and take over.
@@ -369,3 +375,12 @@ the contract does not apply to them, which is exactly how a fan-out goes out raw
 - **Close out.** Once a dispatch's output is consumed and its `Done when:`
   verified, stop/release the agent — finished agents left idling interrupt
   the session with stray notifications and pile up until manually killed.
+  Closing out only the agents you remember dispatching misses a nested spawn
+  (No nested fan-out, above), which stays resident with no notification of
+  its own to prompt you. Before the final report, and before escalating on a
+  stalled or failed step, enumerate live tasks — in Claude Code that is
+  `TaskList`, which may need fetching via `ToolSearch` before it can be
+  called — and diff against this session's own dispatch tree, nested spawns
+  included. Stop only what traces to that tree; note anything else in the
+  one-line report rather than stopping it, since it may belong to a sibling
+  session or the user's own background work.
