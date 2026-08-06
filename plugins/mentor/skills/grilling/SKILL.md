@@ -60,6 +60,20 @@ Figure out *what* you are grilling, in this order:
 
 If there is genuinely nothing to grill, say so in one line and stop.
 
+**Check for related plans before interrogating**, whichever branch above resolved the
+subject — branches 1 and 3 in particular never touch plan state on their own:
+
+```bash
+bash "${CLAUDE_PLUGIN_ROOT}/hooks/plan-state.sh" list
+```
+
+A plan on the same or an adjacent topic — especially one `draft`, `in_progress`, or
+`superseded` — carries context worth having before the interview starts: prior
+decisions already made, or why an earlier attempt stalled or was rejected. If one
+looks related, read its `.mentor/plans/<slug>/.state.json` `note` field directly
+(`jq -r .note`) rather than reconstructing its history from the plan body and old
+handoffs by hand — the note already holds the reviewer's own summary.
+
 ---
 
 ## Step 2 — The interview protocol

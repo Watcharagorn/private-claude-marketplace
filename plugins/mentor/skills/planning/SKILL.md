@@ -184,6 +184,13 @@ domain skill's own "researching directly" clause), then fold the deliverable.
 | architecture (C4) | Structural change — new/changed/removed service, container, datastore, queue, external integration, component, or data flow (NOT pure content/config/doc/style/refactor) | `Skill(skill="mentor:plan-domain-architecture")` | Diff-highlighted C4-style Mermaid flowcharts, only the levels that change |
 | dynamic (fallback) | no registered domain matched — and no available skill substitutes (above) | `Skill(skill="mentor:plan-domain-dynamic")` | Domain best-practices section (practice→step mapping) |
 
+**Rows are not mutually exclusive — keep scanning past the first match.** A plan that
+restructures an existing datastore's tables is a common case where two rows both fire:
+`architecture` for the datastore/component boundary the change draws or redraws, and
+`backend-api` for the schema itself — the row that actually produces the per-column
+delta table and Mermaid ER diff. Stopping at the first clear hit ships a plan with only
+the structural view and none of the schema-level one, exactly where a reviewer needs it.
+
 Each matched domain skill returns directives you fold into the research prompts
 and the plan body.
 
@@ -272,6 +279,22 @@ but a decision already resolved anywhere in the conversation is never
 re-asked.
 
 ## Step 4 — Write the Markdown plan {#write-the-plan}
+
+**Check for a topic-adjacent existing plan before minting a slug** — a re-typed
+request derives a fresh slug with no memory of an earlier attempt on the same
+topic, and `ensure-dir` below will happily create a second directory beside it,
+orphaning whichever one doesn't get worked on next:
+
+```bash
+bash "${CLAUDE_PLUGIN_ROOT}/hooks/plan-state.sh" list
+```
+
+This is a quick scan, not a fuzzy-match algorithm: only act on a genuinely obvious
+naming match — when in doubt, mint fresh, since a false reuse is worse than an
+extra plan dir. If one plainly names the same topic, reuse that slug for
+`plan_dir` below instead of minting a new one, and read its
+`.mentor/plans/<slug>/.state.json` `note` field (`jq -r .note`) for any prior
+decision or rejection worth carrying forward.
 
 Compute the path (substituting a kebab-case `<slug>` derived from the request —
 ≤30 chars, drop articles, keep nouns/verbs):
