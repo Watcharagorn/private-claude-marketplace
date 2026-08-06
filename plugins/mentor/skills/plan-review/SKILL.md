@@ -108,7 +108,9 @@ plan_dir="<the dirname of the PLAN: path above>"
 plans_dir="$(dirname "$plan_dir")"
 repo_root="$(cd "$plans_dir/../.." && pwd)"
 zoom_dir="$(dirname "$plans_dir")/zooms/$(basename "$plan_dir")"   # mentor:zooming's plan-slug contract
-ls -t "$plans_dir"/*/plan.md 2>/dev/null              # ALL plans, incl. superseded — see below
+ls -t "$plans_dir"/*/plan.md 2>/dev/null              # ALL plans, newest first, incl. superseded — see below
+bash "${CLAUDE_PLUGIN_ROOT}/hooks/plan-state.sh" list # STATE per slug — a LABEL on the paths above, never a filter
+grep -A6 -i '^## Critical files' "$plans_dir"/*/plan.md 2>/dev/null   # the overlap signal: same files ⇒ related
 ls    "$zoom_dir"/*.html 2>/dev/null                  # the primary plan's supplementary zoom artifacts
 const_rel="$(jq -r '.constitution_path // empty' "$repo_root/.mentor/config.json" 2>/dev/null)"
 const_path="${repo_root}/${const_rel:-.mentor/constitution.md}"
@@ -117,13 +119,17 @@ const_path="${repo_root}/${const_rel:-.mentor/constitution.md}"
 
 This enumeration deliberately stays a raw `ls` rather than `plan-state.sh current` —
 `current` answers "which ONE plan is the subject", while this needs **every** artifact
-that might contradict it, superseded parents very much included.
+that might contradict it, superseded parents very much included. `plan-state.sh list`
+and the Critical-files grep above are joined onto that list only to **label** each path
+with its state and the files it touches — never to drop one from it.
 
 When the primary plan belongs to a group, its **siblings and the superseded parent are
 the most related artifacts there are** — they were sliced from one document and their
 isolation headers are supposed to partition the work between them. Put them at the
-front of the consistency reviewer's list: a `cross-overlap` between two siblings, or a
-parent requirement that landed in no child, is a split that failed.
+front of the consistency reviewer's list, **regardless of state** — `/plan-split` marks
+the parent `superseded` by construction, and that is never a reason to skip it: a
+`cross-overlap` between two siblings, or a parent requirement that landed in no child,
+is a split that failed.
 
 Pass the primary plan plus this list to the consistency reviewer. If the only
 entry is the primary plan itself, it runs an internal-only pass (no
@@ -363,11 +369,13 @@ must contain:
 
 1. `Act as a spec-consistency analyzer. You analyze the plan (and its related planning artifacts) for internal and cross-artifact consistency. You are NOT implementing it, and NOT judging whether the approach is good.`
 2. The primary plan path with `Read this file first.`, then the related-artifact
-   list from Step 1 (other plans' `plan.md`s, the primary plan's zooms at
-   `$zoom_dir/*.html`,
-   the resolved constitution `$const_path`) with `Read the ones that appear related to the
-   primary plan (inside the primary plan's folder, or referenced by it); ignore
-   unrelated plans.`
+   list from Step 1 (other plans' `plan.md`s — each labeled `path — state — critical
+   files it touches` — the primary plan's zooms at `$zoom_dir/*.html`, the resolved
+   constitution `$const_path`) with `Full-read a plan when its Critical files overlap
+   the primary's, or its topic is adjacent. For a non-group plan with no file overlap
+   whose state is 'implemented' or 'superseded', the name+state+files line is enough —
+   read it in full only if that line suggests overlap. Never skip a plan in the
+   primary's split group, regardless of its state.`
 3. **Lane guard:** `Judge only coherence, traceability, and agreement — not feasibility, requirement coverage vs reality, or design cleanliness. If a finding is really one of those, DROP it; another reviewer owns it. One bounded exception: you MAY grep the repo to check a count the plan states about itself (the count-mismatch category below), the same way the Critical-files check already reads the repo. That is the plan's own arithmetic, not a judgment about the requirement.`
    Plus one cycle-scoped exclusion: `Ignore zoom html staleness relative to
    plan edits made in this review cycle — the plan was just revised and its

@@ -257,7 +257,16 @@ option what it changes and what it costs:
   practical and clean solution — never trade maintainability or reliability
   for implementation speed.
 - When options are competing shapes (schemas, layouts, flows, wording), use
-  the `preview` field so the user compares them side by side.
+  the `preview` field so the user compares them side by side — but keep it to
+  a short literal fragment of the thing being chosen between (the actual
+  snippet, schema, or wording; roughly ≤10 lines), never a framed mockup.
+  Box-drawing glyphs and non-ASCII text (Thai, CJK, …) each expand to a
+  6-byte `\uXXXX` escape inside the tool call's JSON, so a mockup that looks
+  small on screen can truncate the call mid-string and fail validation —
+  costing a whole turn to retry. **If the comparison needs a frame, a grid,
+  or aligned columns to be legible, it is not a `preview`**: say so in the
+  decision brief and offer an HTML zoom (Step 5 / `mentor:zooming`) instead —
+  the user asking is the opt-in that step requires.
 
 Each answer becomes a plan input. An "Other" answer may open new questions —
 triage those through the same buckets. If the user explicitly defers a
