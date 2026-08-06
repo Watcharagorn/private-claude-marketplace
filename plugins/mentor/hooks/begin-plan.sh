@@ -65,6 +65,41 @@ EOF
   esac
 fi
 
+# --- foreign-marker guard -----------------------------------------------------
+# begin-plan.sh used to truncate any existing marker unconditionally. If another
+# session's plan was still being drafted (not yet approved), its plan.md silently
+# stopped being newer than the marker the instant this ran, and approve-plan.sh
+# would refuse it forever afterwards ("predates this planning session") — the
+# other session's work stranded with no error until someone notices. Same-session
+# re-arms (the CONTEXT: ASK → bypass-context.sh → re-run path above) are expected
+# and harmless; only a marker armed by a genuinely DIFFERENT, still-live session is
+# a collision worth stopping for. A marker with no metadata (pre-upgrade) or no
+# session match can't be attributed — fail-soft, arm as before.
+this_session="${CLAUDE_CODE_SESSION_ID:-nosession}"
+marker="${plans_dir}/.planning"
+if [ -f "$marker" ] && ! mentor_marker_stale "$marker"; then
+  other_session="$(mentor_marker_field "$marker" session)"
+  if [ -n "$other_session" ] && [ "$other_session" != "$this_session" ]; then
+    other_cwd="$(mentor_marker_field "$marker" cwd)"
+    other_age="$(mentor_marker_age_min "$marker")"
+    cat <<EOF
+[mentor] Plan gate NOT armed — another session's plan gate is already active.
+  armed by: session ${other_session} at ${other_cwd:-<unknown cwd>}
+  age:      ~${other_age:-unknown}m ago (not yet stale)
+
+Re-arming now would reset the marker: if that session's plan.md isn't approved
+yet, approve-plan.sh will then refuse it ("predates this planning session"),
+silently stranding its work. This repo shares one plan gate across every linked
+git worktree (see README "Known limitations"), so this may be a sibling
+worktree's live session, not a stray.
+
+Ask the user to confirm before proceeding — either wait for that session to
+finish/approve, or have them explicitly authorize overriding it.
+EOF
+    exit 0
+  fi
+fi
+
 mentor_ensure_private_dir "$(mentor_state_dir "$repo_root")" "$plans_dir"
 mentor_ensure_gitignore "$(mentor_state_dir "$repo_root")"
 
@@ -107,7 +142,16 @@ done
 # session would suppress plan-open.sh's first-creation open for the same slug.
 find "$plans_dir" "$zooms_dir" \( -name '*.opened' -o -name '.*.opened' \) -delete 2>/dev/null || true
 
-: > "${plans_dir}/.planning"
+# Metadata body, not an empty file: session + cwd let a blocked agent (plan-gate.sh's
+# deny path) tell "I armed this myself and forgot to approve" from "a different,
+# still-live session owns this" without hand-rolled ls/find forensics. Nothing reads
+# the marker's content besides mentor_marker_field/mentor_marker_age_min (every other
+# reader uses -f/-e/-nt/-newer/-mmin), and mtime — the field approve-plan.sh's
+# staleness check depends on — is still set by this one write, same as `: >` before it.
+{
+  echo "session=${this_session}"
+  echo "cwd=$(pwd)"
+} > "$marker"
 
 cat <<EOF
 [mentor] Plan phase ARMED.

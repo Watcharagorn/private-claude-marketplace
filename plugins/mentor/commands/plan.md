@@ -32,6 +32,12 @@ Do these in order:
    `MODE:` line (plan / plan-only / UNSET — only sets which approval option is listed
    first; NEVER ask the user to pick a mode upfront) and, when the session context is
    large, a `CONTEXT:` line:
+   - If stdout contains **`[mentor] Plan gate NOT armed — another session's plan gate
+     is already active`**, the gate was NOT armed and no marker was touched — a
+     different, still-live session already owns it (this repo shares one `.planning`
+     marker across every linked git worktree). Do not re-run `begin-plan.sh` to force
+     it. Surface the printed owner/age to the user and ask before proceeding — either
+     wait for that session, or have the user explicitly authorize overriding it.
    - If stdout contains **`CONTEXT: ASK`**, do **not** call the plan skill yet — the
      gate was intentionally not armed; the user decides first. Follow the printed
      directive: ask via AskUserQuestion. On **"Hand off & plan in a fresh session"**

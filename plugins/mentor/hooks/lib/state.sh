@@ -210,6 +210,41 @@ mentor_marker_stale() {
   [ -n "$(find "$marker" -mmin "+${MENTOR_PLAN_MARKER_STALE_MIN}" 2>/dev/null)" ]
 }
 
+# mentor_marker_age_min <marker_path> — echo the marker's age in whole minutes, or
+# empty when missing/unmeasurable. mentor_marker_stale above only answers a threshold
+# (find -mmin can't report an absolute age), so this is the one sanctioned `stat` call
+# in the plugin — GNU form FIRST: BSD stat rejects -c outright (clean failure), while
+# GNU stat's -f treats %m as a FILE operand and half-succeeds, polluting stdout. A
+# fail-soft echo helper, never a predicate.
+mentor_marker_age_min() {
+  local marker="${1:-}" epoch now
+  [ -n "$marker" ] && [ -e "$marker" ] || { echo ""; return 0; }
+  epoch="$(stat -c %Y "$marker" 2>/dev/null || stat -f %m "$marker" 2>/dev/null || true)"
+  case "$epoch" in ''|*[!0-9]*) echo ""; return 0 ;; esac
+  now="$(date +%s 2>/dev/null || true)"
+  case "$now" in ''|*[!0-9]*) echo ""; return 0 ;; esac
+  echo "$(( (now - epoch) / 60 ))"
+  return 0
+}
+
+# mentor_marker_field <marker_path> <field> — echo the value of a `key=value` line
+# from the marker's metadata body (session/cwd, written by begin-plan.sh), or empty
+# when missing/absent/pre-metadata (a marker armed before this field existed). Reads
+# with grep, never `source` — cwd is an arbitrary path and must never be shell-evaluated.
+# The `|| true` is load-bearing under callers' `set -o pipefail`: a no-match grep exits
+# 1, which pipefail promotes to the pipeline's (and so this function's) exit status —
+# and under `set -e` in plan-gate.sh, a bare `var=$(mentor_marker_field ...)` on a
+# legacy/empty marker would then abort the WHOLE fail-closed gate script mid-deny,
+# turning it fail-open. Always echo + explicit `return 0`, never let the grep miss
+# become this function's exit status.
+mentor_marker_field() {
+  local marker="${1:-}" field="${2:-}" val
+  [ -n "$marker" ] && [ -f "$marker" ] && [ -n "$field" ] || { echo ""; return 0; }
+  val="$(command grep -m1 "^${field}=" "$marker" 2>/dev/null | cut -d= -f2- || true)"
+  echo "$val"
+  return 0
+}
+
 # mentor_plan_state_file <plan_dir> — echo <plan_dir>/.state.json (never created here).
 mentor_plan_state_file() {
   local d="${1:-}"

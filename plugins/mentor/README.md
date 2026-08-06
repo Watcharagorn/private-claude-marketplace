@@ -372,7 +372,11 @@ unused in practice.
 - **The gate protects the current worktree.** The `.planning` marker is shared
   across linked git worktrees (via `git-common-dir`), but the deny check runs
   against the worktree you are planning in — planning from a linked worktree
-  leaves the main worktree writable.
+  leaves the main worktree writable. The marker does carry the arming session's
+  id + cwd (`begin-plan.sh` writes it, `plan-gate.sh`'s deny message and
+  `begin-plan.sh`'s own foreign-marker guard both read it), so a blocked agent
+  can at least tell which session/worktree owns it instead of guessing from
+  mtime alone — it does not close the leak above.
 
 ### Plan format
 

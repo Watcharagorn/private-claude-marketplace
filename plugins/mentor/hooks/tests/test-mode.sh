@@ -127,6 +127,45 @@ chk "pre-existing zooms file untouched"   test -f "$ZOOMS_DIR/demo/existing.html
 ( cd "$REPO" && HOME="$SANDBOX" MENTOR_CONTEXT_GATE=off bash "$BEGIN" >/dev/null 2>&1 ); rc=$?
 chk "second arm (nothing to relocate) exits 0" test "$rc" = "0"
 
+echo "== D. Marker metadata + foreign-marker guard =="
+MARKER="$PLANS_DIR/.planning"
+rm -f "$MARKER"
+out="$( cd "$REPO" && HOME="$SANDBOX" MENTOR_CONTEXT_GATE=off CLAUDE_CODE_SESSION_ID=sess-A bash "$BEGIN" 2>&1 )"
+chk "fresh arm → marker carries session= line" sh -c "command grep -q '^session=sess-A$' '$MARKER'"
+chk "fresh arm → marker carries cwd= line"     sh -c "command grep -q '^cwd=' '$MARKER'"
+chk "fresh arm → ARMED banner still printed"   sh -c "printf '%s' \"\$0\" | grep -q 'Plan phase ARMED'" "$out"
+
+# Same session re-arming (the CONTEXT: ASK -> bypass-context.sh -> re-run path, or an
+# accidental double /mentor:plan) must NOT be treated as a foreign collision.
+out="$( cd "$REPO" && HOME="$SANDBOX" MENTOR_CONTEXT_GATE=off CLAUDE_CODE_SESSION_ID=sess-A bash "$BEGIN" 2>&1 )"
+chk "same-session re-arm → ARMED (not blocked)" sh -c "printf '%s' \"\$0\" | grep -q 'Plan phase ARMED'" "$out"
+chk "same-session re-arm → no collision notice" sh -c "! printf '%s' \"\$0\" | grep -q 'NOT armed'" "$out"
+
+# A DIFFERENT, still-live (non-stale) session's marker must block re-arming outright —
+# begin-plan.sh used to truncate unconditionally, which resets the marker's mtime and
+# strands the other session's plan.md (approve-plan.sh then refuses it as predating
+# the marker). The marker content must be left untouched.
+before="$(cat "$MARKER")"
+out="$( cd "$REPO" && HOME="$SANDBOX" MENTOR_CONTEXT_GATE=off CLAUDE_CODE_SESSION_ID=sess-B bash "$BEGIN" 2>&1 )"; rc=$?
+chk "foreign live marker → exits 0 (fail-soft, not an error)" test "$rc" = "0"
+chk "foreign live marker → NOT armed notice"        sh -c "printf '%s' \"\$0\" | grep -q 'NOT armed'" "$out"
+chk "foreign live marker → names the owning session" sh -c "printf '%s' \"\$0\" | grep -q 'session sess-A'" "$out"
+chk "foreign live marker → marker untouched"        test "$(cat "$MARKER")" = "$before"
+
+# A STALE foreign marker (>8h) is effectively released — the guard must not block a
+# fresh arm over it (plan-gate.sh's own self-heal treats it the same way).
+touch -t "$(date -v-9H +%Y%m%d%H%M 2>/dev/null || date -d '9 hours ago' +%Y%m%d%H%M)" "$MARKER" 2>/dev/null || true
+out="$( cd "$REPO" && HOME="$SANDBOX" MENTOR_CONTEXT_GATE=off CLAUDE_CODE_SESSION_ID=sess-B bash "$BEGIN" 2>&1 )"
+chk "stale foreign marker → arms anyway"        sh -c "printf '%s' \"\$0\" | grep -q 'Plan phase ARMED'" "$out"
+chk "stale foreign marker → now owned by sess-B" sh -c "command grep -q '^session=sess-B$' '$MARKER'"
+
+# A legacy/empty marker (pre-metadata, e.g. armed by an older begin-plan.sh) has no
+# session= line at all — nothing to compare against, so fail-soft: arm as before.
+: > "$MARKER"
+out="$( cd "$REPO" && HOME="$SANDBOX" MENTOR_CONTEXT_GATE=off CLAUDE_CODE_SESSION_ID=sess-C bash "$BEGIN" 2>&1 )"
+chk "legacy empty marker → arms anyway (no attribution to compare)" sh -c "printf '%s' \"\$0\" | grep -q 'Plan phase ARMED'" "$out"
+chk "legacy empty marker → now stamped with sess-C" sh -c "command grep -q '^session=sess-C$' '$MARKER'"
+
 echo
 echo "RESULT: PASS=$PASS FAIL=$FAIL"
 [ "$FAIL" = "0" ]

@@ -125,6 +125,56 @@ run block "$REPO" Write "path through a subdir and .."         "$REPO/src/../.me
 if [ -f "$MARKER" ]; then PASS=$((PASS+1)); echo "  ok   sidecar block did not disturb the marker"
 else FAIL=$((FAIL+1)); echo "  FAIL sidecar block released the marker"; fi
 
+echo "== G. Deny message attribution (marker session/cwd metadata, current session_id) =="
+denywith() {  # <marker-body> <deny-request-session-id>
+  printf '%s' "$1" > "$MARKER"
+  python3 -c 'import json,sys;print(json.dumps({"tool_name":"Write","cwd":sys.argv[1],"tool_input":{"file_path":sys.argv[2]},"session_id":sys.argv[3]}))' \
+    "$REPO" "$REPO/src/app.ts" "$2" | bash "$HOOK" 2>&1 1>/dev/null
+}
+
+# G1. Marker owned by the SAME session as the denied request → original "finish and
+# approve" guidance stands; no foreign-marker warning.
+out="$(denywith $'session=sess-A\ncwd=/some/repo\n' sess-A)"; rc=$?
+if [ "$rc" = "2" ]; then PASS=$((PASS+1)); echo "  ok   [block] same-session deny → exit 2"
+else FAIL=$((FAIL+1)); echo "  FAIL same-session deny → rc=$rc"; fi
+if printf '%s' "$out" | command grep -qF 'Armed by: session sess-A'; then PASS=$((PASS+1)); echo "  ok   same-session deny → shows owner"
+else FAIL=$((FAIL+1)); echo "  FAIL same-session deny → missing owner line"; fi
+if printf '%s' "$out" | command grep -q 'choose'; then PASS=$((PASS+1)); echo "  ok   same-session deny → keeps original approve guidance"
+else FAIL=$((FAIL+1)); echo "  FAIL same-session deny → lost original guidance"; fi
+if printf '%s' "$out" | command grep -q 'do not run approve-plan.sh'; then FAIL=$((FAIL+1)); echo "  FAIL same-session deny → wrongly warns off approve-plan.sh"
+else PASS=$((PASS+1)); echo "  ok   same-session deny → no foreign-marker warning"; fi
+
+# G2. Marker owned by a DIFFERENT session → warn off approve-plan.sh, tell the agent
+# to ask the user; the original "choose Proceed" instruction must NOT appear (it would
+# release/promote the WRONG session's plan).
+out="$(denywith $'session=sess-A\ncwd=/some/repo\n' sess-B)"; rc=$?
+if [ "$rc" = "2" ]; then PASS=$((PASS+1)); echo "  ok   [block] foreign-session deny → exit 2"
+else FAIL=$((FAIL+1)); echo "  FAIL foreign-session deny → rc=$rc"; fi
+if printf '%s' "$out" | command grep -qF 'Armed by: session sess-A at /some/repo'; then PASS=$((PASS+1)); echo "  ok   foreign-session deny → names owner + cwd"
+else FAIL=$((FAIL+1)); echo "  FAIL foreign-session deny → missing owner/cwd"; fi
+if printf '%s' "$out" | command grep -q 'do not run approve-plan.sh'; then PASS=$((PASS+1)); echo "  ok   foreign-session deny → warns off approve-plan.sh"
+else FAIL=$((FAIL+1)); echo "  FAIL foreign-session deny → missing approve-plan.sh warning"; fi
+if printf '%s' "$out" | command grep -q '"Proceed" (which runs approve-plan.sh)'; then FAIL=$((FAIL+1)); echo "  FAIL foreign-session deny → still tells agent to approve"
+else PASS=$((PASS+1)); echo "  ok   foreign-session deny → does not suggest approving"; fi
+
+# G3. Legacy/empty marker (pre-metadata, no session= line at all — the exact shape
+# planted by `: > "$MARKER"` throughout sections A-F above) must deny EXACTLY like
+# before: exit 2, no attribution lines, original guidance. This is a regression guard
+# for a real bug hit while building this: mentor_marker_field's `grep -m1 | cut`
+# pipeline returned grep's no-match exit(1) as the function's own exit status under
+# `set -o pipefail`; under plan-gate.sh's `set -e`, `owner_session="$(mentor_marker_field
+# ...)"` then aborted the WHOLE fail-closed hook with exit 1 (not 2) — silently turning
+# a deny into a script crash the harness reads as ALLOW.
+out="$(denywith '' sess-Z)"; rc=$?
+if [ "$rc" = "2" ]; then PASS=$((PASS+1)); echo "  ok   [block] legacy empty marker → exit 2 (not a fail-open crash)"
+else FAIL=$((FAIL+1)); echo "  FAIL legacy empty marker → rc=$rc (fail-open regression if 1)"; fi
+if printf '%s' "$out" | command grep -q 'Armed by:'; then FAIL=$((FAIL+1)); echo "  FAIL legacy empty marker → fabricated an owner line"
+else PASS=$((PASS+1)); echo "  ok   legacy empty marker → no owner line (nothing to attribute)"; fi
+if printf '%s' "$out" | command grep -q '"Proceed" (which runs approve-plan.sh)'; then PASS=$((PASS+1)); echo "  ok   legacy empty marker → keeps original approve guidance"
+else FAIL=$((FAIL+1)); echo "  FAIL legacy empty marker → lost original guidance"; fi
+
+: > "$MARKER"
+
 echo
 echo "RESULT: PASS=$PASS FAIL=$FAIL"
 [ "$FAIL" = "0" ]

@@ -42,6 +42,7 @@ case "$TOOL_NAME" in
 esac
 
 CWD="$(mentor_cwd "$INPUT")"
+CURRENT_SESSION="$(printf '%s' "$INPUT" | jq -r '.session_id // ""' 2>/dev/null)" || true
 
 # --- resolve the repo-scoped plans dir + marker ---
 repo_root_common="$(mentor_repo_root "$CWD")"
@@ -116,18 +117,48 @@ if mentor_marker_stale "$marker"; then
 fi
 
 # empty path (unresolvable) OR inside-repo → deny (fail-closed).
+# Attribution: the alternative is a blocked agent hand-rolling ls/find-newer forensics
+# to tell "fresh, someone else's live session" from "abandoned, safe to ask the user to
+# clear" apart. mentor_marker_stale already returned false above, so age_min here is
+# always < MENTOR_PLAN_MARKER_STALE_MIN.
+owner_session="$(mentor_marker_field "$marker" session)"
+owner_line=""
+if [ -n "$owner_session" ]; then
+  owner_cwd="$(mentor_marker_field "$marker" cwd)"
+  owner_line="
+  Armed by: session ${owner_session} at ${owner_cwd:-<unknown cwd>}"
+fi
+age_min="$(mentor_marker_age_min "$marker")"
+age_line=""
+[ -n "$age_min" ] && age_line="
+  Age: ~${age_min}m ago (auto-releases after $(( MENTOR_PLAN_MARKER_STALE_MIN / 60 ))h if abandoned)."
+
 cat >&2 << EOF
 BLOCKED by mentor: PLAN PHASE is active — approve the plan first.
 
-  ${FILE_PATH:-<no path>}
+  ${FILE_PATH:-<no path>}${owner_line}${age_line}
 
 The .planning marker blocks edits to any file in the repo working tree until the
 plan is approved through the plan skill (approve-plan.sh validates the plan,
-then releases the gate). This holds even under bypassPermissions.
+then releases the gate). This holds even under bypassPermissions. This marker is
+shared across every linked git worktree of this repo, so a foreign session above
+may be a sibling worktree rather than a stray.
+EOF
+
+if [ -n "$owner_session" ] && [ -n "$CURRENT_SESSION" ] && [ "$owner_session" != "$CURRENT_SESSION" ]; then
+  cat >&2 << EOF
+
+Do not delete ${marker} yourself, and do not run approve-plan.sh to "clear" it —
+approve-plan.sh takes no slug and promotes whatever plan is newest, which may not
+be yours. Ask the user to confirm before touching it.
+EOF
+else
+  cat >&2 << EOF
 
 During planning the ONLY file you write is the persisted Markdown plan under
   ${plans_dir}/<slug>/plan.md
 (inside the gate-exempt .mentor/ tree — always allowed). Finish the plan, choose
 "Proceed" (which runs approve-plan.sh), and edit/implement only AFTER approval.
 EOF
+fi
 exit 2
