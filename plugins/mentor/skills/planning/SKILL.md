@@ -304,6 +304,16 @@ plan anywhere else in the repo or to the harness-native `~/.claude/plans/` dir.
 Before each re-write, re-run Step 3's registry scan against the new body — that is
 where a domain the plan only just grew gets caught.
 
+**Verify the write:** an `Edit` whose anchor lands mid-table or mid-fence can
+splice a row or split a fenced block without erroring — nothing else in this
+skill catches it, and a revision built from many small edits (a fold pass, a
+decision resolution, a split) is exactly when this happens. After such a
+revision, re-read the changed region and confirm every GFM table's rows still
+share one pipe-count and every fence still opens and closes in pairs before
+moving on — a broken table has no guaranteed downstream reader (a reviewer
+pass may not run before the next approval question). Prefer replacing a whole
+table/fenced block in one edit over splicing a single row into it.
+
 ### Content spec
 
 The `.md` file is the canonical plan — self-contained, portable, renders richly
@@ -470,7 +480,7 @@ bash "${CLAUDE_PLUGIN_ROOT}/hooks/plan-state.sh" context
 
 - **`CONTEXT: ASK`** — do not ask the approval question yet. Ask via
   `AskUserQuestion` (header "Context", two options) exactly as the command
-  layer's arm-time ASK does: hand off & stop (`Skill(skill="mentor:handoff")`),
+  layer's arm-time ASK does: hand off & stop (`Skill(skill="mentor:handoff-note")`),
   or bypass (`bash "${CLAUDE_PLUGIN_ROOT}/hooks/bypass-context.sh"`, then
   continue below).
 - **`CONTEXT: HANDOFF`** or **`CONTEXT: WARN`** — use the matching row below,
