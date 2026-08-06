@@ -87,7 +87,11 @@ file is written**. A split is cheap to redraw now and expensive to redraw after 
 agents have authored N plans.
 
 Present each slice as: `slug` · one-line outcome · what it depends on · what it
-explicitly does **not** own. Then ask via `AskUserQuestion`:
+explicitly does **not** own. **Every question stands on its own** — the user answers
+from the question screen alone, never sent to a file, a plan section, a coined id or
+code, or an earlier turn to learn what the question means; so the question itself
+restates the slices in one line each rather than saying "the split above", which has
+already scrolled away. Then ask via `AskUserQuestion`:
 
 - **"Split as proposed"** (recommended), **"Adjust the slices"**, **"Cancel"**.
 - **Only when Step 1 reported `STATE: unknown`** (a pre-2.4.0 plan with nothing on
@@ -142,7 +146,27 @@ Author one plan file. You are writing a plan, not implementing anything.
    <REPO>/.mentor/plans/<CHILD-SLUG>/plan.md
    Create no other files. Edit no repo source. Return only the path and a
    one-line summary — never the plan body.
+
+Do not call the Agent/Task tool — you have no sub-agents. Complete this alone,
+or stop and report the blocker.
+Never poll to pass time (`Bash true`, chained `sleep`s). Wait with ONE bounded
+call: `until <check>; do sleep N; done` (under 600s), a backgrounded run, or a
+monitor tool.
+If this step runs long, send a one-line progress message at each phase boundary
+(what just finished, what is next). The orchestrator ended its turn after
+dispatching you, so your messages are the only thing that can wake it — silence
+is indistinguishable from a hang, and the session's only remaining recovery is a
+human noticing.
+If a correction to this brief arrives mid-run, apply it before you return.
+Deliver your full result (final text / message per your runtime) BEFORE going
+idle — an idle signal with no delivered result is a contract violation.
 ```
+
+The block closing that template is `mentor:dispatch-agents`' standing contract
+("Deliver before idling"), pasted verbatim — it is what makes a child report
+instead of signalling idle with nothing written, and without it Step 6's
+missing-child re-dispatch loop becomes the normal path rather than the rare one.
+Keep it byte-identical to the copy in that skill's "Async runtime & lifecycle".
 
 ## Step 5 — The isolation header
 

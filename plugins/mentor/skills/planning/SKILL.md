@@ -201,12 +201,18 @@ question, one decision at a time**. Batching decisions into one call produces
 rushed, lower-quality answers. Order by dependency: resolve the decision other
 decisions hang off first, and let each answer narrow the next question.
 
-**Every question ships with decision support** — the user must be able to
-decide from your message alone, without re-reading the codebase:
+**Every question ships with decision support, and stands on its own** — the
+user answers from the question screen alone, never sent to a file, a plan
+section, a coined id or code (`G14`, `P2`), or an earlier turn to learn what
+the question means. Name things in plain language, quote the evidence that
+decides it rather than citing where it lives, and say in each option what it
+changes and what it costs:
 
 - In the message text **before** the tool call, give a compact decision brief:
   what the decision is, why it matters to this plan, and the relevant evidence
-  from research (`file:line` references, observed behavior, constraints).
+  from research (observed behavior, constraints, and the code itself — quote
+  the line that decides it and put its `file:line` beside the quote, so the
+  address is a courtesy for the curious rather than homework for the answer).
 - `AskUserQuestion` needs 2–4 options per question. For open-ended decisions
   (naming, free-form scope), synthesize 2–4 concrete candidates from the
   research — the tool adds a free-text "Other" automatically, so a candidate

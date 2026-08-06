@@ -72,7 +72,9 @@ ls -t "$state_dir"/plans/*/plan.md 2>/dev/null | head -3   # candidate plan subj
 ## Step 1 — Audience gate (one question, skippable)
 
 If the argument already names the audience (`user` | `dev` | `both`), skip this step. Otherwise ask
-**one** `AskUserQuestion` (single-select, header "Audience"):
+**one** `AskUserQuestion` (single-select, header "Audience") — **every question stands on its own**,
+answered from the question screen alone, never sending the user to a file, a plan section, a coined
+id or code, or an earlier turn to learn what it means:
 
 1. **End-user walkthrough** — plain-language scenarios, UI/CLI steps, no internals.
 2. **Technical deep-dive** — every workflow variant and condition, exact commands/YAML, internals.

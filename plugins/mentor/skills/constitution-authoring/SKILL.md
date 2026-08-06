@@ -214,8 +214,12 @@ MINOR (add a principle or materially expand guidance), PATCH (clarify wording).
 ## Step 6 — Confirm {#confirm}
 
 Surface the **complete assembled document** in your message (verbatim markdown, no
-wrapper commentary) so the user reads exactly what will be committed. Then ask via
-`AskUserQuestion` — header "Constitution", single-select:
+wrapper commentary) so the user reads exactly what will be committed — **every question
+stands on its own**, and the user answers from the question screen alone, never sent to a
+file, a principle number, or an earlier turn to learn what the question means. Where an
+option turns on a specific principle, quote that principle's words in the option rather
+than citing it by number. Then ask via `AskUserQuestion` — header "Constitution",
+single-select:
 
 - **"Ratify & write"** (first time) / **"Save amendment"** (existing) —
   *"Write `<the resolved constitution path>` at v<new>."* Name the real file, so an

@@ -217,7 +217,11 @@ point is that the user judges each finding on its own merits, the way a
 reviewer walks a colleague through a review, instead of skimming a checklist.
 
 **Each question must carry the full case, written like a human review — and
-stand entirely on its own.** The user verdicts from the question alone,
+stand entirely on its own.** This is the fullest statement of a rule every
+mentor skill that asks a question carries: the user answers from the question
+screen alone, never sent to a file, a plan section, a coined id or code, or an
+earlier turn to learn what the question means. The user verdicts from the
+question alone,
 without opening the plan or scrolling back through the conversation, so put
 the substance in the question itself and **bold the load-bearing words** —
 the **risk** being closed, the **place in the plan** touched, the

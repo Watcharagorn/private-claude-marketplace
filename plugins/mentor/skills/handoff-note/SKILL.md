@@ -165,7 +165,15 @@ Pick the entries that fit the current state, tailored to the next-session focus:
   routes a later session into the merge tail"); name `/mentor:merge` here so the note and the
   resume path agree.
 - **Repeated manual work worth capturing** → `/loom:harvest`.
-- **Heavy multi-area work** → dispatch subagents per `mentor:dispatch-agents`.
+- **Heavy multi-area work with no plan of record** (a research sweep, a gap audit, a multi-repo
+  survey) → write the instruction the next agent can execute verbatim: *"Load
+  `Skill(skill=\"mentor:dispatch-agents\")` before the first `Agent()` call — its 'Deliver before
+  idling' block is what makes agents report instead of idling."* **Never write that no mentor
+  command owns a fan-out.** Whether or not a command does, the next agent reads that sentence as
+  licence to dispatch raw, and a fan-out without the contract block strands the whole group —
+  it has already cost two sessions. This is the one mapping entry that names a skill rather than a
+  slash command, so spell out the `Skill(...)` call: `mentor:resuming`'s fallback sweep looks for
+  `/mentor:<command>` tokens and will not match a bare skill name.
 - If `.mentor/config.json` exists (a persisted mode — `/mentor:mode status` shows it), cite the repo's approval-gate default so the next agent knows whether "Proceed" or "Deliver plan only" is listed first at plan approval.
 
 ## Step 4 — Redact secrets

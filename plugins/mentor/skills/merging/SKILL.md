@@ -136,7 +136,11 @@ Then decide:
 
 ## Step 4 — Merge, gated
 
-Never merge on your own judgment. Ask via `AskUserQuestion`:
+Never merge on your own judgment. Ask via `AskUserQuestion`. **Every question stands on its
+own** — the user answers from the question screen alone, never sent to a file, a CI log, a
+check name, or an earlier turn to learn what the question means: when a failure is what
+they are deciding about, put the failing test's name and the one line that explains it in
+the question, not a link to the run.
 
 - **Merge now** — `gh pr merge <number> --squash` (match the repo's convention if it
   clearly uses merge/rebase instead).

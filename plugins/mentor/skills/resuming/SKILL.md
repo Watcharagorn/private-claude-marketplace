@@ -170,7 +170,11 @@ Then resolve a selection:
 - **With no argument**, call `AskUserQuestion` (single-select) with the **4 newest** notes as quick
   options — `label` = the slug, `description` = the human date + focus preview. Older notes are
   reachable through the always-present **"Other"** free-text (resolved by the rule above). This
-  respects `AskUserQuestion`'s 4-option cap.
+  respects `AskUserQuestion`'s 4-option cap. **Every question stands on its own:** the user answers
+  from the question screen alone — never sent to a file, a plan section, a coined id or code, or an
+  earlier turn to learn what the question means. A slug is a filename, not a description, so the
+  preview must say what that note is actually about ("finish the Thanos SSA reprojection, 3 steps
+  left") rather than restating the slug in prose.
 - If there is **exactly one** note, skip the picker and ask a simple **Continue / Cancel**.
 
 ## Step 5 — Load & continue
@@ -240,7 +244,10 @@ Then resolve a selection:
    1. **Sweep the note body for `/mentor:<command>` tokens under any heading.** A note that says
       "run `/mentor:ship`" under `## What REMAINS` is recommending a command — only its heading
       drifted — and Step 6's bound applies to those exactly as if the section were canonical. Two or
-      more distinct commands: ask which.
+      more distinct commands: ask which. **Match bare `mentor:<skill>` tokens too** — not every
+      mentor surface has a slash command, so a note naming `mentor:dispatch-agents` (the shape
+      `mentor:handoff-note` writes for a fan-out with no plan of record) is recommending it just as
+      surely, and a sweep that only knows slashes drops it and falls through to `/mentor:track`.
    2. **None anywhere → `/mentor:track <topic>`**, using the note's own topic slug (the
       `plans/<topic>/` dir it lives in — `/mentor:handoff` writes notes there, so you already hold
       the key). Track reads plan state and already triages an approved plan, a `draft`, a deferred
@@ -260,7 +267,18 @@ Then resolve a selection:
    `git push` + `gh pr create` skips `mentor:shipping` Step 6, which stamps this note resolved and
    closes the plan's state. The note then stays live and `/mentor:track` re-offers work that already
    shipped. Concretely: when you are about to type `git push`, `gh pr create`, or `gh pr merge`, run
-   `/mentor:ship` instead — it hands off to `/mentor:merge`, which owns the merge consent gate.
+   `/mentor:ship` instead — it hands off to `/mentor:merge`, which owns the merge consent gate. And
+   when you are about to issue an `Agent()` call — however the note phrased it ("dispatch parallel
+   `Explore` agents", "no single mentor command owns this") — load
+   `Skill(skill="mentor:dispatch-agents")` first, then dispatch through it. Prose describing a
+   fan-out names no command, so it is neither the no-commands branch above nor licence to dispatch
+   raw. That skill appends the standing contract block ("Deliver before idling"), which is the only
+   thing that makes a dispatched agent report instead of signalling idle with nothing delivered; a
+   fan-out issued without it strands the whole group at once and leaves you redoing their work by
+   hand. Going direct rather than through `/mentor:track` is right **only** for a research or
+   analysis fan-out, which has no plan steps to re-enter or tick — a fan-out that *implements* plan
+   steps still routes through `/mentor:track` per the bound above. Loading the skill honors the
+   note's instruction; it does not expand its scope.
 7. **Stamp the note resolved when — and only when — its work is done.** Track the note's path for the
    rest of the session; the stamp fires on the first of these:
    - **All the note's tasks completed per the plan file** — every recommended command ran to

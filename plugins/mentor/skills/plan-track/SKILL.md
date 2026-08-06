@@ -170,6 +170,12 @@ covers the rest.
 `order` sequence, deferred stubs included (their entry already says so). Do not offer
 `superseded` parents as quick options — they were replaced by their children.
 
+**Every question stands on its own.** The user answers from the question screen alone — never sent
+to a file, a plan section, a coined id or code, or an earlier turn to learn what the question means.
+Here that means an option describes the plan's *work* and where it stands ("Thanos SSA reprojection
+— approved, 3 of 7 steps left"), never a bare slug or a hierarchy position ("the second one"): the
+hierarchy scrolled off the moment the question opened.
+
 ## Step 2.5 — Deps advisory (soft — never a block)
 
 If the selected entry's `deps` array is non-empty, look up each dep's effective state in the same

@@ -35,6 +35,11 @@ Render to the user: the branch, the base, and
 `git -C "$repo_root" diff "origin/${base}"...HEAD --stat` (fall back to the
 local `$base` if the remote ref is absent).
 
+**Every question stands on its own** — this gate and every other one in this skill. The
+user answers from the question screen alone, never sent to a file, a plan section, a
+coined id or code, or an earlier turn to learn what the question means: name the branch,
+base, and PR in the option itself, and say what each choice pushes and where.
+
 **On the base branch.** If the block printed `ON-BASE`, stop and ask via
 `AskUserQuestion` before Step 2:
 

@@ -23,6 +23,14 @@ annotate the implementation steps, and Step 6 invokes it again to execute them
 after approval. Also invoked when the user explicitly says "dispatch agents",
 "fan out", "use subagents", "parallelize this".
 
+**Also load it for any ad hoc fan-out that is not plan implementation** — a
+research sweep, a multi-repo survey, an architecture-gap audit, a handoff note
+that says "dispatch parallel `Explore` agents". The annotation grammar and the
+plan mechanics do not apply to those; the "Async runtime & lifecycle" contract
+does, and it is the whole reason to be here. Skipping the skill because the work
+has no plan is how a nine-agent fan-out goes out without the deliver-before-idling
+block and returns one report.
+
 ## When NOT to use — starting from a plan this session didn't write
 
 If you are picking up a plan that already exists — a fresh session, a handoff, or
@@ -135,6 +143,15 @@ The point of SDD: quality through narrow focus, and a lean main thread.
   prompt, never the whole of it.
 - **Return contract:** agents return a short summary, file paths touched, and
   verification output — never full file bodies.
+- **Relaying a return to the user strips its ids.** An agent's report is written
+  for **you**: its finding codes, table rows, step numbers, and bare `Location(s)`
+  cells name things the user never read. Carry the finding, not its filing — say
+  what the thing is ("the Argo controller reads cross-tenant Secrets") and leave
+  the code in your notes; if one must survive because the user holds the artifact
+  it indexes, it rides behind the name, never alone. The same holds when the relay
+  becomes a question: **every question stands on its own**, answered from the
+  question screen alone, never sending the user to a file, a report, or an earlier
+  turn to learn what it means.
 - **No nested fan-out:** dispatched agents **can** call the Agent tool — nothing
   in the runtime stops them, and a chain they spawn is invisible to you and
   outlives your close-out. Size each step so one agent completes it alone; the
@@ -251,9 +268,12 @@ Do NOT paraphrase the plan or summarize what you're about to do. Dispatch immedi
 Dispatched agents run as background teammates: they can signal **idle** before
 (or instead of) delivering, die mid-flight on infra errors, and stay resident
 after finishing. These rules govern every dispatch surface in mentor — this
-skill, plus the dispatches in `plan` Step 2, `zoom` (which `plan` Step 5
-delegates to), `plan-review`, `tour`, and
-`grilling` (each cross-references this section):
+skill, plus the dispatches in `plan` Steps 2 and 3.5, `zoom` (which `plan` Step 5
+delegates to), `plan-review`, `tour`, `plan-tour`, `plan-split`, `grilling`,
+`ship`, `merge`, and any ad hoc fan-out reached from `resume` (each
+cross-references this section). **Keep this roster current when a surface starts
+dispatching** — a reader who checks it and does not find their surface concludes
+the contract does not apply to them, which is exactly how a fan-out goes out raw:
 
 - **No busy-wait.** Waiting is not work: never chain `sleep`s or fire no-op Bash
   calls to pass the time. This governs **every** waiting surface in a mentor

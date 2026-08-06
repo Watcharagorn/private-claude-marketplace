@@ -131,7 +131,11 @@ Resolve two dimensions before generating anything:
    only when the user's request already explicitly named that dimension ("zoom
    into checkout as the end user" skips both). When only one topic is derivable,
    treat topic as resolved and ask only Perspective (AskUserQuestion needs 2–4
-   options per question).
+   options per question). **Every question stands on its own:** the user answers
+   from the question screen alone — never sent to a file, a plan section, a coined
+   id or code, or an earlier turn to learn what the question means. A topic option
+   therefore names the subject matter in the user's own vocabulary, not the plan
+   heading it was derived from ("Step 3" tells them nothing once the plan is closed).
 
 | Perspective | The zoom emphasizes |
 |---|---|

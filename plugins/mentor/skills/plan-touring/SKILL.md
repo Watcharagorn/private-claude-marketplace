@@ -108,7 +108,11 @@ Ask **ONE** `AskUserQuestion` call carrying up to two multi-select questions —
 Perspective — and **skip any dimension the invocation already named** ("tour this plan
 as a system architect" skips Perspective; naming both skips the gate entirely). When
 only one area is derivable, treat it as resolved and ask Perspective alone
-(AskUserQuestion needs 2–4 options per question).
+(AskUserQuestion needs 2–4 options per question). **Every question stands on its own:**
+the user answers from the question screen alone — never sent to a file, a plan section, a
+coined id or code, or an earlier turn to learn what the question means. An area option
+names the work it covers in plain language, never the plan heading or step number it was
+derived from.
 
 Combos = selected areas × selected perspectives. Kebab-sanitize both halves for the
 filename and uniquify colliding area slugs (`-2`, `-3`, …) so no two combos share a
