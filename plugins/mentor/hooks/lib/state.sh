@@ -395,29 +395,111 @@ mentor_plan_live_handoffs() {
   return 0
 }
 
+# MENTOR_STEP_LINE_PATTERN — the ONE definition of "this line is a step" inside a
+# plan's `## Implementation steps` section: a numbered item (`3. …`) or a
+# `Step 3 — …` line. mentor_plan_tick_counts (read) and mentor_plan_tick_step
+# (write, below) both match against this exact string — a second, drifting copy
+# in either direction would let a written tick land on a line the counter doesn't
+# see, or vice versa, silently breaking the "ratio and verdict never disagree"
+# guarantee both functions depend on. `[*][*]` (not `\*\*`): passed as a dynamic
+# regex via awk -v, a backslash-escaped literal is undefined behavior on some awk
+# implementations (confirmed failing on macOS's awk 20200816) — a bracket
+# expression is the portable way to mean "one literal asterisk" in both a static
+# `/…/` literal and a dynamic string.
+MENTOR_STEP_LINE_PATTERN='^[[:space:]]*(-[[:space:]]+)?([*][*])?([0-9]+\.|[Ss]tep[[:space:]]+[0-9]+)'
+
 # mentor_plan_tick_counts <plan_md> — echo "<ticked> <total>" step-line counts from
-# the `## Implementation steps` section: a step line is a numbered item (`3. …`) or a
-# `Step 3 — …` line, ticked when it contains ✅. "0 0" when no plan.md or no
-# recognizable step lines. The one parsing implementation — mentor_plan_tick_state
-# (below) derives its implemented/in_progress/empty verdict FROM these counts, and
+# the `## Implementation steps` section, ticked when a step line contains ✅.
+# "0 0" when no plan.md or no recognizable step lines. The one parsing
+# implementation — mentor_plan_tick_state (below) derives its
+# implemented/in_progress/empty verdict FROM these counts, and
 # `plan-state.sh overview --json` reports the raw counts for the task-level rung of
 # the hierarchy — so the ratio and the verdict can never disagree.
 mentor_plan_tick_counts() {
   local md="${1:-}"
   if [ -z "$md" ] || [ ! -f "$md" ]; then echo "0 0"; return 0; fi
-  awk '
+  awk -v pat="$MENTOR_STEP_LINE_PATTERN" '
     /^##[[:space:]]/ {
       h = tolower($0)
       insec = (h ~ /^##[[:space:]]+implementation[[:space:]]+steps/) ? 1 : 0
       next
     }
     !insec { next }
-    /^[[:space:]]*(-[[:space:]]+)?(\*\*)?([0-9]+\.|[Ss]tep[[:space:]]+[0-9]+)/ {
+    $0 ~ pat {
       total++
       if (index($0, "✅") > 0) ticked++
     }
     END { printf "%d %d\n", ticked+0, total+0 }
   ' "$md" 2>/dev/null || echo "0 0"
+  return 0
+}
+
+# mentor_plan_tick_step <plan_md> <N> — append ✅ to the Nth step line inside the
+# `## Implementation steps` section, using MENTOR_STEP_LINE_PATTERN so a written
+# tick and mentor_plan_tick_counts's ratio can never disagree about what counts as
+# a step. Idempotent: a step that already carries ✅ is left untouched. Echoes one
+# status line on success and returns 0:
+#   ticked <N> <total>    — this call appended the ✅
+#   already <N> <total>   — the step was already ticked, nothing written
+# On failure (bad/missing plan_md, N not a positive integer, or N out of range)
+# echoes "no-such-step <total>" (total 0 when the file/section is unreadable) and
+# returns 1 — the caller decides whether that is worth surfacing. No write happens
+# on any failure path, including a mid-write error, since the rewritten file is
+# only moved into place after a full, successful pass over the input.
+mentor_plan_tick_step() {
+  local md="${1:-}" n="${2:-}"
+  if [ -z "$md" ] || [ ! -f "$md" ]; then echo "no-such-step 0"; return 1; fi
+  case "$n" in ''|*[!0-9]*) echo "no-such-step 0"; return 1 ;; esac
+  [ "$n" -ge 1 ] || { echo "no-such-step 0"; return 1; }
+
+  local tmp status_file status_line
+  tmp="$(mktemp "${md}.tick.XXXXXX")" || { echo "no-such-step 0"; return 1; }
+  status_file="${tmp}.status"
+
+  # `if awk …; then` (not a bare command) — under the caller's `set -e` contract, a
+  # bare failing command aborts the whole hook before the rc check below ever runs.
+  local awk_rc
+  if awk -v pat="$MENTOR_STEP_LINE_PATTERN" -v target="$n" '
+    /^##[[:space:]]/ {
+      h = tolower($0)
+      insec = (h ~ /^##[[:space:]]+implementation[[:space:]]+steps/) ? 1 : 0
+      print; next
+    }
+    !insec { print; next }
+    $0 ~ pat {
+      total++
+      if (total == target) {
+        found = 1
+        if (index($0, "✅") > 0) { print; status = "already" }
+        else { print $0 " ✅"; status = "ticked" }
+      } else {
+        print
+      }
+      next
+    }
+    { print }
+    END {
+      if (!found) { print "no-such-step " total+0 > "/dev/stderr"; exit 1 }
+      print status " " target " " total+0 > "/dev/stderr"
+    }
+  ' "$md" >"$tmp" 2>"$status_file"; then
+    awk_rc=0
+  else
+    awk_rc=$?
+  fi
+  status_line="$(cat "$status_file" 2>/dev/null)"
+  rm -f "$status_file"
+
+  if [ "$awk_rc" -ne 0 ] || [ -z "$status_line" ]; then
+    rm -f "$tmp"
+    echo "${status_line:-no-such-step 0}"
+    return 1
+  fi
+  case "$status_line" in
+    already\ *) rm -f "$tmp" ;;   # unchanged — discard the rewritten-but-identical copy
+    *)          mv "$tmp" "$md" ;;
+  esac
+  echo "$status_line"
   return 0
 }
 

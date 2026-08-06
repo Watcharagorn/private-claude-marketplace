@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# plan-state.sh — the ONE plan-state API. Read and write .mentor/plans/<slug>/.state.json.
+# plan-state.sh — the ONE plan-state API. Read and write .mentor/plans/<slug>/.state.json
+# (and, via `tick`, the ✅ step marks in plan.md that the sidecar's effective state derives from).
 #
 # Not a hook: skills call it as a plain Bash command, like approve-plan.sh.
 # It exists so no skill ever hand-rolls the sidecar JSON, and so the three places
@@ -26,6 +27,14 @@
 #   claim <slug>
 #       Clear `origin` — used when a deferred stub (born via /mentor:defer) enters
 #       real planning, so approve-plan's promotion sweep can promote it like any plan.
+#
+#   tick <slug> <N>
+#       Append ✅ to the Nth step line in plan.md's `## Implementation steps` section
+#       (idempotent — already-ticked is a no-op) — replaces hand-rolling an Edit to
+#       find and mark that exact line, whose placement is load-bearing (a tick on
+#       the wrong line reads as the step never having started). No such step at N →
+#       fails loud, no write. Needs no jq: unlike every other subcommand here this
+#       edits plan.md directly, not the JSON sidecar.
 #
 #   list [--group G]
 #       One row per plan: ordinal, EFFECTIVE state, slug, group, order.
@@ -92,6 +101,7 @@ Usage: plan-state.sh <subcommand>
   set <slug> <state> [--note "…"]       state: draft|approved|in_progress|implemented|failed|superseded
   set-deps <slug> a,b                   replace deps wholesale (cycle-checked, fail-soft)
   claim <slug>                          clear origin (a deferred stub enters real planning)
+  tick <slug> <N>                       append ✅ to step N in plan.md (idempotent, fails loud)
   list [--group G]                      every plan with its effective state
   current                               the current plan (group-aware)
   overview --json                       repo-wide JSON: plans + deps + live handoffs + step counts
@@ -225,7 +235,7 @@ if [ "$sub" = "gate" ]; then
 fi
 
 case "$sub" in
-  init|set|set-deps|claim|list|current|overview) ;;
+  init|set|set-deps|claim|tick|list|current|overview) ;;
   ""|-h|--help|help)
     usage
     [ -n "$sub" ] && exit 0
@@ -495,6 +505,43 @@ case "$sub" in
       echo "[mentor plan-state] ${slug}: claimed — origin cleared, eligible for the normal approval sweep."
     else
       echo "[mentor plan-state] ${slug}: origin already unset — nothing to claim."
+    fi
+    ;;
+
+  tick)
+    slug="${1:-}"; [ "$#" -gt 0 ] && shift
+    step="${1:-}"; [ "$#" -gt 0 ] && shift
+    if [ "$#" -gt 0 ]; then
+      echo "[mentor plan-state] tick: unexpected argument ${1}" >&2
+      usage >&2
+      exit 1
+    fi
+    require_slug "$slug"
+    case "$step" in
+      ''|*[!0-9]*|0)
+        echo "[mentor plan-state] tick: <N> must be a positive integer, got '${step}'." >&2
+        usage >&2
+        exit 1
+        ;;
+    esac
+    plan_dir="${plans_dir}/${slug}"
+    plan_md="${plan_dir}/plan.md"
+    if [ ! -f "$plan_md" ]; then
+      echo "[mentor plan-state] tick: no plan.md at ${plan_md}." >&2
+      exit 1
+    fi
+    # `if var=$(cmd)` (not a bare assignment) — under `set -e` a failing bare
+    # assignment aborts the script before the rc check below ever runs.
+    if tick_result="$(mentor_plan_tick_step "$plan_md" "$step")"; then
+      read -r tick_status tick_n tick_total <<<"$tick_result"
+      case "$tick_status" in
+        ticked)  echo "[mentor plan-state] ${slug}: step ${step} ✅ ticked (${tick_n}/${tick_total})." ;;
+        already) echo "[mentor plan-state] ${slug}: step ${step} was already ✅ (${tick_n}/${tick_total}) — no write." ;;
+      esac
+    else
+      read -r _ tick_total <<<"$tick_result"
+      echo "[mentor plan-state] tick: ${slug} has no step ${step} (plan.md has ${tick_total:-0} step(s) in '## Implementation steps'). No write." >&2
+      exit 1
     fi
     ;;
 

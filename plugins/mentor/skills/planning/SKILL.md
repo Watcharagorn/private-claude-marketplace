@@ -643,16 +643,12 @@ re-invocation only if it is already loaded in this session), then follow its
 "Executing the dispatches" section: read the approved plan file, dispatch each
 `Run in parallel:` group's agents in ONE message (multiple `Agent` calls), run
 `Sequential:` steps one at a time, and verify each step's `Done when:` before
-starting the next. Mark each step done in the plan file as it passes — append
-`✅` to the step's own top line, never to the `Done when:` line that just passed
-or any other sub-line. Which line carries the tick is load-bearing, not cosmetic:
-mentor counts a step line as either a `Step N — …` line **or** a numbered item
-(`3. …`), so an annotated plan ticks its `Step N — …` line while a
-`Dispatch: skipped` plan ticks the numbered item itself — a `✅` parked on a
-sub-line is invisible to the counter and the step reads as never started. For the
-same reason keep a step's own body on `-` bullets: the counter cannot tell a
-numbered sub-item from a step, and an inflated denominator strands a finished plan
-at `in_progress` forever. Its
+starting the next. Mark each step done as it passes with `bash
+"${CLAUDE_PLUGIN_ROOT}/hooks/plan-state.sh" tick <slug> <N>` — see
+`mentor:dispatch-agents`' "Track progress in the plan file" for why the tick's
+placement is load-bearing and what `tick` does about it. Keep a step's own body
+on `-` bullets, though: the counter cannot tell a numbered sub-item from a step,
+and an inflated denominator strands a finished plan at `in_progress` forever. Its
 **No busy-wait** rule applies to every wait on this path, dispatched or not.
 The main thread orchestrates and verifies; it does not re-do or re-read the
 work it delegated. Only when the plan opens its Implementation steps with

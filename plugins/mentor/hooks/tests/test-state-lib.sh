@@ -246,6 +246,25 @@ chk "missing file → 0 0"                test "$(libsh "mentor_plan_tick_counts
 chk "empty arg → 0 0"                   test "$(libsh "mentor_plan_tick_counts ''")" = "0 0"
 rm -rf "$PLANS"
 
+echo "== B10. mentor_plan_tick_step — the write-side counterpart, sharing B9's pattern =="
+mkdir -p "$PLANS/ts"
+printf '# t\n## Implementation steps\n1. one\n2. two\n## Verification\n1. not a step\n' > "$PLANS/ts/plan.md"
+chk "tick step 1 → status line" test "$(libsh "mentor_plan_tick_step '$PLANS/ts/plan.md' 1")" = "ticked 1 2"
+chk "tick step 1 → the ✅ landed on line 3, not line 5's lookalike" \
+  bash -c "sed -n '3p' '$PLANS/ts/plan.md' | grep -qF '✅' && ! sed -n '6p' '$PLANS/ts/plan.md' | grep -qF '✅'"
+chk "re-tick the same step → already, no rewrite" test "$(libsh "mentor_plan_tick_step '$PLANS/ts/plan.md' 1")" = "already 1 2"
+chk "tick counts now read 1 2 back"     test "$(libsh "mentor_plan_tick_counts '$PLANS/ts/plan.md'")" = "1 2"
+out="$(libsh "mentor_plan_tick_step '$PLANS/ts/plan.md' 99" 2>/dev/null)"; rc=$?
+chk "step past the end → no-such-step"  test "$out" = "no-such-step 2"
+chk "step past the end → rc 1"          test "$rc" = "1"
+out="$(libsh "mentor_plan_tick_step '$PLANS/ts/plan.md' 0" 2>/dev/null)"; rc=$?
+chk "step 0 → rejected, rc 1"           test "$rc" = "1"
+out="$(libsh "mentor_plan_tick_step '$PLANS/ts/plan.md' abc" 2>/dev/null)"; rc=$?
+chk "non-numeric step → rejected, rc 1" test "$rc" = "1"
+out="$(libsh "mentor_plan_tick_step '/nope.md' 1" 2>/dev/null)"; rc=$?
+chk "missing plan_md → rc 1, no crash"  test "$rc" = "1"
+rm -rf "$PLANS"
+
 echo "== D. mentor_get_mode / mentor_config_get =="
 STATE="$expect_root/.mentor"
 RCONF="$STATE/config.json"

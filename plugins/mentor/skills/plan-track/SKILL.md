@@ -326,10 +326,9 @@ here rather than straight from `mentor:planning`:
   from `mentor:dispatch-agents`, and its **CLOSING CHECKLIST** — the `/mentor:tour`
   offer and the `/mentor:defer` sweep) exactly as the dispatch path does it.
   Arriving here does not make that path unowned. A skipped plan usually writes its
-  steps as plain numbered items rather than `Step N — …` lines, so **that numbered
-  item is the step's own line** — the one the `✅` goes on. Mentor counts either
-  form; what it cannot see is a tick on an indented `Done when:` or any other
-  sub-line.
+  steps as plain numbered items rather than `Step N — …` lines — `bash
+  "${CLAUDE_PLUGIN_ROOT}/hooks/plan-state.sh" tick <slug> <N>` counts either form
+  by ordinal, so ticking works the same way regardless of which one this plan uses.
 
 ## Step 4 — Close out
 

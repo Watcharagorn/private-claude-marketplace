@@ -431,6 +431,45 @@ out="$(ps claim clm2)"; rc=$?
 chk "claim on a never-deferred plan → exit 0"           test "$rc" = "0"
 chk "claim on a never-deferred plan → nothing to claim" has "origin already unset" "$out"
 
+echo "== L2. tick: writes the ✅ a hand-rolled Edit used to place by hand =="
+rm -rf "$PLANS"; mkdir -p "$PLANS"
+plan tk '# t' '## Implementation steps' \
+  'Step 1 — first  [role: general-purpose]' '   Done when: it works' \
+  'Step 2 — second  [role: general-purpose]' '   Done when: it also works' \
+  '1. **Numbered form**' '2. **Second numbered**' \
+  '## Verification' 'Step 1 — prose about verification, not a real step'
+chk "before any tick: 0 ticked"          test "$(state_of tk)" = "unknown"
+out="$(ps tick tk 1)"; rc=$?
+chk "tick step 1 → exit 0"               test "$rc" = "0"
+chk "tick step 1 → reports 1/4"          has "step 1 .* ticked (1/4)" "$out"
+chk "tick step 1 → plan.md carries ✅ on the Step 1 line, not Done when:" \
+  bash -c "sed -n '3p' '$PLANS/tk/plan.md' | grep -q '✅' && ! sed -n '4p' '$PLANS/tk/plan.md' | grep -q '✅'"
+chk "tick step 1 → derived state advances"   test "$(state_of tk)" = "in_progress"
+out="$(ps tick tk 1)"; rc=$?
+chk "re-tick the same step → exit 0 (idempotent)"  test "$rc" = "0"
+chk "re-tick reports already-ticked, no write"     has "already ✅" "$out"
+out="$(ps tick tk 3)"; rc=$?
+chk "tick a numbered-item step → exit 0"           test "$rc" = "0"
+chk "numbered-item step ✅ lands on its own line" bash -c "sed -n '7p' '$PLANS/tk/plan.md' | grep -q '✅'"
+out="$(ps tick tk 99)"; rc=$?
+chk "tick past the last step → exit 1"             test "$rc" = "1"
+chk "tick past the last step → names the count"    has "no step 99" "$out"
+chk "tick past the last step → no write happened"  test "$(state_of tk)" = "in_progress"
+out="$(ps tick tk 0)"; rc=$?
+chk "tick step 0 → exit 1"                         test "$rc" = "1"
+out="$(ps tick tk abc)"; rc=$?
+chk "tick a non-numeric step → exit 1"             test "$rc" = "1"
+out="$(ps tick tk 1 extra)"; rc=$?
+chk "tick with a stray extra argument → exit 1"    test "$rc" = "1"
+out="$(ps tick nope 1)"; rc=$?
+chk "tick unknown slug → exit 1"                   test "$rc" = "1"
+chk "tick unknown slug → points at list"           has "plan-state.sh list" "$out"
+before_verify="$(sed -n '10p' "$PLANS/tk/plan.md")"
+chk "the Verification section's own 'Step 1 —' line is never touched" \
+  test "$before_verify" = "Step 1 — prose about verification, not a real step"
+ps tick tk 2 >/dev/null; ps tick tk 4 >/dev/null
+chk "all 4 steps ticked → derived state reaches implemented" test "$(state_of tk)" = "implemented"
+
 echo "== M. overview --json: repo-wide hierarchy (v2.17.0) — the new surface =="
 rm -rf "$PLANS" "$REPO/.mentor/handoffs"; mkdir -p "$PLANS"
 out="$(psout overview --json)"; rc=$?

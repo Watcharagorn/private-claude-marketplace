@@ -113,16 +113,20 @@ The point of SDD: quality through narrow focus, and a lean main thread.
 - **On a failed `Done when:`**, re-dispatch the same role once with the failure
   evidence (diff + command output) as inputs. If it fails again, surface to the
   user — only then may the main thread read the files and take over.
-- **Track progress in the plan file:** as each step's `Done when:` passes, append
-  `✅` to that step's own `Step N — …` line — **not** to the indented `Done when:`
-  line that just passed — so a resumed or handed-off session knows exactly what
-  already ran. Which line carries the tick is load-bearing, not cosmetic: mentor
-  counts ticks by scanning step lines only, so a `✅` parked on a `Done when:` or
-  any other sub-line is invisible to it and the step reads as never started.
+- **Track progress in the plan file:** as each step's `Done when:` passes, run
+  `bash "${CLAUDE_PLUGIN_ROOT}/hooks/plan-state.sh" tick <slug> <N>` (N = the
+  step's ordinal, counting either `Step N — …` or numbered-item lines) to append
+  `✅` to that step's own top line. Which line carries the tick is load-bearing,
+  not cosmetic: mentor counts ticks by scanning step lines only, so a `✅` parked
+  on the indented `Done when:` line that just passed, or any other sub-line, is
+  invisible to it and the step reads as never started — `tick` locates the
+  step's own line for you instead of trusting a hand-built `Edit` to land on the
+  right one, and is idempotent (re-ticking an already-ticked step is a no-op) and
+  fails loud on an out-of-range N rather than silently writing nothing useful.
   These ticks are also what makes plan state self-healing — mentor derives
-  `in_progress` / `implemented` from them, so a forgotten state write below costs
-  nothing, but a tick on the wrong line silently costs the next session its
-  picture of what landed.
+  `in_progress` / `implemented` from them, so a forgotten tick costs nothing on
+  its own, but a tick on the wrong line silently costs the next session its
+  picture of what landed, which is what `tick` exists to prevent.
 - **Move the plan's state as you go**, so `/mentor:track` can answer "what is
   built?" in a fresh session without re-reading anything:
   ```bash
@@ -258,11 +262,15 @@ mentor session routes through this skill — callers load it (once per session)
 before issuing `Agent` calls. Then:
 
 1. **Read the approved plan file** (`<repo>/.mentor/plans/<slug>/plan.md`) — do not work from memory.
-2. **Dispatch "Run in parallel:" groups** — issue ALL `Agent()` calls for each parallel group in a **single message** so they run concurrently. After dispatching, apply **No busy-wait** ("Async runtime & lifecycle" below): stop and let the harness re-invoke you when agents complete.
+2. **Dispatch "Run in parallel:" groups** — issue ALL `Agent()` calls for each parallel group in a **single message** so they run concurrently. Every prompt ends with the solution-quality line plus the full standing contract block ("Deliver before idling," "Async runtime & lifecycle" below) **pasted verbatim** — compressing it to a paraphrase (even a well-intentioned one-liner) silently drops directives a dispatched agent has no other way to learn, including the no-nested-fan-out ban this exact block is what enforces. After dispatching, apply **No busy-wait**: stop and let the harness re-invoke you when agents complete.
 3. **Dispatch "Sequential:" steps one at a time** — wait for the prior step's result before issuing the next call.
 4. **Verify each `Done when:` criterion** before moving to the next step — agents describe what they intended; trust but verify.
 5. **CLOSING CHECKLIST — always, after the last step verifies:**
-   - **Close out finished agents** — stop/release any still-resident dispatches (see "Async runtime & lifecycle" below).
+   - **Close out finished agents** — enumerate live tasks with `TaskList` and diff
+     against this session's own dispatch tree, nested spawns included, before
+     `TaskStop`ping only what traces to that tree; stopping just the dispatches
+     you remember by name misses a nested spawn (see "Async runtime & lifecycle"
+     below for the full rule).
    - **Offer `/mentor:tour`** — one line: a hands-on acceptance pass building an editable guided-tour review artifact (pass/not-pass scenarios) of what shipped. Do not auto-run it.
    - **Sweep the report you're about to write** — every follow-up, gap, or known-broken
      item in it goes through `/mentor:defer` first (orchestrator contract above).
@@ -340,8 +348,10 @@ the contract does not apply to them, which is exactly how a fan-out goes out raw
 - **Follow-up vs re-dispatch.** A small fix or clarification on work an agent
   already owns — idle **or still running** → send ONE message to that same
   agent (its context is warm; use your runtime's agent-messaging tool — in
-  Claude Code that is `SendMessage`, which may need fetching via `ToolSearch`
-  before it can be called). State that the correction must be applied before
+  Claude Code that is `SendMessage`, which — like `TaskList`/`TaskStop` below —
+  may need fetching via `ToolSearch` first; `select:SendMessage,TaskList,TaskStop`
+  in one call loads all three async-lifecycle tools together, so whichever of
+  them you reach for first primes the rest). State that the correction must be applied before
   the agent returns. This matters most when something you learn *after*
   dispatching invalidates part of a brief already in flight — a reviewer's
   finding landing while a writer works from the superseded version. Correcting
@@ -378,8 +388,9 @@ the contract does not apply to them, which is exactly how a fan-out goes out raw
   (No nested fan-out, above), which stays resident with no notification of
   its own to prompt you. Before the final report, and before escalating on a
   stalled or failed step, enumerate live tasks — in Claude Code that is
-  `TaskList`, which may need fetching via `ToolSearch` before it can be
-  called — and diff against this session's own dispatch tree, nested spawns
-  included. Stop only what traces to that tree; note anything else in the
+  `TaskList` (see the `SendMessage` note above for the one combined
+  `ToolSearch` fetch that covers this too) — and diff against this session's
+  own dispatch tree, nested spawns included. Stop only what traces to that tree
+  with `TaskStop`; note anything else in the
   one-line report rather than stopping it, since it may belong to a sibling
   session or the user's own background work.
