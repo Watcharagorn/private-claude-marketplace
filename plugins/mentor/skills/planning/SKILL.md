@@ -120,8 +120,16 @@ researched) **together with** 2+ pre-existing areas of the repo: each half alone
 looks manageable inline, and the pair is what actually exhausts a context
 window. For small, well-scoped tasks, read the files and draft directly in the
 main thread. Nothing enforces delegation; use judgment.
-(Research dispatches follow `dispatch-agents`' "Async runtime & lifecycle"
-rules: deliver-before-idle, one nudge on a silent idle, close out when consumed.)
+**Load the dispatch contract before the first `Agent()` call, not after.** Research
+dispatches follow `dispatch-agents`' "Async runtime & lifecycle" rules, and this step
+fires before that skill's own first load point (Step 4) — so invoke
+`Skill(skill="mentor:dispatch-agents")` here if it is not already loaded, then end
+every research prompt with its **"Deliver before idling"** block pasted verbatim,
+after the return contract below. Loading it here is for that block alone: the
+annotation grammar is Step 4's, the execution rules are Step 6's, and the edit gate
+stays closed. Citing the rules in a paraphrase is not a substitute — it drops
+directives the agent has no other way to learn, the no-nested-fan-out ban above all.
+One nudge on a silent idle; close each agent out once its findings are consumed.
 
 **Research the category, not just the named instance.** When the request names
 one instance of something the repo may have several of — one job to make
@@ -207,8 +215,11 @@ Triage each item into exactly one bucket:
 - **Codebase-answerable** — the code, config, git history, or docs can settle
   it. Answer it yourself (dispatch a read-only `Explore` agent, or read
   directly for a quick check); never ask the user what the repo can answer.
-  (Explore dispatches follow `dispatch-agents`' "Async runtime & lifecycle"
-  rules, same as Step 2's research agents.)
+  (Explore dispatches carry the same contract as Step 2's research agents: load
+  `Skill(skill="mentor:dispatch-agents")` if it is not already loaded, and end each
+  prompt with its **"Deliver before idling"** block pasted verbatim — a triage
+  Explore that idles without delivering strands the very question it was sent to
+  settle, and the loop cannot move on without it.)
 - **User decision** — preference, product direction, scope, priorities, a
   trade-off with no objectively right answer. Queue it for the user.
 - **Immaterial** — the plan comes out the same whichever way it lands. Drop
@@ -393,7 +404,8 @@ Required sections, in order:
    default** (subagents-driven development: the main thread orchestrates,
    subagents implement — each agent gets one narrow, focused step, and the
    main context stays lean). Before writing this section, invoke
-   `Skill(skill="mentor:dispatch-agents")` and annotate every implementation
+   `Skill(skill="mentor:dispatch-agents")` (skip the re-invocation if Step 2 already
+   loaded it) and annotate every implementation
    step per its grammar (`[role: … · model: … · effort: …]`, grouped
    `Run in parallel:` / `Sequential:`) — one plan step = one dispatch.
    **Escape hatch:** when the implementation meets the dispatch-agents skill's

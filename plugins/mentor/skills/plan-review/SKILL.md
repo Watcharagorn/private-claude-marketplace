@@ -164,9 +164,17 @@ dispatch in Step 6, after the fold. Each call uses
 `subagent_type: general-purpose`, `model: sonnet`,
 `description: "Review plan: <topic>"`. Every reviewer must stay in its own lane
 (see the table above) — drop any finding another reviewer owns. Reviewer
-dispatches follow `dispatch-agents`' **"Async runtime & lifecycle"** rules —
-in particular, verdict-producing reviewers write a durable copy of their
-verdict under `.mentor/plans/<slug>/` before returning. Close **both** Stage 1
+dispatches follow `dispatch-agents`' **"Async runtime & lifecycle"**
+rules — invoke `Skill(skill="mentor:dispatch-agents")` now if it is not already
+loaded (this skill runs standalone as often as it runs from `plan`, so usually it
+is not), then end each reviewer's prompt with that section's **"Deliver before
+idling"** block pasted verbatim. Loading it is for that block alone: nothing here
+is being implemented and the `.planning` gate stays closed. That block is also what
+produces the durable verdict copy — give each reviewer its own filename for it,
+`.mentor/plans/<slug>/practicality-review.md` and
+`.mentor/plans/<slug>/comprehensiveness-review.md`, since both dispatch in one
+message and the block's own `step-N-review.md` example would have them writing over
+each other. Close **both** Stage 1
 reviewers out once their findings are consumed, BEFORE blocking on the Step 4
 fold gate — an idle agent must not interrupt the gate with stray
 notifications.
@@ -307,8 +315,12 @@ Dispatch **only after Step 5 completes** (the write, or the fold-nothing
 decision) — both reviewers read the UPDATED plan, so they also catch anything
 the fold introduced. Issue one `Agent()` call each in a single message,
 `subagent_type: general-purpose`, `model: sonnet`. Dispatches follow
-`dispatch-agents`' **"Async runtime & lifecycle"** rules — durable verdict
-copies under `.mentor/plans/<slug>/`; close both reviewers out once their
+`dispatch-agents`' **"Async runtime & lifecycle"** rules, handled the same way as
+Step 3: load `Skill(skill="mentor:dispatch-agents")` if it is not already loaded,
+then end each prompt with its **"Deliver before idling"** block pasted verbatim,
+with this stage's own durable-copy filenames —
+`.mentor/plans/<slug>/cleanliness-review.md` and
+`.mentor/plans/<slug>/consistency-review.md`. Close both reviewers out once their
 findings are consumed, BEFORE Step 7's verdict walk blocks on the user — an
 idle agent must not interrupt the questions with stray notifications. If one
 dies, note it and run Step 7 on the survivor's findings.
