@@ -386,11 +386,15 @@ the contract does not apply to them, which is exactly how a fan-out goes out raw
   the session with stray notifications and pile up until manually killed.
   Closing out only the agents you remember dispatching misses a nested spawn
   (No nested fan-out, above), which stays resident with no notification of
-  its own to prompt you. Before the final report, and before escalating on a
-  stalled or failed step, enumerate live tasks — in Claude Code that is
-  `TaskList` (see the `SendMessage` note above for the one combined
-  `ToolSearch` fetch that covers this too) — and diff against this session's
-  own dispatch tree, nested spawns included. Stop only what traces to that tree
-  with `TaskStop`; note anything else in the
-  one-line report rather than stopping it, since it may belong to a sibling
-  session or the user's own background work.
+  its own to prompt you. **Before the final report, before escalating on a
+  stalled or failed step, and before any prose claim that a batch is
+  "done"/"closed out"/"finished"** — a flow with more than one dispatch round
+  (stage-1 reviewers, then a stage-2 fan-out; a plan-review pass followed by a
+  zoom pass) makes each intermediate closure claim as real a checkpoint as the
+  session's last one — enumerate live tasks: in Claude Code that is `TaskList`
+  (see the `SendMessage` note above for the one combined `ToolSearch` fetch
+  that covers this too), diffed against this session's own dispatch tree,
+  nested spawns included. Stop only what traces to that tree with
+  `TaskStop`; note anything else in the one-line report rather than
+  stopping it, since it may belong to a sibling session or the user's own
+  background work.

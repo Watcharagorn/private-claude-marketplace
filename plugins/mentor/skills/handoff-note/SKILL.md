@@ -41,6 +41,12 @@ everything.
 
 ## Step 1 — Resolve the next-session focus
 
+Before anything else, if this session dispatched agents that are still live, close
+them out (`dispatch-agents`' "Async runtime & lifecycle" — `TaskList`/`TaskStop`,
+fetched via `ToolSearch` first if this session hasn't loaded them). A handoff is
+the session's last exit: an agent left resident here has no later checkpoint in
+*this* session to catch it, and outlives the note as a stray, unmonitored task.
+
 `$ARGUMENTS` (the command argument) answers **"what will the next session be used for?"** Use it to
 decide what the document emphasizes — the parts of the work relevant to that focus get the most
 detail. If the argument is empty, write a general handoff covering the whole session.

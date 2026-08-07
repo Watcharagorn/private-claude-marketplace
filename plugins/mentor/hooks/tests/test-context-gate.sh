@@ -58,6 +58,8 @@ mktx() { python3 "$BUILDER" "$1" "$2"; }
 # Standard fixtures.
 TX_UNDER="$ROOT/under.jsonl";  mktx "$TX_UNDER" usage:150000
 TX_WARN="$ROOT/warn.jsonl";    mktx "$TX_WARN"  usage:215000
+TX_WARN_SMALL_GROW="$ROOT/warn-small-grow.jsonl"; mktx "$TX_WARN_SMALL_GROW" usage:240000   # +25k: under the 50k re-arm delta
+TX_WARN_BIG_GROW="$ROOT/warn-big-grow.jsonl";     mktx "$TX_WARN_BIG_GROW"   usage:270000   # +55k: over the 50k re-arm delta
 TX_ASK="$ROOT/ask.jsonl";      mktx "$TX_ASK"   usage:365000
 TX_NONE="$ROOT/missing.jsonl"  # deliberately not created
 
@@ -100,7 +102,7 @@ mktx "$ROOT/na.jsonl" no_assistant
 run "hello" a3 "$ROOT/na.jsonl"
 chk "no usable usage → exit 0"   test "$RC" = "0"
 
-echo "== B. Warn tier (once per session) =="
+echo "== B. Warn tier (re-arms on growth) =="
 run "hello" warnsess "$TX_WARN"
 chk "215k → exit 0"              test "$RC" = "0"
 chk "215k → warn notice on stdout" contains "getting large" "$OUT"
@@ -110,6 +112,14 @@ chk "same session → silent"        test -z "$OUT"
 chk "same session → still exit 0"  test "$RC" = "0"
 run "hello" warnsess2 "$TX_WARN"
 chk "new session → warns again"    contains "getting large" "$OUT"
+# Re-arm-on-growth: a session that keeps climbing past the delta gets more than the one
+# notice at the bottom of the WARN-to-WARN-HIGH zone, but small growth stays quiet.
+run "hello" warngrow "$TX_WARN"
+chk "warngrow 215k → warns"              contains "getting large" "$OUT"
+run "hello" warngrow "$TX_WARN_SMALL_GROW"
+chk "warngrow +25k (< delta) → silent"   test -z "$OUT"
+run "hello" warngrow "$TX_WARN_BIG_GROW"
+chk "warngrow +55k (≥ delta) → re-warns" contains "getting large" "$OUT"
 # A synthetic prompt must NOT spend the human's once-per-session warn: in a fan-out
 # session the first prompt over the threshold is usually an inbound agent report.
 run "<task-notification>reviewer finished</task-notification>" warnsyn "$TX_WARN"

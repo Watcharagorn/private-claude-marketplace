@@ -5,8 +5,13 @@
 # and acts in three tiers — it NEVER blocks or erases a prompt (warn-only + ask-first):
 #   • WARN  (≥ warn threshold, default 200000): exit 0 with a one-line stdout notice
 #     (UserPromptSubmit stdout is injected as context, so Claude can proactively offer a
-#     handoff). Fires ONCE per session — a `.context-warned-<session_id>` marker in the
-#     state dir; stale markers (>24h) are pruned so new sessions re-warn.
+#     handoff). RE-ARMS on growth — a `.context-warned-<session_id>` marker in the state
+#     dir stores the token count at the last fire, and WARN fires again once the live count
+#     has grown by a quarter of the warn threshold (~50000 tokens at defaults) past that —
+#     a session that keeps climbing gets more than one nudge before WARN-HIGH takes over,
+#     instead of one notice at 200k and silence all the way to ~315k. Stale markers (>24h)
+#     are pruned so new sessions re-warn; a marker from before this change (empty file)
+#     reads as "never warned" and re-arms immediately.
 #   • WARN-HIGH (≥ warn-high threshold, default 90% of the effective ask threshold):
 #     a near-limit nudge that RE-FIRES on every prompt in the zone — no marker — so the
 #     agent steers toward a natural handoff boundary before the ask tier.
@@ -129,20 +134,28 @@ if [ "$TOKENS" -ge "$WARN_HIGH_AT" ]; then
   exit 0
 fi
 
-# --- WARN tier (once per session) ------------------------------------------
-# Synthetic prompts skip this tier entirely. The notice fires ONCE per session, and in a
-# fan-out-heavy session the prompt that first crosses the threshold is almost always an
-# inbound agent report — burning the marker there spends the human's one warning on a
-# turn they never see. WARN-HIGH and ASK are unconditional, so nothing is lost above them.
+# --- WARN tier (re-arms on growth) ------------------------------------------
+# Synthetic prompts skip this tier entirely: in a fan-out-heavy session the prompt that
+# first crosses the threshold is almost always an inbound agent report — burning the
+# re-arm there spends the human's next warning on a turn they never see. WARN-HIGH and
+# ASK are unconditional, so nothing is lost above them.
 if [ "$SYNTHETIC" = "0" ] && [ "$TOKENS" -ge "$WARN_AT" ]; then
   # Prune stale warn markers (>24h) so a long-lived repo re-warns in later sessions.
   find "$state_dir" -maxdepth 1 -name '.context-warned-*' -mmin +1440 -delete 2>/dev/null || true
   marker="${state_dir}/.context-warned-${SESSION_ID:-nosession}"
-  if [ ! -e "$marker" ]; then
+  last_warned=0
+  [ -e "$marker" ] && last_warned="$(cat "$marker" 2>/dev/null)"
+  case "$last_warned" in ''|*[!0-9]*) last_warned=0 ;; esac   # empty (legacy marker) / garbage → re-arm
+  # A quarter of the warn threshold (~50000 tokens at defaults): far enough apart that a
+  # session climbing steadily doesn't get spammed, close enough that a session sitting in
+  # the 200k-to-WARN-HIGH zone for a while (the exact gap a fan-out-heavy session can spend
+  # tens of turns inside) still gets more than the one notice at the bottom of the zone.
+  rearm_delta=$(( WARN_AT / 4 ))
+  if [ "$last_warned" = 0 ] || [ $(( TOKENS - last_warned )) -ge "$rearm_delta" ]; then
     mkdir -p -m 700 "$state_dir" 2>/dev/null || true
     [ -n "$repo_root" ] && mentor_ensure_gitignore "$state_dir"
-    : > "$marker" 2>/dev/null || true
-    echo "[mentor] Context is getting large (~${TOKENS} tokens ≥ ${WARN_AT}). At a natural stopping point, consider /mentor:handoff (then /mentor:resume in a fresh session) or /compact. (Shown once per session; thresholds: \"context_warn_tokens\" / \"context_block_tokens\" in .mentor/config.json.)"
+    printf '%s' "$TOKENS" > "$marker" 2>/dev/null || true
+    echo "[mentor] Context is getting large (~${TOKENS} tokens ≥ ${WARN_AT}). At a natural stopping point, consider /mentor:handoff (then /mentor:resume in a fresh session) or /compact. (Re-fires every ~${rearm_delta} tokens of further growth; thresholds: \"context_warn_tokens\" / \"context_block_tokens\" in .mentor/config.json.)"
   fi
 fi
 

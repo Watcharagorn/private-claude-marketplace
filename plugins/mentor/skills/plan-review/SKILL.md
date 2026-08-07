@@ -177,7 +177,12 @@ message and the block's own `step-N-review.md` example would have them writing o
 each other. Close **both** Stage 1
 reviewers out once their findings are consumed, BEFORE blocking on the Step 4
 fold gate — an idle agent must not interrupt the gate with stray
-notifications.
+notifications. Closing out means actually calling `TaskList` (fetch it plus
+`TaskStop` via `ToolSearch` first if they haven't been loaded this session)
+and diffing against the two dispatched reviewers before `TaskStop`ping them —
+writing "both reviewers are closed out" without having made that call is a
+claim you can't back, and the reviewer stays resident, unnoticed, until
+something else stops it.
 
 If one reviewer dies, note it and run the fold gate on the survivor's
 findings; if both die, note it and go straight to Step 6.

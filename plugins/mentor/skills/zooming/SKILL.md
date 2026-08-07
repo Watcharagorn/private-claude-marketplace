@@ -165,8 +165,13 @@ fields — `sections=N diagrams=N doctype=yes closing-html=yes tags-balanced=yes
 makes an **absence** invisible: a combo that quietly omits "full standalone
 document" reads just like the ones that claim it, and the omission is the signal
 worth catching. Perspective-conditional inputs: **Reviewer/Architect** combos
-also get the resolved constitution path (Step 0) when that file exists; a
-**UI-surface topic** gets the mockup contract inputs from
+also get the resolved constitution path (Step 0) when that file exists; on an
+**infra-heavy topic**, a Reviewer/Architect combo's emphasis extends to
+deployment topology, capacity/health-check chains, and blast radius — if
+those facts were gathered live this session (CLI/API output, no source file),
+write them to `${zoom_dir}/_brief.md` once per Step 1's conversation-only-subject
+row and point every such combo at it, rather than re-deriving the same facts
+in each combo's prompt; a **UI-surface topic** gets the mockup contract inputs from
 `plan-domain-frontend` §4 whenever the perspective needs to *see* the surface to
 do its job — End user, Reviewer/Architect, and QA/Tester (the tester must see
 the states they verify) — but **not** Implementor, whose zoom is about file
@@ -205,7 +210,12 @@ required field all take the same path — re-dispatch that combo once, naming th
 defect, before giving up. Zoom dispatches follow `dispatch-agents`' "Async
 runtime & lifecycle" rules — close out finished combo agents after the remedy
 rather than after the check, so a still-warm agent stays reachable for the
-repair.
+repair. Closing out means calling `TaskList` (fetch it plus `TaskStop` via
+`ToolSearch` first if this session hasn't loaded them yet) and diffing
+against the dispatched combos before `TaskStop`ping them, for every batch —
+not just the last one, since a multi-topic zoom is itself a batch of up to 6
+combos and "all combos are closed" is not true until that call has actually
+been made.
 
 ## Step 5 — Re-zoom on revision (completeness-checked, not memory-driven)
 
