@@ -3,9 +3,10 @@ name: plan-domain-backend-api
 description: >
   Domain planning skill for BACKEND API and DATA-MODEL work, invoked ONCE by
   `plan` (Step 3 domain routing) when the task touches routes, endpoints,
-  handlers, services, schemas/DTOs, API contracts — or the persistence layer
-  behind them: a migration, or an added/changed/removed table, column, index,
-  constraint, enum, or RLS/row-level policy. Not a /command. Shapes the
+  handlers, services, schemas/DTOs, API contracts, an async worker/queue/
+  topic/cron-job edge (delivery semantics, retry, visibility timeout, DLQ) —
+  or the persistence layer behind them: a migration, or an added/changed/removed
+  table, column, index, constraint, enum, or RLS/row-level policy. Not a /command. Shapes the
   research (find route definitions, handlers, schemas, callers, migrations)
   and the Markdown plan to carry a before/after contract comparison —
   per-endpoint diff tables, schema diffs, a per-column delta table plus a
@@ -47,6 +48,12 @@ backend-relevant research agents' prompts; when researching directly, cover the 
   the migration dir, schema dump, or ORM models — and read the real column names, types,
   nullability, defaults, constraints, and any RLS/row-level policies for every table in scope.
   Recalled column names are how a plan ends up describing a table that doesn't exist.
+- When the change reaches an **async worker/queue/cron edge** — a queue, topic, subscription, or
+  scheduled job — locate the config that actually decides delivery: the visibility timeout / ack
+  deadline, max receive count, retry-backoff policy, DLQ target, consumer concurrency, and the
+  consumer's idempotency key. Read the real configured values, not recalled ones, for the same
+  reason as the persistence-layer directive above — a plan describing a visibility timeout that
+  isn't the one actually configured is a plan for a bug that doesn't exist.
 - Locate the **API-client callers** — who consumes each endpoint (frontend services, other
   backends, jobs) — so contract changes name their blast radius.
 - For each endpoint, **classify the change as backward-compatible or BREAKING** (a removed/renamed
@@ -76,6 +83,12 @@ canonical plan):
   `compat: backward-compatible` tag. Columns:
   `Status · Method · Path · Request shape · Response shape · Status codes · Callers affected · Note`.
   The `Callers affected` cell lists consumers from research EVIDENCE (or `none in repo`).
+- **When the change is to an async worker/queue/cron edge** rather than an HTTP route, the same
+  table applies with its columns re-read for that shape: `Method` → delivery/trigger semantics
+  (at-least-once / at-most-once / cron expression), `Path` → the queue/topic/job name, `Status
+  codes` → terminal outcomes (ack / nack / retry / DLQ / timeout), `Callers affected` → producers
+  and consumers of the queue/topic. The Status badge and `compat:` tag carry over unchanged — a
+  message-payload field change breaks consumers exactly as a response field breaks HTTP callers.
 - A **schema diff** per changed DTO — added / removed / changed fields, with types — written as
   `+`/`-`/`~`-prefixed lines.
 - **When the change reaches DDL** — a migration, or an added/changed/removed table, column, index,
@@ -89,7 +102,8 @@ canonical plan):
   column reads fine at review time and is useless later, when the question is what the row actually
   looks like — and the answer gets guessed instead of read. This is also why the entities go in the
   plan body rather than only in a migration filename: the plan is what the next session opens.
-- A **sequence-flow viz** per changed flow (caller → endpoint → handler → downstream). Encode the
+- A **sequence-flow viz** per changed flow (caller → endpoint → handler → downstream — or, for an
+  async edge, producer → queue → consumer → downstream). Encode the
   diff: **unchanged** hops plain; **new** hops marked as added; **removed** hops marked as removed
   (labelled "removed"); **changed** hops marked as changed. Label each arrow with the moved
   field/status; include a legend line that decodes the markings.

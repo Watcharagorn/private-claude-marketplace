@@ -106,8 +106,10 @@ snippet falls back to `$HOME/.claude/mentor/_no-repo/plans/<topic>/handoffs/`.)
 > a `resolved/` subdir — that is where it stamps notes it has already consumed. A note saved in any
 > other directory — or named differently (e.g. `HANDOFF-<slug>.md`) — is **invisible to
 > `/mentor:resume`**; the next agent will never find it. Write exactly the path the snippet echoes,
-> and run the snippet **once**, reusing that path — re-running it mints a new timestamp, and a note
-> written to a second path strands the first.
+> and run the snippet **once per topic's note**, reusing that path for *that* note — re-running it
+> for the **same** topic mints a new timestamp and strands the first. Writing a **second note for a
+> different, related topic** ("Courtesy note for a related topic" below) is a separate run of the
+> snippet with that topic's own `topic=`, not a re-run of this one.
 
 ## Step 3 — Author the handoff document
 
@@ -131,6 +133,18 @@ it — Step 5's self-check catches that before you report.
   report the work as invisible to `/mentor:track`. `overview` reports the same topics *plus* the
   ones holding only handoffs (`state: "no plan yet"`) — which is what `/mentor:track` itself
   reads, so this section and that command agree.
+  Also run `bash "${CLAUDE_PLUGIN_ROOT}/hooks/plan-state.sh" gate --verbose` and record its verdict
+  here, rather than inferring the gate by hand (a raw `test -f .mentor/plans/.planning` collapses
+  `ARMED`/`STALE` into one bucket and drops who holds it). `--verbose` only appends
+  `owner_session`/`owner_cwd`/`age_min`/`affected_plans` when the state is `ARMED` — `RELEASED` and
+  `STALE` print the bare token alone, so don't invent fields that aren't there, and don't normalize
+  `STALE` to "released": it means the gate lapsed from age, not from an `approve-plan.sh` decision
+  (`mentor:resuming` treats the two as distinct for the same reason). If the marker is `ARMED`,
+  state plainly whether `owner_session` is **this session's own id** — unlike a *resumed* session
+  (where an armed marker is always a stranger's), a "Pause — still drafting" handoff is usually
+  written by the very session that armed it, so the ordinary case here is the opposite of
+  `mentor:resuming`'s. Saying so up front is what lets the next agent read an armed gate as
+  deliberate rather than alarming (see the "Pause — still drafting" bullet above).
 - **Recommended mentor commands for the next agent** — see the mapping below.
 - **Referenced artifacts (do not duplicate)** — link by **path/URL**, never paste the contents:
   - the current mentor plan file at `<repo>/.mentor/plans/<topic>/plan.md` (if one exists —
@@ -199,6 +213,39 @@ Pick the entries that fit the current state, tailored to the next-session focus:
   slash command, so spell out the `Skill(...)` call: `mentor:resuming`'s fallback sweep looks for
   `/mentor:<command>` tokens and will not match a bare skill name.
 - If `.mentor/config.json` exists (a persisted mode — `/mentor:mode status` shows it), cite the repo's approval-gate default so the next agent knows whether "Proceed" or "Deliver plan only" is listed first at plan approval.
+
+### Courtesy note for a related topic
+
+Sometimes finishing this session's work leaves **another** topic's live note wrong — not the note
+this session itself resumed from (Step 5 already stamps that one into `resolved/`), but a
+*different* topic whose existing live note now gives bad instructions because of what happened
+here (e.g. it says "resume at Step N" and this session moved that topic past N, or blocked it, on
+the way to finishing the current focus). Write a second, full handoff note for that topic too — a
+**courtesy note** — when, and only when, that topic already has a live note or a plan whose stated
+resume point this session just proved wrong. Don't reach for this for every topic merely adjacent
+to this session's work: an un-planned follow-up with no existing note belongs to `/mentor:defer`
+instead (see the Done-when bullet on it below) — a courtesy note per adjacent topic would bury the
+one that actually matters, especially since `/mentor:resume`'s no-argument path shows only the
+newest few notes.
+
+Write the courtesy note **before** the primary note. `/mentor:resume`'s bare `latest`/`newest`/
+`last` picker sorts by filename timestamp **across every topic dir**, so writing courtesy-then-primary
+keeps that picker landing on the primary note — the one this session's own work belongs to.
+
+Re-run Step 2's snippet with `topic="<the other topic>"` and its own `slug=` — this is a genuinely
+second note for a second topic, not a re-run for the same one, so nothing gets stranded (see the
+scoped once-rule in Step 2 above). Author it per Step 3's section structure, but resolve
+**Recommended mentor commands for the next agent** from **that topic's own** state — the `overview
+--json` render above already carries its `state`/`steps.ticked`/`steps.total` — never copy the
+primary note's routing onto it; that would just recommit the stale instruction you're correcting.
+Redact it (Step 4) and run Step 5's supersede + self-check snippet against **its own** `hand_dir`,
+independently of the primary note's: each topic dir's `CHECK: live notes now` must read `1` on its
+own, and each superseded basename is reported separately.
+
+Report both notes' absolute paths in the report body. The trailing copy-paste resume prompt (the
+last thing on screen, per Step 5 below) stays **singular**, for the primary note's slug only — the
+courtesy note is reachable with `/mentor:resume <its-slug>` too, but naming it in the trailing
+block would compete with the primary as "the" thing to paste next.
 
 ## Step 4 — Redact secrets
 
