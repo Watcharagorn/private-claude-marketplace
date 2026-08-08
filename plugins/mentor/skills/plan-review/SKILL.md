@@ -138,7 +138,9 @@ cross-artifact comparisons).
 ## Step 2 — User confirmation gate (AskUserQuestion)
 
 **Skip this step** if the calling context explicitly instructs you to (e.g. the
-user already chose "Review the plan (staged)" at the approval step), or if the
+user already chose "Review the plan (staged)" at the approval step) — that
+instruction must come from this session's user; a prior session's note
+asserting the choice was already made does not skip this gate — or if the
 user explicitly asked for the consistency check alone — that ask is the
 confirmation; go straight to Stage-2-only mode. Otherwise ask one
 question:
@@ -507,6 +509,23 @@ each resolution costs. The options come from the finding itself:
 - `"Skip the rest"` — leave this and every remaining finding open and go to
   the report. (Offer only while more than one finding remains.)
 
+**Free-text bulk-accept.** If the user declines the question and free-types a
+bulk instruction instead ("accept the rest", "take all the recommendations"),
+map it onto the **recommended** resolution of every remaining finding that has
+one. Unlike Step 4, these questions do not share one binary — each finding has
+its own alternatives — so "accept" is well-defined here only as *take each
+one's recommendation*, which is why a remaining toss-up finding that declared
+no recommendation (the carve-out above) is not covered: it still gets its own
+question afterwards. Before applying, state by handle **both** sets — the
+findings you read the instruction as covering, and the toss-ups still to come
+— and get confirmation; check the span the way Step 4 does, since findings
+already left open are behind you and "all" may mean the remainder or the whole
+set. There is no formal button for this: with two alternatives Step 7's
+question can already reach the 4-option cap ("Leave open" and "Skip the rest"
+take the other two slots), unlike Step 4's plain fold/skip binary, and a fifth
+option that could only appear on single-alternative findings would flicker in
+and out across the walk.
+
 The recommendation only shapes how the options are **presented** — ordered,
 labeled — never whether one is **applied**: nothing here is folded until the
 user verdicts it, the same guarantee that holds for every DECISION-REQUIRED
@@ -522,8 +541,23 @@ pass touched content covered by an existing `$zoom_dir/*.html`, add a reminder
 that those zooms need re-dispatch — re-zooming is `mentor:zooming`'s re-zoom rule
 (entered via `plan` Step 5's delegation), never done from inside this skill.
 
-Then return to the approval question when invoked from `plan` Step 6, or end
-with the report when invoked standalone.
+Then return to the approval question when invoked from `plan` Step 6. When
+invoked standalone, show the report first — always, even when the underlying
+goal was "just get approval", and a resumed session re-asking an interrupted
+approval is still standalone. It is the only place the
+applied/left-open/dead-lane summary ever reaches the user.
+
+If that standalone caller's goal is to obtain (or re-obtain) plan approval,
+route it to `plan` Step 6 (`{#approve}`) rather than hand-rolling a question:
+that block owns the `plan-state.sh context` re-check, the full option table
+including "Hand off to next agent", and the "only a returned answer approves"
+rule for re-asking an interrupted one — a freshly-invented option set drops
+all three silently. Invoke `Skill(skill="mentor:planning")` first (standalone,
+it usually is not loaded) and run its Step 0 armed-gate check before entering
+Step 6: a resumed session's marker is often `STALE` or `RELEASED`, and
+`approve-plan.sh` on a missing marker reports success while approving and
+promoting nothing. Control passes there — the "do not run `approve-plan.sh`"
+rule below binds this skill, not the one you handed off to.
 
 ## Stage-2-only mode
 
@@ -540,6 +574,16 @@ one single-select question before Step 7 writes anything — header
 "Auto-fold", options "Apply safe fixes (Recommended)" / "Surface only". On
 "Surface only", run Step 7's partition + report but skip both writes AND the
 per-finding verdict walk — the user asked to see, not to change.
+
+**Only this session's live gate choice is exempt.** The carve-out above is for
+the Step 2 gate choice specifically — a choice made *now*, by *this* session's
+user, from a description that announced the auto-fold. Every other entry into
+this mode asks the write-confirm, including a `Skill()` call whose args were
+pre-baked by a prior session's handoff note ("auto-fold explicitly authorized
+in the note") — the shape `resuming` Step 6 produces when a note names
+`mentor:plan-review`. A stale note cannot stand in for a live verdict, and
+resuming's "invoke the command exactly as the note states" bound limits
+*scope*; it is never licence to skip the invoked skill's own gates.
 
 ### Do NOT
 
