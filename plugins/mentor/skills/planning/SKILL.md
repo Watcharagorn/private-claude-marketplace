@@ -113,8 +113,11 @@ designing anything. Skip this for well-specified tasks.
 ## Step 2 — Research (delegation suggested, not enforced) {#research}
 
 For multi-area or unfamiliar tasks, prefer dispatching **1–3 read-only `Explore`
-agents** over disjoint areas (issue the `Agent` calls in one message) — it keeps
-the main conversation lean. The strongest signal is an unfamiliar external
+agents** over disjoint areas — issue every `Agent()` call for the batch in a
+**single message** (N `tool_use` blocks side by side), not one call per message
+waiting for each dispatch's tool_result before writing the next. Serializing the
+dispatch buys nothing — the agents run async once out either way — and spends a
+full main-thread round trip per agent. This keeps the main conversation lean. The strongest signal is an unfamiliar external
 platform (an integration, SDK, or cloud service this session has not already
 researched) **together with** 2+ pre-existing areas of the repo: each half alone
 looks manageable inline, and the pair is what actually exhausts a context

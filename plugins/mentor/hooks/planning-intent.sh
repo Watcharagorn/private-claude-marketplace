@@ -104,6 +104,9 @@ scratch_dir="${HOME}/.claude/mentor/_prompt-nudges"
 marker="${scratch_dir}/.planning-intent-${SESSION_ID:-nosession}"
 [ -e "$marker" ] && exit 0
 mkdir -p "$scratch_dir" 2>/dev/null || true
+# Prune stale nudge markers (>24h) so the scratch dir doesn't grow one empty file
+# per matching session forever — same idiom as context-gate.sh / bypass-context.sh.
+find "$scratch_dir" -maxdepth 1 -name '.planning-intent-*' -mmin +1440 -delete 2>/dev/null || true
 : > "$marker" 2>/dev/null || true
 
 echo "[mentor] This looks like a planning request. Offer the user \`/mentor:plan <topic>\` so mentor's edit gate and structured plan format apply — do NOT invoke Skill(mentor:planning) yourself; only the /mentor:plan command arms the gate that makes it safe. (Disable this advisory with MENTOR_PLANNING_INTENT=off or \"planning_intent\":\"off\" in .mentor/config.json.)"
