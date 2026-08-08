@@ -129,6 +129,12 @@ heading belongs, or a renamed section, makes the note unreadable to the command 
 it — Step 5's self-check catches that before you report.
 
 - **Goal / next-session focus** — from `$ARGUMENTS`; what the next agent should accomplish.
+- **Standing directives** — skip when none exist. Constraints the next agent must obey for
+  the rest of this topic, not just this session: a tooling ban, a "no subagents" policy,
+  a forbidden command. Give this its own heading rather than folding it into "Open
+  questions / risks" (that section is for unknowns; a standing directive is not one) —
+  a directive left to be discovered by a repo-wide search is a directive a gitignore-aware
+  `grep -r` can silently miss, since it lives here, under `.mentor/`.
 - **What happened** — a tight summary of the conversation and the progress made. Narrative, not a transcript.
 - **Current state** — branch, what is done vs pending, any failing checks or known-broken bits.
   Paste a rendering of

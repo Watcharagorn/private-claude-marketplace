@@ -187,8 +187,10 @@ Then resolve a selection:
    supposed to be redacted at write time; this is a defense-in-depth check on load.)
 3. State **"Resuming: \<focus\>"** (from the note's Goal / next-session focus), then surface the
    **Current state** and **Open questions / risks** sections so the user sees where things stand.
-   Do **not** stamp the note yet — loading is not finishing; if this session stalls, the note must
-   still be listed for the next one.
+   If a **Standing directives** section is present, surface it too and obey it for the rest of
+   this topic — it is a constraint, not a suggestion, and it does not expire with the session
+   that wrote it. Do **not** stamp the note yet — loading is not finishing; if this session
+   stalls, the note must still be listed for the next one.
 4. **Reference artifacts by their paths** — the plan file, PRDs/ADRs, issue/PR URLs, commit SHAs as
    the note lists them. Do **not** paste their contents; open/read them only as needed to act.
 5. **Verify the gate state on disk — never trust the note's claim.** A note may say the plan gate is

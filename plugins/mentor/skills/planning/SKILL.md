@@ -128,9 +128,10 @@ dispatches follow `dispatch-agents`' "Async runtime & lifecycle" rules, and this
 fires before that skill's own first load point (Step 4) — so invoke
 `Skill(skill="mentor:dispatch-agents")` here if it is not already loaded, then end
 every research prompt with its **"Deliver before idling"** block pasted verbatim,
-after the return contract below. Loading it here is for that block alone: the
-annotation grammar is Step 4's, the execution rules are Step 6's, and the edit gate
-stays closed. Citing the rules in a paraphrase is not a substitute — it drops
+after the return contract below. Loading it here is for that block and the
+**Standing no-subagents policy** check alone: the annotation grammar is Step 4's,
+the execution rules are Step 6's, and the edit gate stays closed. Citing the rules
+in a paraphrase is not a substitute — it drops
 directives the agent has no other way to learn, the no-nested-fan-out ban above all.
 One nudge on a silent idle; close each agent out once its findings are consumed.
 
@@ -140,6 +141,32 @@ continuous, one config to centralize, one surface to consolidate — search for
 its siblings before drafting, and carry each hit into Step 3.5 as a scope
 decision. A sibling found at the approval gate rewrites the plan; the same
 sibling found here costs one question.
+
+**`.mentor/` is gitignored — a plain `grep -r` can miss it, even aimed straight at the
+dir.** `hooks/lib/state.sh` writes `.mentor/.gitignore` as `*` + negations (only
+`.gitignore`/`config.json`/`constitution.md` are un-ignored), so a gitignore-aware search
+returns a clean "no hits" for a standing instruction — a "no subagents" policy, an earlier
+decision — recorded in a prior handoff note under `.mentor/plans/*/handoffs/`, whether the
+search scans the whole repo or `.mentor/` alone. A bare relative path is also wrong in a
+linked worktree, which shares the MAIN repo's `.mentor/` (Step 0's `--git-common-dir`
+note) rather than having its own. Resolve the real path first, worktree-safe, then bypass
+gitignore:
+```bash
+d="$(bash "${CLAUDE_PLUGIN_ROOT}/hooks/plan-state.sh" dir --plans)"
+grep -rn --no-ignore "<pattern>" "$d"   # or: rg --no-ignore "<pattern>" "$d"
+```
+
+**Verify literal CLI commands, and claims about a live system's current state, before
+drafting them into the plan.** A deploy/release-shaped step that types an exact command
+from memory or a runbook paraphrase gets its first real syntax check from a plan
+reviewer — one fold cycle away from running verbatim against a live system. Before
+writing a literal command into such a step, verify it (`--help`, `--dry-run`, or the
+tool's own docs) rather than transcribing it as fact. The same applies to claims about
+the deploy target's current state (backups exist, a version is what you think it is,
+a rollback path works): verify it this session, or write it exactly as `handoff-note`'s
+external-state rule does — conditional on a named, mandatory verification command, with
+the fact stated as unverified rather than asserted. A step with no captured pre-change
+state has no rollback anchor either way.
 
 **Research return contract — put this in every research agent's prompt.** Each
 agent returns, and nothing more:
@@ -412,6 +439,9 @@ Required sections, in order:
    either point at the plan change that resolves it or record an explicit,
    justified deviation. If a principle can only be honored by amending the
    constitution, say so and stop short of encoding the violation as the plan.
+   A ✅/➖ verdict that rests on a repo search finding nothing names the
+   gitignore-bypassed command it ran (Step 2's caveat) — a verdict resting on an
+   unqualified `grep -r` is not yet earned.
 6. `## Implementation steps` — numbered, concrete, and **dispatch-annotated by
    default** (subagents-driven development: the main thread orchestrates,
    subagents implement — each agent gets one narrow, focused step, and the
@@ -429,6 +459,8 @@ Required sections, in order:
    finishing the write, rather than waiting for the Step 6 gate to catch an already-
    oversized plan. A plan that arrives at Step 6 already trimmed rarely needs the
    full split treatment.
+   **A literal command written into a step here, on a live or shared system, must already
+   be verified** per Step 2's directive — not transcribed from memory as you draft.
 7. `## Critical files`
 8. `## Out of scope` — name every carve-out so the reviewer sees the
    boundary, but give one a **plan number or slug** only when it resolves on

@@ -79,7 +79,11 @@ domain detection — the full pass always reviews these same four dimensions.
   that is `/mentor:track`.
 - No plan file in the mentor plans dir.
 - Single-file typo fixes or trivial edits where review costs more than the change.
-- The user explicitly asked you NOT to invoke sub-agents.
+- The user explicitly asked, live in this session, NOT to invoke sub-agents — honor it
+  directly and skip this skill. A **standing** policy found in the repo rather than said
+  live (CLAUDE.md, a project rule file, an earlier handoff note) is not this bullet: it is
+  `dispatch-agents`' pre-dispatch **Standing no-subagents policy** check, which asks rather
+  than silently skipping.
 
 ## Step 1 — Resolve the plan file(s)
 
@@ -170,8 +174,9 @@ dispatches follow `dispatch-agents`' **"Async runtime & lifecycle"**
 rules — invoke `Skill(skill="mentor:dispatch-agents")` now if it is not already
 loaded (this skill runs standalone as often as it runs from `plan`, so usually it
 is not), then end each reviewer's prompt with that section's **"Deliver before
-idling"** block pasted verbatim. Loading it is for that block alone: nothing here
-is being implemented and the `.planning` gate stays closed. That block is also what
+idling"** block pasted verbatim. Loading it is for that block and the **Standing
+no-subagents policy** check alone: nothing here is being implemented and the
+`.planning` gate stays closed. That block is also what
 produces the durable verdict copy — give each reviewer its own filename for it,
 `.mentor/plans/<slug>/practicality-review.md` and
 `.mentor/plans/<slug>/comprehensiveness-review.md`, since both dispatch in one
@@ -216,6 +221,11 @@ Each `prompt` must contain:
    violates a stated principle (name the principle).` Skip this line when the file
    is absent — do not add a separate constitution reviewer; the check stays folded
    into all reviewers.
+9. Gitignore caveat: `If a claim in this plan rests on a repo-wide search finding
+   nothing, re-check with the gitignore bypassed before trusting it: .mentor/ is
+   gitignored by design, so a plain grep -r silently skips it.` A reviewer verdicting
+   a plan's own research, rather than doing fresh research itself, is exactly the
+   surface this catches.
 
 ## Step 4 — Fold gate: one verdict per edit, asked one at a time
 
@@ -365,7 +375,7 @@ substantive choice on the user's behalf.
 `description: "Review plan: cleanliness"`. Its `prompt` must contain the same
 scaffolding as the Step 3 reviewers (role line, primary plan path +
 read-first, the solution-quality directive, anti-recursion, conditional
-constitution) with these lane specifics:
+constitution, gitignore caveat) with these lane specifics:
 
 - `Critique the plan's solution strictly through the lens of cleanliness.` →
   `Is the resulting design simple, maintainable, and reuse-aware?`
@@ -411,10 +421,12 @@ must contain:
      step; a step tracing to no stated need; Verification not exercising a
      scenario; Critical files mismatch (listed-but-unused, or touched-but-unlisted);
      `count-mismatch` — the plan states a count of its own change surface ("five
-     call sites", "3 handlers"): `grep -rn` the named identifier and reconcile the
-     **whole** result set against the plan's list, since confirming each listed site
-     cannot reveal the ones nobody listed. Report the command run, plan-count vs
-     found-count, and the `file:line` hits, so the user verdicts at a glance; an
+     call sites", "3 handlers"): `grep -rn --no-ignore` the named identifier and
+     reconcile the **whole** result set against the plan's list, since confirming
+     each listed site cannot reveal the ones nobody listed (and a gitignore-aware
+     grep would silently skip any hit under `.mentor/`). Report the command run,
+     plan-count vs found-count, and the `file:line` hits, so the user verdicts at
+     a glance; an
      undercount usually means missing steps, not just a stale numeral, which is why
      `coverage-gap` stays DECISION-REQUIRED rather than auto-folding a new number in;
      an `## Implementation steps` section carrying neither `[role:` dispatch

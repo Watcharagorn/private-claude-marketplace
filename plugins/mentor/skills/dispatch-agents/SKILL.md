@@ -295,6 +295,16 @@ cross-references this section). **Keep this roster current when a surface starts
 dispatching** — a reader who checks it and does not find their surface concludes
 the contract does not apply to them, which is exactly how a fan-out goes out raw:
 
+- **Standing no-subagents policy.** Before this session's first dispatch, check for a
+  *standing* instruction against subagent use recorded somewhere durable — CLAUDE.md, a
+  project rule file, an earlier session's handoff note — as distinct from the user saying
+  so live in this session (that case needs no check: honor it directly, per `plan-review`'s
+  "When NOT to use"). `.mentor/` is gitignored, so search it with `grep --no-ignore` — a
+  plain `grep -r` misses handoff notes (`planning` Step 2). Found one → stop before
+  dispatching and ask ONE `AskUserQuestion`, 3 options, **"Keep the work in the main thread
+  instead" first and Recommended** (a standing policy outranks the default path): keep it
+  in the main thread / dispatch as designed anyway / skip the affected step. That tension is
+  the user's to resolve, not yours to resolve silently.
 - **No busy-wait.** Waiting is not work: never chain `sleep`s or fire no-op Bash
   calls to pass the time. This governs **every** waiting surface in a mentor
   session, not only dispatched agents — a long build, a background test suite, a
