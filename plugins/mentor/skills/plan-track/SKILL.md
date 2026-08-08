@@ -255,7 +255,7 @@ Otherwise, act on the effective state:
 
 | Effective state | What to do |
 |---|---|
-| `approved` | Set `in_progress`, then execute (below). |
+| `approved` | If the sidecar's note says it was **swept in by `approve-plan.sh`** rather than individually approved (a different plan's approval promoted it too, because both `plan.md` files were newer than that session's marker), show the note and confirm with the user before dispatching — it was not necessarily reviewed. Otherwise set `in_progress`, then execute (below). |
 | `failed` | Show the sidecar's note — it says what broke last time — then set `in_progress` and retry, feeding that note to the first agent. |
 | `in_progress` | An interrupted run. Re-enter execution **from the first unticked step**; never restart from step 1. |
 | `implemented` | Say so and offer another. Do not rebuild it. |

@@ -85,6 +85,7 @@ Interview the user relentlessly about every aspect of this plan until you reach 
 - **Order by dependency.** Resolve the decisions that other decisions hang off of first; let each answer narrow the next question.
 - **If a question can be answered by exploring the codebase, explore the codebase instead of asking.** Step 1's subject reads are yours to do directly; past those, **needing a second file — or any read beyond ~100 lines — is the dispatch signal**: hand that question to an `Explore` subagent and keep interviewing while it runs, then fold what it finds into your next question. The budget is about volume, not curiosity: an interview that reads hundreds of lines inline is too heavy to hand off. (Dispatches follow `dispatch-agents`' "Async runtime & lifecycle" rules: deliver-before-idle, one nudge on a silent idle, close out when consumed.)
 - Keep going until the material decisions are resolved or explicitly deferred — do not stop at the first easy answer.
+- **If a question is declined, or the interview breaks off before Step 3's Close**, don't let resolved decisions vanish silently: summarize what's been resolved so far — and any codebase research already done — in your closing message, and suggest `/mentor:handoff` to persist it for a fresh agent to pick up, rather than letting the turn end with nothing recoverable.
 
 ---
 
@@ -103,6 +104,7 @@ When you reach shared understanding:
 - Every material decision is either resolved with the user or explicitly deferred.
 - Questions were asked **one at a time**, each with a recommended answer.
 - Codebase-answerable questions were answered by a dispatched `Explore` agent, not by asking the user or by bulk-reading.
+- A declined question or an interview cut short still left resolved decisions recoverable — recapped and pointed at `/mentor:handoff`, not silently lost.
 
 ### Do NOT
 

@@ -144,7 +144,7 @@ fi
 # successful-looking approval went unnoticed until the next session refused to build it.
 # One `state:` line always prints, before the --handoff/--deliver early exits below.
 if [ -n "$newly_planned" ]; then
-  promoted=""; deferred_skipped=""; candidates=0
+  promoted=""; swept=""; deferred_skipped=""; candidates=0
   while IFS= read -r plan_path; do
     [ -n "$plan_path" ] || continue
     candidates=$((candidates + 1))
@@ -160,14 +160,31 @@ if [ -n "$newly_planned" ]; then
       deferred_skipped="${deferred_skipped}$(basename "$plan_dir") "
       continue
     fi
-    # Flag-style: only --state is passed, so deps/origin/group/order ride through
-    # untouched — the whole point of the shield above.
-    mentor_plan_state_write "$plan_dir" --state approved
-    promoted="${promoted}$(basename "$plan_dir") "
+    if [ "$plan_path" = "$newest_plan" ]; then
+      # Flag-style: only --state is passed, so deps/origin/group/order ride through
+      # untouched — the whole point of the shield above.
+      mentor_plan_state_write "$plan_dir" --state approved
+      promoted="${promoted}$(basename "$plan_dir") "
+    else
+      # Swept in only because its plan.md is also newer than this session's marker
+      # (e.g. a different topic touched earlier in the same planning session) — NOT
+      # the plan this call is approving. Stamp the sidecar note (not just the stdout
+      # line below) so a LATER session — plan-track deciding whether to dispatch it,
+      # a resumed grill — still sees it wasn't individually reviewed, since the
+      # promotion write already replaces whatever note was there (mentor_plan_state_write's
+      # --note has no "omitted preserves" case) whether we set one or not.
+      mentor_plan_state_write "$plan_dir" --state approved \
+        --note "swept in by approve-plan.sh — plan.md was newer than this session's .planning marker but this wasn't the plan being approved; not individually reviewed. Undo: plan-state.sh set $(basename "$plan_dir") draft"
+      swept="${swept}$(basename "$plan_dir") "
+    fi
   done <<<"$newly_planned"
   if [ -n "$promoted" ]; then
     echo "  state: approved — ${promoted% }"
-  else
+  fi
+  if [ -n "$swept" ]; then
+    echo "  state: approved (also swept in — newer than this session's marker but not the plan being approved here; if you didn't mean to approve this one, verify it — plan-state.sh set <slug> draft to undo) — ${swept% }"
+  fi
+  if [ -z "$promoted" ] && [ -z "$swept" ]; then
     echo "  state: unchanged — nothing needed promoting (${candidates} candidate(s), none in draft/unknown)"
   fi
   if [ -n "$deferred_skipped" ]; then
