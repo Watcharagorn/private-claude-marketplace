@@ -89,16 +89,34 @@ it after the push means a cherry-pick/branch-reset recovery.
 # Re-derive: every Step here is a separate Bash call, so Step 1's variables are gone.
 # `git -C ""` silently falls back to cwd, so an unset $repo_root looks fine and isn't.
 repo_root="$(git rev-parse --show-toplevel)"
+branch="$(git -C "$repo_root" rev-parse --abbrev-ref HEAD)"
 base="$(git -C "$repo_root" symbolic-ref --short refs/remotes/origin/HEAD 2>/dev/null | sed 's|^origin/||')"
-[ -n "$base" ] || base="$(git -C "$repo_root" rev-parse --abbrev-ref HEAD)"
+[ -n "$base" ] || base="$branch"
 
 # --untracked-files=no on purpose: untracked files cannot be pushed, so they cannot reach
 # the PR — blocking on them protects nothing, while permanently bricking ship in any repo
 # that keeps local artifacts around (a tool's .temp/, .venv, a cache dir). This gate still
 # blocks staged adds and unmerged paths; the exemption is narrowly "never `git add`ed".
-[ -n "$(git -C "$repo_root" status --porcelain --untracked-files=no)" ] && {
-  git -C "$repo_root" status --short --untracked-files=no >&2   # name them; else the user re-runs status
+dirty="$(git -C "$repo_root" status --porcelain --untracked-files=no)"
+[ -n "$dirty" ] && {
+  printf '%s\n' "$dirty" >&2   # name them; else the user re-runs status
   echo "Working tree has uncommitted changes. Commit or stash them, then re-invoke /mentor:ship." >&2
+
+  # A marketplace repo publishes a plugin through its own release flow, not through ship,
+  # and "the implementation just finished, nothing committed yet" is exactly the moment
+  # ship gets invoked — so this has to look at the DIRTY tree, not a committed range. When
+  # every dirty path under plugins/ names the same plugin (paths outside plugins/ don't
+  # disqualify this — publish-plugin stages only plugins/<name>/, so it ignores them same
+  # as ship would), that plugin is very likely what the user actually wants shipped, and
+  # /loom:publish-plugin already commits + bumps + pushes it in one pass. ship still aborts
+  # here either way — this only changes what the abort tells the user to do next, never
+  # what ship does itself. Scoped to branch == base: publish-plugin pushes to the repo's
+  # default branch, so the redirect is wrong advice from a feature branch.
+  if [ -f "$repo_root/.claude-plugin/marketplace.json" ] && [ "$branch" = "$base" ]; then
+    plugin="$(printf '%s\n' "$dirty" | sed -n 's#^.. plugins/\([^/]*\)/.*#\1#p' | sort -u)"
+    [ "$(printf '%s\n' "$plugin" | grep -c .)" = 1 ] &&
+      echo "This is a change to plugins/$plugin/ — /loom:publish-plugin commits, bumps and pushes it in one pass; that may be the better fit than a manual commit here." >&2
+  fi
   exit 1
 }
 

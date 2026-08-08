@@ -461,6 +461,17 @@ Required sections, in order:
    full split treatment.
    **A literal command written into a step here, on a live or shared system, must already
    be verified** per Step 2's directive — not transcribed from memory as you draft.
+   **A `git diff`/`git log` written against a pathspec needs `--` before the path**
+   (`git log <range> -- <path>`) — once `--` is present, git parses everything to its left
+   as a revision, so a path left of it fails `fatal: bad revision`/`ambiguous argument`
+   instead of running; a bare path with no `--` at all happens to work today only because
+   nothing on disk currently collides with a revision name, which is exactly the kind of
+   verification-time truth that stops being true later. Put `--` in front of every path
+   from the start. This applies to a command anywhere in the plan that reads as git history
+   or a diff, including `## Verification` — and if the command is piped into something like
+   `grep -c … || echo 0`, a real git failure and a genuine zero-match print the same
+   output, so the fallback silently launders an error into a passing `Done when:`. Prefer
+   checking the command's own exit status over papering over it with `|| echo 0`.
 7. `## Critical files`
 8. `## Out of scope` — name every carve-out so the reviewer sees the
    boundary, but give one a **plan number or slug** only when it resolves on
