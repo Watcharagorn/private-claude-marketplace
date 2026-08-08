@@ -255,9 +255,12 @@ printed `ADOPTED-BY-REFERENCE`. Then report:
 
 - The path and the new version (e.g. `v1.0.0 ratified` / `v1.2.0 — MINOR`).
 - A one-line summary of what changed (from the sync-impact report).
-- **Commit guidance** — it is a shared, committed artifact, so suggest:
-  `git add .mentor/constitution.md && git commit -m "docs: constitution v<new>"`.
-  Do not commit for the user unless they ask.
+- **Commit guidance** — it is a shared artifact every future `/mentor:plan` in this
+  repo reads, so suggest committing *and* getting it to the remote:
+  `git add .mentor/constitution.md && git commit -m "docs: constitution v<new>"`,
+  then push it the way this repo normally lands changes (`/mentor:ship` when the
+  branch needs a PR). A commit left local diverges the shared branch and the next
+  session pays for it in recovery. Do not commit or push for the user unless they ask.
 - Remind that from now on `/mentor:plan` will include a Constitution Check against it.
 
 ### Do NOT

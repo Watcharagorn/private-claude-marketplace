@@ -324,7 +324,8 @@ here rather than straight from `mentor:planning`:
   implement in the main thread under `mentor:planning` Step 6's rule for that case, and keep
   everything around it (step ticks, `Done when:` verification, the **No busy-wait** rule
   from `mentor:dispatch-agents`, and its **CLOSING CHECKLIST** — the `/mentor:tour`
-  offer and the `/mentor:defer` sweep) exactly as the dispatch path does it.
+  offer, the `/mentor:defer` sweep, and the `/mentor:ship` pointer) exactly as the
+  dispatch path does it.
   Arriving here does not make that path unowned. A skipped plan usually writes its
   steps as plain numbered items rather than `Step N — …` lines — `bash
   "${CLAUDE_PLUGIN_ROOT}/hooks/plan-state.sh" tick <slug> <N>` counts either form

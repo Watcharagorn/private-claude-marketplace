@@ -276,6 +276,10 @@ before issuing `Agent` calls. Then:
    - **Offer `/mentor:tour`** — one line: a hands-on acceptance pass building an editable guided-tour review artifact (pass/not-pass scenarios) of what shipped. Do not auto-run it.
    - **Sweep the report you're about to write** — every follow-up, gap, or known-broken
      item in it goes through `/mentor:defer` first (orchestrator contract above).
+   - **Point at `/mentor:ship`** — one line: once the ticks above are verified and
+     the tree is committed, the next move is `/mentor:ship` (it hands off to
+     `/mentor:merge`'s bounded watch) — not a hand-rolled `git push`, `gh pr create`,
+     or a CI-poll loop. Do not auto-run it.
 
 Do NOT paraphrase the plan or summarize what you're about to do. Dispatch immediately.
 
