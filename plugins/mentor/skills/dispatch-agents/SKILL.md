@@ -328,6 +328,11 @@ the contract does not apply to them, which is exactly how a fan-out goes out raw
   Deliver your full result (final text / message per your runtime) BEFORE going
   idle — an idle signal with no delivered result is a contract violation. Include the
   exact command(s) that produced your verification output, copy-pasteable.
+  Leave the git index as you found it: edit the working tree and let the orchestrator
+  commit — never `git add` / `git rm` / `git mv` / `git stash` / `git commit` (use plain
+  `rm`/`mv` to delete or rename a file). If you staged something while investigating,
+  `git restore --staged <path>` before you return — staged state you never commit has no
+  owner once you go idle, and rides silently into someone else's next commit.
   If you are producing a verdict or report (reviewer, verifier), also write a
   durable copy to `<repo>/.mentor/plans/<slug>/` (e.g. `step-N-review.md`)
   before returning — a dropped notification must never be the only copy of
