@@ -51,6 +51,14 @@ the session's last exit: an agent left resident here has no later checkpoint in
 decide what the document emphasizes — the parts of the work relevant to that focus get the most
 detail. If the argument is empty, write a general handoff covering the whole session.
 
+**`$ARGUMENTS` sets emphasis, never scope.** It answers what the next session is *for*, not what
+this skill produces — this skill's only deliverable is the handoff note itself (see "Do NOT"
+below). An argument that also asks for a *plan* to be authored or finalized ("write it up as a
+plan", "make this a mentor plan") is a **routing signal**, not an instruction to draft one here:
+write the handoff note as normal, capturing the converged design richly in **What happened**, and
+let **Recommended mentor commands for the next agent** (Step 3) route it through the "Work planned
+outside mentor" mapping's new bullet for this exact shape of ask.
+
 ## Step 2 — Compute the save path
 
 Notes live **inside the plan-topic folder they belong to** — `<repo>/.mentor/plans/<topic>/handoffs/`
@@ -158,6 +166,16 @@ Pick the entries that fit the current state, tailored to the next-session focus:
     ordinary stub plan the existing `overview`/`/mentor:track` path already understands, so offer
     that when the work should show up in the hierarchy. (`/mentor:track` does already *list* the
     topic — `overview` reports it as "no plan yet" — so never report it as invisible.)
+  - *The design was converged in THIS session but never written as a mentor plan* (the user asked
+    this skill to "write it up as a plan" or similar) → say plainly that authoring a plan is
+    `mentor:planning`'s job, not this one's — hand-rolling it here skips Step 3's domain routing,
+    Step 3.5's decision resolution, and the Content spec, none of which this skill runs. Print a
+    literal `/mentor:plan <topic>` line (the SAME `topic` resolved in Step 2 — never a placeholder)
+    with this note itself as the task statement (same pattern as the static-artifact bullet above —
+    the note IS the artifact). Name the payoff so the user does not have to re-run `/mentor:handoff`
+    by hand afterward: **at that plan's Step 6 approval question, "Hand off to next agent" (or
+    "Pause — still drafting" if it needs more work first) writes the very handoff being asked for
+    now** — one command drives both the plan authoring and the handoff.
   - *Another planning framework owns this work* — you ran its commands this session (e.g. spec-kit's
     `/speckit-*`) → lead with **that framework's own next command**, and say plainly that mentor's
     *planning* commands do not apply here; `/mentor:handoff` and `/mentor:resume` still do. Do not
@@ -322,4 +340,7 @@ point.
 - Do **not** open a prior handoff as a template — for its path, naming, structure, or anything else.
   Path comes from Step 2's snippet; structure comes from Step 3.
 - Do **not** paste large artifacts (full diffs, whole plan bodies, file dumps) — reference them.
+- Do **not** author or revise a `plan.md` — that file has exactly one writer, `mentor:planning`
+  (plus `deferring`'s stubs and `plan-split`'s children). An argument asking for one routes through
+  the "Work planned outside mentor" mapping (Step 3) instead of being hand-rolled here.
 - Do **not** carry secrets or PII into the file.

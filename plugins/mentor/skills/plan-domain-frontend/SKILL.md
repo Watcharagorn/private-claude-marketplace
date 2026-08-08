@@ -62,6 +62,37 @@ Three global rules govern everything in this domain (restated as hard rules in �
    `<repo>/.mentor/zooms/<subject-slug>/…` (exempt from the plan gate, so the write is allowed) —
    so that is the one compliant place for mockup markup.
 
+## Platform-rendered surfaces — a narrower fidelity source
+
+Everything above assumes the surface is rendered by the product's **own** component
+tree, so "derive from real source" means the repo's design tokens, fonts, and
+components (§Constraints recap, rule 2). Some UX/UI changes instead render inside a
+**third-party client's own chrome** — a Discord/Slack message embed, a push
+notification, an email client's rendering of an HTML email — where there are no repo
+tokens or components to derive from, because the repo only builds the *payload* the
+platform then renders on its own terms. This is still the frontend domain (it is a
+visual, user-facing surface), just with the fidelity source relocated:
+
+- **Skip the Preflight's design-skill discovery** for such a surface. A local design
+  system governs the product's own UI, not a platform's chrome — invoking one here has
+  nothing to distill from.
+- **§1 (research)** locates the **platform's documented render + payload schema**
+  (field caps, allowed colors/formatting, size limits) and the **repo's own
+  payload-building / emitting code** — the place the message is actually assembled —
+  instead of component/token/font files.
+- **§3 (deliverable)** — the token table becomes a **payload-shape/limits table**
+  (`Field · Constraint · Current value`) instead of a CSS-token table; the delta table
+  and callouts are unchanged.
+- **§4 (mockup, opt-in zoom only)** — the mockup approximates the platform's own
+  chrome faithfully **from its documented render spec**, labeled plainly as an
+  approximation (the platform renders it for real; this pane cannot). The *payload
+  content* inside that chrome — copy, field values, colors actually sent — still comes
+  ONLY from the repo's real payload-building code, same as any other surface: never
+  invent copy or values that aren't in the emitting source.
+
+This stays inside the `frontend` row — it is a fidelity-source substitution, not a
+second domain, so the routing table never double-fires on this class of surface.
+
 ## 1 — Shape the research (`plan` Step 2)
 
 When research is delegated (as `plan` Step 2 suggests), append these directives to the

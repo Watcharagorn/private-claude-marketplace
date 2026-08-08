@@ -330,6 +330,7 @@ Knobs — env vars under `env` in `~/.claude/settings.json` (or the project's
 | `MENTOR_CONTEXT_WARN_HIGH_TOKENS` | `"context_warn_high_tokens"` | 90% of ask | Warn-high threshold (tokens). |
 | `MENTOR_CONTEXT_BLOCK_TOKENS` | `"context_block_tokens"` | `350000` | Ask threshold (tokens; key name kept for compatibility). |
 | `MENTOR_CONTEXT_TAIL_LINES` | — | `400` | Transcript tail window scanned for the measurement. |
+| `MENTOR_PLANNING_INTENT=off` | `"planning_intent": "off"` | on | Disable the planning-intent advisory hook entirely (`off\|0\|false\|no`). |
 | — | `"test_command"` | auto-detect | `/mentor:ship` Step 4's test command — set it where auto-detect guesses wrong (monorepos). No env-var twin. |
 
 ## How it works
@@ -344,6 +345,7 @@ Knobs — env vars under `env` in `~/.claude/settings.json` (or the project's
 | `hooks/set-mode.sh` | Get/set the approval-gate default. |
 | `hooks/context-gate.sh` | **Context gate.** `UserPromptSubmit` — measures live context from the transcript: warns once (~200k), re-warns near the limit (~315k), and above ~350k asks the user — hand off (recommended) or bypass for the session. Never blocks or erases prompts. Fail-soft; slash commands always pass. |
 | `hooks/bypass-context.sh` | Writes the session-scoped `.context-bypass-<session_id>` marker when the user answers "Proceed anyway" — degrades the ask tier to a one-line advisory for the rest of the session. |
+| `hooks/planning-intent.sh` | **Planning-intent advisory.** `UserPromptSubmit` — a narrow, once-per-session, non-blocking nudge: an anchored opener ("help me plan…", "let's plan…") suggests `/mentor:plan <topic>` so a conversational planning ask doesn't silently skip the edit gate. Never blocks, never creates repo state, suppressed while a plan is already armed. |
 | `hooks/plan-state.sh` | **The one plan-state API** (not a hook — skills call it directly). `init` / `set` / `set-deps` / `claim` / `list` / `current` / `overview` / `context` / `dir` / `gate`. Sole writer of `.state.json` (incl. `deps` and `origin`, v2.17.0); derives effective state from the plan's ✅ ticks; `current` is group-aware, so after a split it reports the whole group rather than whichever child agent finished last. `overview --json` computes the repo-wide plans+deps+handoffs hierarchy fresh on every call — nothing cached. `dir` (v2.14.0) is the one repo-scoped `.mentor` path derivation — skills call it instead of hand-rolling `git-common-dir` snippets that drift. `gate` is the one plan-gate marker status check (`ARMED`/`RELEASED`/`STALE`, read-only) — resuming/touring/plan-track call it instead of each re-deriving the marker path and 8h staleness window themselves. |
 
 ### Commands and skills never share a name
@@ -422,7 +424,7 @@ extra deliverable. Instruction-only — no hooks.
 
 | Domain | Triggers | Extra plan deliverable |
 |---|---|---|
-| `plan-domain-frontend` | UX/UI — components, pages, styles, layout, design systems, theming, responsive | ASCII zone wireframes + delta/token tables; live mockups authored by the zoom combo agent only in an opt-in HTML zoom. |
+| `plan-domain-frontend` | UX/UI — components, pages, styles, layout, design systems, theming, responsive; also a message/notification surface rendered by a third-party client (chat embed, push notification, email chrome) | ASCII zone wireframes + delta/token tables (a payload-shape table for a platform-rendered surface); live mockups authored by the zoom combo agent only in an opt-in HTML zoom. |
 | `plan-domain-backend-api` | API/endpoint/route/handler/schema/DTO/contract — or the data model behind it: migration, table, column, index, constraint, enum, RLS policy | Before/after contract diff tables, schema diffs, Mermaid sequence flows; on a DDL change also a per-column delta table + a Mermaid ER diff of the changed entities. |
 | `plan-domain-architecture` | Structural change — services, containers, datastores, queues, integrations, data flows (not pure content/config/doc/style/refactor) | Diff-highlighted C4-style Mermaid flowcharts, only the levels that change; a provenance list for any changed datastore field. |
 | `plan-domain-dynamic` | No registered domain matched, and no already-available project/plugin skill names the technology (fallback) | A dispatched domain-definer names the domain and returns a best-practices brief; the plan gains a practice→step mapping. A substituted available skill can supply the brief instead. |
