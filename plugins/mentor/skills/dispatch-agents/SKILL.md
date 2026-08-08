@@ -270,9 +270,14 @@ before issuing `Agent` calls. Then:
 5. **CLOSING CHECKLIST — always, after the last step verifies:**
    - **Close out finished agents** — enumerate live tasks with `TaskList` and diff
      against this session's own dispatch tree, nested spawns included, before
-     `TaskStop`ping only what traces to that tree; stopping just the dispatches
-     you remember by name misses a nested spawn (see "Async runtime & lifecycle"
-     below for the full rule).
+     `TaskStop`ping only what traces to that tree. Skipping straight to `TaskStop`
+     by remembered name doesn't just risk missing a nested spawn — when the harness
+     runs several sessions concurrently, a remembered name can belong to a
+     **different session's** live agent (its idle notification leaked into this
+     session's message stream). The runtime rejecting an unrecognized id is a
+     safety net, not a substitute for enumerate-then-diff (see "Async runtime &
+     lifecycle" below for the full rule, including the matching ownership check
+     before *nudging* on idle — that path has no id-rejection safety net at all).
    - **Offer `/mentor:tour`** — one line: a hands-on acceptance pass building an editable guided-tour review artifact (pass/not-pass scenarios) of what shipped. Do not auto-run it.
    - **Sweep the report you're about to write** — every follow-up, gap, or known-broken
      item in it goes through `/mentor:defer` first (orchestrator contract above).
@@ -335,9 +340,12 @@ the contract does not apply to them, which is exactly how a fan-out goes out raw
   is indistinguishable from a hang, and the session's only remaining recovery is a
   human noticing.
   If a correction to this brief arrives mid-run, apply it before you return.
-  Deliver your full result (final text / message per your runtime) BEFORE going
-  idle — an idle signal with no delivered result is a contract violation. Include the
-  exact command(s) that produced your verification output, copy-pasteable.
+  Deliver your full result via SendMessage BEFORE going idle — if SendMessage
+  is not already in your tool list, fetch it first with ToolSearch,
+  select:SendMessage. Ending your turn on a plain final-text reply with no
+  SendMessage call is a contract violation: it is indistinguishable from not
+  reporting at all, because only SendMessage reaches the orchestrator. Include
+  the exact command(s) that produced your verification output, copy-pasteable.
   Leave the git index as you found it: edit the working tree and let the orchestrator
   commit — never `git add` / `git rm` / `git mv` / `git stash` / `git commit` (use plain
   `rm`/`mv` to delete or rename a file). If you staged something while investigating,
@@ -349,10 +357,18 @@ the contract does not apply to them, which is exactly how a fan-out goes out raw
   completed work.
   ```
 - **Idle-before-report race.** An idle notification can arrive before the
-  agent's actual report. On idle with no report in hand: check the message
-  backlog, then send ONE nudge: "Status check on Step N: send your completed
-  result now — full text, per the return contract. If you are still working,
-  reply with the one thing that's left." Do not restate the step's criteria —
+  agent's actual report — and, when the harness is running several sessions
+  concurrently, a notification can name a task this session never dispatched
+  at all (a sibling session's idle/report leaking into this one's message
+  stream). Check the id against this session's own dispatch tree before
+  reacting: the id-not-found safety net that protects `TaskStop` below does
+  **not** protect a nudge — `SendMessage` to a foreign id succeeds and lands
+  on a stranger's live agent. An unrecognized id gets no reply of any kind,
+  not even the nudge. On idle **with a recognized id** and no report in
+  hand: check the message backlog, then send ONE nudge: "Status check on
+  Step N: send your completed result now — full text, per the return
+  contract. If you are still working, reply with the one thing that's
+  left." Do not restate the step's criteria —
   the agent's context is warm, and a re-brief invites it to redo finished work.
   Only if the nudge fails, fall back to independent re-verification. Never
   re-run expensive verification (full builds, E2E suites) while the agent's own

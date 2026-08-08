@@ -608,6 +608,11 @@ having said so. Re-run the same check now:
 bash "${CLAUDE_PLUGIN_ROOT}/hooks/plan-state.sh" context
 ```
 
+Neither Step 0's line nor an earlier `context-gate.sh` WARN notice from
+mid-session substitutes for this — both are readings from an earlier, smaller
+context, and the row you pick below is decided by *this command's* output,
+run right now.
+
 - **`CONTEXT: ASK`** — do not ask the approval question yet. Ask via
   `AskUserQuestion` (header "Context", two options) exactly as the command
   layer's arm-time ASK does: hand off & stop (`Skill(skill="mentor:handoff-note")`),
