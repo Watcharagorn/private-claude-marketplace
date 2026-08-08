@@ -405,8 +405,14 @@ mentor_plan_live_handoffs() {
 # regex via awk -v, a backslash-escaped literal is undefined behavior on some awk
 # implementations (confirmed failing on macOS's awk 20200816) — a bracket
 # expression is the portable way to mean "one literal asterisk" in both a static
-# `/…/` literal and a dynamic string.
-MENTOR_STEP_LINE_PATTERN='^[[:space:]]*(-[[:space:]]+)?([*][*])?([0-9]+\.|[Ss]tep[[:space:]]+[0-9]+)'
+# `/…/` literal and a dynamic string. `(#{3,4}[[:space:]]+)?`: real plans mentor
+# itself writes commonly use `### N. Title` step headings, not just bare `N.` —
+# without this branch those steps are invisible to both functions, which
+# silently report 0 ticked/total instead of erroring. `###`/`####` never collide
+# with the separate `/^##[[:space:]]/` section-boundary check both functions use
+# (exactly two hashes) since a third/fourth `#` sits where that check needs
+# whitespace.
+MENTOR_STEP_LINE_PATTERN='^[[:space:]]*(-[[:space:]]+)?([*][*])?(#{3,4}[[:space:]]+)?([0-9]+\.|[Ss]tep[[:space:]]+[0-9]+)'
 
 # mentor_plan_tick_counts <plan_md> — echo "<ticked> <total>" step-line counts from
 # the `## Implementation steps` section, ticked when a step line contains ✅.

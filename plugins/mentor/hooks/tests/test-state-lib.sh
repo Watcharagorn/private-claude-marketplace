@@ -246,6 +246,12 @@ chk "missing file → 0 0"                test "$(libsh "mentor_plan_tick_counts
 chk "empty arg → 0 0"                   test "$(libsh "mentor_plan_tick_counts ''")" = "0 0"
 rm -rf "$PLANS"
 
+echo "== B9b. mentor_plan_tick_counts — H3-heading step format (### N. Title), real plans use this =="
+mkdir -p "$PLANS/tch"
+printf '# t\n## Implementation steps\n### 1. One ✅\nbody\n### 2. Two\nbody\n## Verification\n### 1. not a step (wrong section)\n' > "$PLANS/tch/plan.md"
+chk "H3 headings counted like bare steps" test "$(libsh "mentor_plan_tick_counts '$PLANS/tch/plan.md'")" = "1 2"
+rm -rf "$PLANS"
+
 echo "== B10. mentor_plan_tick_step — the write-side counterpart, sharing B9's pattern =="
 mkdir -p "$PLANS/ts"
 printf '# t\n## Implementation steps\n1. one\n2. two\n## Verification\n1. not a step\n' > "$PLANS/ts/plan.md"
@@ -263,6 +269,14 @@ out="$(libsh "mentor_plan_tick_step '$PLANS/ts/plan.md' abc" 2>/dev/null)"; rc=$
 chk "non-numeric step → rejected, rc 1" test "$rc" = "1"
 out="$(libsh "mentor_plan_tick_step '/nope.md' 1" 2>/dev/null)"; rc=$?
 chk "missing plan_md → rc 1, no crash"  test "$rc" = "1"
+rm -rf "$PLANS"
+
+echo "== B10b. mentor_plan_tick_step — H3-heading step format, sharing B9b's pattern =="
+mkdir -p "$PLANS/tsh"
+printf '# t\n## Implementation steps\n### 1. One\n### 2. Two\n' > "$PLANS/tsh/plan.md"
+chk "tick H3 step 1 → status line" test "$(libsh "mentor_plan_tick_step '$PLANS/tsh/plan.md' 1")" = "ticked 1 2"
+chk "tick H3 step 1 → the ✅ landed on the heading line" \
+  bash -c "sed -n '3p' '$PLANS/tsh/plan.md' | grep -qF '✅'"
 rm -rf "$PLANS"
 
 echo "== D. mentor_get_mode / mentor_config_get =="

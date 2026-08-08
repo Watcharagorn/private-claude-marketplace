@@ -152,8 +152,12 @@ the distilled research, the resolved decisions, and the content spec below
 (Step 4); its return is the plan body you persist. For most plans, author it
 yourself.
 
-If a domain matched (Step 3), fold that domain skill's research directives into
-the research prompts.
+Before dispatching research agents, do a quick pass of Step 3's domain registry.
+If a domain matched, fold that domain skill's research directives into the
+research prompts before drafting them. If none matched, run the dynamic
+fallback now — `plan-domain-dynamic`'s domain-definer dispatch must complete
+before research agents go out, not after; running research first makes its
+"before Step 2" mandate unsatisfiable.
 
 ## Step 3 — Domain routing {#domains}
 
@@ -688,6 +692,13 @@ implementation must not be the one route that leaves no record. Missing a transi
 is survivable — state also derives from the `✅` step ticks you mark as each step
 passes — but `failed` cannot be derived from ticks, so that one is worth remembering.
 
+**Blocking failures get an escape hatch too.** When direct implementation hits
+something that stops progress — a failing gate, an escalation only the user can
+resolve — and you raise your own ad hoc `AskUserQuestion` about it, include
+**Hand off to next agent** among the options. The user may want a fresh session
+on this rather than resolving it inline right now, and nothing else on this path
+offers that choice.
+
 **Close out the skipped path too.** For the same reason, that skill's CLOSING
 CHECKLIST is unreachable here, so carry its two user-facing items across — there
 are no agents to release, but there is still work to hand back:
@@ -752,7 +763,11 @@ infer them and each one has bitten a real session:
 
 On **Review the plan (staged)**, invoke `Skill(skill="mentor:plan-review")` and
 prepend: *"The user selected 'Review the plan (staged)' — skip the Step 2 gate
-and start Stage 1 directly."* Its reviewers are read-only and the gate stays
+and start Stage 1 directly."* If this option was reached via free-text "Other"
+that explicitly asked for the mechanical/consistency check alone (not the full
+staged review), prepend instead: *"The user explicitly asked for the
+consistency check alone — skip the Step 2 gate and go straight to
+Stage-2-only mode."* Either way its reviewers are read-only and the gate stays
 closed; the skill itself folds the Stage 1 edits the user accepts at its
 one-question-per-edit fold gate and auto-folds MECHANICAL Stage 2 findings
 into the plan file (gate-exempt `.mentor/` writes), walks DECISION-REQUIRED
