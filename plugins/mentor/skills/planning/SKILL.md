@@ -646,6 +646,15 @@ comes first. Anything yielded to "Other" stays reachable — the user can just s
 Under `CONTEXT: HANDOFF`, also note in the question text that the session is
 critically large.
 
+**`/mentor:handoff` stays reachable in every row, including the ones that list no
+handoff option.** It is a command, not an option: it writes a handoff note and never
+calls `approve-plan.sh`, so it neither releases the gate nor needs the plan approved
+first. A user who wants a fresh agent to continue before any context verdict fires can
+type it into this question's always-present "Other" free text — the same route
+`/mentor:defer` takes above — rather than rejecting the question, which returns no
+answer and forces a re-ask. That covers the literal command; bare handoff *intent* in
+free text is still governed by the routing rule below.
+
 **Whenever both handoff options are listed, say in the question text which options
 release the gate.** They differ only in consent — one approves, one does not — and a
 label alone cannot carry that. A user who is out of room reads "hand off" and picks
