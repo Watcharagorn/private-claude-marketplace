@@ -195,10 +195,33 @@ Then resolve a selection:
    released (or armed); check the actual marker before acting:
 
    ```bash
-   bash "${CLAUDE_PLUGIN_ROOT}/hooks/plan-state.sh" gate   # ARMED | RELEASED | STALE
+   bash "${CLAUDE_PLUGIN_ROOT}/hooks/plan-state.sh" gate --verbose   # ARMED | RELEASED | STALE (+ owner/age/affected_plans when ARMED)
    ```
 
    If the marker state contradicts the note, say so and follow the marker, not the note.
+
+   **`ARMED` here is never something this session armed itself** — resuming loads a note from a
+   *prior* session, so this session hasn't run `/mentor:plan` yet, and any marker it finds predates
+   it. `--verbose`'s `owner_session`/`owner_cwd`/`age_min` name who holds it; `affected_plans` names
+   which plan(s) `approve-plan.sh` would promote to `approved` if run right now — surface all of it to
+   the user. Do **not** try to clear it yourself: never delete the marker (`plan-gate.sh` is its only
+   remover) and never run `approve-plan.sh` to "free it up" — it takes no slug and promotes *every*
+   plan newer than the marker, which may be a plan nobody reviewed this session (`plan-gate.sh`'s own
+   denial for this exact case carries the same warning).
+
+   **Do not assume Step 6's `/mentor:plan <slug>` route resolves this for you.** `begin-plan.sh`'s
+   foreign-marker guard compares **session IDs only** — it has no notion of slug or plan — so it fires
+   identically whether the marker belongs to a genuinely unrelated plan *or* to the note's own plan
+   left mid-draft by a "Pause — still drafting" handoff (resuming is always a new session, so the ids
+   never match either way). Read its output: `Plan phase ARMED.` means it re-armed for you, safe to
+   continue; `Plan gate NOT armed — another session's plan gate is already active.` means it
+   **declined** — the old marker is still sitting there un-owned by this session. On the refusal,
+   stop; do not proceed into planning believing the repo is gated just because the marker file still
+   exists on disk, and do not fall through to `/mentor:dispatch-agents` or a hand-rolled ship either —
+   `plan-gate.sh` will deny the first write regardless, so dispatching burns the whole batch on a wall
+   it was always going to hit. Tell the user what's armed and let them decide (wait, or explicitly
+   authorize continuing past it). `/mentor:track` is the one route that already handles this itself
+   (it stops on any live marker, "whatever the state") — nothing extra to do there.
 
    **`STALE` is not still-armed, but it is not plain `RELEASED` either — treat it as its own
    determination.** The marker is still on disk (only `plan-gate.sh` deletes it, lazily, on the next

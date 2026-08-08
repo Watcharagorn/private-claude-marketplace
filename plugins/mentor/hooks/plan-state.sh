@@ -65,9 +65,10 @@
 #       stdout. Skills call this instead of hand-rolling the derivation: the inlined
 #       copies drifted, and most dropped the no-repo fallback.
 #
-#   gate
-#       ARMED|RELEASED|STALE, exactly one token on stdout — the plan-gate marker's
-#       status, READ-ONLY (never deletes the marker; plan-gate.sh is its only
+#   gate [--verbose]
+#       ARMED|RELEASED|STALE, exactly one token on stdout (line 1, always — bare
+#       `gate` and `gate --verbose` alike) — the plan-gate marker's status,
+#       READ-ONLY (never deletes the marker; plan-gate.sh is its only
 #       writer/remover, so its self-heal notice is never silently swallowed
 #       elsewhere, and a guard run just past the threshold during genuinely live
 #       planning can never disarm the gate as a side effect). STALE means the
@@ -77,6 +78,15 @@
 #       → RELEASED. This answers "is the gate armed", not "should it be" — a
 #       caller that instead needs "we're inside a repo and planning should have
 #       started" wants a different check.
+#       --verbose is strictly additive: bare `gate` is unchanged (plan-track's and
+#       touring's `[ "$(… gate)" = "ARMED" ]` string-equality checks depend on
+#       staying exactly one token). On ARMED only, --verbose appends
+#       owner_session=/owner_cwd=/age_min= (the same mentor_marker_field/
+#       mentor_marker_age_min facts plan-gate.sh's own deny message already
+#       computes) plus affected_plans= — the plan slugs whose plan.md is newer
+#       than the marker, i.e. exactly the candidates approve-plan.sh would
+#       promote to `approved` if run right now. RELEASED/STALE print nothing
+#       past the token even under --verbose — there is no "owner" to report.
 #
 # EFFECTIVE state (see lib/state.sh): the more advanced of the stored state and the
 # state derived from plan.md's ✅ step ticks. A forgotten `set` therefore costs
@@ -107,7 +117,8 @@ Usage: plan-state.sh <subcommand>
   overview --json                       repo-wide JSON: plans + deps + live handoffs + step counts
   context                               CONTEXT: ASK|HANDOFF|WARN|OK|UNKNOWN (~N tokens)
   dir [--plans]                         the repo-scoped mentor dir (or its plans dir)
-  gate                                  ARMED|RELEASED|STALE — read-only marker status
+  gate [--verbose]                      ARMED|RELEASED|STALE — read-only marker status
+                                         (--verbose adds owner/age/affected-plans on ARMED)
   ensure-dir <path>                     mkdir it + chmod 700 the whole path; echoes it
 EOF
 }
@@ -212,11 +223,13 @@ fi
 # plans dir, same as dir/ensure-dir above. Never deletes the marker — see the doc
 # comment near the top of this file for why plan-gate.sh stays its only remover.
 if [ "$sub" = "gate" ]; then
-  if [ "$#" -gt 0 ]; then
-    echo "[mentor plan-state] gate: unexpected argument ${1}" >&2
-    usage >&2
-    exit 1
-  fi
+  g_verbose=0
+  while [ "$#" -gt 0 ]; do
+    case "$1" in
+      --verbose) g_verbose=1; shift ;;
+      *) echo "[mentor plan-state] gate: unexpected argument ${1}" >&2; usage >&2; exit 1 ;;
+    esac
+  done
   g_repo="$(mentor_repo_root "$(pwd)")"
   if [ -n "$g_repo" ]; then
     g_mdir="$(mentor_state_dir "$g_repo")"
@@ -230,6 +243,21 @@ if [ "$sub" = "gate" ]; then
     echo STALE
   else
     echo ARMED
+    # Additive-only, ARMED-only: RELEASED/STALE have no "owner" to report, and the
+    # bare token above already printed — a caller doing `[ "$(gate)" = "ARMED" ]`
+    # never sees these lines because that form passes no --verbose.
+    if [ "$g_verbose" -eq 1 ]; then
+      echo "owner_session=$(mentor_marker_field "$g_marker" session)"
+      echo "owner_cwd=$(mentor_marker_field "$g_marker" cwd)"
+      echo "age_min=$(mentor_marker_age_min "$g_marker")"
+      # Same computation as approve-plan.sh's newly_planned snapshot: the plan
+      # dirs approve-plan.sh would treat as "written this planning session" and
+      # promote toward `approved` if run right now — the fact that actually
+      # answers "would approving this clobber a plan I never reviewed?".
+      g_affected="$(find "${g_mdir}/plans" -mindepth 2 -maxdepth 2 -name plan.md -newer "$g_marker" 2>/dev/null \
+        | while IFS= read -r g_p; do basename "$(dirname "$g_p")"; done | paste -sd' ' -)"
+      echo "affected_plans=${g_affected}"
+    fi
   fi
   exit 0
 fi

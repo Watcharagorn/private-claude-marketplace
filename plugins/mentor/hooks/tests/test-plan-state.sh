@@ -566,6 +566,38 @@ out="$(ps gate extra)"; rc=$?
 chk "gate rejects a stray argument → exit 1"   test "$rc" = "1"
 chk "gate rejects a stray argument → names it" has "unexpected argument" "$out"
 
+echo "== P2. gate --verbose: additive-only, ARMED-only owner/age/affected-plans =="
+CWD="$REPO"
+rm -f "$GATE_MARKER"
+plan gv-old "old plan — written BEFORE the marker, must not show as affected"
+sleep 1
+{ echo "session=test-session-xyz"; echo "cwd=/some/other/repo"; } > "$GATE_MARKER"
+sleep 1
+plan gv-new "new plan — written AFTER the marker, exactly what approve-plan.sh would promote"
+out="$(psout gate --verbose)"
+chk "gate --verbose: line 1 is still the bare token" \
+  test "$(printf '%s\n' "$out" | sed -n '1p')" = "ARMED"
+chk "gate --verbose: reports the owning session"      has "owner_session=test-session-xyz" "$out"
+chk "gate --verbose: reports the owning cwd"           has "owner_cwd=/some/other/repo" "$out"
+chk "gate --verbose: reports a numeric age" \
+  sh -c 'printf "%s" "$0" | grep -qE "age_min=[0-9]+"' "$out"
+chk "gate --verbose: affected_plans is exactly the plan written after the marker" \
+  test "$(printf '%s\n' "$out" | grep '^affected_plans=')" = "affected_plans=gv-new"
+rm -rf "$PLANS/gv-old" "$PLANS/gv-new"
+
+rm -f "$GATE_MARKER"
+chk "gate --verbose on RELEASED: still exactly one line" \
+  test "$(psout gate --verbose | wc -l | tr -d ' ')" = "1"
+: > "$GATE_MARKER"
+touch -t "$(date -v-9H +%Y%m%d%H%M 2>/dev/null || date -d '9 hours ago' +%Y%m%d%H%M)" "$GATE_MARKER" 2>/dev/null || true
+chk "gate --verbose on STALE: still exactly one line" \
+  test "$(psout gate --verbose | wc -l | tr -d ' ')" = "1"
+rm -f "$GATE_MARKER"
+
+out="$(ps gate --verbose extra)"; rc=$?
+chk "gate --verbose rejects a further stray argument → exit 1"   test "$rc" = "1"
+chk "gate --verbose rejects a further stray argument → names it" has "unexpected argument" "$out"
+
 echo
 echo "RESULT: PASS=$PASS FAIL=$FAIL"
 [ "$FAIL" = "0" ]
