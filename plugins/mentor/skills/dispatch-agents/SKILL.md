@@ -152,7 +152,9 @@ The point of SDD: quality through narrow focus, and a lean main thread.
   appended verbatim at dispatch time — a `Prompt sketch:` is the *middle* of a
   prompt, never the whole of it.
 - **Return contract:** agents return a short summary, file paths touched, and
-  verification output — never full file bodies.
+  verification output — never full file bodies. Verification output must include the
+  exact command(s) that produced it, copy-pasteable — otherwise re-verifying against an
+  API the orchestrator hasn't read means re-deriving the command blind.
 - **Relaying a return to the user strips its ids.** An agent's report is written
   for **you**: its finding codes, table rows, step numbers, and bare `Location(s)`
   cells name things the user never read. Carry the finding, not its filing — say
@@ -320,7 +322,8 @@ the contract does not apply to them, which is exactly how a fan-out goes out raw
   human noticing.
   If a correction to this brief arrives mid-run, apply it before you return.
   Deliver your full result (final text / message per your runtime) BEFORE going
-  idle — an idle signal with no delivered result is a contract violation.
+  idle — an idle signal with no delivered result is a contract violation. Include the
+  exact command(s) that produced your verification output, copy-pasteable.
   If you are producing a verdict or report (reviewer, verifier), also write a
   durable copy to `<repo>/.mentor/plans/<slug>/` (e.g. `step-N-review.md`)
   before returning — a dropped notification must never be the only copy of
@@ -334,7 +337,9 @@ the contract does not apply to them, which is exactly how a fan-out goes out raw
   the agent's context is warm, and a re-brief invites it to redo finished work.
   Only if the nudge fails, fall back to independent re-verification. Never
   re-run expensive verification (full builds, E2E suites) while the agent's own
-  report may still be in flight.
+  report may still be in flight. The race also resolves in the other direction:
+  an idle notification arriving from an agent **already** `TaskStop`ped needs no
+  reply at all — the stop already closed it out.
 - **Agent died (infra/API error).** Don't reinvent recovery glue: wait with
   escalating patience (minutes-scale, roughly doubling — this sanctioned wait
   for a *dead* agent is not the busy-polling of a healthy one forbidden

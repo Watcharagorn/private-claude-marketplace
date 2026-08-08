@@ -436,6 +436,33 @@ unreleased, which is what the user is really asking about. Every branch here exi
 `if`, never a trailing `[ … ] && echo`) for Step 1's reason: that construct exits 1
 whenever the plugin *is* released, turning the healthy path into a failed step.
 
+**Say when the shipped diff touches a deploy artifact.** Ship's job stops at the open
+PR/MR (above) — it never deploys anything — but leaving that unstated is how a user ends
+up improvising a from-scratch deploy investigation after asking "anything else left?".
+One report line, zero config, mirroring the marketplace check's own "detect from git,
+don't ask the user to declare it" shape:
+
+```bash
+repo_root="$(git rev-parse --show-toplevel)"   # re-derive: separate Bash call (see Step 2)
+base="$(git -C "$repo_root" rev-parse --abbrev-ref --symbolic-full-name '@{upstream}' 2>/dev/null | sed 's#^origin/##')"
+branch="$(git -C "$repo_root" rev-parse --abbrev-ref HEAD)"
+if [ -n "$base" ] && [ "$base" != "$branch" ]; then
+  deployish="$(git -C "$repo_root" diff --name-only "$base"...HEAD -- \
+    '**/supabase/functions/**' '**/fly.toml' '**/vercel.json' '**/serverless.yml' \
+    '**/.github/workflows/deploy*.yml' '**/k8s/**' '**/kubernetes/**' '**/helm/**' \
+    '**/terraform/**' 2>/dev/null)"
+  if [ -n "$deployish" ]; then
+    n="$(printf '%s\n' "$deployish" | wc -l | tr -d ' ')"
+    echo "$n committed file(s) touch a deploy artifact — deploying is separate from shipping: $(printf '%s' "$deployish" | tr '\n' ' ')"
+  fi
+fi
+```
+
+The pattern list is intentionally hardcoded, not a `.mentor/config.json` key — an opt-in
+key nobody has populated yet fires for nobody, which is exactly the gap this line exists
+to close. Skipped (not just silent) on the `branch == base` on-base path, same as the
+edge case named above: there is no PR-scoped range to diff there.
+
 Do **not** watch checks, poll `gh run`, or `sleep` after the push — `/mentor:merge`
 Step 2 owns the one bounded watch, and chaining sleeps or re-checks is the **No busy-wait**
 rule owned by `mentor:dispatch-agents` ("Async runtime & lifecycle").
