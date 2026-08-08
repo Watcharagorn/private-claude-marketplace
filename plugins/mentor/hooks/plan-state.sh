@@ -585,10 +585,12 @@ case "$sub" in
     echo
     if ! print_table "$filter"; then
       echo "[mentor plan-state] No plans${filter:+ in group ${filter}} in ${plans_dir}." >&2
+      echo "[mentor plan-state] Topics holding only handoffs (no plan.md yet) never appear here — use 'overview --json' for the full picture." >&2
       exit 0
     fi
     echo
     echo "Plan files are PLANS_DIR/<PLAN>/plan.md. 'unknown' = a pre-2.4.0 plan with no state on record."
+    echo "Topics holding only handoffs (no plan.md yet) never appear above — use 'overview --json' for the full picture."
     ;;
 
   current)

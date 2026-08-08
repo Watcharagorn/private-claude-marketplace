@@ -412,3 +412,11 @@ the contract does not apply to them, which is exactly how a fan-out goes out raw
   `TaskStop`; note anything else in the one-line report rather than
   stopping it, since it may belong to a sibling session or the user's own
   background work.
+- **A live `Monitor` watch is not a dispatch — it has no stop tool.** A CI run, a
+  deploy, or a long build tracked via `Monitor` should usually keep running
+  (killing it is rarely what you want, unlike a stray dispatched agent). At the
+  same close-out checkpoints as above — the final report, escalating on a
+  stalled step, any "done"/"closed out" claim, and a handoff — either let it
+  resolve first, or record its status as still outstanding plus the exact
+  command the next reader uses to get its verdict. Leaving it unmentioned is
+  what strands it.

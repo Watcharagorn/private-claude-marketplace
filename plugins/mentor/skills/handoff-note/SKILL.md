@@ -41,11 +41,14 @@ everything.
 
 ## Step 1 — Resolve the next-session focus
 
-Before anything else, if this session dispatched agents that are still live, close
-them out (`dispatch-agents`' "Async runtime & lifecycle" — `TaskList`/`TaskStop`,
-fetched via `ToolSearch` first if this session hasn't loaded them). A handoff is
-the session's last exit: an agent left resident here has no later checkpoint in
-*this* session to catch it, and outlives the note as a stray, unmonitored task.
+Before anything else, close out live background work the same way `dispatch-agents`'
+"Async runtime & lifecycle" section requires at any other close-out point — dispatched
+agents still live (`TaskList`/`TaskStop`, fetched via `ToolSearch` first if this session
+hasn't loaded them) and any live `Monitor` watch (that section covers both; a watch has
+no stop tool, so resolve it first or record its status and the check command in the
+note). A handoff is the session's last exit: anything left resident here has no later
+checkpoint in *this* session to catch it, and outlives the note as a stray, unmonitored
+task.
 
 `$ARGUMENTS` (the command argument) answers **"what will the next session be used for?"** Use it to
 decide what the document emphasizes — the parts of the work relevant to that focus get the most
@@ -67,7 +70,12 @@ Notes live **inside the plan-topic folder they belong to** — `<repo>/.mentor/p
 the plan gate, so the write is always allowed.) Resolve `topic` first:
 
 - **The session's work is tied to a mentor plan** — you created or followed
-  `<repo>/.mentor/plans/<topic>/plan.md` this session — → use that plan's slug as `topic`.
+  `<repo>/.mentor/plans/<topic>/plan.md` this session — → use that plan's slug as `topic`,
+  **unless** `plan-state.sh overview --json` already reports that plan's state as
+  `implemented` **and** the Step 1 focus / this note's Recommended-commands routing names a
+  different slug — treat that combination as "no related plan" below (this is the reverse of
+  Step 5's "different topic dir" case: stamp that plan-topic's own live note, if any, as
+  out-of-dir per Step 5, since this note is not continuing it).
 - **No related plan** → use the Step 1 focus slug as `topic` (topic == slug is fine); the note
   founds a new topic folder that a later `/mentor:plan` on the same focus will share.
 
@@ -145,6 +153,13 @@ it — Step 5's self-check catches that before you report.
   written by the very session that armed it, so the ordinary case here is the opposite of
   `mentor:resuming`'s. Saying so up front is what lets the next agent read an armed gate as
   deliberate rather than alarming (see the "Pause — still drafting" bullet above).
+  If the note is going to state or rely on the status of anything outside this repo's working
+  tree — a deployed service's actual version, a prod database's actual state, a PR/CI/remote-branch
+  status — do not assert it as fact from repo records or memory alone. Write it as conditional on a
+  **named, mandatory verification command** the next agent must run first (e.g. `supabase migration
+  list` before a migration push, `gh pr view <n> --json state,mergedAt` before assuming a PR
+  merged), say plainly that this session could not verify it, and restate the same unverified
+  assumption under **Open questions / risks** below.
 - **Recommended mentor commands for the next agent** — see the mapping below.
 - **Referenced artifacts (do not duplicate)** — link by **path/URL**, never paste the contents:
   - the current mentor plan file at `<repo>/.mentor/plans/<topic>/plan.md` (if one exists —
@@ -317,10 +332,13 @@ harness. Fix the note and re-run the check — don't report the miss and move on
 
 If this session was resumed from a note that lives **outside `$hand_dir`**, the snippet above cannot
 see it — stamp that specific note the same way (`mkdir -p` a `resolved/` beside it, `mv` it in). The
-two ways this happens: a **legacy flat-dir note** (under `.mentor/handoffs/`), and a **different
+three ways this happens: a **legacy flat-dir note** (under `.mentor/handoffs/`), a **different
 topic dir** — e.g. the work started under a pre-plan focus-slug topic and, now that a plan exists,
-you are handing off under the plan's slug. The note you just wrote supersedes the resumed one
-regardless of which folder it started in; skipping this leaves a stale duplicate listed forever.
+you are handing off under the plan's slug — and the **reverse**: Step 2's `implemented`-plan
+branch, where this note deliberately does *not* file under a finished plan whose own topic dir may
+still hold a stale live note pointing at work that's already done. The note you just wrote
+supersedes the resumed one regardless of which folder it started in; skipping this leaves a stale
+duplicate listed forever.
 A stamp is reversible by moving the file back up one directory. That `mv` is outside the
 self-check's reach, so `echo "superseded → resolved: <basename>"` when you run it — an out-of-dir
 note you did not echo is one you may not report as superseded.
@@ -355,6 +373,30 @@ Both blocks must be **literal and complete** — real slug, real absolute path, 
 placeholder left for the user to fill in. A prompt that needs editing before pasting defeats the
 point.
 
+### Revising a live note in place
+
+Sometimes you need to correct the note you just wrote in this same session — a claim that
+changed mid-session, a stale status — which is not what "Report" above covers (a fresh note).
+**Revise the same file; never write a second note for the same topic** — Step 2's once-per-topic
+rule still applies, and a second timestamped note here just strands the first, the exact failure
+`CHECK: live notes now 1` exists to catch.
+
+Use `Edit` with the **exact** old text, never a regex/pattern-based patcher (`perl -pi`, `sed`) — a
+substitution that matches nothing fails **silently** in those tools, so a stale claim can survive a
+"correction" undetected. After editing, re-run a targeted check and print its own `CHECK:` line,
+the same "silence proves nothing" discipline as the self-check above — e.g.:
+
+```bash
+out="<the note's absolute path>"
+grep -n "<the corrected text, verbatim>" "$out" \
+  && echo "CHECK: correction landed" \
+  || echo "CHECK: correction NOT found in file — the edit did not land"
+```
+
+The heading self-check above only verifies two headings exist — it says nothing about whether the
+body you just revised is internally consistent, so this is a separate, required verdict, not a
+substitute for it.
+
 ## Done when
 
 - The document is written under the per-repo, **gitignored** `.mentor/plans/<topic>/handoffs/` dir.
@@ -375,6 +417,9 @@ point.
   document nobody re-reads once its work is done.
 - The report **ends with literal copy-paste resume prompts** (`/mentor:resume <slug>` + the
   plugin-free alternative) — real values filled in, no placeholders.
+- Any claim about state **outside this repo's working tree** (a deploy target, a PR/CI/remote-branch
+  status, prod data) is either verified this session or written as conditional on a named
+  verification command — never asserted as settled fact from memory.
 
 ### Do NOT
 
