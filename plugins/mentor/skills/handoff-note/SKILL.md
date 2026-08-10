@@ -186,6 +186,17 @@ it — Step 5's self-check catches that before you report.
   - issue / PR / MR URLs,
   - key commit SHAs (`git rev-parse --short HEAD`, relevant ancestors),
   - the working diff — reference it as "see `git diff` / `git status`", do **not** paste the whole diff.
+  - **scripts or data built outside the repo this session** (the session-scoped scratchpad, `/tmp`)
+    that took real time to produce — a non-trivial API-call sweep, a generated dataset, a one-off
+    analysis script — and would otherwise vanish once the session ends: copy them into
+    `<repo>/.mentor/plans/<topic>/{scripts,data}/` (siblings of `handoffs/`, gitignored by Step 2's
+    `.gitignore` — re-derive that path the same way Step 2 does, never off a stale `$hand_dir`, since
+    variables don't survive between Bash calls) *before* writing this note, then link the copied
+    paths here, e.g. `mkdir -p "<repo>/.mentor/plans/<topic>/data" && cp -R /tmp/my-sweep/* "<repo>/.mentor/plans/<topic>/data/"`.
+    Skip this when it is already reproducible from a command recorded in this note (re-running it is
+    cheaper than a copy), already inside the repo, or over **~100MB** — past that size, copy only the
+    derived/summary output plus the re-fetch command instead of the raw sweep, and say so here so the
+    next agent knows why the raw data isn't there.
 - **Open questions / risks** — unresolved decisions, assumptions to verify, traps to avoid.
 
 ### Recommended-mentor-commands mapping
