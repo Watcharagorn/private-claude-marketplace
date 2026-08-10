@@ -526,6 +526,14 @@ when the states are unchanged and only their storage moves — that delta is
 `plan-domain-backend-api`'s per-column table, and restating it here would
 duplicate.
 
+**Workspace layout rule.** When a plan introduces on-disk structure the reader cannot see
+today — a new state/workspace directory, a sidecar or companion file, a naming scheme other
+paths are derived from — render the layout as an **ASCII tree in a code fence** (the idiom
+rule's spatial row), with a one-line note per new path saying what writes it. Prose naming
+three paths reads as complete until someone has to create them in the right order; the tree
+is what makes a missing one visible. Skip it when the change only touches paths that already
+exist.
+
 **Anti-duplication:** never restate in prose what a diagram already shows, and
 never show the same thing two ways. Prose next to a diagram is limited to a
 one-line caption, a legend, and the why/insight the diagram cannot encode.

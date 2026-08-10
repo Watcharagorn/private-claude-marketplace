@@ -152,6 +152,16 @@ path.
 
 ## Step 3 — Generation — one agent per combo, always dispatched
 
+**Load the dispatch contract before the first `Agent` call, not after.** Invoke
+`Skill(skill="mentor:dispatch-agents")` here if it is not already loaded — a `/zoom`
+reached directly rather than through `plan` Step 5 has loaded nothing — then end every
+combo prompt with its **"Deliver before idling"** block pasted verbatim, after the
+per-file spec below. Step 4's citation of that same section covers close-out only; this
+is the load point, and Step 1's "no nested fan-out" reaches a combo agent only through
+this block. The block's durable-copy clause is for verdict-producing agents (reviewers,
+verifiers) — a combo's durable artifact is the HTML file it already writes, and nothing
+here writes under `plans/`.
+
 Issue one `Agent` call per combo (`subagent_type: general-purpose`,
 `model: sonnet`, `effort: high`), ALL combos in one message — even a single
 combo is dispatched, keeping one contract and keeping HTML out of the main

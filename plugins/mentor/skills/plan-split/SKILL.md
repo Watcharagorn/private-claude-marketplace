@@ -158,12 +158,22 @@ dispatching you, so your messages are the only thing that can wake it — silenc
 is indistinguishable from a hang, and the session's only remaining recovery is a
 human noticing.
 If a correction to this brief arrives mid-run, apply it before you return.
-Deliver your full result (final text / message per your runtime) BEFORE going
-idle — an idle signal with no delivered result is a contract violation.
+Deliver your full result via SendMessage BEFORE going idle — if SendMessage
+is not already in your tool list, fetch it first with ToolSearch,
+select:SendMessage. Ending your turn on a plain final-text reply with no
+SendMessage call is a contract violation: it is indistinguishable from not
+reporting at all, because only SendMessage reaches the orchestrator. Include
+the exact command(s) that produced your verification output, copy-pasteable.
+Leave the git index as you found it: edit the working tree and let the orchestrator
+commit — never `git add` / `git rm` / `git mv` / `git stash` / `git commit` (use plain
+`rm`/`mv` to delete or rename a file). If you staged something while investigating,
+`git restore --staged <path>` before you return — staged state you never commit has no
+owner once you go idle, and rides silently into someone else's next commit.
 If you are producing a verdict or report (reviewer, verifier), also write a
-durable copy to `<repo>/.mentor/plans/<slug>/` (e.g. `step-N-review.md`)
-before returning — a dropped notification must never be the only copy of
-completed work.
+durable copy to `<repo>/.mentor/plans/<slug>/` (e.g. `step-N-review.md`,
+`<lens>-review.md`, or `topic-N-verify.md` for a Verification-topic
+verifier) before returning — a dropped notification must never be the
+only copy of completed work.
 ```
 
 The block closing that template is `mentor:dispatch-agents`' standing contract

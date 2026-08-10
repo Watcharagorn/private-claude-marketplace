@@ -43,6 +43,17 @@ hop is the only ordering that makes the brief's research directives real.
   unfamiliar. If web search is unavailable, derive from training knowledge — never stall. It
   must flag low-confidence domain identification explicitly.
 
+**Load the dispatch contract before this `Agent` call, not after.** This dispatch fires
+ahead of `plan` Step 2's research agents — and so ahead of that step's own load point —
+so invoke `Skill(skill="mentor:dispatch-agents")` here if it is not already loaded, then
+end the definer's prompt with its **"Deliver before idling"** block pasted verbatim, after
+the DOMAIN BRIEF spec below. That block governs *delivery*, not contents: the "nothing
+else" rule below still describes the brief itself. Citing the rules in a paraphrase is not
+a substitute — without the block the definer can go idle holding the brief, and Step 2's
+research prompts are the thing left waiting on it. Neither variant below needs this: the
+small-plan fold rides inside a research agent whose prompt already carries the block per
+`plan` Step 2, and the self-authored brief dispatches nothing.
+
 ### Required return — DOMAIN BRIEF (≤ ~350 words, nothing else)
 
 ```

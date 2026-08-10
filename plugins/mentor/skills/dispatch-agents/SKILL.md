@@ -343,11 +343,13 @@ Step 1 instead. A verification round moves the plan with `set`.
 Dispatched agents run as background teammates: they can signal **idle** before
 (or instead of) delivering, die mid-flight on infra errors, and stay resident
 after finishing. These rules govern every dispatch surface in mentor — this
-skill, plus the dispatches in `plan` Steps 2 and 3.5, `zoom` (which `plan` Step 5
-delegates to), `plan-review`, `tour`, `plan-tour`, `plan-split`, `grilling`,
-`ship`, `merge`, and any ad hoc fan-out reached from `resume` (each
-cross-references this section). **Keep this roster current when a surface starts
-dispatching** — a reader who checks it and does not find their surface concludes
+skill, plus the dispatches in `plan` Steps 2 and 3.5, `plan-domain-dynamic`'s
+domain-definer (reached from `plan` Step 3's routing, and dispatched ahead of
+Step 2's research agents), `zoom` (which `plan` Step 5 delegates to),
+`plan-review`, `tour`, `plan-tour`, `plan-split`, `grilling`, `ship`, `merge`,
+and any ad hoc fan-out reached from `resume` (each cross-references this
+section). **Keep this roster current when a surface starts dispatching** —
+a reader who checks it and does not find their surface concludes
 the contract does not apply to them, which is exactly how a fan-out goes out raw:
 
 - **Standing no-subagents policy.** Before this session's first dispatch, check for a
