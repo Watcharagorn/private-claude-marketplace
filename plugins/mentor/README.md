@@ -36,7 +36,8 @@ review and are the single source of truth for implementation, handoff, and revie
    release the gate) and deletes the marker. The gate opens; the chosen outcome
    follows. On Proceed, implementation is **subagents-first**: the plan's steps
    are dispatch-annotated by default and executed per `dispatch-agents` — the
-   main thread orchestrates, subagents implement.
+   main thread orchestrates, subagents implement and verify (one fresh verifier
+   agent per Verification topic, with no escape hatch).
 
 > `/mentor:plan` is **namespaced** — it cannot collide with Claude Code's native
 > reserved `/plan` command. The same holds for every mentor command: they exist
@@ -72,7 +73,7 @@ review and are the single source of truth for implementation, handoff, and revie
 | `/mentor:track [slug\|number\|status]` | Repo-wide remaining-work hierarchy — every plan's state, step progress, cross-plan `deps`, deferred stubs, and live handoffs — then build the one you pick. The way back into a `/plan-split` group. |
 | `plan-split`* | Split an oversized plan into independently buildable sibling plans, each with explicit scope isolation; also offered as **Split into multiple plans** at the approval gate when a plan is oversized. |
 | `plan-review`* | Staged review of the current plan: a judgment pass (practicality, comprehensiveness) with a **fold gate** that walks the recommended edits **one question at a time** — each question carries the reviewer's case with the key words bolded — then — against the updated plan — a mechanical pass (cleanliness + spec-kit-`analyze`-style **consistency** across related artifacts) whose safe fixes **auto-fold**; decision-level findings are asked the same one-by-one way, applied only on your verdict. The mechanical stage is invocable alone ("check plan consistency"). Also offered as **Review the plan (staged)** at the proceed gate. |
-| `dispatch-agents`* | The **default implementation path** (subagents-driven development): every plan's steps are dispatch-annotated unless the plan states a `Dispatch: skipped` reason, and executed as subagent dispatches after approval. |
+| `dispatch-agents`* | The **default implementation path** (subagents-driven development): every plan's steps are dispatch-annotated unless the plan states a `Dispatch: skipped` reason, executed as subagent dispatches after approval, then verified by one fresh verifier agent per Verification topic — implementation dispatch may skip, verification dispatch never does on a mentor plan. |
 
 \* skill trigger phrases, not registered slash commands — there is no `/plan-split`,
 `/plan-review`, or `/dispatch-agents` command. They invoke only via
@@ -163,16 +164,21 @@ session can answer "which of these five is next?" without re-reading five plans.
 | `draft` | Written, not yet approved. `/mentor:track` won't build it until you approve it. |
 | `approved` | The gate released it. Ready to build. |
 | `in_progress` | Execution started; some steps are ticked. |
-| `implemented` | Every `Done when:` passed. |
-| `failed` | Escalated after the remediation re-dispatch; the note says what broke. |
+| `implemented` | Every `Done when:` passed and every Verification topic PASS, with each reported gap fixed, deferred, or explicitly accepted — a plan with no topics clears that vacuously, so it gets here only if you accept it unverified. |
+| `failed` | Escalated after the remediation re-dispatch, or handed off with verification unresolved; the note says what broke or which topics are outstanding. |
 | `superseded` | Replaced by its children via `/plan-split`. Sorted last. |
 | *(no sidecar)* | `unknown` — a pre-2.4.0 plan. Never reported as "never approved". |
 
 **The sidecar is a cache, not the only truth.** Reads take the *more advanced* of the
 stored state and the state derived from the plan's `✅` step ticks — every step ticked
-reads `implemented`, some reads `in_progress`. Since `dispatch-agents` already writes
-those ticks, a forgotten state write costs nothing and old plan dirs read correctly
-with no migration.
+reads `implemented`, some reads `in_progress` — with one exception: a recorded `failed`
+outranks the derivation, since only an orchestrator that watched something break writes
+it, and an all-ticked plan must not read its way back out of that. That derivation
+reports how far *implementation* got, not verification — the verifier dispatch runs
+after the last step ticks, so an all-ticked plan reads `implemented` while its
+Verification topics may still be outstanding. Since `dispatch-agents` already writes
+those ticks, a forgotten state write costs nothing and old plan dirs read correctly with
+no migration.
 
 Group membership heals the same way: a split child's isolation header carries
 `**Plan 3 of 5** · group \`…\``, and mentor parses `group`/`order` back out of it when
@@ -428,6 +434,46 @@ extra deliverable. Instruction-only — no hooks.
 | `plan-domain-backend-api` | API/endpoint/route/handler/schema/DTO/contract — or the data model behind it: migration, table, column, index, constraint, enum, RLS policy | Before/after contract diff tables, schema diffs, Mermaid sequence flows; on a DDL change also a per-column delta table + a Mermaid ER diff of the changed entities. |
 | `plan-domain-architecture` | Structural change — services, containers, datastores, queues, integrations, data flows (not pure content/config/doc/style/refactor) | Diff-highlighted C4-style Mermaid flowcharts, only the levels that change; a provenance list for any changed datastore field. |
 | `plan-domain-dynamic` | No registered domain matched, and no already-available project/plugin skill names the technology (fallback) | A dispatched domain-definer names the domain and returns a best-practices brief; the plan gains a practice→step mapping. A substituted available skill can supply the brief instead. |
+
+## Changes in v2.22.0
+
+**A plan's `## Verification` is no longer graded by the thread that wrote the work.**
+Until now that section was free-form prose ("how to test end-to-end") and nothing in the
+flow owned it: after the last implementation step, the main thread — the same context that
+just orchestrated the build — skimmed its own prose. That is the weakest possible reviewer.
+It knows what it *meant* to do, so it confirms rather than checks, and nothing ever forces
+the question "what is missing?" to be asked at all.
+
+Verification now runs the way `plan-review` already ran: `planning` authors the section as
+2–6 single-focus topics (`Topic N — / Focus: / Checks: / Pass when:`, with an optional
+`[model: · effort:]` annotation making a model upgrade a reviewable authoring decision), and
+`dispatch-agents` executes it by dispatching **one fresh verifier agent per topic, all in a
+single message**. Fresh is exact: never an implementation agent from this plan, never a
+verifier reused across topics, never the agent that wrote a fix being re-verified.
+Verifiers verify and never edit. Each returns `Verdict: PASS | FAIL` plus a **mandatory**
+`Gaps / Missing:` section — concrete items or the literal `none found` — because the
+explicit line is what forces the question to be asked; a return without it is not a verdict
+yet. `plan-review` now flags a plan whose Verification section is missing, empty, or
+malformed, so the defect is caught before approval rather than at execution.
+
+**There is no escape hatch.** A plan that opened `Dispatch: skipped` still dispatches
+verification — implementation may be main-thread, verification never is. The one sizing
+allowance is lite verify: at ≤2 topics a single fresh verifier may carry both, reporting
+per topic. A gap — or any non-`none found` gaps line, even on a PASS — surfaces to the user
+as **one question for the round**: remediate now, or hand off to a fresh session (offered
+before more context is spent, since verification lands when a session is at its largest).
+Remediation is one dispatch plus a *fresh* re-verify, sequential when several topics fail;
+a second failure escalates and records `failed`.
+
+**A recorded `failed` can no longer be masked by step ticks.** Because verification runs
+after every step is ticked, an escalated plan derived `implemented` from its ticks and
+outranked the `failed` its orchestrator had just written — reporting success for a plan
+that failed. `mentor_plan_state_rank` now ranks `failed` above `implemented`: a derivation
+never overrules an explicit failure record, and only an orchestrator that watched something
+break writes one. The hand-off branch records state too, so stopping mid-verification does
+not read as done. `/mentor:track`'s `failed` recovery splits on the ticks accordingly —
+unticked means it broke mid-implementation (retry from the first unticked step); all ticked
+means it broke at verification (re-enter the round, stay `failed`).
 
 ## Changes in v2.21.0
 
@@ -804,9 +850,13 @@ the mentor plugin. Prompts are always literal — real slug, real path, no place
 
 Subagents-driven development (SDD): approved plans now execute **subagents-first**
 by default — the main thread orchestrates and verifies, dispatched agents
-implement. Each agent gets one narrow, focused step (quality through focus) and
-the main context stays lean (no implementation files loaded). This extends the
-existing inline per-step `[role: … · model: … · effort: …]` grammar — it is NOT
+implement. *(That split has since narrowed: end-to-end plan verification is
+dispatched too, one fresh verifier agent per Verification topic — see the
+`dispatch-agents` row under "Commands". Only per-step `Done when:` verification
+is still the main thread's.)* Each agent gets one narrow, focused step (quality
+through focus) and the main context stays lean (no implementation files loaded).
+This extends the existing inline per-step `[role: … · model: … · effort: …]`
+grammar — it is NOT
 a revival of the v1.0.0-removed `dispatch-agents:` footer-line mechanism, and
 nothing is hook-enforced:
 

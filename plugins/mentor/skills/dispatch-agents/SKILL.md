@@ -3,10 +3,12 @@ name: dispatch-agents
 description: >
   The default implementation path for mentor plans (subagents-driven
   development) — annotate every plan's implementation steps as subagent
-  dispatches and execute them after approval; the main thread orchestrates,
-  subagents implement. Invoked by plan Steps 4 and 6, or when the user says
-  "dispatch agents" / "fan out" / "parallelize". Trivial work may skip with a
-  stated `Dispatch: skipped` reason.
+  dispatches, execute them after approval, and verify the result with one
+  fresh verifier agent per Verification topic; the main thread orchestrates,
+  subagents implement and verify. Invoked by plan Steps 4 and 6, or when the
+  user says "dispatch agents" / "fan out" / "parallelize". Trivial work may
+  skip implementation dispatch with a stated `Dispatch: skipped` reason —
+  verification dispatch has no skip on a mentor plan.
 ---
 
 # Dispatch Agents
@@ -23,13 +25,12 @@ annotate the implementation steps, and Step 6 invokes it again to execute them
 after approval. Also invoked when the user explicitly says "dispatch agents",
 "fan out", "use subagents", "parallelize this".
 
-**Also load it for any ad hoc fan-out that is not plan implementation** — a
-research sweep, a multi-repo survey, an architecture-gap audit, a handoff note
-that says "dispatch parallel `Explore` agents". The annotation grammar and the
-plan mechanics do not apply to those; the "Async runtime & lifecycle" contract
-does, and it is the whole reason to be here. Skipping the skill because the work
-has no plan is how a nine-agent fan-out goes out without the deliver-before-idling
-block and returns one report.
+**Also load it for any ad hoc fan-out that is not plan implementation** — a research
+sweep, a multi-repo survey, an architecture-gap audit, a handoff note that says
+"dispatch parallel `Explore` agents". The annotation grammar and the plan mechanics do
+not apply to those; the "Async runtime & lifecycle" contract does, and it is the whole
+reason to be here. Skipping the skill because the work has no plan is how a nine-agent
+fan-out goes out without the deliver-before-idling block and returns one report.
 
 ## When NOT to use — starting from a plan this session didn't write
 
@@ -52,13 +53,15 @@ already ran; carry on.
 Work already planned elsewhere (spec-kit's `tasks.md`, a Jira epic): do not author a
 mentor plan or run an approval question over it (`plan-track`, "When NOT to use").
 Annotate that framework's phase with the grammar below and execute — every `plan.md`
-mechanic here (approved-plan read, ✅ ticks, `plan-state.sh`, the gate) has no
-counterpart and is skipped, and `/mentor:defer` redirects: a follow-up belonging to
-that framework's backlog goes there, not into a mentor stub (repo work outside its
-scope still defers normally). Three rules hold on this path:
+mechanic here (approved-plan read, ✅ ticks, `plan-state.sh`, the gate, `## Verification`
+dispatch) has no counterpart and is skipped, and `/mentor:defer` redirects: a follow-up
+belonging to that framework's backlog goes there, not into a mentor stub (repo work
+outside its scope still defers normally). Three rules hold on this path:
 
 - Copy `Goal:`/`Done when:` **verbatim from the task's own text** and verify the
-  delivery against that text — your brief is a lossy transcription of it.
+  delivery against that text — your brief is a lossy transcription of it. You self-grade
+  here: the weakest-grader rationale in "Verifying the plan (execution-time)" does not
+  reach this path, because that framework owns its own verification.
 - Never let the record **drift from the work**: the orchestrator, not the agent, lands
   each check-off in the same commit as that task's own work — never batched, never
   left dirty for a later task to sweep in.
@@ -83,15 +86,18 @@ A skipping plan MUST open its `## Implementation steps` section with one line �
 at approval. No line, no skip. If a skipped implementation turns out
 non-trivial mid-flight, stop and dispatch normally per this skill.
 
-**Check the skip against the plan you actually wrote.** The step count is the
-cheapest honest test: a plan carrying more than about two steps, or any step whose
-`Done when:` needs a service brought up, a browser driven, or a screenshot compared,
-is not "a small mechanical change" however mechanical each individual edit looks —
-re-annotate it. The reason to be strict here is that this line is load-bearing far
-beyond dispatch: everything downstream of it — step ticks, `/simplify`, the closing
-checklist, the acceptance pass — is written once for the dispatch path and only
-*restated* for the skipped one, so an over-claimed skip is how a plan quietly loses
-all of it at once.
+**The skip never covers Verification** — `## Verification` still gets fresh verifiers
+after the last step ("Verifying the plan (execution-time)" below; a skipped plan with
+≤2 topics gets the lite-verify allowance, never a self-check).
+
+**Check the skip against the plan you actually wrote.** The step count is the cheapest
+honest test: a plan carrying more than about two steps, or any step whose `Done when:`
+needs a service brought up, a browser driven, or a screenshot compared, is not "a small
+mechanical change" however mechanical each individual edit looks — re-annotate it. The
+reason to be strict here is that this line is load-bearing far beyond dispatch:
+everything downstream of it — step ticks, `/simplify`, the closing checklist, the
+acceptance pass — is written once for the dispatch path and only *restated* for the
+skipped one, so an over-claimed skip is how a plan quietly loses all of it at once.
 
 ## Context efficiency — the orchestrator contract
 
@@ -101,15 +107,14 @@ The point of SDD: quality through narrow focus, and a lean main thread.
   that context belongs to the dispatched agent. Verify `Done when:` with
   observable checks instead; the step's `git diff` and a failing command's
   output are always in-bounds as diagnostics.
-- **Prefer executable pass/fail `Done when:` criteria** (the named test /
-  typecheck / lint command) over presence checks; use grep/ls checks only when
-  no runnable check exists. **When the check itself mutates the artifact it
-  verifies** (an importer, a migration runner, a `--write` formatter, a seed
-  script), running it live means the verification consumes the very thing it
-  was meant to confirm — run it against a `mktemp -d` copy outside the repo
-  instead, diff/compare, then discard. When the check can't run detached
-  (needs live git context, a database, or a running service), snapshot state
-  and restore it after, or point the check at a disposable instance.
+- **Prefer executable pass/fail `Done when:` criteria** (the named test / typecheck /
+  lint command) over presence checks; use grep/ls checks only when no runnable check
+  exists. **When the check itself mutates the artifact it verifies** (an importer, a
+  migration runner, a `--write` formatter, a seed script), running it live means the
+  verification consumes the very thing it was meant to confirm — run it against a
+  `mktemp -d` copy outside the repo instead, diff/compare, then discard. When the check
+  can't run detached (needs live git context, a database, or a running service),
+  snapshot state and restore it after, or point the check at a disposable instance.
 - **On a failed `Done when:`**, re-dispatch the same role once with the failure
   evidence (diff + command output) as inputs. If it fails again, surface to the
   user — only then may the main thread read the files and take over.
@@ -131,39 +136,36 @@ The point of SDD: quality through narrow focus, and a lean main thread.
   built?" in a fresh session without re-reading anything:
   ```bash
   bash "${CLAUDE_PLUGIN_ROOT}/hooks/plan-state.sh" set <slug> in_progress    # before the first dispatch
-  bash "${CLAUDE_PLUGIN_ROOT}/hooks/plan-state.sh" set <slug> implemented    # every Done when: passed
+  bash "${CLAUDE_PLUGIN_ROOT}/hooks/plan-state.sh" set <slug> implemented    # every Done when: + Verification PASS
   bash "${CLAUDE_PLUGIN_ROOT}/hooks/plan-state.sh" set <slug> failed --note "<what broke>"
   ```
-  `<slug>` is the plan's directory name. Set `failed` at the escalate-to-user
-  point — after the one remediation re-dispatch has also failed. That one is
-  worth remembering, because unlike the others it cannot be derived from ticks,
-  and the note is what makes the retry cheap.
-- **Prompt sketches must be self-contained.** Each agent starts with zero
-  memory of this conversation **and no inherited project context — assume it
-  never read CLAUDE.md or your repo's conventions**: give exact file paths,
-  the approved plan path,
-  the distilled facts it needs from research or prior steps (paste result
-  lines, not files), and its `Done when:` verbatim. Every **implementation**
-  brief additionally carries the solution-quality line: `Implement the most
-  practical and clean solution — never trade maintainability or reliability
-  for implementation speed.` (read-only roles like `Explore` are exempt — the
-  line governs how something is built, not how it's found.)
-  That line and the standing contract block ("Deliver before idling" below) are
-  appended verbatim at dispatch time — a `Prompt sketch:` is the *middle* of a
-  prompt, never the whole of it.
+  `<slug>` is the plan's directory name. Set `failed` wherever verification ends
+  unresolved — the escalate-to-user point after the one remediation re-dispatch has also
+  failed, and a hand-off. That one is worth remembering, because unlike the others it
+  cannot be derived from ticks, and the note is what makes the retry cheap.
+- **Prompt sketches must be self-contained.** Each agent starts with zero memory of this
+  conversation **and no inherited project context — assume it never read CLAUDE.md or
+  your repo's conventions**: give exact file paths, the approved plan path, the
+  distilled facts it needs from research or prior steps (paste result lines, not files),
+  and its `Done when:` verbatim. Every **implementation** brief additionally carries the
+  solution-quality line: `Implement the most practical and clean solution — never trade
+  maintainability or reliability for implementation speed.` (read-only roles like
+  `Explore` are exempt — the line governs how something is built, not how it's found.)
+  That line and the standing contract block ("Deliver before idling" below) are appended
+  verbatim at dispatch time — a `Prompt sketch:` is the *middle* of a prompt, never the
+  whole of it.
 - **Return contract:** agents return a short summary, file paths touched, and
   verification output — never full file bodies. Verification output must include the
   exact command(s) that produced it, copy-pasteable — otherwise re-verifying against an
   API the orchestrator hasn't read means re-deriving the command blind.
-- **Relaying a return to the user strips its ids.** An agent's report is written
-  for **you**: its finding codes, table rows, step numbers, and bare `Location(s)`
-  cells name things the user never read. Carry the finding, not its filing — say
-  what the thing is ("the Argo controller reads cross-tenant Secrets") and leave
-  the code in your notes; if one must survive because the user holds the artifact
-  it indexes, it rides behind the name, never alone. The same holds when the relay
-  becomes a question: **every question stands on its own**, answered from the
-  question screen alone, never sending the user to a file, a report, or an earlier
-  turn to learn what it means.
+- **Relaying a return to the user strips its ids.** An agent's report is written for
+  **you**: its finding codes, table rows, step numbers, and bare `Location(s)` cells
+  name things the user never read. Carry the finding, not its filing — say what the
+  thing is ("the Argo controller reads cross-tenant Secrets") and leave the code in your
+  notes; if one must survive because the user holds the artifact it indexes, it rides
+  behind the name, never alone. The same holds when the relay becomes a question:
+  **every question stands on its own**, answered from the question screen alone, never
+  sending the user to a file, a report, or an earlier turn to learn what it means.
 - **No nested fan-out:** dispatched agents **can** call the Agent tool — nothing
   in the runtime stops them, and a chain they spawn is invisible to you and
   outlives your close-out. Size each step so one agent completes it alone; the
@@ -201,6 +203,7 @@ The authoritative list of `role:` values is the `Agent` tool's `subagent_type` e
 | Design implementation strategy / architecture | `Plan` |
 | Open-ended research, code edits, multi-step | `general-purpose` |
 | Domain-specific (platform browsing, Jira, etc.) | the matching project agent |
+| Verify a plan's Verification-section topic (fresh, independent) | `general-purpose` — opus only on the concrete trigger in "Verifying the plan (execution-time)" below |
 
 ## Choosing `model` — default Sonnet, step up to Opus
 
@@ -267,7 +270,8 @@ before issuing `Agent` calls. Then:
 2. **Dispatch "Run in parallel:" groups** — issue ALL `Agent()` calls for each parallel group in a **single message** so they run concurrently. Every prompt ends with the solution-quality line plus the full standing contract block ("Deliver before idling," "Async runtime & lifecycle" below) **pasted verbatim** — compressing it to a paraphrase (even a well-intentioned one-liner) silently drops directives a dispatched agent has no other way to learn, including the no-nested-fan-out ban this exact block is what enforces. After dispatching, apply **No busy-wait**: stop and let the harness re-invoke you when agents complete.
 3. **Dispatch "Sequential:" steps one at a time** — wait for the prior step's result before issuing the next call.
 4. **Verify each `Done when:` criterion** before moving to the next step — agents describe what they intended; trust but verify.
-5. **CLOSING CHECKLIST — always, after the last step verifies:**
+5. **Execute the plan's Verification section** — dispatch one fresh verifier per `Topic N —` block, all in a single message, even when the plan opened `Dispatch: skipped`. Full contract in "Verifying the plan (execution-time)" below.
+6. **CLOSING CHECKLIST — always, whatever Verification returned** (on a `failed` or handed-off plan the first two items still run; hold the tour and ship offers, which speak for work that was accepted)**:**
    - **Close out finished agents** — enumerate live tasks with `TaskList` and diff
      against this session's own dispatch tree, nested spawns included, before
      `TaskStop`ping only what traces to that tree. Skipping straight to `TaskStop`
@@ -287,6 +291,52 @@ before issuing `Agent` calls. Then:
      or a CI-poll loop. Do not auto-run it.
 
 Do NOT paraphrase the plan or summarize what you're about to do. Dispatch immediately.
+
+## Verifying the plan (execution-time)
+
+Planning authors `## Verification` as `Topic N —` blocks (`planning`'s content spec), not
+prose: the context that just ran the build is its weakest grader — it confirms what it
+*meant* to do, not checks. Topics are never ticked, and `tick` cannot reach them: it
+walks `## Implementation steps` only, so `tick <slug> 1` aimed at Topic 1 silently ticks
+Step 1 instead. A verification round moves the plan with `set`.
+
+- **One fresh verifier per topic, all dispatched in a single message.** Fresh means
+  never an implementation agent from this plan, never a verifier reused across topics,
+  never the agent that wrote a fix being re-verified — independence is the entire value
+  of the dispatch.
+- **Default `[role: general-purpose · model: sonnet · effort: medium]`**; step up to
+  `opus` only when the topic's `Focus:` judges architectural coherence, security, or
+  cross-cutting consistency, or the Topic block declares `[model: opus]` — an authored
+  `effort:` overrides the default the same way. Verifiers **verify, never fix** —
+  commands are fine (the `mktemp -d` rule above covers mutating checks), edits are not.
+- **Legacy plans** (prose `## Verification`, approved before this grammar): derive one
+  topic per bullet or sentence-group (shape in the contract file below), then dispatch
+  normally, never self-check. **Missing or empty section**: ask the user rather than
+  invent topics — they supply topics, which dispatch normally, or they explicitly accept
+  the plan unverified; the defect is theirs to resolve, never yours to skip or fabricate.
+- **Prompt/return contract**: `references/verifier-contract.md` — read before this
+  session's first verifier dispatch; paste its "What the verifier must return" block
+  into every verifier prompt verbatim, alongside "Deliver before idling" below. A return
+  with no `Gaps / Missing:` line is not a verdict yet — ask that same verifier for it
+  ("Follow-up vs re-dispatch" below); silence is never `none found`.
+- **Failure loop.** A `FAIL`, or any non-`none found` Gaps line even on a PASS, surfaces
+  the round's gaps and asks ONE question for the round, however many topics failed —
+  **remediate now, or hand off to a fresh session?** (offered early, since verification
+  runs when the session is often largest). **Remediate**: one dispatch by the file's
+  implementation role; a skipped plan assigned none, so pick one the normal way
+  ("Choosing `role`" above) — the skip covered the original edits, not their repair.
+  Then a **fresh** verifier for that topic; a second failure escalates to the user and
+  sets `failed` (the one-retry contract above). **Hand off**: set `failed` with the
+  unresolved topics as its note, then `mentor:handoff-note` with the verifier reports,
+  then stop — `handoff-note` writes no plan state, so an all-ticked plan would read
+  `implemented` to the next session. A deferred/accepted gap exits the loop; concurrent
+  remediations run **sequentially, never in parallel** — parallel fixes on shared files
+  race.
+- **No escape hatch.** Runs even when the plan opened `Dispatch: skipped`. One allowance
+  (**lite verify**): a skipped plan with ≤2 topics may dispatch **one combined fresh
+  verifier** carrying both — independence holds, only the fan-out relaxes. `implemented`
+  needs every topic PASS with every gap fixed, deferred, or accepted; zero topics clears
+  that vacuously, so a topicless plan gets there only on the acceptance above.
 
 ## Async runtime & lifecycle
 
@@ -352,9 +402,10 @@ the contract does not apply to them, which is exactly how a fan-out goes out raw
   `git restore --staged <path>` before you return — staged state you never commit has no
   owner once you go idle, and rides silently into someone else's next commit.
   If you are producing a verdict or report (reviewer, verifier), also write a
-  durable copy to `<repo>/.mentor/plans/<slug>/` (e.g. `step-N-review.md`)
-  before returning — a dropped notification must never be the only copy of
-  completed work.
+  durable copy to `<repo>/.mentor/plans/<slug>/` (e.g. `step-N-review.md`,
+  `<lens>-review.md`, or `topic-N-verify.md` for a Verification-topic
+  verifier) before returning — a dropped notification must never be the
+  only copy of completed work.
   ```
 - **Idle-before-report race.** An idle notification can arrive before the
   agent's actual report — and, when the harness is running several sessions

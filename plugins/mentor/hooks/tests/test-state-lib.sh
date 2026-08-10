@@ -118,13 +118,28 @@ printf 'not json' > "$PLANS/gamma/.state.json"
 chk "corrupt sidecar reads unknown"    test "$(libsh "mentor_plan_effective_state '$PLANS/gamma'")" = "unknown"
 libsh "mentor_plan_state_write '$PLANS/gamma' --state draft"
 chk "corrupt sidecar is repaired, not stuck" test "$(libsh "mentor_plan_effective_state '$PLANS/gamma'")" = "draft"
-# Rank: the derived state wins only when it is strictly more advanced.
+# Rank: the derived state wins only when it is strictly more advanced — and a
+# DERIVATION must never overrule an explicitly recorded failure, however many ticks
+# the plan body carries.
+chk "failed outranks the derivable implemented" \
+  libsh '[ "$(mentor_plan_state_rank failed)" -gt "$(mentor_plan_state_rank implemented)" ]'
 libsh "mentor_plan_state_write '$PLANS/beta' --state failed"
 chk "failed survives a tick-derived in_progress" test "$(libsh "mentor_plan_effective_state '$PLANS/beta'")" = "failed"
+# End-to-end verification runs AFTER every step is ticked, so an orchestrator escalating
+# to `failed` always faces an all-ticked plan. Ranking `implemented` higher here would
+# resurface a genuinely failed plan to the next session as successfully completed.
+libsh "mentor_plan_state_write '$PLANS/alpha' --state failed"
+chk "failed survives an all-ticked implemented"  test "$(libsh "mentor_plan_effective_state '$PLANS/alpha'")" = "failed"
+# Clearing a failure stays explicit: the orchestrator writes the new state, and a stored
+# state wins ties against the derived one.
+libsh "mentor_plan_state_write '$PLANS/alpha' --state implemented"
+chk "explicit implemented + all ticked holds"    test "$(libsh "mentor_plan_effective_state '$PLANS/alpha'")" = "implemented"
 libsh "mentor_plan_state_write '$PLANS/alpha' --state superseded"
 chk "superseded outranks all-ticked"             test "$(libsh "mentor_plan_effective_state '$PLANS/alpha'")" = "superseded"
 libsh "mentor_plan_state_write '$PLANS/beta' --state draft"
 chk "stale draft loses to tick-derived progress" test "$(libsh "mentor_plan_effective_state '$PLANS/beta'")" = "in_progress"
+libsh "mentor_plan_state_write '$PLANS/beta' --state approved"
+chk "stale approved loses to tick-derived progress" test "$(libsh "mentor_plan_effective_state '$PLANS/beta'")" = "in_progress"
 # mentor_newest_plan must skip superseded — a split parent is not "the current plan".
 sleep 1; touch "$PLANS/alpha/plan.md"     # newest by mtime, but superseded
 chk "newest_plan skips superseded"     test "$(libsh "mentor_newest_plan '$PLANS'")" != "$PLANS/alpha/plan.md"

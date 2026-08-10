@@ -256,7 +256,7 @@ Otherwise, act on the effective state:
 | Effective state | What to do |
 |---|---|
 | `approved` | If the sidecar's note says it was **swept in by `approve-plan.sh`** rather than individually approved (a different plan's approval promoted it too, because both `plan.md` files were newer than that session's marker), show the note and confirm with the user before dispatching — it was not necessarily reviewed. Otherwise set `in_progress`, then execute (below). |
-| `failed` | Show the sidecar's note — it says what broke last time — then set `in_progress` and retry, feeding that note to the first agent. |
+| `failed` | Show the sidecar's note — it says what broke last time, and on a verification failure it names the topics left unresolved. Then split on the ticks (`steps: {ticked, total}` from Step 1's `overview --json`). **`ticked < total`** — it broke mid-implementation: set `in_progress` and retry from the first unticked step, feeding that note to the first agent. **`ticked == total` with `total > 0`** — it broke at end-to-end verification, whether escalated after a failed remediation or handed off with topics outstanding: re-enter `mentor:dispatch-agents`' **Verifying the plan (execution-time)** round on the topics the note names — every topic, if a bare `set … failed` left the note empty — and leave the state at `failed` until Step 4's close-out writes `implemented`. Writing `in_progress` on this shape is erased on the next read — the tick derivation outranks it, so the plan would report `implemented` before the retry has run. A plan with no step lines at all (`{0, 0}`) takes neither branch: it never ran implementation steps, so read the note and pick up where it says. |
 | `in_progress` | An interrupted run. Re-enter execution **from the first unticked step**; never restart from step 1. |
 | `implemented` | Say so and offer another. Do not rebuild it. |
 | `draft` | **Not buildable as it stands.** The approval gate never released this plan, and once the marker has aged out (or the session that armed it ended) `plan-gate.sh` would happily allow the edits — this refusal is what keeps that from becoming a hole in the gate. A `draft` plan *with* a fresh marker is a paused planning session and never reaches this row: the preflight above catches it. There is exactly one authorized way through, on the user's explicit say-so: **"Approving a draft plan here"** below. |
@@ -323,9 +323,10 @@ here rather than straight from `mentor:planning`:
 - When the plan states **`Dispatch: skipped`**, there are no agents to dispatch —
   implement in the main thread under `mentor:planning` Step 6's rule for that case, and keep
   everything around it (step ticks, `Done when:` verification, the **No busy-wait** rule
-  from `mentor:dispatch-agents`, and its **CLOSING CHECKLIST** — the `/mentor:tour`
-  offer, the `/mentor:defer` sweep, and the `/mentor:ship` pointer) exactly as the
-  dispatch path does it.
+  from `mentor:dispatch-agents`, its **Verifying the plan (execution-time)** dispatch —
+  no escape hatch; implementation may be main-thread, verification never is — and its
+  **CLOSING CHECKLIST** — the `/mentor:tour` offer, the `/mentor:defer` sweep, and the
+  `/mentor:ship` pointer) exactly as the dispatch path does it.
   Arriving here does not make that path unowned. A skipped plan usually writes its
   steps as plain numbered items rather than `Step N — …` lines — `bash
   "${CLAUDE_PLUGIN_ROOT}/hooks/plan-state.sh" tick <slug> <N>` counts either form
@@ -333,9 +334,13 @@ here rather than straight from `mentor:planning`:
 
 ## Step 4 — Close out
 
-When every `Done when:` has passed, `set <slug> implemented`. When the remediation
-re-dispatch has failed and you are escalating to the user, `set <slug> failed --note
-"<what broke>"` — the note is what makes the retry cheap next time.
+When every `Done when:` has passed and every Verification topic is PASS (gaps
+fixed, deferred, or accepted), `set <slug> implemented` — a plan with zero topics
+clears that vacuously, so it gets there only on the user's explicit acceptance of it
+unverified, per **Verifying the plan (execution-time)**. Verification ending
+unresolved writes `set <slug> failed --note "<what broke>"` either way — escalating
+after the remediation re-dispatch also failed, or handing off with topics
+outstanding — and the note is what makes the retry cheap next time.
 
 **Reconcile the ticks before writing `implemented`.** Read this plan's
 `steps: {ticked, total}` from `plan-state.sh overview --json`; if `ticked < total`,

@@ -478,7 +478,26 @@ Required sections, in order:
    disk (a `/plan-split` sibling, or a `/mentor:defer` stub for work the user
    actually asked for); an invented `feature 0NN` reads as a roadmap promise
    `/mentor:track` cannot see.
-9. `## Verification` — how to test end-to-end.
+9. `## Verification` — 2–6 single-focus topics, each in this shape:
+
+   ```
+   Topic N — <short title>
+     Focus: <the single question this topic answers>
+     Checks: <concrete commands to run / evidence to gather>
+     Pass when: <observable criteria>
+   ```
+
+   Each topic runs post-implementation as its own **freshly dispatched
+   verifier agent carrying exactly that one topic**: the main thread never
+   grades its own session's work (it knows what it *meant* to do, so it
+   confirms rather than checks), and one agent never carries two topics (a gap
+   in one hides behind a pass in the other). `Topic N —`, never `Step N —` or
+   a bare numbered item, keeps mentor's step counter from mistaking a
+   verification topic for an implementation step. An optional annotation —
+   `Topic N — <title>  [model: <sonnet|opus> · effort: <low|medium|high>]` —
+   declares a judgment-heavy topic at authoring time, so the model upgrade is
+   a reviewable decision rather than an execution-time guess; without it,
+   execution defaults to `sonnet · medium`.
 
 **Visualization decision rule (pick exactly ONE idiom per artifact):**
 
@@ -723,17 +742,22 @@ subagents-first. Invoke `Skill(skill="mentor:dispatch-agents")` first (skip the
 re-invocation only if it is already loaded in this session), then follow its
 "Executing the dispatches" section: read the approved plan file, dispatch each
 `Run in parallel:` group's agents in ONE message (multiple `Agent` calls), run
-`Sequential:` steps one at a time, and verify each step's `Done when:` before
-starting the next. Mark each step done as it passes with `bash
+`Sequential:` steps one at a time, verify each step's `Done when:` before
+starting the next, and — once the last step passes — execute the plan's
+`## Verification` section per that skill's "Verifying the plan (execution-time)"
+rules. Mark each step done as it passes with `bash
 "${CLAUDE_PLUGIN_ROOT}/hooks/plan-state.sh" tick <slug> <N>` — see
 `mentor:dispatch-agents`' "Track progress in the plan file" for why the tick's
 placement is load-bearing and what `tick` does about it. Keep a step's own body
 on `-` bullets, though: the counter cannot tell a numbered sub-item from a step,
 and an inflated denominator strands a finished plan at `in_progress` forever. Its
 **No busy-wait** rule applies to every wait on this path, dispatched or not.
-The main thread orchestrates and verifies; it does not re-do or re-read the
-work it delegated. Only when the plan opens its Implementation steps with
-`Dispatch: skipped — <reason>` does the main thread implement directly.
+The main thread orchestrates and verifies each step's `Done when:` inline; it
+does not re-do or re-read the work it delegated. The plan's end-to-end
+`## Verification` is the one thing it never grades itself — that round is
+dispatched, per the section named above. Only when the plan opens its
+Implementation steps with `Dispatch: skipped — <reason>` does the main thread
+implement directly.
 
 **Record progress as plan state.** `approve-plan.sh` just marked this session's plans
 `approved`. As implementation runs, move that forward so a later session — or
@@ -743,12 +767,13 @@ guessing:
 ```bash
 bash "${CLAUDE_PLUGIN_ROOT}/hooks/plan-state.sh" set <slug> in_progress            # execution starts
 bash "${CLAUDE_PLUGIN_ROOT}/hooks/plan-state.sh" tick <slug> <N>                   # each step's Done when: passes
-bash "${CLAUDE_PLUGIN_ROOT}/hooks/plan-state.sh" set <slug> implemented            # every Done when: passed
-bash "${CLAUDE_PLUGIN_ROOT}/hooks/plan-state.sh" set <slug> failed --note "<what broke>"   # escalating to the user
+bash "${CLAUDE_PLUGIN_ROOT}/hooks/plan-state.sh" set <slug> implemented            # every Done when: + Verification PASS
+bash "${CLAUDE_PLUGIN_ROOT}/hooks/plan-state.sh" set <slug> failed --note "<what broke>"   # escalating, or handing off with verification unresolved
 ```
 
 `mentor:dispatch-agents` states this for the dispatch path; it is repeated here
-because the **`Dispatch: skipped`** path never loads that skill, and direct
+because the **`Dispatch: skipped`** path never loads that skill for
+implementation (it still loads it to dispatch verification), and direct
 implementation must not be the one route that leaves no record. Missing a transition
 is survivable — state also derives from the `✅` step ticks you mark as each step
 passes — but `failed` cannot be derived from ticks, so that one is worth remembering.
@@ -760,9 +785,9 @@ resolve — and you raise your own ad hoc `AskUserQuestion` about it, include
 on this rather than resolving it inline right now, and nothing else on this path
 offers that choice.
 
-**Close out the skipped path too.** For the same reason, that skill's CLOSING
-CHECKLIST is unreachable here, so carry its two user-facing items across — there
-are no agents to release, but there is still work to hand back:
+**Close out the skipped path too.** For the same reason, carry that skill's
+CLOSING CHECKLIST items across yourself — there are no implementation agents to
+release, but there is still work to hand back:
 
 - **Offer `/mentor:tour`** — one line: a hands-on acceptance pass building an
   editable guided-tour review artifact (pass/not-pass scenarios) of what shipped.
@@ -771,7 +796,10 @@ are no agents to release, but there is still work to hand back:
   known-broken item in it goes through `/mentor:defer` first.
 
 Skipping dispatch is a decision about *who types the edits*, not a discount on
-what the user gets at the end.
+what the user gets at the end. Implementation may be main-thread; verification
+never is — the plan's `## Verification` topics are still dispatched to fresh
+verifier agents, loading `Skill(skill="mentor:dispatch-agents")` for that if it
+is not already loaded.
 
 On **Deliver plan only**, run:
 

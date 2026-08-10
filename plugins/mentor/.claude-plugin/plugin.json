@@ -1,7 +1,7 @@
 {
   "name": "mentor",
-  "description": "A lean planning harness for Claude Code: an edit gate keeps the repo read-only until the plan is approved, then implementation runs subagents-first — with staged plan review, per-plan build state (deps, deferred work), and local HTML zooms and paged plan tours.",
-  "version": "2.21.0",
+  "description": "A lean planning harness for Claude Code: an edit gate keeps the repo read-only until the plan is approved, then implementation and verification both run subagents-first — every verification topic checked by its own fresh single-focus agent.",
+  "version": "2.22.0",
   "author": {
     "name": "NTBX"
   }

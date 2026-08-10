@@ -524,14 +524,25 @@ mentor_plan_tick_state() {
   return 0
 }
 
-# mentor_plan_state_rank <state> — ordering for "more advanced". `superseded` outranks
-# everything (a split parent stays superseded however many ticks its body carries);
-# `failed` ties with `in_progress` so a tie-break toward the stored value keeps it.
+# mentor_plan_state_rank <state> — ordering for "more advanced":
+#   superseded 9 > failed 5 > implemented 4 > in_progress 3 > approved 2 > draft 1.
+# `superseded` outranks everything (a split parent stays superseded however many ticks
+# its body carries). `failed` sits ABOVE `implemented` — and so above every state the
+# tick derivation can produce — because it is an explicit judgment written by an
+# orchestrator that observed a real failure, while `implemented` is merely DERIVABLE
+# from ticks alone. End-to-end verification runs after every step is ticked, so an
+# escalation to `failed` always lands on an all-ticked plan; ranking the derivation
+# higher would resurface a genuinely failed plan as successfully completed, with only a
+# free-text note surviving. A derivation must never overrule an explicit failure record.
+# This also keeps the older guarantee that a stored `failed` survives a derived
+# `in_progress` — now by strictly outranking it rather than by the stored-wins tie-break.
+# Clearing a `failed` plan stays explicit: the orchestrator writes a new state, and a
+# stored state always wins ties against the derived one.
 mentor_plan_state_rank() {
   case "${1:-}" in
     superseded)  echo 9 ;;
+    failed)      echo 5 ;;
     implemented) echo 4 ;;
-    failed)      echo 3 ;;
     in_progress) echo 3 ;;
     approved)    echo 2 ;;
     draft)       echo 1 ;;

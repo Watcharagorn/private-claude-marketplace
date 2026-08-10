@@ -431,7 +431,11 @@ must contain:
      `coverage-gap` stays DECISION-REQUIRED rather than auto-folding a new number in;
      an `## Implementation steps` section carrying neither `[role:` dispatch
      annotations nor a `Dispatch: skipped —` opening line (plans are
-     dispatch-annotated by default — a plan with neither made no explicit choice).
+     dispatch-annotated by default — a plan with neither made no explicit choice);
+     a missing or empty `## Verification` section, or one whose topics don't carry
+     the `Topic N —` / `Focus:` / `Checks:` / `Pass when:` structure (execution
+     dispatches one fresh verifier per topic — free-form prose or a malformed
+     block can't be split that way).
    - `contradiction` — sections that disagree; step ordering vs a stated dependency.
    - `terminology-drift` — the same concept named differently across sections.
    - `ambiguity` — vague adjectives (fast/scalable/secure/simple) with no

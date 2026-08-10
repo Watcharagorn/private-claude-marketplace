@@ -219,6 +219,12 @@
       "expected": "touring",
       "tests": "NEAR-MISS vs zooming's new update triggers: 'update the html review page' overlaps, but reviewers ticking scenarios = tour",
       "query": "can you update that html review page? its the one i sent the QA folks so they could tick off each scenario"
+    },
+    {
+      "id": 35,
+      "expected": "dispatch-agents",
+      "tests": "core trigger, verification execution rather than implementation fan-out",
+      "query": "last step of the jwt rotation plan just went green. can you work through the verification section at the bottom properly — id rather not have the same thread that wrote it all sign off on its own work"
     }
   ]
 }
