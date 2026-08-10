@@ -50,6 +50,12 @@ note). A handoff is the session's last exit: anything left resident here has no 
 checkpoint in *this* session to catch it, and outlives the note as a stray, unmonitored
 task.
 
+Make this a call, not a memory of one — a nested spawn (a `plan-split`/`plan-review`
+pass's children, in particular) can still be resident and mutating its own artifacts
+even after it last reported to you. Run `TaskList` now; Step 3's **Current state**
+carries what it found as evidence, the same way that section already carries
+`plan-state.sh overview --json` rather than a recollection of it.
+
 `$ARGUMENTS` (the command argument) answers **"what will the next session be used for?"** Use it to
 decide what the document emphasizes — the parts of the work relevant to that focus get the most
 detail. If the argument is empty, write a general handoff covering the whole session.
@@ -159,6 +165,11 @@ it — Step 5's self-check catches that before you report.
   written by the very session that armed it, so the ordinary case here is the opposite of
   `mentor:resuming`'s. Saying so up front is what lets the next agent read an armed gate as
   deliberate rather than alarming (see the "Pause — still drafting" bullet above).
+  Record Step 1's close-out call here too: how many live tasks `TaskList` found tracing to this
+  session's dispatch tree at the moment you ran it (`0`, or the ones you `TaskStop`ped). A note
+  claiming the session is closed out with no `TaskList` result behind it is the same unbacked
+  claim Step 5's `CHECK: live notes now` line exists to catch for the note file itself, one step
+  earlier in the same session.
   If the note is going to state or rely on the status of anything outside this repo's working
   tree — a deployed service's actual version, a prod database's actual state, a PR/CI/remote-branch
   status — do not assert it as fact from repo records or memory alone. Write it as conditional on a

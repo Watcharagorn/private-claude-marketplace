@@ -451,7 +451,12 @@ the contract does not apply to them, which is exactly how a fan-out goes out raw
   it in place beats both alternatives: letting a known-wrong artifact land, or
   re-dispatching a whole combo that was 90% right. A failed `Done when:`
   needing a clean rebrief → re-dispatch the role once (per the orchestrator
-  contract above).
+  contract above). **Verify the correction landed.** Sending the message is not
+  the same as it taking effect, and unlike a step's own delivery this has no
+  `Done when:` to re-check it against — apply the same trust-but-verify rule by
+  hand: re-read or grep the target artifact for the exact text you asked for
+  once the agent reports, and treat a reply that only *describes* the fix as
+  unverified.
 - **Step stalled / the user interrupts it.** A step that goes dark — no output, no idle
   signal, no death — has no notification coming, so the wake-up is usually the user
   asking why it is taking so long. The temptation then is to start debugging the step's
