@@ -609,16 +609,20 @@ returned here — gets stopped now, per the **Close out** rule in `dispatch-agen
 question below can sit unanswered for hours of real wall-clock time, and a
 resident agent's idle notification landing mid-wait reads as new input and
 silently rejects the pending question, stalling the session until a human
-notices. If unsure what is still resident, enumerate live tasks first, diff
-against this session's own dispatch tree, and stop only what traces to it. (In
-Claude Code those are `TaskList` and `TaskStop`, either of which may need
-fetching via `ToolSearch`.)
+notices. Enumerate live tasks first, diff against this session's own dispatch
+tree, and stop only what traces to it — a remembered name is not enough, even
+when you're sure what's still resident (the same rule `dispatch-agents`'
+"Async runtime & lifecycle" states unconditionally). (In Claude Code those are
+`TaskList` and `TaskStop`, either of which may need fetching via `ToolSearch`.)
 
 First **surface the complete plan body** in your message — plain markdown,
 verbatim, no commentary around it — so the user can review it in the transcript.
 If the plan is long, let them scroll; do not summarize instead. Then, in the
 same turn, ask via `AskUserQuestion` — `header: "Approve"`, question *"The plan is
 ready. What happens next?"* — with the option set the table below selects.
+Mention in the question text that a change request — not just approval or
+rejection — belongs in the always-present **Other** free text, so redirecting
+the plan doesn't have to arrive as a hard reject.
 
 **Only a returned answer approves.** If the approval question was interrupted,
 rejected, or never came back — or the user asserts approval in prose ("the plan was
@@ -741,7 +745,7 @@ hardest one to give.
 | Proceed | Validate the plan, release the edit gate, and begin implementation. |
 | Deliver plan only | Validate the plan and release the gate; the plan file is the deliverable — no implementation, no dispatch. (/mentor:handoff can brief a fresh agent afterwards.) |
 | Review the plan (staged) | Run plan-review — a judgment pass (practicality, comprehensiveness) whose edits you verdict one question at a time, then a mechanical pass (cleanliness, consistency) whose safe fixes auto-fold and whose decision-level findings are asked one by one. Stays in planning; ends back at this question. |
-| Keep planning | Do not release — keep refining. Re-write the plan file and ask again when ready. |
+| Keep planning | Do not release — keep refining, or say what to change. Re-write the plan file and ask again when ready. |
 | Split into multiple plans | Slice this plan into independently buildable sibling plans, each with explicit scope isolation. Stays in planning; asks again afterwards. |
 | Hand off to next agent | Approve and release, then write a handoff doc so a fresh agent implements it — this session is getting large. |
 | Pause — still drafting | Write a handoff doc and stop **without approving**: the gate stays armed and the plan stays `draft`, so the next session continues *planning*, not implementing. For when the session is out of room but the plan is not settled. |
