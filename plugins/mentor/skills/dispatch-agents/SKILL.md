@@ -130,7 +130,11 @@ The point of SDD: quality through narrow focus, and a lean main thread.
   fails loud on an out-of-range N rather than silently writing nothing useful.
   These ticks are also what makes plan state self-healing — mentor derives
   `in_progress` / `implemented` from them, so a forgotten tick costs nothing on
-  its own, but a tick on the wrong line silently costs the next session its
+  its own *while the plan is still open* (a later tick still heals the state),
+  but a plan closed `implemented` with ticks still missing has nothing left to
+  heal it — `plan-track`'s "reconcile the ticks before writing implemented" is
+  the last chance, and `plan-state.sh`'s own post-write warning is a backstop,
+  not a substitute. A tick on the wrong line silently costs the next session its
   picture of what landed, which is what `tick` exists to prevent.
 - **Move the plan's state as you go**, so `/mentor:track` can answer "what is
   built?" in a fresh session without re-reading anything:
@@ -232,7 +236,7 @@ Effort and model are independent levers: a `low`-effort `opus` step is fine, and
 5. **Assign roles.** Smallest specialist that covers the work.
 6. **Assign models.** Default `sonnet`; upgrade only with a reason.
 7. **Assign effort.** Default `medium`; upgrade for design/cross-cutting, downgrade for trivial.
-8. **Write prompt sketches.** Each agent has zero memory of this conversation — the brief must stand alone. If a `Done when:` is a long test suite, brief the agent to iterate on a filtered subset and run the suite whole only as the final gate. When any step's `Done when:` runs tests, resolve the repo's test invocation **once per session** — `mentor:shipping` Step 4's own order (`.mentor/config.json`'s `test_command` first, else auto-detect, confirmed once it actually runs) — and paste that literal command into every prompt sketch that needs it. A fresh agent told to "run the tests" with no memory of earlier steps will re-derive (or mis-derive) the invocation independently each time; a copy-pasteable string is the only thing that transfers.
+8. **Write prompt sketches.** Each agent has zero memory of this conversation — the brief must stand alone. If a `Done when:` is a long test suite, brief the agent to iterate on a filtered subset and run the suite whole only as the final gate. When any step's `Done when:` runs tests, resolve the repo's test invocation **once per session** — `mentor:shipping` Step 4's own order (`.mentor/config.json`'s `test_command` first, else auto-detect, confirmed once it actually runs) — and paste that literal command into every prompt sketch that needs it. A fresh agent told to "run the tests" with no memory of earlier steps will re-derive (or mis-derive) the invocation independently each time; a copy-pasteable string is the only thing that transfers. The same rule covers any other repeatedly-launched tool a `Done when:` needs (a browser/E2E runner, a dev server): resolve the working invocation the first time it's needed and reuse that exact command in every later prompt sketch — no `.mentor/config.json` key exists for these, so state the resolved command directly rather than pointing at one.
 9. **State done-when.** Observable, verifiable, no "looks good".
 
 ## Example

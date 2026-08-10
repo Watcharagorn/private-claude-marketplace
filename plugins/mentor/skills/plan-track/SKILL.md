@@ -345,11 +345,12 @@ outstanding — and the note is what makes the retry cheap next time.
 **Reconcile the ticks before writing `implemented`.** Read this plan's
 `steps: {ticked, total}` from `plan-state.sh overview --json`; if `ticked < total`,
 either tick the step lines that actually passed or tell the user which steps are
-closing untracked and why. Nothing downstream will catch this for you: the
-tick-derived state is deliberately one-directional, so it can *raise* a stale
-sidecar but stays silent when there are no ticks to read — a plan closed at 0 of 6
-draws no warning here and simply resurfaces as `implemented (0/6 steps)` in a later
-hierarchy, with nothing left to explain the gap.
+closing untracked and why. `plan-state.sh set <slug> implemented` now prints a
+fail-soft warning when `ticked < total`, but that fires only *after* the write and
+only names the ratio — it is a backstop for a miss already made, not a substitute
+for reconciling here while you still remember which steps actually passed. The
+tick-derived state stays deliberately one-directional, so it can *raise* a stale
+sidecar but a closed plan's missing ticks are never recovered automatically.
 
 Then report what is left (re-running Step 1's hierarchy is enough) and, if the group has more plans,
 recommend a **fresh session** for the next one: a plan that just consumed a full

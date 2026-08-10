@@ -703,6 +703,40 @@ ps set va-refire implemented >/dev/null           # first close — the fresh tr
 out="$(pserr set va-refire implemented)"          # idempotent re-close (e.g. ship re-running set)
 chk "idempotent re-close → no re-fired verification warning" hasnt "not actually verified yet" "$out"
 
+echo "== S. set … implemented: tick-reconciliation reminder (tick_reconciliation_reminder) =="
+plan tr-partial '## Implementation steps' '1. one ✅' '2. two' '3. three'
+merged="$(ps set tr-partial implemented)"; rc=$?
+chk "1/3 ticked → warning fires"                    has "steps ticked" "$merged"
+chk "warning → names the ratio"                     has "1/3 steps ticked" "$merged"
+chk "warning → names the plan slug"                 has "tr-partial" "$merged"
+chk "warning → gives the tick remediation command"  has "plan-state.sh tick tr-partial" "$merged"
+chk "reminder path still exits 0"                   test "$rc" = "0"
+
+# Fully ticked must NOT start from a stored state the tick-derived "implemented"
+# already outranks (draft/approved/in_progress) — mentor_plan_effective_state would
+# then already read "implemented" before this call, `before == state`, and the whole
+# reminder block (including this one) would be skipped for a reason unrelated to the
+# ratio being fine. `failed` outranks the tick derivation (mentor_plan_state_rank:
+# failed=5 > implemented=4), so it's the only stored state that reaches this
+# function with a fully-ticked plan.
+plan tr-full '## Implementation steps' '1. one ✅' '2. two ✅'
+ps set tr-full failed --note "blocked" >/dev/null
+out="$(ps set tr-full implemented)"
+chk "2/2 ticked (from failed) → silent"             hasnt "steps ticked" "$out"
+
+plan tr-empty '## Notes' 'no Implementation steps section at all'
+out="$(ps set tr-empty implemented)"
+chk "no recognizable step lines (0 total) → silent" hasnt "steps ticked" "$out"
+
+plan tr-failed '## Implementation steps' '1. one' '2. two'
+out="$(ps set tr-failed failed --note "blocked")"
+chk "transition to failed (not implemented) → silent" hasnt "steps ticked" "$out"
+
+plan tr-refire '## Implementation steps' '1. one'
+ps set tr-refire implemented >/dev/null            # first close — the fresh transition
+out="$(pserr set tr-refire implemented)"           # idempotent re-close (e.g. ship re-running set)
+chk "idempotent re-close → no re-fired tick warning" hasnt "steps ticked" "$out"
+
 echo
 echo "RESULT: PASS=$PASS FAIL=$FAIL"
 [ "$FAIL" = "0" ]

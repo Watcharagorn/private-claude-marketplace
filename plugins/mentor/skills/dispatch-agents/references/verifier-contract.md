@@ -17,6 +17,10 @@ confirm-instead-of-check failure this contract exists to prevent.
 - The exact file paths the topic concerns.
 - The approved plan's path (`.mentor/plans/<slug>/plan.md`), so the verifier
   can read surrounding context a check needs.
+- If the check launches a browser/E2E runner or another tool likely to need
+  re-deriving (module path, executable location, launch flags), the exact
+  working invocation already resolved earlier this session — never send the
+  verifier off to rediscover it from scratch.
 
 When the plan predates the `Topic N —` grammar and its `## Verification` is
 still prose, build those three lines yourself before dispatching, one topic per

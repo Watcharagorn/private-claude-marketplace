@@ -259,8 +259,10 @@ Ship anyway.
 Both answers must exist before any `git push`: Step 4's test answer and this step's
 target answer. If you cannot point at both answers in this transcript — they may
 arrive as two separate `AskUserQuestion` calls, or combined into one call carrying
-both questions — you skipped a step — ask now. Everything up to here is local and
-reversible; the push is not.
+both questions — you skipped a step — ask now. Prose selects no option: "ship it",
+"lgtm", "ok all pass, let's ship and deploy" answer neither question, however much
+they sound like a go-ahead. Everything up to here is local and reversible; the push
+is not.
 
 Never decide this yourself. Substitute real values before emitting the call:
 
@@ -314,12 +316,15 @@ Detect the host from `git remote get-url origin`:
     -o merge_request.remove_source_branch \
     -o merge_request.title="$title" 2>&1 | tee /tmp/ship-push.out
   ```
-  Surface the MR URL (grep for `/-/merge_requests/`). If a `WARNINGS:` block
-  names `merge_request.target`, the target is invalid — the MR did NOT open;
-  re-resolve the base (ask the user) and retry. An already-open-MR warning is
-  fine **when the MR is this branch's own work** — print its URL. (An MR opened
-  by someone else is the Step 1 ownership case; if Step 1 was skipped — no `gh`
-  on a GitLab remote — check the MR author/title before shrugging it off.)
+  Surface the MR URL (grep for `/-/merge_requests/`) together with the target
+  it named (`$base`) — the one piece of "did this land where I meant?" nothing
+  else in this block confirms. If a `WARNINGS:` block names `merge_request.target`,
+  the target is invalid — the MR did NOT open; re-resolve the base (ask the user)
+  and retry. An already-open-MR warning is fine **when the MR is this branch's
+  own work** — print its URL and its target, since this path reused an existing
+  MR whose target these push options never touched. (An MR opened by someone
+  else is the Step 1 ownership case; if Step 1 was skipped — no `gh` on a
+  GitLab remote — check the MR author/title before shrugging it off.)
 
 - **GitHub** — push, then open the PR with `gh` (run inside the repo):
   ```bash

@@ -469,6 +469,31 @@ verification_artifact_reminder() {
   return 0
 }
 
+# tick_reconciliation_reminder <plan_dir> — best-effort stderr warning, fired only
+# alongside closing_checklist_reminder (same FRESH-transition-to-implemented guard, so
+# shipping/merging's idempotent re-`set … implemented` stays silent). Distinct from the
+# "'implemented' stored, but the plan's ✅ step ticks report …" note above: that note
+# fires only when the tick-derived state OUTRANKS what was just stored
+# (mentor_plan_state_rank), which a partially- or un-ticked plan never does —
+# `implemented` at 0/6 or 2/6 stores clean, mentor_plan_effective_state agrees with it,
+# and nothing above this function ever says otherwise. Ticks self-heal STATE (a stale
+# sidecar can be overridden by finishing the ticks) but nothing self-heals a TICK — once
+# a plan is closed `implemented`, plan-track's own Step 4 ("reconcile the ticks before
+# writing implemented") was the last chance to write the ones that actually passed,
+# which is why this fires exactly here. A false positive here is cheap (a legacy plan
+# closed before this sidecar existed, or a `merging` partial close the user already
+# accepted) — same fail-soft nudge as its neighbor, not a gate.
+tick_reconciliation_reminder() {
+  local plan_dir="${1:-}" plan_md="${1:-}/plan.md" ticked total
+  [ -n "$plan_dir" ] && [ -f "$plan_md" ] || return 0
+  read -r ticked total <<<"$(mentor_plan_tick_counts "$plan_md")"
+  [ "${total:-0}" -gt 0 ] || return 0
+  [ "${ticked:-0}" -lt "${total:-0}" ] || return 0
+  echo "[mentor plan-state] WARNING: ${plan_dir##*/} closed 'implemented' with only ${ticked}/${total} steps ticked." >&2
+  echo "  Tick the steps that actually passed (plan-state.sh tick ${plan_dir##*/} <N>), or tell the user which are closing untracked and why." >&2
+  return 0
+}
+
 case "$sub" in
 
   init)
@@ -554,7 +579,10 @@ case "$sub" in
         if [ "$before" != "$state" ]; then
           closing_checklist_reminder "$(mentor_find_transcript "$(pwd)")" "$state"
           # Only implemented claims verification passed — failed has nothing to fake.
-          [ "$state" = "implemented" ] && verification_artifact_reminder "$plan_dir"
+          if [ "$state" = "implemented" ]; then
+            verification_artifact_reminder "$plan_dir"
+            tick_reconciliation_reminder "$plan_dir"
+          fi
         fi
         ;;
     esac
