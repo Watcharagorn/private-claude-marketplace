@@ -439,6 +439,11 @@ must contain:
      an `## Implementation steps` section carrying neither `[role:` dispatch
      annotations nor a `Dispatch: skipped —` opening line (plans are
      dispatch-annotated by default — a plan with neither made no explicit choice);
+     a `Dispatch: skipped —` line whose stated reason matches neither of
+     `dispatch-agents`' two sanctioned escape-hatch branches (**Trivial**: roughly
+     ≤ ~20 changed lines with nothing new to read; **Interactive**: needs tight
+     mid-implementation back-and-forth) — an unsanctioned reason is an unreviewed
+     skip wearing a disclosed one;
      a missing or empty `## Verification` section, or one whose topics don't carry
      the `Topic N —` / `Focus:` / `Checks:` / `Pass when:` structure (execution
      dispatches one fresh verifier per topic — free-form prose or a malformed
