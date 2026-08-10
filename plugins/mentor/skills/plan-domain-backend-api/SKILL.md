@@ -5,8 +5,10 @@ description: >
   `plan` (Step 3 domain routing) when the task touches routes, endpoints,
   handlers, services, schemas/DTOs, API contracts, an async worker/queue/
   topic/cron-job edge (delivery semantics, retry, visibility timeout, DLQ) —
-  or the persistence layer behind them: a migration, or an added/changed/removed
-  table, column, index, constraint, enum, or RLS/row-level policy. Not a /command. Shapes the
+  or the persistence layer behind them, in ANY storage shape: a migration, or an
+  added/changed/removed table, column, index, constraint, enum, or RLS/row-level
+  policy (SQL) — or the equivalent entity/relationship change in a config file,
+  CSV, spreadsheet-backed store, or ORM model. Not a /command. Shapes the
   research (find route definitions, handlers, schemas, callers, migrations)
   and the Markdown plan to carry a before/after contract comparison —
   per-endpoint diff tables, schema diffs, a per-column delta table plus a
@@ -91,8 +93,11 @@ canonical plan):
   message-payload field change breaks consumers exactly as a response field breaks HTTP callers.
 - A **schema diff** per changed DTO — added / removed / changed fields, with types — written as
   `+`/`-`/`~`-prefixed lines.
-- **When the change reaches DDL** — a migration, or an added/changed/removed table, column, index,
-  constraint, enum, or RLS policy — the schema diff is written at the persistence level too:
+- **When the change reaches DDL, or an equivalent structured entity-model change in a
+  config file, CSV, or spreadsheet-backed store** — a migration, or an added/changed/removed
+  table, column, index, constraint, enum, or RLS policy (or its non-SQL equivalent: an
+  added/changed/removed field, key, or relationship) — the schema diff is written at the
+  persistence level too:
   - a **per-column delta table** for each changed entity —
     `Column · Type · Nullable · Default · Constraint / policy · Change`,
   - and a **Mermaid `erDiagram`** carrying **only the changed entities** plus the ones they

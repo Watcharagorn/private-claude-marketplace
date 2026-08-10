@@ -164,9 +164,13 @@ On "Stage 2 only": jump to Stage-2-only mode.
 
 ## Step 3 — Stage 1: fan out the two judgment reviewers
 
-Issue **one `Agent()` call per topic in a single assistant message** so the
-two run concurrently — the mechanical reviewers are not in this batch; they
-dispatch in Step 6, after the fold. Each call uses
+Issue **one `Agent()` call per topic in a single assistant message** (both
+`tool_use` blocks side by side) so the two run concurrently — not two
+separate messages, one call each waiting on its `tool_result` before the
+next. Serializing buys nothing: both agents run async once dispatched either
+way, and the wait costs a full main-thread round trip for no benefit. The
+mechanical reviewers are not in this batch; they dispatch in Step 6, after
+the fold. Each call uses
 `subagent_type: general-purpose`, `model: sonnet`,
 `description: "Review plan: <topic>"`. Every reviewer must stay in its own lane
 (see the table above) — drop any finding another reviewer owns. Reviewer
@@ -330,8 +334,11 @@ fixes. If every edit was skipped, skip the write.
 
 Dispatch **only after Step 5 completes** (the write, or the fold-nothing
 decision) — both reviewers read the UPDATED plan, so they also catch anything
-the fold introduced. Issue one `Agent()` call each in a single message,
-`subagent_type: general-purpose`, `model: sonnet`. Dispatches follow
+the fold introduced. Issue one `Agent()` call each in a single message (both
+`tool_use` blocks side by side) — not two messages, one call each waiting on
+its `tool_result` before the next; that serialization spends a full
+main-thread round trip for no benefit, since both agents run async once
+dispatched either way. `subagent_type: general-purpose`, `model: sonnet`. Dispatches follow
 `dispatch-agents`' **"Async runtime & lifecycle"** rules, handled the same way as
 Step 3: load `Skill(skill="mentor:dispatch-agents")` if it is not already loaded,
 then end each prompt with its **"Deliver before idling"** block pasted verbatim,

@@ -142,6 +142,15 @@ its siblings before drafting, and carry each hit into Step 3.5 as a scope
 decision. A sibling found at the approval gate rewrites the plan; the same
 sibling found here costs one question.
 
+**A same-session restart is not a blank page.** When the user interrupts
+mid-research to broaden or redirect the request and re-invokes `/mentor:plan`,
+check the conversation for research FINDINGS already delivered on the same
+subject before dispatching a fresh round — a broadened scope usually extends
+prior findings rather than replacing them, so re-running agents over ground
+already covered wastes a full research fan-out on overlap the transcript
+already has the answer to. Dispatch new agents only for the ground the
+broadened request genuinely adds.
+
 **`.mentor/` is gitignored — a plain `grep -r` can miss it, even aimed straight at the
 dir.** `hooks/lib/state.sh` writes `.mentor/.gitignore` as `*` + negations (only
 `.gitignore`/`config.json`/`constitution.md` are un-ignored), so a gitignore-aware search
@@ -222,7 +231,7 @@ domain skill's own "researching directly" clause), then fold the deliverable.
 | Domain | Trigger signals | Skill to invoke | Extra plan deliverable |
 |---|---|---|---|
 | frontend | UX/UI — components, pages, styles, layout, design systems, theming, responsive; also a message/notification surface rendered by a THIRD-PARTY client (chat embed, push notification, email chrome) | `Skill(skill="mentor:plan-domain-frontend")` | ASCII wireframes + delta/token tables (or a payload-shape table for a platform-rendered surface); live mockups only in an HTML zoom combo (`mentor:zooming`, Step 5) |
-| backend-api | API/endpoint/route/handler/schema/DTO/contract — or the data model behind it: migration, table, column, index, constraint, enum, RLS policy; also the async edge — queue, topic, subscription, cron/scheduled job — its message contract and delivery semantics (retry, visibility timeout, idempotency, DLQ) | `Skill(skill="mentor:plan-domain-backend-api")` | Before/after contract diff tables + schema diffs + Mermaid sequence flow; on a DDL change also a per-column delta table + Mermaid ER diff of the changed entities |
+| backend-api | API/endpoint/route/handler/schema/DTO/contract — or the data model behind it, in ANY storage shape: a migration, table, column, index, constraint, enum, RLS policy (SQL) — or the equivalent entity/relationship change in a config file, CSV, spreadsheet-backed store, or ORM model; also the async edge — queue, topic, subscription, cron/scheduled job — its message contract and delivery semantics (retry, visibility timeout, idempotency, DLQ) | `Skill(skill="mentor:plan-domain-backend-api")` | Before/after contract diff tables + schema diffs + Mermaid sequence flow; on a DDL-or-equivalent change also a per-column delta table + Mermaid ER diff of the changed entities |
 | architecture (C4) | Structural change — new/changed/removed service, container, datastore, queue, external integration, component, or data flow (NOT pure content/config/doc/style/refactor) | `Skill(skill="mentor:plan-domain-architecture")` | Diff-highlighted C4-style Mermaid flowcharts, only the levels that change |
 | dynamic (fallback) | no registered domain matched — and no available skill substitutes (above) | `Skill(skill="mentor:plan-domain-dynamic")` | Domain best-practices section (practice→step mapping) |
 
@@ -686,8 +695,11 @@ moment:
 
 In the first row only, `MODE: plan-only` swaps the leading two so "Deliver plan only"
 comes first. Anything yielded to "Other" stays reachable — the user can just say it.
-Under `CONTEXT: HANDOFF`, also note in the question text that the session is
-critically large.
+Copy the matched row's option list into the `AskUserQuestion` call verbatim —
+don't reconstruct it from memory this late in a long session, where a drifted
+list can silently drop the one button (a `Pause`, a `Split`) the situation
+actually calls for. Under `CONTEXT: HANDOFF`, also note in the question text
+that the session is critically large.
 
 **`/mentor:handoff` stays reachable in every row, including the ones that list no
 handoff option.** It is a command, not an option: it writes a handoff note and never
