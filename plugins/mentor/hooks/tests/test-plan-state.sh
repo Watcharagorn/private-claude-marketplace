@@ -662,6 +662,47 @@ chk "failed → defer sweep still fires"                       has "/mentor:defe
 chk "failed → tour offer held (checklist carve-out)"         hasnt "/mentor:tour" "$out"
 chk "failed → ship pointer held (checklist carve-out)"       hasnt "/mentor:ship" "$out"
 
+echo "== R. set … implemented: verification-artifact reminder (verification_artifact_reminder) =="
+tx_no_agent   # this section only cares about the verification line, not the checklist above it
+plan va-empty '# a' '## Implementation steps' '1. one'
+out="$(ps set va-empty implemented)"
+chk "no Verification section at all → silent"        hasnt "not actually verified yet" "$out"
+
+plan va-blank '# a' '## Implementation steps' '1. one' '## Verification' '' '## Notes' 'x'
+out="$(ps set va-blank implemented)"
+chk "empty Verification section (blank before next ##) → silent" hasnt "not actually verified yet" "$out"
+
+plan va-missing '# a' '## Implementation steps' '1. one' \
+  '## Verification' '1. real criteria, never actually checked'
+out="$(ps set va-missing implemented)"
+chk "non-empty Verification, no *verify.md → warning fires"      has "not actually verified yet" "$out"
+chk "warning → names the plan dir"                                has "$PLANS/va-missing" "$out"
+chk "warning → cites the no-self-check rule"                      has "never a main-thread self-check" "$out"
+chk "warning path still exits 0"                                  test "$?" = "0"
+
+plan va-present '# a' '## Implementation steps' '1. one' \
+  '## Verification' 'Topic 1 — real criteria'
+: > "$PLANS/va-present/topic-1-verify.md"
+out="$(ps set va-present implemented)"
+chk "non-empty Verification, *verify.md present → silent"        hasnt "not actually verified yet" "$out"
+
+plan va-legacy '# a' '## Implementation steps' '1. one' \
+  '## Verification' '1. legacy prose criterion, derived into a topic at dispatch time'
+: > "$PLANS/va-legacy/topic-1-verify.md"   # legacy prose derives topics too — same verifier naming
+out="$(ps set va-legacy implemented)"
+chk "legacy prose Verification, derived topic-verify.md present → silent" hasnt "not actually verified yet" "$out"
+
+plan va-failed '# a' '## Implementation steps' '1. one' \
+  '## Verification' '1. real criteria, never checked'
+out="$(ps set va-failed failed --note "blocked")"
+chk "transition to failed (not implemented) → no verification warning" hasnt "not actually verified yet" "$out"
+
+plan va-refire '# a' '## Implementation steps' '1. one' \
+  '## Verification' '1. real criteria, never checked'
+ps set va-refire implemented >/dev/null           # first close — the fresh transition
+out="$(pserr set va-refire implemented)"          # idempotent re-close (e.g. ship re-running set)
+chk "idempotent re-close → no re-fired verification warning" hasnt "not actually verified yet" "$out"
+
 echo
 echo "RESULT: PASS=$PASS FAIL=$FAIL"
 [ "$FAIL" = "0" ]

@@ -133,7 +133,14 @@ never `git add` an untracked path to satisfy this step.
 
 **Abort means abort.** Never branch, stage, commit, or stash on the user's behalf
 to get past this gate — the exit belongs to the user, and a hand-sorted commit
-ship invented is the one commit it must never author.
+ship invented is the one commit it must never author. **This is not Step 3's
+territory below** — Step 3's auto-commit-without-prompting is scoped narrowly to
+files `simplify` itself just created in this same turn; it never licenses
+committing whatever Step 2 finds dirty here, however similar the shape looks. A
+session that just finished a `mentor:dispatch-agents` run should already have a
+clean tree — its CLOSING CHECKLIST commits that work before pointing here — so a
+dirty tree at this gate means something outside that flow, which only the user
+can classify.
 
 ## Step 3 — Run `/simplify`
 
@@ -250,8 +257,9 @@ Ship anyway.
 ## Step 5 — Choose the ship target (mandatory)
 
 Both answers must exist before any `git push`: Step 4's test answer and this step's
-target answer. If you cannot point at the two `AskUserQuestion` calls in this
-transcript, you skipped a step — ask now. Everything up to here is local and
+target answer. If you cannot point at both answers in this transcript — they may
+arrive as two separate `AskUserQuestion` calls, or combined into one call carrying
+both questions — you skipped a step — ask now. Everything up to here is local and
 reversible; the push is not.
 
 Never decide this yourself. Substitute real values before emitting the call:
@@ -420,6 +428,47 @@ in the web UI rather than wondering which mentor command they missed.
 Keeping the tail in `/mentor:merge` is what makes it re-enterable after a stalled CI run
 without re-running ship.
 
+**Do this before anything else in this step: offer to save a hand-supplied test
+command.** Placed first on purpose — buried after the marketplace and
+deploy-artifact checks below, this offer is easy to reach the end of Step 7
+having mentally already closed out ("pushed successfully") and simply never
+run. If Step 4 had to ask the user for a command (the table missed) **and that
+command passed**, offer here to record it as `test_command`, so the next ship
+in this repo reads it instead of asking again. Only a command that actually
+passed is worth saving — Step 4 uses a configured value verbatim, so persisting
+a broken one hands the next ship a bad default it will trust.
+
+This lands in Step 7 and not in Step 4 on purpose. `.mentor/config.json` is
+deliberately **not** gitignored — it is meant to be committed and shared — so
+writing it is a working-tree change, and Step 4 sits *after* the Step 2/3 clean
+gate and *before* the Step 5 push. Writing it there would leave the tree dirty
+at push time in a skill whose Step 2 refuses to stage anything on the user's
+behalf, and the next `/mentor:ship` would then abort at that very gate. After
+the push, the same write is just a file waiting to be committed. Say that
+plainly in the offer: this file is committed, and ship will not commit it for
+them.
+
+```bash
+repo_root="$(git rev-parse --show-toplevel)"   # re-derive: separate Bash call (see Step 2)
+state_dir="$repo_root/.mentor"; config="$state_dir/config.json"
+mkdir -p -m 700 "$state_dir"
+if [ -f "$config" ]; then
+  tmp="$(mktemp "${state_dir}/.config.XXXXXX")"
+  jq --arg c "<the command that passed>" '.test_command = $c' "$config" > "$tmp" && mv "$tmp" "$config"
+else
+  jq -n --arg c "<the command that passed>" '{test_command: $c}' > "$config"
+fi
+```
+
+That is `set-mode.sh`'s own idiom, and reusing it is the point: the `.k = $v`
+assignment preserves `mode`, `constitution_path` and the context-gate keys, and
+the `&&` means a `jq` failure leaves the original byte-identical — so there is
+no second backup-and-restore dance to keep true for the same file. On the
+create branch, a config written without `.mentor/.gitignore` beside it would
+leave `plans/`, `zooms/` and `tours/` committable, so run
+`mentor_ensure_gitignore` (as every hook that writes this file does) or create
+the config only in a repo that already planned.
+
 **Marketplace repos: say whether the plugin is released.** When `$repo_root` holds a
 `.claude-plugin/marketplace.json`, shipping the branch and publishing the plugin are two
 different acts and only the first one just happened. Add one report line per plugin whose
@@ -484,41 +533,6 @@ edge case named above: there is no PR-scoped range to diff there.
 Do **not** watch checks, poll `gh run`, or `sleep` after the push — `/mentor:merge`
 Step 2 owns the one bounded watch, and chaining sleeps or re-checks is the **No busy-wait**
 rule owned by `mentor:dispatch-agents` ("Async runtime & lifecycle").
-
-**Offer to save a hand-supplied test command.** If Step 4 had to ask the user for a
-command (the table missed) **and that command passed**, offer here to record it as
-`test_command`, so the next ship in this repo reads it instead of asking again. Only
-a command that actually passed is worth saving — Step 4 uses a configured value
-verbatim, so persisting a broken one hands the next ship a bad default it will trust.
-
-This lands in Step 7 and not in Step 4 on purpose. `.mentor/config.json` is
-deliberately **not** gitignored — it is meant to be committed and shared — so writing
-it is a working-tree change, and Step 4 sits *after* the Step 2/3 clean gate and
-*before* the Step 5 push. Writing it there would leave the tree dirty at push time in
-a skill whose Step 2 refuses to stage anything on the user's behalf, and the next
-`/mentor:ship` would then abort at that very gate. After the push, the same write is
-just a file waiting to be committed. Say that plainly in the offer: this file is
-committed, and ship will not commit it for them.
-
-```bash
-repo_root="$(git rev-parse --show-toplevel)"   # re-derive: separate Bash call (see Step 2)
-state_dir="$repo_root/.mentor"; config="$state_dir/config.json"
-mkdir -p -m 700 "$state_dir"
-if [ -f "$config" ]; then
-  tmp="$(mktemp "${state_dir}/.config.XXXXXX")"
-  jq --arg c "<the command that passed>" '.test_command = $c' "$config" > "$tmp" && mv "$tmp" "$config"
-else
-  jq -n --arg c "<the command that passed>" '{test_command: $c}' > "$config"
-fi
-```
-
-That is `set-mode.sh`'s own idiom, and reusing it is the point: the `.k = $v`
-assignment preserves `mode`, `constitution_path` and the context-gate keys, and the
-`&&` means a `jq` failure leaves the original byte-identical — so there is no second
-backup-and-restore dance to keep true for the same file. On the create branch, a
-config written without `.mentor/.gitignore` beside it would leave `plans/`, `zooms/`
-and `tours/` committable, so run `mentor_ensure_gitignore` (as every hook that writes
-this file does) or create the config only in a repo that already planned.
 
 One carve-out worth naming, because it is the reason this gets overridden: when the plan's
 own `Done when:` requires a green CI run, that obligation is real — but it does not license

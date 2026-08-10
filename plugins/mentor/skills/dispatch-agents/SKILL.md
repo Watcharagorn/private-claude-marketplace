@@ -232,7 +232,7 @@ Effort and model are independent levers: a `low`-effort `opus` step is fine, and
 5. **Assign roles.** Smallest specialist that covers the work.
 6. **Assign models.** Default `sonnet`; upgrade only with a reason.
 7. **Assign effort.** Default `medium`; upgrade for design/cross-cutting, downgrade for trivial.
-8. **Write prompt sketches.** Each agent has zero memory of this conversation — the brief must stand alone. If a `Done when:` is a long test suite, brief the agent to iterate on a filtered subset and run the suite whole only as the final gate.
+8. **Write prompt sketches.** Each agent has zero memory of this conversation — the brief must stand alone. If a `Done when:` is a long test suite, brief the agent to iterate on a filtered subset and run the suite whole only as the final gate. When any step's `Done when:` runs tests, resolve the repo's test invocation **once per session** — `mentor:shipping` Step 4's own order (`.mentor/config.json`'s `test_command` first, else auto-detect, confirmed once it actually runs) — and paste that literal command into every prompt sketch that needs it. A fresh agent told to "run the tests" with no memory of earlier steps will re-derive (or mis-derive) the invocation independently each time; a copy-pasteable string is the only thing that transfers.
 9. **State done-when.** Observable, verifiable, no "looks good".
 
 ## Example
@@ -285,10 +285,23 @@ before issuing `Agent` calls. Then:
    - **Offer `/mentor:tour`** — one line: a hands-on acceptance pass building an editable guided-tour review artifact (pass/not-pass scenarios) of what shipped. Do not auto-run it.
    - **Sweep the report you're about to write** — every follow-up, gap, or known-broken
      item in it goes through `/mentor:defer` first (orchestrator contract above).
+   - **Commit this session's implementation work.** `git status --porcelain`: if
+     every dirty/untracked path is something this session's dispatches touched,
+     ask via `AskUserQuestion` — commit it as this plan's work (recommended) /
+     leave it uncommitted, the user commits by hand. Any dirty path this session
+     did **not** touch: show the split, same question, scoped to only the paths
+     this session owns. The orchestrator is the only legal committer here — the
+     standing contract above already bars dispatched agents from touching the
+     index — and this is deliberately a **question**, never `mentor:shipping`
+     Step 3's silent auto-commit: that allowance is scoped to files `simplify`
+     itself just created, not to a whole implementation run. Skip this bullet
+     only when the tree is already clean.
    - **Point at `/mentor:ship`** — one line: once the ticks above are verified and
-     the tree is committed, the next move is `/mentor:ship` (it hands off to
-     `/mentor:merge`'s bounded watch) — not a hand-rolled `git push`, `gh pr create`,
-     or a CI-poll loop. Do not auto-run it.
+     the tree is committed (above), the next move is `/mentor:ship` (it hands off
+     to `/mentor:merge`'s bounded watch) — not a hand-rolled `git push`, `gh pr
+     create`, or a CI-poll loop. Do not auto-run it. A tree still dirty when
+     `mentor:shipping` Step 2 runs means something outside this session's own
+     work — that abort is real, not a formality it will paraphrase past.
 
 Do NOT paraphrase the plan or summarize what you're about to do. Dispatch immediately.
 
@@ -364,8 +377,10 @@ the contract does not apply to them, which is exactly how a fan-out goes out raw
   the user's to resolve, not yours to resolve silently.
 - **No busy-wait.** Waiting is not work: never chain `sleep`s, fire no-op Bash
   calls, or reach for `ScheduleWakeup` (that tool is for `/loop` mode, not a
-  dispatch wait — it errors without a `/loop` prompt) to pass the time. This
-  governs **every** waiting surface in a mentor
+  dispatch wait — it can fire successfully and still be wrong here: a timer has
+  no idea the dispatch already finished, so it re-enters this session on a
+  superseded brief and forces a stale-wakeup recovery instead of a clean
+  re-invoke) to pass the time. This governs **every** waiting surface in a mentor
   session, not only dispatched agents — a long build, a background test suite, a
   deploy. When something else will wake you (a dispatch completing, a backgrounded
   command exiting), **end the turn** and let the harness re-invoke you. When nothing

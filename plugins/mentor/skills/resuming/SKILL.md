@@ -248,6 +248,21 @@ Then resolve a selection:
    work means the shipping already happened: say `Watch CI and merge with /mentor:merge` rather than
    re-implementing. Nothing else routes a later session into the merge tail, so a raw `gh pr merge`
    here is how a shipped plan ends up stuck at `in_progress`.
+
+   **Also report any pre-existing dirty/untracked state before dispatch begins** — the same
+   check `mentor:shipping` Step 2 runs, just early enough to act on instead of untangle:
+
+   ```bash
+   git status --porcelain --untracked-files=no
+   ```
+
+   Non-blocking — this is a report, not a gate; resuming never stashes, commits, or aborts on
+   it, and it never re-states `mentor:shipping`'s own rules. Anything printed here pre-dates
+   this session's work by construction (nothing has been edited yet), so surface it once and
+   let the user decide whether to carry it through, stash it, or commit it before a multi-hour
+   dispatch run starts. Skipping this costs nothing today and a scramble later: `mentor:shipping`
+   Step 2 finds the same paths mixed in with this session's real output and has to untangle
+   ownership from conversational memory instead of a baseline recorded up front.
 6. **Act on the note's "Recommended mentor commands for the next agent."** **Bound "act":** invoke the
    listed mentor command(s) **exactly as the note states** — do not infer extra steps or expand beyond
    what the note recommends. If the note recommends `/mentor:plan <focus>`, run that. If it recommends

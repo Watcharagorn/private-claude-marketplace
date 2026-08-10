@@ -439,6 +439,36 @@ closing_checklist_reminder() {
   return 0
 }
 
+# verification_artifact_reminder <plan_dir> — best-effort stderr warning, fired only
+# alongside closing_checklist_reminder (same FRESH-transition-to-implemented guard, so
+# shipping/merging's idempotent re-`set … implemented` stays silent). Catches the false
+# green dispatch-agents' "Verifying the plan (execution-time)" exists to prevent: a plan
+# whose `## Verification` section is non-empty (real criteria to check, canonical `Topic
+# N —` grammar or legacy prose alike — both dispatch "one fresh verifier per topic, never
+# self-check") but whose plan dir holds no `*verify*.md` durable copy — the file every
+# verifier is required to write before returning (this skill file, "Deliver before
+# idling"). No artifact is the observable footprint of a main-thread self-check standing
+# in for a dispatched verifier: the context that just ran the build grading its own work,
+# exactly the failure mode that section's opening line names. A false negative here (the
+# artifact exists but under a name this glob misses) costs nothing — same fail-soft
+# nudge, not a gate — so the check stays deliberately loose rather than parsing topic
+# counts and demanding an exact match.
+verification_artifact_reminder() {
+  local plan_dir="${1:-}" plan_md="${1:-}/plan.md" nonempty
+  [ -n "$plan_dir" ] && [ -f "$plan_md" ] || return 0
+  nonempty="$(awk '
+    /^##[[:space:]]/ { h = tolower($0); insec = (h ~ /^##[[:space:]]+verification/) ? 1 : 0; next }
+    insec && $0 ~ /[^[:space:]]/ { found = 1 }
+    END { print (found ? 1 : 0) }
+  ' "$plan_md")"
+  [ "$nonempty" = "1" ] || return 0
+  find "$plan_dir" -maxdepth 1 -iname '*verify*.md' 2>/dev/null | grep -q . && return 0
+  echo "[mentor plan-state] WARNING: ${plan_dir##*/} has a non-empty ## Verification section but no *verify*.md artifact under ${plan_dir}." >&2
+  echo "  dispatch-agents' \"Verifying the plan (execution-time)\" requires one fresh verifier per topic — never a main-thread self-check, no escape hatch." >&2
+  echo "  If verification genuinely ran via dispatched agents, confirm each one wrote its durable copy; if it didn't, this plan is not actually verified yet." >&2
+  return 0
+}
+
 case "$sub" in
 
   init)
@@ -521,7 +551,11 @@ case "$sub" in
         # Fire only on a FRESH transition — before == state means this call is an
         # idempotent re-close (e.g. shipping/merging re-running `set … implemented`
         # after dispatch-agents already closed it), which must stay silent.
-        [ "$before" != "$state" ] && closing_checklist_reminder "$(mentor_find_transcript "$(pwd)")" "$state"
+        if [ "$before" != "$state" ]; then
+          closing_checklist_reminder "$(mentor_find_transcript "$(pwd)")" "$state"
+          # Only implemented claims verification passed — failed has nothing to fake.
+          [ "$state" = "implemented" ] && verification_artifact_reminder "$plan_dir"
+        fi
         ;;
     esac
     ;;
