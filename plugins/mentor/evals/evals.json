@@ -13,7 +13,10 @@
     "touring",
     "zooming",
     "merging",
-    "shipping"
+    "shipping",
+    "deferring",
+    "constitution-authoring",
+    "plan-touring"
   ],
   "evals": [
     {
@@ -225,6 +228,60 @@
       "expected": "dispatch-agents",
       "tests": "core trigger, verification execution rather than implementation fan-out",
       "query": "last step of the jwt rotation plan just went green. can you work through the verification section at the bottom properly — id rather not have the same thread that wrote it all sign off on its own work"
+    },
+    {
+      "id": 36,
+      "expected": "deferring",
+      "tests": "core trigger, mid-flow capture without stopping",
+      "query": "hold on — while im in here i noticed the retry logic on the payment webhook handler is busted too. dont fix it now, just note it somewhere so we circle back to it after this ships"
+    },
+    {
+      "id": 37,
+      "expected": "handoff-note",
+      "tests": "NEAR-MISS vs deferring: ending the whole session vs noting one item mid-flow",
+      "query": "im about out of context for today, write up everything so i can pick this back up fresh tomorrow"
+    },
+    {
+      "id": 38,
+      "expected": "plan-track",
+      "tests": "NEAR-MISS vs deferring: checking status of existing backlog items, not creating a new stub",
+      "query": "weve got a handful of things sitting in the backlog from last sprint — which of those have we actually started on?"
+    },
+    {
+      "id": 39,
+      "expected": "constitution-authoring",
+      "tests": "core trigger, locking in a project-wide rule",
+      "query": "we keep shipping plans that skip the database rollback step. can we lock that in as a hard rule every future plan has to follow — like a constitution for this repo"
+    },
+    {
+      "id": 40,
+      "expected": "plan-review",
+      "tests": "NEAR-MISS vs constitution-authoring: a quality verdict on one plan, not establishing repo-wide principles",
+      "query": "before i approve the billing plan, does it actually follow solid engineering practice? id like a proper review"
+    },
+    {
+      "id": 41,
+      "expected": "none",
+      "tests": "NEAR-MISS keyword bait: 'constitution' as a legal/political topic, nothing to do with mentor",
+      "query": "can you summarize what the first amendment of the US constitution actually says, im writing a blog post about it"
+    },
+    {
+      "id": 42,
+      "expected": "plan-touring",
+      "tests": "core trigger, pre-approval walkthrough, explicitly local/not shared",
+      "query": "before i approve this plan can you walk me through how itll execute, step by step, laid out as pages? this stays local, nobody else needs to see it"
+    },
+    {
+      "id": 43,
+      "expected": "touring",
+      "tests": "NEAR-MISS vs plan-touring: reviewers ticking pass/not-pass on a shareable link, not a private pre-approval walkthrough",
+      "query": "reviewers need to walk through each scenario of the payment work from that plan step by step and mark pass or not-pass, then send me the link when its ready to share"
+    },
+    {
+      "id": 44,
+      "expected": "zooming",
+      "tests": "NEAR-MISS vs plan-touring: one static diagram, no paging or plan walkthrough",
+      "query": "just show me a diagram of the current auth flow, one page is fine"
     }
   ]
 }

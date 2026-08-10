@@ -2,18 +2,21 @@
 
 `hooks/tests/` proves the scripts behave. This proves the **descriptions** do: that a
 user's phrasing reaches the skill it should, and — more importantly — not one of its
-eleven siblings.
+fourteen siblings.
 
-mentor ships twelve overlapping user-facing skills (`planning`, `plan-split`,
+mentor ships fifteen overlapping user-facing skills (`planning`, `plan-split`,
 `plan-track`, `plan-review`, `grilling`, `dispatch-agents`, `resuming`, `handoff-note`,
-`touring`, `zooming`, `merging`, `shipping`).
+`touring`, `zooming`, `merging`, `shipping`, `deferring`, `constitution-authoring`,
+`plan-touring`).
 The risk that
 matters is not "does `plan-split` trigger" but "does `plan-split` fire when the user
 meant `plan-track`" — or, since v2.12.0, "does `zooming` steal `touring`'s
 acceptance-page queries" (both make HTML from any subject; they differ on publication +
-interaction).
+interaction) — or, since this eval refresh, "does `plan-touring` steal `touring`'s
+reviewer-facing queries" (both walk a plan page by page; they differ on publication +
+who's clicking).
 A description tuned on its own can score perfectly and still
-collide, so this harness stages **all twelve at once** and records which one wins.
+collide, so this harness stages **all fifteen at once** and records which one wins.
 
 Note the skill names are the **skill** names, not the command names: since v2.18.0 no
 skill shares a name with a command (`/mentor:plan` → skill `planning`, and so on), which
@@ -27,13 +30,15 @@ cd plugins/mentor/evals
 python3 harness.py claude-opus-5 2      # <model> <reps-per-query>
 ```
 
-Needs the `claude` CLI on PATH. ~28 queries × reps, 6 at a time, roughly 10–25s each.
+Needs the `claude` CLI on PATH. ~44 queries × reps, 6 at a time, roughly 10–25s each.
 The scratch project and `results.json` are written to `$TMPDIR/mentor-trigger-eval/`
 (override with `MENTOR_EVAL_WORKDIR`) — never into the repo.
 
 Baseline at v2.11.1: **36/40**, 18 of 20 queries clean on both reps — over 8 staged
 skills and queries 1–20. v2.12.0 stages 10 skills (`tour` and `zoom` joined) and adds
-queries 21–28; re-baseline on the first run.
+queries 21–28; re-baseline on the first run. This refresh stages 15 skills
+(`deferring`, `constitution-authoring`, `plan-touring` joined) and adds queries 36–44;
+re-baseline pending — the harness itself was not re-run as part of this change.
 
 ## Seed the fixture first — this is not optional
 
@@ -81,6 +86,6 @@ nothing.
   phrase "one session at a time" and gives "break this up" no referent. Tuning a
   description to win it would be overfitting to a bad test.
 
-When you add an eleventh skill, run this first. A new sibling that quietly steals
+When you add a skill, run this first. A new sibling that quietly steals
 an existing skill's queries is exactly what it is here to catch — v2.12.0's `zoom`
 (vs `tour`, vs `plan-review`) is the worked example.
