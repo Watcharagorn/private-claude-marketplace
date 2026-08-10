@@ -598,6 +598,70 @@ out="$(ps gate --verbose extra)"; rc=$?
 chk "gate --verbose rejects a further stray argument → exit 1"   test "$rc" = "1"
 chk "gate --verbose rejects a further stray argument → names it" has "unexpected argument" "$out"
 
+echo "== Q. set … implemented/failed: closing-checklist reminder (closing_checklist_reminder) =="
+# mentor_find_transcript's cwd-hash fallback (CLAUDE_CODE_SESSION_ID is stripped by
+# _env, same as every other test here) — a fixture transcript lives under the
+# sandboxed CLAUDE_CONFIG_DIR at projects/<hash of $REPO>/<sid>.jsonl.
+REPO_HASH="$(printf '%s' "$REPO" | sed 's/[^A-Za-z0-9]/-/g')"
+TXDIR="$SANDBOX/.claude/projects/$REPO_HASH"; mkdir -p "$TXDIR"
+tx_agent_only() {   # one Agent dispatch, no TaskList
+  printf '%s\n' '{"type":"assistant","message":{"content":[{"type":"tool_use","name":"Agent","input":{}}]}}' \
+    > "$TXDIR/cc.jsonl"
+}
+tx_agent_and_tasklist() {   # Agent dispatch, closed out with TaskList
+  { printf '%s\n' '{"type":"assistant","message":{"content":[{"type":"tool_use","name":"Agent","input":{}}]}}'
+    printf '%s\n' '{"type":"assistant","message":{"content":[{"type":"tool_use","name":"TaskList","input":{}}]}}'
+  } > "$TXDIR/cc.jsonl"
+}
+tx_no_agent() {   # a session that never dispatched anything
+  printf '%s\n' '{"type":"assistant","message":{"content":[{"type":"text","text":"hi"}]}}' \
+    > "$TXDIR/cc.jsonl"
+}
+
+plan cc-fire; plan cc-silent-tasklist; plan cc-silent-noagent; plan cc-silent-otherstate
+plan cc-silent-notx; plan cc-refire; plan cc-failed
+
+tx_agent_only
+merged="$(ps set cc-fire implemented)"; rc=$?   # ps merges stdout+stderr — one call, several assertions
+chk "dispatched agents, no TaskList → reminder fires"      has "Closing checklist" "$merged"
+chk "reminder → names TaskList enumerate/diff/TaskStop"    has "TaskList: enumerate" "$merged"
+chk "reminder → names the /mentor:tour offer"              has "/mentor:tour" "$merged"
+chk "reminder → names the /mentor:ship pointer"             has "/mentor:ship" "$merged"
+chk "reminder → names the /mentor:defer sweep"             has "/mentor:defer" "$merged"
+chk "reminder → still reports the state transition"        has "unknown → implemented" "$merged"
+chk "reminder path still exits 0"                           test "$rc" = "0"
+
+tx_agent_and_tasklist
+out="$(ps set cc-silent-tasklist implemented)"
+chk "TaskList already called → no TaskList line"           hasnt "TaskList: enumerate" "$out"
+chk "TaskList already called → defer sweep still fires"    has "/mentor:defer" "$out"
+
+tx_no_agent
+out="$(ps set cc-silent-noagent implemented)"
+chk "no Agent dispatch → no TaskList line"                  hasnt "TaskList: enumerate" "$out"
+chk "no Agent dispatch → defer/tour/ship still fire"        has "/mentor:defer" "$out"
+
+tx_agent_only
+out="$(pserr set cc-silent-otherstate in_progress)"
+chk "transition to a non-terminal state → silent"           hasnt "Closing checklist" "$out"
+
+rm -f "$TXDIR/cc.jsonl"
+out="$(ps set cc-silent-notx implemented)"
+chk "no transcript on disk at all → no TaskList line"        hasnt "TaskList: enumerate" "$out"
+chk "no transcript on disk at all → defer sweep still fires" has "/mentor:defer" "$out"
+
+tx_agent_only
+ps set cc-refire implemented >/dev/null   # first close — dispatch-agents' own transition
+out="$(pserr set cc-refire implemented)"  # shipping/merging idempotently re-closing the same plan
+chk "idempotent re-close (before==state already) → silent"  hasnt "Closing checklist" "$out"
+
+tx_agent_only
+out="$(ps set cc-failed failed --note "verification unresolved")"
+chk "failed → TaskList line still fires"                     has "TaskList: enumerate" "$out"
+chk "failed → defer sweep still fires"                       has "/mentor:defer" "$out"
+chk "failed → tour offer held (checklist carve-out)"         hasnt "/mentor:tour" "$out"
+chk "failed → ship pointer held (checklist carve-out)"       hasnt "/mentor:ship" "$out"
+
 echo
 echo "RESULT: PASS=$PASS FAIL=$FAIL"
 [ "$FAIL" = "0" ]

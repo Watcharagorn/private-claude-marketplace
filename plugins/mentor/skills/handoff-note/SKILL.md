@@ -432,6 +432,10 @@ substitute for it.
   note's own next steps need no stub: the note itself is durable and will be resumed. What needs one
   is everything that stays true after this topic closes, which otherwise survives only as prose in a
   document nobody re-reads once its work is done.
+- Any claim in the note that findings are closed or verification is clean ("no open findings," "all
+  verified") was checked against the plan's own `## Verification` `Topic N —` outcomes first — a
+  topic logged as partial, skipped, or substitute-verified either gets named as a caveat here or gets
+  its own `/mentor:defer` stub, never silently dropped in favor of the cleaner-sounding claim.
 - The report **ends with literal copy-paste resume prompts** (`/mentor:resume <slug>` + the
   plugin-free alternative) — real values filled in, no placeholders.
 - Any claim about state **outside this repo's working tree** (a deploy target, a PR/CI/remote-branch
@@ -453,3 +457,7 @@ substitute for it.
   (plus `deferring`'s stubs and `plan-split`'s children). An argument asking for one routes through
   the "Work planned outside mentor" mapping (Step 3) instead of being hand-rolled here.
 - Do **not** carry secrets or PII into the file.
+- Do **not** claim zero open findings, or that verification is clean, without first checking the
+  plan's own `## Verification` topic outcomes — a topic that only a substitute check verified (a
+  unit test standing in for a live one, an edge case that never fired during observation) is not
+  "no findings."

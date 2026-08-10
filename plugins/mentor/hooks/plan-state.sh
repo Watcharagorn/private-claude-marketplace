@@ -408,6 +408,37 @@ require_jq_read() {
   exit 0
 }
 
+# closing_checklist_reminder <transcript_path> <implemented|failed> — best-effort
+# stdout nudge for dispatch-agents' CLOSING CHECKLIST. The caller fires this only on a
+# FRESH transition into a terminal state (before != state), so shipping/merging's own
+# later `set … implemented` — which idempotently re-closes a plan dispatch-agents
+# already closed — stays silent instead of re-nagging mid-ship. The TaskList line is
+# the only conditional part: it prints only when this session's own transcript shows an
+# Agent dispatch with no matching TaskList call — a prior learn fix already reworded
+# that rule's prose once and the same miss recurred, so this gives it a structural
+# trigger instead of depending on the model re-reading ~15 lines of prose late in a
+# session. The defer-sweep line is unconditional on both terminal states, matching the
+# checklist's own "always, whatever Verification returned." The tour/ship lines print
+# only for `implemented` — the checklist explicitly holds them on `failed`/handed-off
+# ("which speak for work that was accepted"). Never blocks — the state write already
+# succeeded by the time this runs.
+closing_checklist_reminder() {
+  local tx="${1:-}" outcome="${2:-}" tasklist_line=""
+  if [ -n "$tx" ] && [ -f "$tx" ] \
+     && grep -q '"name":"Agent"' "$tx" 2>/dev/null \
+     && ! grep -q '"name":"TaskList"' "$tx" 2>/dev/null; then
+    tasklist_line="
+  - TaskList: enumerate live tasks, diff against this session's dispatch tree, TaskStop only what traces to it."
+  fi
+  echo "[mentor plan-state] Closing checklist (dispatch-agents' CLOSING CHECKLIST):${tasklist_line}"
+  echo "  - Sweep any known gap or follow-up through /mentor:defer before it's forgotten."
+  if [ "$outcome" = "implemented" ]; then
+    echo "  - Offer /mentor:tour — one line."
+    echo "  - Point at /mentor:ship — one line."
+  fi
+  return 0
+}
+
 case "$sub" in
 
   init)
@@ -485,6 +516,14 @@ case "$sub" in
     if [ "$after" != "$state" ]; then
       echo "[mentor plan-state] note: '${state}' stored, but the plan's ✅ step ticks report '${after}'."
     fi
+    case "$state" in
+      implemented|failed)
+        # Fire only on a FRESH transition — before == state means this call is an
+        # idempotent re-close (e.g. shipping/merging re-running `set … implemented`
+        # after dispatch-agents already closed it), which must stay silent.
+        [ "$before" != "$state" ] && closing_checklist_reminder "$(mentor_find_transcript "$(pwd)")" "$state"
+        ;;
+    esac
     ;;
 
   set-deps)

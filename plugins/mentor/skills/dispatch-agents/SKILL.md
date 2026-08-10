@@ -362,8 +362,10 @@ the contract does not apply to them, which is exactly how a fan-out goes out raw
   instead" first and Recommended** (a standing policy outranks the default path): keep it
   in the main thread / dispatch as designed anyway / skip the affected step. That tension is
   the user's to resolve, not yours to resolve silently.
-- **No busy-wait.** Waiting is not work: never chain `sleep`s or fire no-op Bash
-  calls to pass the time. This governs **every** waiting surface in a mentor
+- **No busy-wait.** Waiting is not work: never chain `sleep`s, fire no-op Bash
+  calls, or reach for `ScheduleWakeup` (that tool is for `/loop` mode, not a
+  dispatch wait — it errors without a `/loop` prompt) to pass the time. This
+  governs **every** waiting surface in a mentor
   session, not only dispatched agents — a long build, a background test suite, a
   deploy. When something else will wake you (a dispatch completing, a backgrounded
   command exiting), **end the turn** and let the harness re-invoke you. When nothing
