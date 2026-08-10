@@ -26,7 +26,8 @@ after approval. Also invoked when the user explicitly says "dispatch agents",
 "fan out", "use subagents", "parallelize this".
 
 **Also load it for any ad hoc fan-out that is not plan implementation** — a research
-sweep, a multi-repo survey, an architecture-gap audit, a handoff note that says
+sweep, a multi-repo survey, an architecture-gap audit, a fact-check of the plan's own
+claims/figures against a live or authoritative source, a handoff note that says
 "dispatch parallel `Explore` agents". The annotation grammar and the plan mechanics do
 not apply to those; the "Async runtime & lifecycle" contract does, and it is the whole
 reason to be here. Skipping the skill because the work has no plan is how a nine-agent
