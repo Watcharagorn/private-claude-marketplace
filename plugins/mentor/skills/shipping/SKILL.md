@@ -120,9 +120,15 @@ dirty="$(git -C "$repo_root" status --porcelain --untracked-files=no)"
   exit 1
 }
 
-# Untracked paths are REPORTED, never staged, never blocking. Keep this listing — Step 3
-# uses it as the baseline for telling simplify's new files from pre-existing local junk.
-git -C "$repo_root" ls-files --others --exclude-standard
+# Untracked paths are REPORTED, never staged, never blocking. Persist this listing — Step 3
+# is a separate Bash call and needs it as the baseline for telling simplify's new files from
+# pre-existing local junk. A deterministic /tmp path, not `.mentor/`: that tree's own
+# gitignore only allowlists `config.json`/`constitution.md`, and a repo that has never used
+# mentor's planning surface may have no `.mentor/` at all — writing there would create it as
+# a side effect of a plain ship. Truncate unconditionally: a stale baseline left over from an
+# earlier, unrelated ship run must never leak into this one.
+baseline="${TMPDIR:-/tmp}/mentor-ship-untracked-$(printf '%s' "$repo_root" | cksum | cut -d' ' -f1)"
+git -C "$repo_root" ls-files --others --exclude-standard | tee "$baseline"
 ```
 
 One exception worth a question: if an untracked path sits under a directory that also
@@ -184,16 +190,29 @@ After it returns:
    # Braces + the pipe INSIDE the substitution. `v=$(a; b) | sort -u` pipes the
    # assignment's stdout to sort and runs the whole thing in a subshell, so v is
    # never set in this shell at all — the comparison below then silently sees nothing.
-   simplify_files="$( { git -C "$repo_root" diff --name-only HEAD
-                        git -C "$repo_root" ls-files --others --exclude-standard; } | sort -u )"
+   tracked_diff="$(git -C "$repo_root" diff --name-only HEAD | sort -u)"
+
+   # Subtract Step 2's baseline from the untracked side only — tracked_diff can't contain
+   # a pre-existing file (it was never dirty against HEAD to begin with). Same deterministic
+   # path as Step 2's write; a missing baseline (Step 2 didn't run this turn) fails OPEN with
+   # a warning rather than silently trusting a stale one from an earlier ship — reusing a
+   # stale baseline would hide genuinely new untracked files, the opposite and worse failure.
+   baseline="${TMPDIR:-/tmp}/mentor-ship-untracked-$(printf '%s' "$repo_root" | cksum | cut -d' ' -f1)"
+   if [ -f "$baseline" ]; then
+     new_untracked="$(comm -13 <(sort -u "$baseline") <(git -C "$repo_root" ls-files --others --exclude-standard | sort -u))"
+   else
+     echo "WARNING: no Step 2 baseline found — treating every untracked file as new." >&2
+     new_untracked="$(git -C "$repo_root" ls-files --others --exclude-standard | sort -u)"
+   fi
+   simplify_files="$(printf '%s\n%s\n' "$tracked_diff" "$new_untracked" | sort -u)"
    ```
 
-   Subtract Step 2's untracked listing before judging scope: only untracked paths that
-   were **not** already there are simplify's output. Pre-existing local junk must never
-   reach the "include all" option — that is how a directory nobody meant to commit gets
-   committed. Use the same `ls-files --others --exclude-standard` in both places;
-   `git status --porcelain` collapses a directory to `?? dir/` while `ls-files` enumerates
-   the files inside it, so mixing the two makes the difference meaningless.
+   Only untracked paths that were **not** already in Step 2's baseline are simplify's
+   output. Pre-existing local junk must never reach the "include all" option — that is how
+   a directory nobody meant to commit gets committed. Use the same
+   `ls-files --others --exclude-standard` in both places; `git status --porcelain` collapses
+   a directory to `?? dir/` while `ls-files` enumerates the files inside it, so mixing the
+   two makes the difference meaningless.
    - If every dirty file is in the feature scope: **auto-commit without
      prompting** — `chore(simplify): refactor before ship` — and surface
      `git diff HEAD~1 --stat` in the ship summary.
@@ -519,7 +538,10 @@ don't ask the user to declare it" shape:
 
 ```bash
 repo_root="$(git rev-parse --show-toplevel)"   # re-derive: separate Bash call (see Step 2)
-base="$(git -C "$repo_root" rev-parse --abbrev-ref --symbolic-full-name '@{upstream}' 2>/dev/null | sed 's#^origin/##')"
+# The repo's default/integration branch, NOT `@{upstream}` — 5A/5B's `push -u` just set
+# the current branch's own upstream to `origin/$branch`, so by the time this step runs
+# `@{upstream}` always equals `$branch` and the guard below would never fire, on every ship.
+base="$(git -C "$repo_root" symbolic-ref --short refs/remotes/origin/HEAD 2>/dev/null | sed 's#^origin/##')"
 branch="$(git -C "$repo_root" rev-parse --abbrev-ref HEAD)"
 if [ -n "$base" ] && [ "$base" != "$branch" ]; then
   deployish="$(git -C "$repo_root" diff --name-only "$base"...HEAD -- \
@@ -528,7 +550,13 @@ if [ -n "$base" ] && [ "$base" != "$branch" ]; then
     '**/terraform/**' 2>/dev/null)"
   if [ -n "$deployish" ]; then
     n="$(printf '%s\n' "$deployish" | wc -l | tr -d ' ')"
-    echo "$n committed file(s) touch a deploy artifact — deploying is separate from shipping: $(printf '%s' "$deployish" | tr '\n' ' ')"
+    # Name a matching project-local verification surface if this repo built one — never
+    # invoke it: nothing has deployed yet at this point in ship, so there is nothing to
+    # verify here. That's `/mentor:merge`'s post-merge run, or a manual check later.
+    verify_surface="$( { ls "$repo_root/.claude/skills" 2>/dev/null | grep -iE 'deploy|verify'
+                          ls "$repo_root/.claude/commands" 2>/dev/null | sed 's/\.md$//' | grep -iE 'deploy|verify'
+                        } | sort -u | paste -sd', ' - )"
+    echo "$n committed file(s) touch a deploy artifact — deploying is separate from shipping: $(printf '%s' "$deployish" | tr '\n' ' ')${verify_surface:+ (once it's live, this repo's own $verify_surface covers verification)}"
   fi
 fi
 ```
@@ -536,7 +564,9 @@ fi
 The pattern list is intentionally hardcoded, not a `.mentor/config.json` key — an opt-in
 key nobody has populated yet fires for nobody, which is exactly the gap this line exists
 to close. Skipped (not just silent) on the `branch == base` on-base path, same as the
-edge case named above: there is no PR-scoped range to diff there.
+edge case named above: there is no PR-scoped range to diff there. The verification-surface
+name is offered the same way the marketplace check above names `/loom:publish-plugin` —
+say what exists, never run it — since this step still stops at the open PR/MR either way.
 
 Do **not** watch checks, poll `gh run`, or `sleep` after the push — `/mentor:merge`
 Step 2 owns the one bounded watch, and chaining sleeps or re-checks is the **No busy-wait**

@@ -226,6 +226,11 @@ that failed, went green on a rerun, and failed again on what actually landed, wh
 real failure the rerun masked as a flake. Name it and capture it with `/mentor:defer "<test> flaky
 on <base>"`: that verdict outlives this session, while another rerun would only re-roll it.
 
+**A green run on `base` is when a deploy artifact actually goes live** — the merged PR may have
+touched one. The detection is `mentor:shipping` Step 7's ("Say when the shipped diff touches a
+deploy artifact"); if that session's own ship never ran or predates this merge, repeat it here
+against `base`'s diff rather than re-deriving a second copy of the pattern list.
+
 ## Done when
 
 - The PR was resolved (argument or current branch), its checks reached a terminal

@@ -265,7 +265,11 @@ Then resolve a selection:
    dispatch run starts. Skipping this costs nothing today and a scramble later: `mentor:shipping`
    Step 2 finds the same paths mixed in with this session's real output and has to untangle
    ownership from conversational memory instead of a baseline recorded up front.
-6. **Act on the note's "Recommended mentor commands for the next agent."** **Bound "act":** invoke the
+6. **Act on the note's "Recommended mentor commands for the next agent."** A section that opens with
+   a bold **Before any command:** line is naming a mandatory precondition — a specific verification
+   step the writing session left open, an external check to wait on — not a command itself and not
+   something to skip because it carries no `/mentor:` token. Do it first, before touching any listed
+   command. **Bound "act":** invoke the
    listed mentor command(s) **exactly as the note states** — do not infer extra steps or expand beyond
    what the note recommends. If the note recommends `/mentor:plan <focus>`, run that. If it recommends
    resuming implementation of an **approved plan**, run **`/mentor:track <slug>`** with the plan slug

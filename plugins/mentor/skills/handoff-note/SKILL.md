@@ -209,7 +209,14 @@ it — Step 5's self-check catches that before you report.
 
 ### Recommended-mentor-commands mapping
 
-Pick the entries that fit the current state, tailored to the next-session focus:
+Pick the entries that fit the current state, tailored to the next-session focus.
+
+When the next agent must do something **before** any mentor command — finish one specific
+verification step this session left open, wait on an external check — write it as a bold
+**Before any command:** line above the mapping bullet(s) you picked, never as an item inside
+the list itself. `mentor:resuming` Step 6 reads this section by scanning for the commands the
+bound "act" behavior invokes; a precondition folded into the list as if it were one more entry
+reads as either a command to run or noise to skip, and it's neither.
 
 - **Unclear approach / unfinished design** → `/mentor:plan <focus>` (runs the gated plan harness).
 - **A plan file exists but was never approved** (state `draft`, gate still armed — the
