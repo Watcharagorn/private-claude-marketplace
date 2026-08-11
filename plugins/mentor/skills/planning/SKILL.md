@@ -143,6 +143,14 @@ its siblings before drafting, and carry each hit into Step 3.5 as a scope
 decision. A sibling found at the approval gate rewrites the plan; the same
 sibling found here costs one question.
 
+**When the request corrects a bad state, also find what regenerates it.** A
+migration or cleanup that only fixes the data leaves whatever produced it free
+to reproduce the same defect on the next run — a script, an importer, a cron
+job, a form handler, or a skill/rule that doesn't validate before writing are
+all candidates. Search for that producer before drafting, and carry what you
+find into Step 3.5 as a scope decision, the same way a sibling instance is
+above.
+
 **A same-session restart is not a blank page.** When the user interrupts
 mid-research to broaden or redirect the request and re-invokes `/mentor:plan`,
 check the conversation for research FINDINGS already delivered on the same
@@ -558,6 +566,15 @@ truncates the note — use `,` or `+`.
 **Generalist-reviewer principle:** write for a generalist, not a domain expert —
 define jargon at first use, state why each step matters, prefer concrete
 examples. The plan must be approvable by someone outside the domain.
+
+**Verify headline counts before the first write.** Step 3.5's evidence rule —
+read the artifact itself, a summary is not the evidence — applies to every
+count the plan states about its own scope, not just the decisions that reach a
+question: an orphan count, an affected-row count, a terminal-state count.
+Re-derive each one from the real data source when you draft it, rather than
+carrying a number forward from research recall. A wrong headline count caught
+here costs nothing; the same number caught later, once a reviewer's own count
+check flags it, costs a multi-section sweep to fix everywhere it was restated.
 
 ## Step 5 — Optional HTML zoom & plan tour (explicit user opt-in only) {#html-zoom}
 
