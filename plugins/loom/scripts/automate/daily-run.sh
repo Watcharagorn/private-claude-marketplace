@@ -584,6 +584,29 @@ else
     log "skip learn phase: marketplaceRepo not configured or missing"
 fi
 
+# 3. Daily report email — best-effort and verdict-neutral. The notify fire's failures (a crash, a
+# watchdog kill, or the skill's own self-reported soft failure, e.g. Gmail MCP unavailable) land in
+# a SEPARATE fail-notify marker: FAIL_MARK is rebound inside the subshell so run_claude's failure
+# line goes there too, and the day-verdict check below never sees any of it — a broken mailer must
+# not un-stamp an otherwise-good day (and a failed day still gets its report, saying so).
+# `fail-notify-*` matches the `fail-*` prune glob above, so the markers age out with the rest.
+# notify.email is read fresh at every fire (like model/effort), so configuring it in config.json
+# takes effect on the next run with no re-install.
+NOTIFY_EMAIL=$(jq -r '.notify.email // empty' "$config" 2>/dev/null)
+NOTIFY_FAIL="$auto/stamps/fail-notify-$TODAY"
+if [ -n "$NOTIFY_EMAIL" ]; then
+    rm -f "$NOTIFY_FAIL"   # a manual re-fire retries the email too — stale markers must not linger
+    # cwd: the marketplace repo when it exists (the report reads its day's commits); else $HOME.
+    notify_wd="$MKT_REPO"
+    [ -n "$notify_wd" ] && [ -d "$notify_wd" ] || notify_wd="${HOME:-/}"
+    ( FAIL_MARK="$NOTIFY_FAIL"
+      run_claude "$notify_wd" "/loom:daily-report --headless" "" "notify" )
+    [ -f "$NOTIFY_FAIL" ] \
+        && log "daily report email FAILED — see $NOTIFY_FAIL and the notify lines above; the day's verdict is unchanged"
+else
+    log "notify: no notify.email configured — skipping the daily report email"
+fi
+
 if [ -f "$FAIL_MARK" ]; then
     log "loom daily run had failures — NOT stamping (a manual re-fire retries today):"
     sed 's/^/  failed: /' "$FAIL_MARK"

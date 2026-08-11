@@ -12,7 +12,7 @@
     },
     {
       "name": "loom",
-      "description": "Session harvesting and plugin lifecycle tools: harvest a project's sessions into reusable Claude Code artifacts, learn from a plugin's sessions to auto-improve and republish it, track usage, and run it all unattended on a daily schedule — with every install isolated to its own Claude config dir.",
+      "description": "Session harvesting and plugin lifecycle tools: harvest sessions into reusable artifacts, learn from a plugin's sessions to auto-improve and republish it, track usage, run it all daily unattended, and email a summary of what changed — each install isolated to its own config dir.",
       "source": "./plugins/loom",
       "category": "development"
     },

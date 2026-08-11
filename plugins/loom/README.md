@@ -29,7 +29,8 @@ state. Enable `loom@private-marketplace` wherever you want `/harvest` or usage t
 | `/loom:audit-plugin` | `[session] [plugin]` | Audit an existing plugin from **one** session (the active one if none named) — find how it misbehaved (gate false-positives, wrong-skill calls, retries, post-run surprises) and ship the fixes; one release |
 | `/loom:learn` | `<plugin> [session-id] [--dry-run] [--review] [--headless]` | Bare `<plugin>`: learn from **every** unanalyzed session that used it (every project of the active config dir) — one agent per session, both lenses, processed **one at a time, oldest first**: expert-review then **auto-implement** approved items, **commit per session**, one release when the backlog drains; a per-plugin ledger + watermark means sessions are never re-analyzed. `--review` confirms each session; `--headless` does one session per invocation (the daily runner loops it). With a session id: analyze just that **one** session interactively (both lenses; ledger/watermark untouched) |
 | `/loom:track` | `[plugin \| marketplace …] [--stop]` | Opt in to usage tracking so `/loom:learn`'s discovery is instant — records which **enabled** plugins loom indexes at session end; no args = status |
-| `/loom:automate` | `[--status \| --stop]` | Set up (or inspect/remove) the **daily scheduled headless run** — launchd/cron fires `claude -p` with `--headless` harvest per configured project + concurrent learn rounds per tracked plugin. Idempotent setup |
+| `/loom:automate` | `[--status \| --stop]` | Set up (or inspect/remove) the **daily scheduled headless run** — launchd/cron fires `claude -p` with `--headless` harvest per configured project + concurrent learn rounds per tracked plugin; optional `notify.email` emails a daily summary of what changed. Idempotent setup |
+| `/loom:daily-report` | `[--date YYYY-MM-DD] [--dry-run] [--headless]` | Compose + email the day's automation summary to `notify.email` (Gmail MCP). Fired automatically by the runner; run manually to test (`--dry-run` prints without sending) or re-report a past day |
 | `/loom:onboard` | | Guided, resumable setup walkthrough: verify the hook, opt into tracking, learn the modes, optionally schedule the daily automation, finish with a dry-run |
 
 Unqualified forms (`/harvest`, `/audit-plugin`, `/learn`, `/track`, …) also resolve while no other
@@ -41,9 +42,10 @@ enabled plugin ships a same-named command.
 |---|---|---|
 | `harvest-automations` | 1.0.0 | Session(s) → loose reusable user/project artifacts across the full customization surface (any repo); with no arg, a **sequential project-wide sweep that auto-folds artifacts per session** via a per-project ledger + watermark (`--review` to confirm each session). Never packages or publishes a plugin |
 | `audit-plugin` | 1.0.1 | One session → fixes for how an existing plugin misbehaved (AUDIT lens; select → review → implement → one release) |
-| `learn` | 1.1.0 | A plugin's sessions → one plugin, both audit + enhance lenses. Bare: **all** unanalyzed sessions processed one at a time (per-session agent + review + **auto-implement** + per-session commit, ledger + watermark, one release at drain); headless: one session per invocation for the runner's loop; with a session id: that **one** session, interactive |
+| `learn` | 1.1.1 | A plugin's sessions → one plugin, both audit + enhance lenses. Bare: **all** unanalyzed sessions processed one at a time (per-session agent + review + **auto-implement** + per-session commit, ledger + watermark, one release at drain); headless: one session per invocation for the runner's loop; with a session id: that **one** session, interactive |
 | `track` | 0.1.0 | Opt-in usage tracking of enabled plugins (any marketplace) → the index that makes `learn` fast |
-| `automate` | 0.3.0 | Daily scheduled headless run (launchd/cron): harvest configured projects + concurrent learn rounds per tracked plugin, unattended; per-config-dir schedule isolation |
+| `automate` | 0.5.0 | Daily scheduled headless run (launchd/cron): harvest configured projects + concurrent learn rounds per tracked plugin, unattended; per-config-dir schedule isolation; optional `notify.email` → end-of-run summary email |
+| `daily-report` | 0.1.0 | Compose + email one day's automation summary (what changed, per artifact "use it when/how", failures) to `notify.email` via the Gmail MCP; fired by the runner after every real run; `--dry-run` / `--date` for manual use |
 | `onboard` | 0.1.2 | Guided, resumable loom setup walkthrough — delegates to `track`/`automate`, ends with a verification dry-run |
 | `publish-plugin` | 1.2.2 | Release: semver bump, manifest + README sync, validation, commit + push |
 
@@ -86,7 +88,13 @@ stamp, per-invocation watchdog, and logs (shared plus one per slot) live under `
 Unattended runs default to `claude-sonnet-5` at `xhigh` effort with a 2-hour per-invocation ceiling —
 the ceiling stays put when the model gets cheaper, since it bounds one session's analyze→implement→commit;
 override per install with `model` / `effort` / `maxRunSecs` / `concurrency` in `config.json` (read fresh
-at every fire, no re-install). `--status` inspects,
+at every fire, no re-install). With `notify.email` set in `config.json` (asked during setup, or edit the
+file — read fresh each fire), every real run ends by firing `/loom:daily-report --headless`, which emails
+a plain-text summary of what changed — per-plugin sessions learned and versions published, per-project
+artifacts folded with a brief "use it when/how" each, failures with their retry story — via the **Gmail
+MCP connector** (enable it on claude.ai for the config dir's account). Email failures are verdict-neutral:
+they land in `stamps/fail-notify-<date>` (surfaced by `--status`), never un-stamping a good day.
+`--status` inspects,
 `--stop` uninstalls. Each `CLAUDE_CONFIG_DIR` gets its own isolated schedule (per-config launchd
 label / cron marker), and the runner derives its config dir from its installed location — so its
 headless sessions and credentials always belong to the config dir it was set up under, and

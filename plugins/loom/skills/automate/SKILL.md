@@ -1,7 +1,7 @@
 ---
 name: automate
 description: Set up (or manage) a DAILY scheduled headless run that harvests configured projects and learns tracked plugins automatically — launchd on macOS, cron on Linux, driving "claude -p '/loom:harvest --headless'" per project and concurrent rounds of "/loom:learn <plugin> --headless --concurrent" per tracked plugin (up to 3 fires at once, each with its own wall-clock watchdog). Each CLAUDE_CONFIG_DIR gets its own fully isolated schedule (per-config launchd label / cron marker; the runner pins sessions + credentials to its own install's config dir) — setting up from one config dir never touches another's. Use when the user says "automate loom", "schedule daily harvest/learn", "run harvest every day", "set up the loom daily job", "/loom:automate", or asks how to make harvesting/learning happen without them. Also handles "--status" (show schedule + last run) and "--stop" (uninstall the schedule, keep config). Setup is idempotent — re-run anytime to change projects or the schedule time.
-version: 0.3.0
+version: 0.5.0
 ---
 
 # automate — daily headless harvest + learn
@@ -17,7 +17,10 @@ backlog remains, up to 24 fires/plugin/day summed across every slot. The orchest
 everything shared — merging each round's worktree commits back onto the marketplace repo in claim
 order, writing the ledger only after a clean merge, and publishing the whole bundle once the backlog
 drains — so a kill still bounds at most one in-flight session per slot, never a whole round or a
-finished batch.
+finished batch. When `notify.email` is configured, every real run ends by firing
+`/loom:daily-report --headless` — a claude-written email summary of what the day changed, sent via
+the Gmail MCP; its failures are verdict-neutral (they land in a `fail-notify-<date>` marker, never
+the day's own), so a broken mailer can't un-stamp a good day.
 
 **Say the tradeoff up front, before installing anything:** the scheduled runs use
 `--permission-mode bypassPermissions` — Claude edits files and (for `learn`) commits + pushes the
@@ -49,7 +52,9 @@ $cfg/loom/automation/
 │                                   # each backgrounded slot's pid, and — once it exits — its exit code, here
 └── stamps/
     ├── last-ok          # once-per-day SUCCESS stamp
-    └── fail-<date>      # per-day failure markers (auto-pruned after 30 days)
+    ├── fail-<date>      # per-day failure markers (auto-pruned after 30 days)
+    └── fail-notify-<date>  # daily-report EMAIL failures only (same prune) — kept out of
+                            # fail-<date> so a broken mailer never fails the day itself
 ```
 
 The per-plugin claim lock (`$cfg/loom/learning/<plugin>.json.lock`, `mkdir`-based) and the ledger it
@@ -74,6 +79,11 @@ below).
      `.claude-plugin/marketplace.json`, otherwise ask for the path (learn must run with cwd = its
      marketplace repo). If the user has no marketplace repo, the learn phase is simply skipped —
      that's fine, record `marketplaceRepo` as absent.
+   - **Notification email** — optional; the address the end-of-run summary is emailed to
+     (`notify.email`). Skipping it just disables the email. Delivery goes through the **Gmail MCP
+     connector**, so it only works once the Gmail connector is enabled for this config dir's
+     claude.ai account — say so when the user opts in, and point at `/loom:daily-report --dry-run`
+     to test composition without sending (and `/loom:daily-report` to test the whole path).
 
    Learn's plugin list is **not** asked here — the runner reads `$cfg/loom/learning/config.json`
    (`loom:track`'s registry) live at run time, so `/loom:track <plugin>` additions are picked up with
@@ -90,12 +100,16 @@ below).
      "projects": [ { "root": "/abs/path/to/project", "addedAt": "<iso8601>" } ],
      "schedule": { "hour": 9, "minute": 0 },
      "permissionMode": "bypassPermissions",
-     "marketplaceRepo": "/abs/path/to/marketplace-repo" }
+     "marketplaceRepo": "/abs/path/to/marketplace-repo",
+     "notify": { "email": "you@example.com" } }
    ```
 
-   The runner reads `projects`, `permissionMode`, `marketplaceRepo`, `model`, `effort`,
-   `maxRunSecs`, and `concurrency` at every fire; `schedule` is read only by THIS skill when
-   building the plist/crontab — editing it in the file does nothing until `/loom:automate` is
+   Omit the `notify` key entirely when the user skipped the email — the runner treats an absent
+   key as "no email", no placeholder needed.
+
+   The runner reads `projects`, `permissionMode`, `marketplaceRepo`, `notify.email`, `model`,
+   `effort`, `maxRunSecs`, and `concurrency` at every fire; `schedule` is read only by THIS skill
+   when building the plist/crontab — editing it in the file does nothing until `/loom:automate` is
    re-run. Learn's plugin list is never stored here (it comes from track's registry, live).
 
    **Don't ask about `model`, `effort`, `maxRunSecs`, or `concurrency`, and don't write them** —
@@ -305,8 +319,10 @@ below).
      block survives it.)
 
 5. **Confirm + first-run offer.** Print what was installed (schedule time, projects, tracked plugins
-   found, marketplace repo, log/stamp paths, and the model / effort / per-invocation ceiling /
-   concurrent-slot count the runs will use — defaults unless `config.json` overrides them). Name
+   found, marketplace repo, the notification email — or "email: off" — with a reminder that
+   delivery needs the Gmail connector enabled, log/stamp paths, and the model / effort /
+   per-invocation ceiling / concurrent-slot count the runs will use — defaults unless
+   `config.json` overrides them). Name
    those four even though Step 2.2 says not to *ask* about them: the user is opting into
    unattended runs on a capable model at high effort, running up to `concurrency` sessions at
    once, and setup is where that gets said out loud rather than left for someone to discover in
@@ -326,13 +342,30 @@ whether **this config dir's** schedule is live (compute `$slug`/`$label` from
 `crontab -l | grep -F "loom-automate:$slug >>>"` on Linux — the match must be anchored:
 `com.loom.daily.claude` is a strict prefix of `com.loom.daily.claude-ntb`, so a bare substring
 grep reports a neighbour install's schedule as this one's), the tracked-plugin list the learn
-phase would use, the stamp date, and the tail of the newest log file. Legacy detection, both
+phase would use, the notification email (`notify.email`, or "email: not configured") plus the
+newest `stamps/fail-notify-<date>` marker's contents when one exists — an email that has been
+silently failing for days is exactly what `--status` exists to surface — the stamp date, and the
+tail of the newest log file. Legacy detection, both
 OSes: a shared unsuffixed schedule may predate isolation — check
 `~/Library/LaunchAgents/com.loom.daily.plist` on macOS, the unsuffixed
 `# >>> loom-automate >>>` block on Linux, with the ownership test
 (`grep -qF "$cfg/loom/automation/bin/daily-run.sh"`). Pointing into this `$cfg` → report a
 pre-isolation schedule the next setup run migrates; pointing elsewhere → another install's, say
 so and don't count it as this one's.
+
+**Live-run check.** "Is the schedule installed" (above) is a different question from "is a run
+executing right now" — answer both. Reuse Step 2.3's exact run.lock freshness test: a fresh
+`$cfg/loom/automation/run.lock` (a `mkdir`-based dir; live iff `age <= 2 * maxRunSecs`, else it's a
+crash leftover the next fire would steal, not a running job) means a headless `bypassPermissions`
+run is live right now. Report which.
+
+**Per-fire duration timeline.** Locate today's (or, if empty/absent, the most recent) `$cfg/loom/
+automation/logs/daily-<date>.log` and parse its `log()` lines (`YYYY-MM-DD HH:MM:SS <message>`, per
+`daily-run.sh`'s `log()`). Pair each `run: cd ... claude -p ...` line with its matching `done (exit
+0)` / `FAILED (exit N)` / `watchdog: ... exceeded` line to get that fire's start, end, and result,
+and render a Start | End | Duration | Fire | Result table, plus the overall span (first start →
+last end) and total busy time. This is what turns "tail the log and eyeball it" into one answer —
+skip it only when no log file exists yet (no run has fired under this config dir).
 
 ## Step 4 — `--stop`
 
@@ -408,6 +441,15 @@ Say explicitly that config, logs, stamps, and all harvest/learn ledgers were lef
   to touch it — it cannot tell WIP from wreckage, and a per-session commit would sweep both in.
   It reports `remaining: 0` so the runner moves on; the message repeats daily until someone commits
   or cleans `plugins/<plugin>/` by hand.
+- **The daily report email fails** (Gmail connector not enabled for this config dir's account, MCP
+  unreachable, or the notify fire itself crashed/watchdogged) — verdict-neutral by design: the
+  failure lands in `stamps/fail-notify-<date>` (the runner rebinds its fail marker around the
+  notify fire, and the `daily-report` skill self-reports soft failures there too), the day still
+  stamps when the phases succeeded, and the log says `daily report email FAILED`. Nothing retries
+  until the next fire. Fix: enable the **Gmail connector** (claude.ai → Settings → Connectors) for
+  the account this config dir logs in as, verify with `claude mcp list`, then test with
+  `/loom:daily-report` interactively. No `notify.email` at all → the step is skipped with a log
+  line, which is a clean skip, not a failure.
 - **A target project was deleted** — the runner logs "skip harvest" and continues; remove it from
   `config.json` on the next setup pass.
 - **Nothing tracked** — the learn phase no-ops with a log line; `/loom:track <plugin>` fixes it with
@@ -422,10 +464,13 @@ Say explicitly that config, logs, stamps, and all harvest/learn ledgers were lef
   the label-collision ownership check passed before any overwrite, any legacy shared-label
   schedule (macOS plist or Linux unsuffixed cron block) migrated only when it points into this
   `$cfg`, and the confirmation + first-run offer printed — the confirmation naming the model,
-  effort, per-invocation ceiling, and concurrent-slot count the runs will use.
+  effort, per-invocation ceiling, and concurrent-slot count the runs will use, plus the
+  notification email (or "email: off") and its Gmail-connector requirement.
 - `--status` reported this config dir's schedule liveness (anchored label match), config, stamp,
   the **effective** model / effort / `maxRunSecs` / `concurrency` (defaults substituted for absent
-  or invalid keys, not echoed raw), and log tail without writing anything.
+  or invalid keys, not echoed raw), the notification email and any `fail-notify-<date>` marker,
+  whether a run is executing right now (`run.lock` freshness), a per-fire duration timeline parsed
+  from the newest log, and log tail — without writing anything.
 - `--stop` removed only this config dir's schedule and said what was kept.
 - Setup and `--stop` checked `run.lock` before replacing the runner or touching the schedule, and
   the runner was installed via temp + `mv`, never an in-place `cp`.

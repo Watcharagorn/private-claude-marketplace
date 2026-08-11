@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # Regression tests for scripts/automate/daily-run.sh's concurrent learn-phase round loop —
 # atomic claiming, worktree-isolated commits, claim-order cherry-pick, conflict-abort-requeue,
-# stale-claim reclaim, the watermark guard, the FATAL halt on a stuck abort, and teardown.
+# stale-claim reclaim, the watermark guard, the FATAL halt on a stuck abort, teardown, and the
+# end-of-run notify email (best-effort, verdict-neutral — scenario E).
 #
 # daily-run.sh itself is run FOR REAL, wholesale, once per scenario — this suite never
 # reimplements its orchestrator logic (claim_order, merge_slot, finalize_claim, release_claim,
@@ -91,6 +92,13 @@ done
 
 case "$prompt" in
   */loom:harvest*|*/loom:publish-plugin*) exit 0 ;;
+  */loom:daily-report*)
+    # Notify fire (scenario E): record it so the test can count fires, then succeed — or fail on
+    # demand (LOOM_TEST_REPORT_FAIL) to exercise the runner's verdict-neutral failure path.
+    state="${LOOM_TEST_STATE:?LOOM_TEST_STATE not set}"; mkdir -p "$state"
+    echo "fired" >> "$state/report-fired"
+    [ -n "${LOOM_TEST_REPORT_FAIL:-}" ] && exit 1
+    exit 0 ;;
 esac
 
 plugin=$(printf '%s' "$prompt" | sed -n 's#.*/loom:learn \([^ ]*\).*#\1#p')
@@ -305,6 +313,8 @@ chk "round 2 disposed the remaining 2 and drained on no-candidate" \
   grep -q 'round done — 2 disposed, 0 requeued, 1 no-candidate, 0 failed' "$LOG_A"
 chk "fires_used counted all 6 invocations toward the cap (3 + 3)" \
   grep -q '6/24 fires used' "$LOG_A"
+chk "notify step skipped with a log line when no notify.email is configured" \
+  grep -q 'notify: no notify.email configured' "$LOG_A"
 
 assert_teardown_clean "$SC_MKT" "$PLUGIN" "scenario A"
 
@@ -463,6 +473,67 @@ chk "no leftover loom-learn/testplugin/* branches despite the FATAL halt" \
 # Tidy the deliberately-stuck cherry-pick before the outer trap rm -rf's this scratch repo —
 # not load-bearing (rm -rf doesn't care about git's internal state), just good hygiene.
 git -C "$SC_MKT" cherry-pick --abort >/dev/null 2>&1 || true
+
+# =================================================================================================
+echo "== E. notify: end-of-run daily-report email — fired once, after the phases, verdict-neutral =="
+# config gains notify.email; the stub's daily-report case records each fire in $SC_STATE. First the
+# success path; then E2 forces the email fire to fail and asserts the day's verdict doesn't move —
+# the failure must land in fail-notify-<date>, never the day's own fail marker.
+new_scenario sc-e 1 60
+jq '.notify = {email:"loom-test@example.com"}' "$SC_CFG/loom/automation/config.json" \
+  > "$SC_CFG/loom/automation/config.json.tmp" \
+  && mv "$SC_CFG/loom/automation/config.json.tmp" "$SC_CFG/loom/automation/config.json"
+BACKLOG_E="$ROOT/sc-e/backlog.json"
+jq -n '[
+  {sessionId:"sess-e1", sessionEndTs:"2026-05-01T00:00:00Z", editFile:"file-e1.txt", editContent:"content-e1", mode:"normal"}
+]' > "$BACKLOG_E"
+
+run_daily "$SC_CFG" "$BACKLOG_E" "$SC_STATE"
+rc_e=$?
+LOG_E="$SC_CFG/loom/automation/logs/daily-$(date +%Y-%m-%d).log"
+
+chk "daily-run.sh exits 0" test "$rc_e" = "0"
+chk "daily-report fired exactly once" \
+  test "$(wc -l < "$SC_STATE/report-fired" | tr -d ' ')" = "1"
+chk "the notify fire used --headless" \
+  grep -q "notify: run: .*loom:daily-report --headless" "$LOG_E"
+chk "notify fired AFTER the learn batch completed" bash -c '
+  batch_line=$(grep -n "batch complete" "'"$LOG_E"'" | head -1 | cut -d: -f1)
+  notify_line=$(grep -n "notify: run:" "'"$LOG_E"'" | head -1 | cut -d: -f1)
+  [ -n "$batch_line" ] && [ -n "$notify_line" ] && [ "$batch_line" -lt "$notify_line" ]'
+chk "day stamped (successful email leaves the verdict alone)" \
+  test -f "$SC_CFG/loom/automation/stamps/last-ok"
+chk "no fail-notify marker on a successful email" \
+  test ! -f "$SC_CFG/loom/automation/stamps/fail-notify-$(date +%Y-%m-%d)"
+
+# --- E2: the email fire FAILS — the day's stamp and exit code must not move --------------------
+new_scenario sc-e2 1 60
+jq '.notify = {email:"loom-test@example.com"}' "$SC_CFG/loom/automation/config.json" \
+  > "$SC_CFG/loom/automation/config.json.tmp" \
+  && mv "$SC_CFG/loom/automation/config.json.tmp" "$SC_CFG/loom/automation/config.json"
+BACKLOG_E2="$ROOT/sc-e2/backlog.json"
+jq -n '[
+  {sessionId:"sess-e2", sessionEndTs:"2026-05-02T00:00:00Z", editFile:"file-e2.txt", editContent:"content-e2", mode:"normal"}
+]' > "$BACKLOG_E2"
+
+export LOOM_TEST_REPORT_FAIL=1
+run_daily "$SC_CFG" "$BACKLOG_E2" "$SC_STATE"
+rc_e2=$?
+unset LOOM_TEST_REPORT_FAIL
+LOG_E2="$SC_CFG/loom/automation/logs/daily-$(date +%Y-%m-%d).log"
+NOTIFY_MARK="$SC_CFG/loom/automation/stamps/fail-notify-$(date +%Y-%m-%d)"
+
+chk "daily-run.sh still exits 0 (a notify failure is not the day's failure)" test "$rc_e2" = "0"
+chk "day still stamped despite the failed email" \
+  test -f "$SC_CFG/loom/automation/stamps/last-ok"
+chk "the failure landed in the fail-notify marker" \
+  grep -q "loom:daily-report --headless (exit 1)" "$NOTIFY_MARK"
+chk "the day's own fail marker stayed absent" \
+  test ! -f "$SC_CFG/loom/automation/stamps/fail-$(date +%Y-%m-%d)"
+chk "log announces the failed email with the verdict unchanged" \
+  grep -q "daily report email FAILED" "$LOG_E2"
+chk "the learn session still landed (the email failure cost nothing else)" \
+  test "$(jq '.analyzed | length' "$SC_CFG/loom/learning/$PLUGIN.json")" = "1"
 
 echo "RESULT: PASS=$PASS FAIL=$FAIL"
 [ "$FAIL" -eq 0 ]

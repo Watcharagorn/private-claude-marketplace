@@ -59,6 +59,18 @@
       "prompt": "During a /loom:harvest --headless run fired by the daily automation under CLAUDE_CONFIG_DIR=~/.claude-ntb, in a project directory that is NOT a git repo, harvest decides to create a user-scope skill and a user-scope memory file. State the exact paths written, per the artifact catalog.",
       "expected_output": "All user-scope paths resolve through ${CLAUDE_CONFIG_DIR:-$HOME/.claude}: the skill lands at ~/.claude-ntb/skills/<name>/SKILL.md and the memory at ~/.claude-ntb/memory/<topic>.md with its index line appended to ~/.claude-ntb/MEMORY.md. Nothing is written under ~/.claude — a literal ~/.claude path is the pre-isolation bug.",
       "files": []
+    },
+    {
+      "id": 12,
+      "prompt": "Trace a daily-run.sh fire where config.json has notify.email set, harvest succeeds, learn disposes 2 sessions and publishes, but the Gmail connector is disabled so the daily-report fire fails. When does the email step run, where does its failure land, and does the day stamp?",
+      "expected_output": "After the learn phase (including its publish), the runner fires /loom:daily-report --headless exactly once, watchdogged like any fire, cwd = the marketplace repo. The failure lands ONLY in stamps/fail-notify-<date> (FAIL_MARK is rebound in a subshell around the notify fire; the skill also self-reports soft failures there); the day's own fail-<date> stays absent, so the run still stamps last-ok and exits 0, logging 'daily report email FAILED'. Nothing retries until the next fire.",
+      "files": []
+    },
+    {
+      "id": 13,
+      "prompt": "Trace /loom:daily-report --headless fired manually twice: once when config.json exists but notify.email is absent, once when notify.email is set but no run happened today (no daily-<date>.log). What is sent and what is written in each case?",
+      "expected_output": "Both are clean skips: a log-friendly line (no notify.email configured / no run on <date> — nothing to report), no email attempt, and NO fail-notify marker — markers are written only on a genuine headless compose-or-send failure. --dry-run likewise never sends and never writes a marker.",
+      "files": []
     }
   ]
 }

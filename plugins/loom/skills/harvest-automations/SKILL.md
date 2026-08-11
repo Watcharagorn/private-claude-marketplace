@@ -135,11 +135,9 @@ run manifest.
 1. A supplied **session id or path that didn't resolve** — tell the user it wasn't found (the id may
    belong to a different machine or have been cleaned up) and use `AskUserQuestion` to ask for a
    correct session id or path.
-2. Otherwise confirm it is the intended session by reading only the **tail**, never the whole file:
-
-   ```bash
-   tail -n 5 "$tx"
-   ```
+2. Otherwise confirm it is the intended session by reading only the **tail**, never the whole
+   file — `tail -n 5 <transcript-path>`, substituting the literal path Step 1 resolved (shell
+   variables like `tx` don't survive between separate Bash calls).
 
    The transcript may be an older, different-cwd session, so sanity-check it parses and note its
    `cwd`/timestamp rather than expecting them to match the current repo.
