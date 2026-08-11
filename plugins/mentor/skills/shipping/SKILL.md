@@ -258,6 +258,15 @@ offers to save it**. A repo with no `package.json`, no pytest, no `go.mod` and n
 `Makefile` test target will miss the table on every future ship too, so the branch
 that costs the user a question is the one branch that currently learns nothing.
 
+Before asking, grep the repo's own docs under `$repo_root` — `CLAUDE.md`,
+`AGENTS.md`, and any `.claude/rules/*.md` — for a stated test/check command; a
+repo that misses the table above often still writes its command in prose.
+Surface a hit as a candidate, naming the file it came from, and let the user
+confirm or replace it before running anything — the table's matches are
+mechanical, prose is not. A confirmed hit counts as hand-supplied for **Step
+7**: it still gets the `test_command` save offer, so the next ship in this repo
+reads the config instead of re-deriving it from prose.
+
 Run it inside a subshell, re-deriving `repo_root` in that same Bash call:
 
 ```bash

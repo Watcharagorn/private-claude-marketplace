@@ -137,6 +137,11 @@ The point of SDD: quality through narrow focus, and a lean main thread.
   the last chance, and `plan-state.sh`'s own post-write warning is a backstop,
   not a substitute. A tick on the wrong line silently costs the next session its
   picture of what landed, which is what `tick` exists to prevent.
+- **Don't mirror step tracking into a separate todo list.** `tick` plus the plan
+  file's own `✅` marks are the one source of truth for step-level progress; a
+  parallel todo entry per step is a second ledger to keep honest, read by no one
+  who isn't already looking at `plan.md`. Reserve the todo list for work that
+  falls outside the plan.
 - **Move the plan's state as you go**, so `/mentor:track` can answer "what is
   built?" in a fresh session without re-reading anything:
   ```bash

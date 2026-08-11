@@ -327,8 +327,14 @@ here rather than straight from `mentor:planning`:
   no escape hatch; implementation may be main-thread, verification never is — and its
   **CLOSING CHECKLIST** — the `/mentor:tour` offer, the `/mentor:defer` sweep, and the
   `/mentor:ship` pointer) exactly as the dispatch path does it.
-  Arriving here does not make that path unowned. A skipped plan usually writes its
-  steps as plain numbered items rather than `Step N — …` lines — `bash
+  Arriving here does not make that path unowned — and on a resumed plan the skip
+  line is a claim about the plan as it stood when someone last checked it, not as
+  it stands now: if it now carries more than about two steps, or any step whose
+  `Done when:` needs a service brought up, a browser driven, or a screenshot
+  compared, it no longer clears the escape-hatch bar (`mentor:dispatch-agents`,
+  "Escape hatch — when a plan may skip annotation") — re-annotate the remaining
+  steps as dispatches and execute them normally from here. A skipped plan usually
+  writes its steps as plain numbered items rather than `Step N — …` lines — `bash
   "${CLAUDE_PLUGIN_ROOT}/hooks/plan-state.sh" tick <slug> <N>` counts either form
   by ordinal, so ticking works the same way regardless of which one this plan uses.
 

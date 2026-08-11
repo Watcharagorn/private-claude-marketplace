@@ -817,7 +817,11 @@ bash "${CLAUDE_PLUGIN_ROOT}/hooks/plan-state.sh" set <slug> failed --note "<what
 `mentor:dispatch-agents` states this for the dispatch path; it is repeated here
 because the **`Dispatch: skipped`** path never loads that skill for
 implementation (it still loads it to dispatch verification), and direct
-implementation must not be the one route that leaves no record. Missing a transition
+implementation must not be the one route that leaves no record. The ticks above
+are also the only step tracker mentor reads here — don't mirror them into a
+separate todo list as well; a second list costs a call per step and nothing
+reads it (tracking *dispatched agents* themselves, e.g. for the closing
+checklist's task sweep, is unrelated and still applies). Missing a transition
 is survivable — state also derives from the `✅` step ticks you mark as each step
 passes — but `failed` cannot be derived from ticks, so that one is worth remembering.
 
