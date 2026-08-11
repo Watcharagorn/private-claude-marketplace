@@ -90,6 +90,7 @@ points at it; see `/mentor:constitution`'s adopt-by-reference branch):
 # via the shared subcommand, not --show-toplevel: a linked worktree must resolve to
 # the MAIN repo's .mentor, where the constitution actually lives
 mentor_dir="$(bash "${CLAUDE_PLUGIN_ROOT}/hooks/plan-state.sh" dir)"
+[ -n "$mentor_dir" ] || { echo "ERROR: mentor dir unresolved — is CLAUDE_PLUGIN_ROOT set?" >&2; exit 1; }
 repo_root="${mentor_dir%/.mentor}"
 const_rel="$(jq -r '.constitution_path // empty' "$mentor_dir/config.json" 2>/dev/null)"
 const_path="${repo_root}/${const_rel:-.mentor/constitution.md}"
@@ -162,6 +163,7 @@ note) rather than having its own. Resolve the real path first, worktree-safe, th
 gitignore:
 ```bash
 d="$(bash "${CLAUDE_PLUGIN_ROOT}/hooks/plan-state.sh" dir --plans)"
+[ -n "$d" ] || { echo "ERROR: mentor plans dir unresolved — is CLAUDE_PLUGIN_ROOT set?" >&2; exit 1; }
 grep -rn --no-ignore "<pattern>" "$d"   # or: rg --no-ignore "<pattern>" "$d"
 ```
 

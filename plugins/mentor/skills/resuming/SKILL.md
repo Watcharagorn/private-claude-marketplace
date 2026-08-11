@@ -52,6 +52,7 @@ uses, so reading and writing agree by construction:
 
 ```bash
 mentor_dir="$(bash "${CLAUDE_PLUGIN_ROOT}/hooks/plan-state.sh" dir)"
+[ -n "$mentor_dir" ] || { echo "ERROR: mentor dir unresolved — is CLAUDE_PLUGIN_ROOT set? do not search the plugin cache or hardcode a version path; ask the user to /reload-plugins or restart" >&2; exit 1; }
 echo "$mentor_dir"
 ```
 
@@ -95,9 +96,10 @@ deliberately `find`-based, not glob-based — an unmatched glob aborts the whole
 
 ```bash
 # Re-derive: Step 1's block was a separate Bash call and its variables are gone. An unset
-# $mentor_dir makes `find` search "/plans" and "/handoffs" — which silently yield nothing,
-# so the listing reports "no handoff notes" for a repo that has them.
+# $mentor_dir would make `find` search "/plans" and "/handoffs" instead of the repo's —
+# guarded below rather than left to fail silently.
 mentor_dir="$(bash "${CLAUDE_PLUGIN_ROOT}/hooks/plan-state.sh" dir)"
+[ -n "$mentor_dir" ] || { echo "ERROR: mentor dir unresolved — is CLAUDE_PLUGIN_ROOT set? do not search the plugin cache or hardcode a version path; ask the user to /reload-plugins or restart" >&2; exit 1; }
 i=0; skipped=""
 while IFS= read -r f; do
   base="$(basename "$f")"

@@ -63,6 +63,7 @@ Derive the project-scoped mentor state dir (same derivation as `hooks/lib/state.
 
 ```bash
 state_dir="$(bash "${CLAUDE_PLUGIN_ROOT}/hooks/plan-state.sh" dir)"   # worktree-safe; _no-repo fallback
+[ -n "$state_dir" ] || { echo "ERROR: mentor state dir unresolved — is CLAUDE_PLUGIN_ROOT set?" >&2; exit 1; }
 ls -t "$state_dir"/plans/*/plan.md 2>/dev/null | head -3   # candidate plan subjects (newest first)
 const_rel="$(jq -r '.constitution_path // empty' "$state_dir/config.json" 2>/dev/null)"
 case "$state_dir" in */.mentor)   # in a repo — resolve the constitution against its root

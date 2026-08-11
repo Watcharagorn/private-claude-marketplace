@@ -68,6 +68,14 @@ write the handoff note as normal, capturing the converged design richly in **Wha
 let **Recommended mentor commands for the next agent** (Step 3) route it through the "Work planned
 outside mentor" mapping's new bullet for this exact shape of ask.
 
+**An argument naming a pre-handoff action is a sequencing signal, not a scope change.** "Handoff
+to verify X then ship" names both the handback and an action (verify/test/ship/deploy) the user
+may want done *before* the note is written, not deferred to the next session. Writing the note
+immediately on the deferred reading risks an immediate reversal once the user clarifies they meant
+the action first. When the argument names such a verb, ask ONE `AskUserQuestion` before drafting
+anything: do the named action now, then hand off what remains (recommended — matches how this
+ambiguity is usually meant) / defer the whole thing, record it as the next session's first task.
+
 ## Step 2 — Compute the save path
 
 Notes live **inside the plan-topic folder they belong to** — `<repo>/.mentor/plans/<topic>/handoffs/`
@@ -89,7 +97,7 @@ the plan gate, so the write is always allowed.) Resolve `topic` first:
 topic="<topic>"  # ← REPLACE per the rule above (kebab-case; the plan's slug, or the focus slug)
 slug="session"   # ← REPLACE with a short kebab-case of the next-session focus, e.g. "auth-retry-fix"
 mentor_dir="$(bash "${CLAUDE_PLUGIN_ROOT}/hooks/plan-state.sh" dir)"   # worktree-safe; _no-repo fallback
-[ -n "$mentor_dir" ] || { echo "ERROR: mentor dir unresolved — is CLAUDE_PLUGIN_ROOT set?" >&2; exit 1; }
+[ -n "$mentor_dir" ] || { echo "ERROR: mentor dir unresolved — is CLAUDE_PLUGIN_ROOT set? do not search the plugin cache or hardcode a version path; ask the user to /reload-plugins or restart" >&2; exit 1; }
 hand_dir="$(bash "${CLAUDE_PLUGIN_ROOT}/hooks/plan-state.sh" ensure-dir "$mentor_dir/plans/$topic/handoffs")" || exit 1
 # keep transient handoffs out of git (in-repo only); never clobber a user-tweaked file
 case "$mentor_dir" in

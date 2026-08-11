@@ -114,8 +114,10 @@ Each subagent starts with **zero memory of this conversation and no
 `{#write-the-plan}`" gives it nothing it can resolve. Resolve the paths first:
 
 ```bash
+[ -n "$CLAUDE_PLUGIN_ROOT" ] || { echo "ERROR: CLAUDE_PLUGIN_ROOT unresolved — cannot build subagent prompts; is the plugin loaded?" >&2; exit 1; }
 echo "${CLAUDE_PLUGIN_ROOT}/skills/planning/SKILL.md"
 mentor_dir="$(bash "${CLAUDE_PLUGIN_ROOT}/hooks/plan-state.sh" dir)"   # worktree-safe
+[ -n "$mentor_dir" ] || { echo "ERROR: mentor dir unresolved — is CLAUDE_PLUGIN_ROOT set?" >&2; exit 1; }
 ls "$mentor_dir/constitution.md" 2>/dev/null   # include only if it exists
 ```
 

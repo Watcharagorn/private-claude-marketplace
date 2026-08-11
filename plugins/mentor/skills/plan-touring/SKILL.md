@@ -60,6 +60,7 @@ filename and overwrite in place.
 
 ```bash
 state_dir="$(bash "${CLAUDE_PLUGIN_ROOT}/hooks/plan-state.sh" dir)"   # worktree-safe; _no-repo fallback
+[ -n "$state_dir" ] || { echo "ERROR: mentor state dir unresolved — is CLAUDE_PLUGIN_ROOT set?" >&2; exit 1; }
 ls -t "$state_dir"/plans/*/plan.md 2>/dev/null | head -5              # candidate plans, newest first
 ```
 
@@ -255,6 +256,7 @@ Create the output dir first — its variables do not survive from Step 0, and an
 
 ```bash
 state_dir="$(bash "${CLAUDE_PLUGIN_ROOT}/hooks/plan-state.sh" dir)"
+[ -n "$state_dir" ] || { echo "ERROR: mentor state dir unresolved — is CLAUDE_PLUGIN_ROOT set?" >&2; exit 1; }
 tour_dir="$(bash "${CLAUDE_PLUGIN_ROOT}/hooks/plan-state.sh" ensure-dir "$state_dir/plans/<plan-slug>/tour")" || exit 1
 ```
 
@@ -298,6 +300,7 @@ Never return the HTML body.
 ```bash
 # Re-derive: Step 3's block was a separate Bash call and its variables are gone.
 state_dir="$(bash "${CLAUDE_PLUGIN_ROOT}/hooks/plan-state.sh" dir)"
+[ -n "$state_dir" ] || { echo "ERROR: mentor state dir unresolved — is CLAUDE_PLUGIN_ROOT set?" >&2; exit 1; }
 ls -l "$state_dir/plans/<plan-slug>/tour"
 ```
 

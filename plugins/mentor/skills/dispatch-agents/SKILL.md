@@ -393,7 +393,11 @@ the contract does not apply to them, which is exactly how a fan-out goes out raw
   `until ! pgrep -f <proc>; do sleep 5; done`, or a monitor/wait tool — sized under
   the Bash timeout ceiling (600s). A chain of short sleeps burns a turn apiece, and
   the harness blocks bare foreground `sleep` outright, so the chain tends to fail in
-  the middle and leave the wait half-done. The block below carries an
+  the middle and leave the wait half-done. One case sits outside this binary: a wait
+  on a live external system the user is watching in the foreground (a cloud deploy
+  settling, a third-party pipeline) with no bounded local completion signal — ask
+  once via `AskUserQuestion` (poll now / hand the check to the next session) before
+  committing to it, rather than starting the poll unasked. The block below carries an
   agent-shaped copy of this rule — deliberately without "end the turn", which a
   dispatched agent must never do undelivered.
 - **Deliver before idling — the standing prompt contract.** Every dispatched
