@@ -218,6 +218,12 @@ the list itself. `mentor:resuming` Step 6 reads this section by scanning for the
 bound "act" behavior invokes; a precondition folded into the list as if it were one more entry
 reads as either a command to run or noise to skip, and it's neither.
 
+When that precondition is itself a live/interactive check this session can't finish headlessly (a
+tmux/console render, a UI click-through), lead with the exact pass/fail condition as a
+**headless-provable proxy** (a measured width, a count, a diff — provable with one command); if a
+manual walk-through is still required alongside it, give the numbers to aim at (a target row, a
+press count) and mark the walk-through as confirmation only, not the primary evidence.
+
 - **Unclear approach / unfinished design** → `/mentor:plan <focus>` (runs the gated plan harness).
 - **A plan file exists but was never approved** (state `draft`, gate still armed — the
   "Pause — still drafting" handoff) → `/mentor:plan <slug>`, continuing the existing draft at

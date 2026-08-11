@@ -191,8 +191,10 @@ Then resolve a selection:
    **Current state** and **Open questions / risks** sections so the user sees where things stand.
    If a **Standing directives** section is present, surface it too and obey it for the rest of
    this topic — it is a constraint, not a suggestion, and it does not expire with the session
-   that wrote it. Do **not** stamp the note yet — loading is not finishing; if this session
-   stalls, the note must still be listed for the next one.
+   that wrote it. **This narration is its own turn, before the note's first action of any kind —
+   read-only ones included** — folding it silently into a later wrap-up, or skipping straight into
+   the note's action steps, does not satisfy this step. Do **not** stamp the note yet — loading is
+   not finishing; if this session stalls, the note must still be listed for the next one.
 4. **Reference artifacts by their paths** — the plan file, PRDs/ADRs, issue/PR URLs, commit SHAs as
    the note lists them. Do **not** paste their contents; open/read them only as needed to act.
 5. **Verify the gate state on disk — never trust the note's claim.** A note may say the plan gate is
@@ -361,8 +363,9 @@ Do **not** copy or duplicate the note into the repo source tree — it lives in 
   non-conforming files were named in the user-facing list, not just in bash output.
 - The user's selection was resolved unambiguously (argument or interactive), never auto-picked on an
   ambiguous/no match.
-- The chosen note was loaded, scanned for secrets, its focus + current state surfaced, and the work
-  continued via the note's recommended mentor command(s) — and nothing beyond them. The session
+- The chosen note was loaded, scanned for secrets, its focus + current state + open questions
+  surfaced as their own turn before acting, and the work continued via the note's recommended
+  mentor command(s) — and nothing beyond them. The session
   still **ended through a mentor command** — `/mentor:ship` → `/mentor:merge`, `/mentor:handoff`, or
   `/mentor:defer` — never through raw `git`/`gh` or a hand-written file; the bound is on the work,
   not on how it is executed or delivered.
@@ -375,6 +378,10 @@ Do **not** copy or duplicate the note into the repo source tree — it lives in 
   locked).
 - Do **not** list notes inside a `resolved/` subdir (finished or superseded work) unless the user
   explicitly asks for resolved notes.
+- Do **not** jump from loading the note straight into its action steps (a live-console macro, a
+  code edit) without first stating `Resuming: <focus>` and surfacing Current state / Open
+  questions as this session's own output — a later summary that happens to cover the same ground
+  does not count.
 - Do **not** stamp a note merely because it was loaded — only completion (per the plan file) or a
   superseding handoff resolves it; an unfinished note must stay listed.
 - Do **not** skip the stamp when the work DID finish — an unstamped solved note WILL be re-listed
