@@ -287,8 +287,14 @@ chk "25h-old marker pruned → warn re-fires" contains "getting large" "$OUT"
 echo "== H. begin-plan.sh plan-start check (CLAUDE_CONFIG_DIR + CLAUDE_CODE_SESSION_ID fixtures) =="
 CFG="$ROOT/cfg"; mkdir -p "$CFG/projects/proj"
 SESS="begin-sess"
+# v2.23.0: begin-plan.sh now arms a PER-WORKTREE marker (.planning.<wt-id>), not the
+# bare legacy .planning — $REPO here is a normal single-worktree repo, so its wt-id
+# resolves non-empty and the created marker carries an unpredictable crc suffix. Match
+# the whole `.planning*` family rather than the one literal legacy filename.
+has_marker() { ls "${STATE}/plans"/.planning* >/dev/null 2>&1; }
+no_marker()  { ! has_marker; }
 bp() { # <transcript-tokens|none> → sets RC/OUT; cleans marker first
-  rm -f "$STATE/plans/.planning"
+  rm -f "$STATE/plans/.planning" "$STATE/plans"/.planning.*
   local toks="$1"
   if [ "$toks" = "none" ]; then rm -f "$CFG/projects/proj/$SESS.jsonl"
   else mktx "$CFG/projects/proj/$SESS.jsonl" "usage:$toks"; fi
@@ -299,21 +305,21 @@ bp() { # <transcript-tokens|none> → sets RC/OUT; cleans marker first
 bp 400000
 chk "over-ask, no bypass → CONTEXT: ASK printed" contains "CONTEXT: ASK" "$OUT"
 chk "over-ask → names bypass script"         contains "bypass-context.sh" "$OUT"
-chk "over-ask → .planning NOT created"       test ! -f "$STATE/plans/.planning"
+chk "over-ask → no gate marker created"      no_marker
 chk "over-ask → not armed"                   sh -c '! printf "%s" "$1" | grep -q "Plan phase ARMED"' _ "$OUT"
 : > "$STATE/.context-bypass-$SESS"
 bp 400000
 chk "bypassed over-ask → armed"              contains "Plan phase ARMED" "$OUT"
 chk "bypassed over-ask → CONTEXT: HANDOFF"   contains "CONTEXT: HANDOFF" "$OUT"
-chk "bypassed over-ask → .planning created"  test -f "$STATE/plans/.planning"
+chk "bypassed over-ask → gate marker created" has_marker
 rm -f "$STATE/.context-bypass-$SESS"
 bp 230000
 chk "warn → armed + CONTEXT: WARN"           contains "CONTEXT: WARN" "$OUT"
-chk "warn → .planning created"               test -f "$STATE/plans/.planning"
+chk "warn → gate marker created"             has_marker
 chk "warn → no lean-planning advisory" sh -c '! printf "%s" "$1" | grep -qw "lean"' _ "$OUT"
 bp none
 chk "no transcript → arms silently (no CONTEXT line)" sh -c '! printf "%s" "$1" | grep -q "CONTEXT:"' _ "$OUT"
-chk "no transcript → armed"                  test -f "$STATE/plans/.planning"
+chk "no transcript → gate marker created"    has_marker
 
 echo "== I. bypass-context.sh =="
 BYPASS="$HOOKS/bypass-context.sh"

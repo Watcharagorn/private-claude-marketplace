@@ -41,11 +41,13 @@ if [ -z "$git_common" ]; then
   echo "NOT-A-REPO"
 else
   repo_root="$(cd "$(dirname "$git_common")" && pwd)"
-  marker="$repo_root/.mentor/plans/.planning"
   echo "REPO_ROOT=$repo_root"
-  # A fresh marker means a live plan session; a stale one (>8h) is a crashed
-  # session the edit gate self-heals, so treat it as idle.
-  if [ -f "$marker" ] && [ -z "$(find "$marker" -mmin +480 2>/dev/null)" ]; then
+  # PLANNING-ACTIVE holds IFF this worktree's own gate is armed (the legacy
+  # repo-global marker counts as this worktree's own). An ARMED_ELSEWHERE verdict
+  # (only a SIBLING worktree's marker is live) must NOT count — otherwise
+  # constitution work would deadlock repo-wide any time any worktree is mid-plan,
+  # the exact disease the per-worktree gate exists to cure.
+  if [ "$(bash "${CLAUDE_PLUGIN_ROOT}/hooks/plan-state.sh" gate)" = "ARMED" ]; then
     echo "PLANNING-ACTIVE"
   else
     echo "PLANNING-IDLE"
@@ -61,10 +63,16 @@ fi
 
 - **`NOT-A-REPO`** → the constitution is per-repo and committed. Tell the user to
   `cd` into a git repo and stop.
-- **`PLANNING-ACTIVE`** → a live `.planning` marker is armed (a plan session is
-  open). The constitution lives in-repo, so the edit gate would **block** the
-  write. Do not attempt it — tell the user to approve or finish the current plan
-  first (or re-run this outside a plan session), then stop.
+- **`PLANNING-ACTIVE`** → this worktree's plan gate (own marker or the legacy
+  repo-global one) is armed. The default target, `.mentor/constitution.md`, is
+  itself **exempt** from the plan edit gate (`plan-gate.sh`'s `.mentor/`
+  exemption) — the write would technically succeed even here. What the gate
+  *does* actually block is an **adopt-by-reference** target from Step 3a that
+  lives outside `.mentor/` (e.g. `docs/constitution.md`); amending that document
+  while armed would hit the gate for real. Either way, stop: authoring or
+  amending governing principles while a plan is actively mid-decision invites
+  the two to talk past each other — tell the user to approve or finish the
+  current plan first (or re-run this outside a plan session), then stop.
 - Otherwise capture `REPO_ROOT`, whether the file `EXISTS` or is `NEW`, and
   `TODAY` for the dates below.
 

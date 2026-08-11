@@ -121,6 +121,27 @@ mentor_dir="$(bash "${CLAUDE_PLUGIN_ROOT}/hooks/plan-state.sh" dir)"   # worktre
 ls "$mentor_dir/constitution.md" 2>/dev/null   # include only if it exists
 ```
 
+**Mint every child's directory from the MAIN THREAD before dispatching any agent —
+this is what stamps ownership at creation, not after.** For each slice:
+
+```bash
+# Re-derive: the path block above ran as its own Bash call, so $mentor_dir is gone here.
+mentor_dir="$(bash "${CLAUDE_PLUGIN_ROOT}/hooks/plan-state.sh" dir)"
+bash "${CLAUDE_PLUGIN_ROOT}/hooks/plan-state.sh" ensure-dir "${mentor_dir}/plans/<CHILD-SLUG>"
+```
+
+`ensure-dir` stamps `owner`/`owner_session` on a plan-topic dir the instant it is
+minted (a direct child of `plans/` — see `plan-state.sh`'s `ensure-dir` contract,
+v2.23.0). Minting all N children here, before any subagent writes, closes the
+unowned window: if a child's directory instead came into existence via the
+dispatched agent's own `Write` call, that child would sit **unowned** — and, being
+freshly written, **newer than every live marker in the repo** — for the whole
+window until Step 6.1 registers it. An unowned plan newer than a marker is exactly
+what a sibling worktree's `approve-plan.sh` sweeps when no sibling marker is live
+("solo back-compat"), and if the split flow aborts partway, a child minted only by
+`Write` stays permanently unowned. Mint first, and every child is owned by this
+worktree from its very first byte on disk.
+
 Prompt template — every child gets all of it:
 
 ```
@@ -216,15 +237,26 @@ prompts so the boundary travels with the work.
 The ordering is the whole point: a failed agent must never leave a superseded parent
 with no children, which would delete the user's plan.
 
-1. **Verify.** `ls` every expected `plan.md`; confirm each is non-empty and opens with
-   its isolation header.
-2. **Re-dispatch** any missing or empty child **once**, with the same prompt.
-3. **Only when all N exist**, register them:
+1. **Verify each child as it lands, and register it immediately — never batch
+   registration until all N exist.** For every expected `plan.md`: `ls` it, confirm
+   it is non-empty and opens with its isolation header, then IMMEDIATELY register
+   that one child:
    ```bash
    bash "${CLAUDE_PLUGIN_ROOT}/hooks/plan-state.sh" init <child-slug> --group <parent-slug> --order <n>
    ```
-4. **Inherit the parent's state** (the value recorded in Step 1) so approved work
-   stays runnable:
+   `init` re-stamps `owner`/`owner_session` for this worktree (Step 4's `ensure-dir`
+   already stamped it at mint time — this is the last-init-wins re-own, and the
+   carrier for `--group`/`--order`). Registering per child, as it verifies, matters
+   for the same reason Step 4 mints before dispatch: batching registration until
+   every child exists would leave each already-verified child relying on nothing
+   but its mint-time stamp for the whole remaining verification window, and if the
+   split flow aborts before the last child lands, every child verified-but-never-
+   registered would carry no `group`/`order` at all — permanently, since nothing
+   else writes them.
+2. **Re-dispatch** any missing or empty child **once**, with the same prompt, then
+   verify and register it exactly as above.
+3. **Inherit the parent's state** (the value recorded in Step 1) so approved work
+   stays runnable — apply this once ALL N children are verified and registered:
 
    | Parent state | Children start at | Why |
    |---|---|---|
@@ -232,10 +264,13 @@ with no children, which would delete the user's plan.
    | `approved` · `in_progress` · `failed` | `approved` — `plan-state.sh set <child> approved` | the work was already approved; a split only re-organizes it |
    | `unknown` | the Step 3 answer: approved → `approved`, otherwise `draft` | nothing was on record, so ask rather than guess |
 
-   Without this, splitting after approval — or in a fresh session, where there is no
-   `.planning` marker for `approve-plan.sh` to compare against — yields children stuck
-   at `draft` that `/mentor:track` will refuse to run. A dead end with no way out.
-5. **Finally** retire the parent:
+   Without this, splitting after approval — in a fresh session with no marker FOR
+   THIS WORKTREE for `approve-plan.sh` to compare against, or in a worktree whose
+   live marker belongs to a DIFFERENT worktree (so `approve-plan.sh`'s ownership
+   filter excludes these children even though a marker exists) — yields children
+   stuck at `draft` that `/mentor:track` will refuse to run. A dead end with no way
+   out.
+4. **Finally** retire the parent:
    ```bash
    bash "${CLAUDE_PLUGIN_ROOT}/hooks/plan-state.sh" set <parent-slug> superseded
    ```

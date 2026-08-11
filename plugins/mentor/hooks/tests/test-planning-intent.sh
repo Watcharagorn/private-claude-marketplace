@@ -13,7 +13,9 @@ set -uo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 HOOK="$(dirname "$SCRIPT_DIR")/planning-intent.sh"
+LIB="$(dirname "$SCRIPT_DIR")/lib/state.sh"
 [ -f "$HOOK" ] || { echo "FATAL: hook not found at $HOOK" >&2; exit 1; }
+[ -f "$LIB" ]  || { echo "FATAL: lib not found at $LIB" >&2; exit 1; }
 command -v jq >/dev/null 2>&1 || { echo "FATAL: jq required" >&2; exit 1; }
 
 ROOT="$(mktemp -d)"
@@ -23,6 +25,20 @@ mkdir -p "$FAKE_HOME"
 git init -q -b main "$REPO" >/dev/null 2>&1
 ( cd "$REPO"; git config user.email t@t.co; git config user.name t; echo x > f; git add -A; git commit -q -m init ) >/dev/null 2>&1
 trap 'rm -rf "$ROOT"' EXIT
+
+# Sibling-worktree fixture (v2.23.0 liveness-routed suppression: §F below). A REAL
+# linked worktree of $REPO, so its own-marker suffix comes from the SAME production
+# wt-id recipe (mentor_worktree_id) the hook itself calls, not a hand-picked string.
+WT="$ROOT/linked-wt"
+git -C "$REPO" worktree add -q "$WT" -b wt-branch >/dev/null 2>&1
+wtid() { bash -c "set -euo pipefail; . '$LIB'; mentor_worktree_id '$1'"; }
+REPO_WT_ID="$(wtid "$REPO")"
+LINKED_WT_ID="$(wtid "$WT")"
+[ -n "$REPO_WT_ID" ] && [ -n "$LINKED_WT_ID" ] || { echo "FATAL: could not derive worktree ids for the fixture" >&2; exit 1; }
+PLANS_DIR="$REPO/.mentor/plans"
+OWN_MARKER="$PLANS_DIR/.planning.$REPO_WT_ID"
+SIBLING_MARKER="$PLANS_DIR/.planning.$LINKED_WT_ID"
+LEGACY_MARKER="$PLANS_DIR/.planning"
 
 PASS=0; FAIL=0
 mkjson() { python3 -c 'import json,sys;print(json.dumps({"prompt":sys.argv[1],"cwd":sys.argv[2],"session_id":sys.argv[3]}))' "$1" "$2" "$3"; }
@@ -81,12 +97,36 @@ check_silent "config planning_intent=off" "help me plan the checkout flow" "$REP
 rm -f "$REPO/.mentor/config.json"
 rmdir "$REPO/.mentor" 2>/dev/null || true
 
-echo "== F. Suppressed while the plan gate is already armed =="
-mkdir -p "$REPO/.mentor/plans"
-: > "$REPO/.mentor/plans/.planning"
-check_silent "gate armed -> no nudge (already planning)" "help me plan the checkout flow" "$REPO" "sess-f1"
-rm -f "$REPO/.mentor/plans/.planning"
-rmdir "$REPO/.mentor/plans" "$REPO/.mentor" 2>/dev/null || true
+echo "== F. Suppression is liveness-routed (v2.23.0): own/legacy live markers suppress; a sibling worktree's marker and a stale own marker do NOT =="
+mkdir -p "$PLANS_DIR"
+
+: > "$OWN_MARKER"
+check_silent "this worktree's own live marker -> no nudge (already planning here)" \
+  "help me plan the checkout flow" "$REPO" "sess-f1"
+rm -f "$OWN_MARKER"
+
+: > "$LEGACY_MARKER"
+check_silent "live legacy repo-wide marker -> no nudge" \
+  "help me plan the checkout flow" "$REPO" "sess-f2"
+rm -f "$LEGACY_MARKER"
+
+# A live marker belonging to a SIBLING worktree is an independent gate — it must never
+# suppress the nudge in THIS worktree.
+: > "$SIBLING_MARKER"
+check_fires "sibling worktree's live marker does NOT suppress (independent gate)" \
+  "help me plan the checkout flow" "$REPO" "sess-f3"
+rm -f "$SIBLING_MARKER"
+
+# A stale own marker no longer suppresses — the check is routed through
+# mentor_marker_stale, not a bare `[ -f ]`, so a long-dead marker can't silence the
+# nudge forever. MENTOR_PLAN_MARKER_STALE_MIN defaults to 480min (8h); back-date past it.
+: > "$OWN_MARKER"
+touch -t "$(date -v-9H +%Y%m%d%H%M 2>/dev/null || date -d '9 hours ago' +%Y%m%d%H%M)" "$OWN_MARKER" 2>/dev/null || true
+check_fires "stale own marker no longer suppresses the nudge" \
+  "help me plan the checkout flow" "$REPO" "sess-f4"
+rm -f "$OWN_MARKER"
+
+rmdir "$PLANS_DIR" "$REPO/.mentor" 2>/dev/null || true
 
 echo "== G. Never creates .mentor/ in a repo that never used mentor =="
 CLEAN_REPO="$ROOT/clean-repo"

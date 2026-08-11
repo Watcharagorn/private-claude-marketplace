@@ -35,8 +35,8 @@ not the plan, not a zoom, and never lives in `plans/`.
 
 ## When NOT to use
 
-- A mentor planning session is active (a fresh `.planning` marker) — approve or abandon the plan
-  first; Step 0 enforces this.
+- A mentor planning session is active in this worktree (this worktree's own gate, or the legacy
+  repo-global marker, reads `ARMED`) — approve or abandon the plan first; Step 0 enforces this.
 - The user wants the **plan content** reviewed — that is `/plan-review` (the two-stage 4-topic
   pre-approval review) or `/mentor:grill` (decision interview), not a tour.
 - The user wants a **read-only visual view of a subject** (a plan topic, a subsystem, a design) —
@@ -57,15 +57,23 @@ state_dir="$(bash "${CLAUDE_PLUGIN_ROOT}/hooks/plan-state.sh" dir)"   # worktree
 [ -n "$state_dir" ] || { echo "ERROR: mentor state dir unresolved — is CLAUDE_PLUGIN_ROOT set?" >&2; exit 1; }
 [ "$(bash "${CLAUDE_PLUGIN_ROOT}/hooks/plan-state.sh" gate)" = "ARMED" ] && echo "PLANNING_ACTIVE"
 ls -t "$state_dir"/plans/*/plan.md 2>/dev/null | head -3   # candidate plan subjects (newest first)
+sibling_wts="$(bash "${CLAUDE_PLUGIN_ROOT}/hooks/plan-state.sh" gate --verbose | sed -n 's/^elsewhere=\([^ ]*\).*/\1/p')"
+[ -n "$sibling_wts" ] && bash "${CLAUDE_PLUGIN_ROOT}/hooks/plan-state.sh" list --owners   # cross-check OWNER col below
 ```
 
 - **`PLANNING_ACTIVE`** → print the one-line abort and stop:
   `Tour aborted: a mentor planning session is active — approve or abandon the plan first.`
 - **Resolve the subject**, in priority order:
   1. the **argument** — a topic ("secret rotation flow") or a plan-slug substring for multi-plan repos;
-  2. the **newest plan** from the listing above (the default when one exists);
+  2. the **newest plan** from the listing above (the default when one exists) — but when
+     `$sibling_wts` is non-empty (`ARMED_ELSEWHERE`), first drop any candidate whose OWNER column
+     (from `list --owners` above) matches one of those wt-ids: a sibling's live marker means that
+     plan is mid-write, not this tour's subject. If the filter empties the candidate list or leaves
+     the pick ambiguous, ask the user for an explicit subject instead of guessing;
   3. the feature/system under discussion in the **current conversation**.
   The plan is an *input source*, never a prerequisite — the skill works standalone.
+  **Note:** the newest plan in that raw `ls -t` listing may be the sibling's — name the plan you
+  picked.
 - Derive the tour **slug** from the subject (kebab-case, stable across re-runs so revisions hit the
   same file → same URL).
 
@@ -181,7 +189,7 @@ tour_file="$state_dir/tours/<slug>-<audience>.html"
 
 ## Do NOT
 
-- Do **not** run while a fresh `.planning` marker is armed, and do **not** modify the plan file —
+- Do **not** run while this worktree's gate reads `ARMED`, and do **not** modify the plan file —
   it is a read-only input (the Step 2 dispatched agent reads it; the main thread does not re-read it).
 - Do **not** write anything into `plans/` or `zooms/` (tour files live in `tours/`), and do **not**
   publish the plan or a zoom artifact via the Artifact tool — the `zoom` skill's local-only

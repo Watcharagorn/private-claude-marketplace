@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# test-mode.sh — regression tests for set-mode.sh + begin-plan.sh's mode-aware output.
+# test-mode.sh — regression tests for set-mode.sh + begin-plan.sh's mode-aware output
+# and per-worktree arming (v2.23.0).
 #
 # Runs against a SANDBOX $HOME so it never touches real user state.
 set -uo pipefail
@@ -8,7 +9,8 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 HOOKS="$(dirname "$SCRIPT_DIR")"
 SETMODE="$HOOKS/set-mode.sh"
 BEGIN="$HOOKS/begin-plan.sh"
-for f in "$SETMODE" "$BEGIN"; do
+STATE_LIB="$HOOKS/lib/state.sh"
+for f in "$SETMODE" "$BEGIN" "$STATE_LIB"; do
   [ -f "$f" ] || { echo "FATAL: not found: $f" >&2; exit 1; }
 done
 
@@ -19,6 +21,12 @@ git init -q -b main "$REPO" >/dev/null 2>&1
 ( cd "$REPO"; git config user.email t@t.co; git config user.name t; echo x > f; git add -A; git commit -q -m init ) >/dev/null 2>&1
 NONGIT="$ROOT/plain"; mkdir -p "$NONGIT"
 
+# A second, linked worktree of the SAME repo — the fixture the sibling-marker cases
+# below need. Shares $REPO's .mentor/ (git-common-dir), but derives its own wt-id
+# from its own --show-toplevel.
+WTB="$ROOT/wt-b"
+git -C "$REPO" worktree add -q "$WTB" -b wtb >/dev/null 2>&1
+
 trap 'rm -rf "$ROOT"' EXIT
 
 repo_root="$(cd "$REPO" && pwd -P)"
@@ -26,10 +34,27 @@ STATE_DIR="$repo_root/.mentor"   # project-scoped, in-repo (v2.0.0)
 PLANS_DIR="$STATE_DIR/plans"
 CONF="$STATE_DIR/config.json"
 
+# wt-ids via the production recipe (sourced in a subshell so this script's own
+# variables/functions stay untouched).
+wt_id_of() { ( . "$STATE_LIB"; mentor_worktree_id "$1" ); }
+MAIN_WT_ID="$(wt_id_of "$REPO")"
+WTB_WT_ID="$(wt_id_of "$WTB")"
+[ -n "$MAIN_WT_ID" ] && [ -n "$WTB_WT_ID" ] && [ "$MAIN_WT_ID" != "$WTB_WT_ID" ] \
+  || { echo "FATAL: wt-id fixture broken (main='$MAIN_WT_ID' wtb='$WTB_WT_ID')" >&2; exit 1; }
+
+MARKER="$PLANS_DIR/.planning.$MAIN_WT_ID"       # $REPO's (main's) own marker
+WTB_MARKER="$PLANS_DIR/.planning.$WTB_WT_ID"    # the linked worktree's own marker
+LEGACY_MARKER="$PLANS_DIR/.planning"            # pre-upgrade repo-global marker
+
 PASS=0; FAIL=0
 chk() { local desc="$1"; shift
   if "$@"; then PASS=$((PASS+1)); printf "  ok   %s\n" "$desc"
   else FAIL=$((FAIL+1)); printf "  FAIL %s\n" "$desc"; fi
+}
+count_eq() {  # <expected-count> <needle> <haystack> — exact grep -c match
+  local want="$1" needle="$2" haystack="$3" got
+  got="$(printf '%s' "$haystack" | command grep -c -- "$needle" 2>/dev/null || true)"
+  [ "$got" = "$want" ]
 }
 sm() { ( cd "$REPO" && HOME="$SANDBOX" bash "$SETMODE" "$@" 2>&1 ); }
 
@@ -68,7 +93,7 @@ sm plan-only >/dev/null
 out="$( cd "$REPO" && HOME="$SANDBOX" MENTOR_CONTEXT_GATE=off bash "$BEGIN" 2>&1 )"
 chk "plan-only → MODE: plan-only line" sh -c "printf '%s' \"\$0\" | grep -q '^MODE: plan-only$'" "$out"
 chk "plan-only → no hard directive"    sh -c "! printf '%s' \"\$0\" | grep -q 'do NOT implement'" "$out"
-chk "marker armed"                     test -f "$PLANS_DIR/.planning"
+chk "marker armed"                     test -f "$MARKER"
 sm plan >/dev/null
 out="$( cd "$REPO" && HOME="$SANDBOX" MENTOR_CONTEXT_GATE=off bash "$BEGIN" 2>&1 )"
 chk "plan → MODE: plan line"           sh -c "printf '%s' \"\$0\" | grep -q '^MODE: plan$'" "$out"
@@ -113,7 +138,7 @@ chk "auth has no captured zoom"                    sh -c "test ! -e '$PLANS_DIR/
 chk "no plans/<slug>/zoom/ dirs left"              test -z "$(ls -d "$PLANS_DIR"/*/zoom 2>/dev/null)"
 chk "no flat .md left"                             test -z "$(ls "$PLANS_DIR"/*.md 2>/dev/null)"
 chk "no flat .html left"                           test -z "$(ls "$PLANS_DIR"/*.html 2>/dev/null)"
-chk "marker armed after migration"                 test -f "$PLANS_DIR/.planning"
+chk "marker armed after migration"                 test -f "$MARKER"
 
 echo "== C2. v2.12.0 relocation alone (per-plan zoom/ → zooms/<slug>/) =="
 mkdir -p "$PLANS_DIR/demo/zoom"
@@ -128,11 +153,11 @@ chk "pre-existing zooms file untouched"   test -f "$ZOOMS_DIR/demo/existing.html
 chk "second arm (nothing to relocate) exits 0" test "$rc" = "0"
 
 echo "== D. Marker metadata + foreign-marker guard =="
-MARKER="$PLANS_DIR/.planning"
 rm -f "$MARKER"
 out="$( cd "$REPO" && HOME="$SANDBOX" MENTOR_CONTEXT_GATE=off CLAUDE_CODE_SESSION_ID=sess-A bash "$BEGIN" 2>&1 )"
 chk "fresh arm → marker carries session= line" sh -c "command grep -q '^session=sess-A$' '$MARKER'"
 chk "fresh arm → marker carries cwd= line"     sh -c "command grep -q '^cwd=' '$MARKER'"
+chk "fresh arm → marker carries worktree= line" sh -c "command grep -q '^worktree=' '$MARKER'"
 chk "fresh arm → ARMED banner still printed"   sh -c "printf '%s' \"\$0\" | grep -q 'Plan phase ARMED'" "$out"
 
 # Same session re-arming (the CONTEXT: ASK -> bypass-context.sh -> re-run path, or an
@@ -159,12 +184,106 @@ out="$( cd "$REPO" && HOME="$SANDBOX" MENTOR_CONTEXT_GATE=off CLAUDE_CODE_SESSIO
 chk "stale foreign marker → arms anyway"        sh -c "printf '%s' \"\$0\" | grep -q 'Plan phase ARMED'" "$out"
 chk "stale foreign marker → now owned by sess-B" sh -c "command grep -q '^session=sess-B$' '$MARKER'"
 
-# A legacy/empty marker (pre-metadata, e.g. armed by an older begin-plan.sh) has no
-# session= line at all — nothing to compare against, so fail-soft: arm as before.
+# (a) Empty OWN marker (pre-metadata, no session= line at all — this is THIS
+# worktree's own suffixed marker planted with no body, NOT the bare legacy marker;
+# see (b) below for that) has nothing to compare against for the foreign-session
+# guard, so it fails soft: arm anyway — unchanged behavior.
 : > "$MARKER"
 out="$( cd "$REPO" && HOME="$SANDBOX" MENTOR_CONTEXT_GATE=off CLAUDE_CODE_SESSION_ID=sess-C bash "$BEGIN" 2>&1 )"
-chk "legacy empty marker → arms anyway (no attribution to compare)" sh -c "printf '%s' \"\$0\" | grep -q 'Plan phase ARMED'" "$out"
-chk "legacy empty marker → now stamped with sess-C" sh -c "command grep -q '^session=sess-C$' '$MARKER'"
+chk "(a) empty OWN marker → arms anyway (no attribution to compare)" sh -c "printf '%s' \"\$0\" | grep -q 'Plan phase ARMED'" "$out"
+chk "(a) empty OWN marker → now stamped with sess-C" sh -c "command grep -q '^session=sess-C$' '$MARKER'"
+
+# (b) A FRESH bare legacy `.planning` marker (no worktree suffix — the pre-upgrade
+# repo-global marker) refuses to arm THIS worktree's own marker at all: distinct
+# first line, own marker left untouched, legacy marker untouched.
+rm -f "$MARKER"
+: > "$LEGACY_MARKER"
+out="$( cd "$REPO" && HOME="$SANDBOX" MENTOR_CONTEXT_GATE=off CLAUDE_CODE_SESSION_ID=sess-D bash "$BEGIN" 2>&1 )"; rc=$?
+chk "(b) live legacy marker → begin-plan exits 0 (fail-soft refusal)" test "$rc" = "0"
+chk "(b) live legacy marker → distinct refusal first line" sh -c "printf '%s' \"\$0\" | head -1 | grep -qF 'Plan gate NOT armed — a legacy repo-wide plan gate marker is still active.'" "$out"
+chk "(b) live legacy marker → own marker NOT created"           test ! -f "$MARKER"
+chk "(b) live legacy marker → legacy marker untouched (still empty)" sh -c "[ ! -s '$LEGACY_MARKER' ]"
+rm -f "$LEGACY_MARKER"
+
+# (c) Empty-wt-id simulation: from a cwd where `git rev-parse --show-toplevel` fails
+# (inside .git/) but `mentor_repo_root` still resolves (via --git-common-dir), the
+# NEW legacy guard is SKIPPED entirely (wt_id empty — own marker IS the legacy path,
+# mentor_plan_marker's one fallback site). Re-arming then depends only on the
+# pre-existing foreign-session guard, which fail-softs on a same-session match —
+# same-session re-arm must still work. Without this skip a session that armed via
+# the legacy path could never re-arm its own gate (converts back into an
+# un-armable repo-global lock).
+rm -rf "$REPO/.git/.mentor"
+ALT_MARKER="$REPO/.git/.mentor/plans/.planning"   # mentor_plan_marker's empty-wt_id fallback
+out="$( cd "$REPO/.git" && HOME="$SANDBOX" MENTOR_CONTEXT_GATE=off CLAUDE_CODE_SESSION_ID=sess-E bash "$BEGIN" 2>&1 )"
+chk "(c) empty-wt-id → first arm succeeds"                       sh -c "printf '%s' \"\$0\" | grep -q 'Plan phase ARMED'" "$out"
+chk "(c) empty-wt-id → marker created at the bare (legacy-shaped) path" test -f "$ALT_MARKER"
+out2="$( cd "$REPO/.git" && HOME="$SANDBOX" MENTOR_CONTEXT_GATE=off CLAUDE_CODE_SESSION_ID=sess-E bash "$BEGIN" 2>&1 )"
+chk "(c) empty-wt-id → same-session re-arm still ARMED (legacy guard skipped)" sh -c "printf '%s' \"\$0\" | grep -q 'Plan phase ARMED'" "$out2"
+chk "(c) empty-wt-id → not refused as a live legacy marker"       sh -c "! printf '%s' \"\$0\" | grep -q 'legacy repo-wide plan gate marker'" "$out2"
+rm -rf "$REPO/.git/.mentor"
+
+echo "== E. Sibling worktree marker: informational banner + same-slug ownership WARNING =="
+rm -f "$MARKER" "$LEGACY_MARKER"
+printf 'session=sess-WTB\ncwd=%s\nworktree=%s\n' "$WTB" "$WTB" > "$WTB_MARKER"
+out="$( cd "$REPO" && HOME="$SANDBOX" MENTOR_CONTEXT_GATE=off CLAUDE_CODE_SESSION_ID=sess-F bash "$BEGIN" 2>&1 )"
+chk "sibling marker live → main still arms"                sh -c "printf '%s' \"\$0\" | grep -q 'Plan phase ARMED'" "$out"
+chk "sibling marker live → banner notes 'also armed elsewhere'" sh -c "printf '%s' \"\$0\" | grep -q 'also armed elsewhere'" "$out"
+chk "sibling marker live → names the sibling's suffix"     sh -c "printf '%s' \"\$0\" | grep -qF '$WTB_WT_ID'" "$out"
+
+# Same-slug collision WARNING: an existing plan dir owned by the LIVE sibling
+# worktree, when begin-plan.sh is told (via $1) that THIS is the slug about to be
+# planned, must warn — two worktrees may be drafting the same slug concurrently.
+mkdir -p "$PLANS_DIR/shared-slug"
+printf '{"owner":"%s"}\n' "$WTB_WT_ID" > "$PLANS_DIR/shared-slug/.state.json"
+rm -f "$MARKER"
+out="$( cd "$REPO" && HOME="$SANDBOX" MENTOR_CONTEXT_GATE=off CLAUDE_CODE_SESSION_ID=sess-G bash "$BEGIN" shared-slug 2>&1 )"
+chk "same-slug owned by live sibling → WARNING fires" sh -c "printf '%s' \"\$0\" | grep -q \"WARNING: slug 'shared-slug' is owned by worktree ${WTB_WT_ID}\"" "$out"
+rm -f "$WTB_MARKER" "$MARKER"
+
+echo "== F. A sibling-owned plan's .opened sidecar survives an arm (ownership-scoped sweep) =="
+mkdir -p "$PLANS_DIR/sibling-plan"
+printf '{"owner":"%s"}\n' "$WTB_WT_ID" > "$PLANS_DIR/sibling-plan/.state.json"
+: > "$PLANS_DIR/sibling-plan/.plan.md.opened"
+mkdir -p "$PLANS_DIR/own-plan"
+: > "$PLANS_DIR/own-plan/.plan.md.opened"
+( cd "$REPO" && HOME="$SANDBOX" MENTOR_CONTEXT_GATE=off CLAUDE_CODE_SESSION_ID=sess-H bash "$BEGIN" >/dev/null 2>&1 )
+chk "sibling-owned .opened sidecar survives"     test -f "$PLANS_DIR/sibling-plan/.plan.md.opened"
+chk "unowned .opened sidecar still cleared"      test ! -f "$PLANS_DIR/own-plan/.plan.md.opened"
+rm -f "$MARKER"
+
+echo "== G. Stale sibling prune: one notice per pruned marker; fresh siblings + legacy spared by the glob =="
+rm -f "$MARKER" "$WTB_MARKER" "$LEGACY_MARKER"
+FAKE_STALE="$PLANS_DIR/.planning.fake-wt-stale"
+FAKE_FRESH="$PLANS_DIR/.planning.fake-wt-fresh"
+printf 'session=sess-stale\n' > "$FAKE_STALE"
+printf 'session=sess-fresh\n' > "$FAKE_FRESH"
+touch -t "$(date -v-9H +%Y%m%d%H%M 2>/dev/null || date -d '9 hours ago' +%Y%m%d%H%M)" "$FAKE_STALE" 2>/dev/null || true
+: > "$LEGACY_MARKER"
+touch -t "$(date -v-9H +%Y%m%d%H%M 2>/dev/null || date -d '9 hours ago' +%Y%m%d%H%M)" "$LEGACY_MARKER" 2>/dev/null || true
+out="$( cd "$REPO" && HOME="$SANDBOX" MENTOR_CONTEXT_GATE=off CLAUDE_CODE_SESSION_ID=sess-I bash "$BEGIN" 2>&1 )"
+chk "stale legacy heals via its OWN notice (legacy-guard path, not the sibling loop)" \
+    count_eq 1 'Pruned stale legacy plan gate marker .planning ' "$out"
+chk "stale sibling pruned with exactly ONE notice" \
+    count_eq 1 'Pruned stale sibling plan gate marker .planning.fake-wt-stale ' "$out"
+# The fresh sibling IS still live, so it legitimately shows up in the "also armed
+# elsewhere" informational line — only a PRUNE notice naming it would be wrong.
+chk "fresh sibling produces NO prune notice" sh -c "! printf '%s' \"\$0\" | grep -q 'Pruned stale sibling plan gate marker .planning.fake-wt-fresh'" "$out"
+chk "fresh sibling still reported live (also armed elsewhere)" sh -c "printf '%s' \"\$0\" | grep -q 'also armed elsewhere: fake-wt-fresh'" "$out"
+chk "stale sibling marker file removed"   test ! -f "$FAKE_STALE"
+chk "fresh sibling marker file untouched" test -f "$FAKE_FRESH"
+chk "bare legacy marker healed (gone)"    test ! -f "$LEGACY_MARKER"
+chk "own marker armed after all this"     test -f "$MARKER"
+rm -f "$MARKER" "$FAKE_FRESH"
+
+echo "== H. First-ever arm with no .mentor tree at all doesn't crash (set -e regression) =="
+FRESH_REPO="$ROOT/fresh-repo"
+git init -q -b main "$FRESH_REPO" >/dev/null 2>&1
+( cd "$FRESH_REPO"; git config user.email t@t.co; git config user.name t; echo x > f; git add -A; git commit -q -m init ) >/dev/null 2>&1
+out="$( cd "$FRESH_REPO" && HOME="$SANDBOX" MENTOR_CONTEXT_GATE=off CLAUDE_CODE_SESSION_ID=sess-J bash "$BEGIN" 2>&1 )"; rc=$?
+chk "first-ever arm (no plans/ dir yet) exits 0"          test "$rc" = "0"
+chk "first-ever arm → ARMED banner (no crash)"            sh -c "printf '%s' \"\$0\" | grep -q 'Plan phase ARMED'" "$out"
+chk "first-ever arm → no bash 'No such file' crash text"  sh -c "! printf '%s' \"\$0\" | grep -qi 'no such file or directory'" "$out"
 
 echo
 echo "RESULT: PASS=$PASS FAIL=$FAIL"

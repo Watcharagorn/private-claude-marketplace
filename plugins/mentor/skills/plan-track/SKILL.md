@@ -140,6 +140,19 @@ Per plan entry: `<glyph> <slug>   <state>[ (deferred)] [(<ticked>/<total> steps)
 - step counts only when `steps.total > 0`.
 - the `deps` clause only when `deps` is non-empty; a dep entry with `missing: true` gets
   ` (missing)` appended — named as a dependency, but no such plan dir exists yet.
+- ` [worktree: <id>]` appended when the entry's `owner` (an additive field on every `overview
+  --json` plan entry, v2.23.0) is set AND differs from the worktree you're running in. Derive
+  your own id once, before rendering, by reusing the same helper the hooks use rather than
+  re-deriving the recipe by hand:
+
+  ```bash
+  this_wt="$(. "${CLAUDE_PLUGIN_ROOT}/hooks/lib/state.sh"; mentor_worktree_id "$(pwd)")"
+  ```
+
+  An entry with no `owner` (a pre-2.23.0 plan, or one no worktree has claimed) gets no tag — only
+  a KNOWN different owner does. This is what lets a reader spot a sibling worktree's draft before
+  Step 2's selection or the dispatch that follows it, without waiting for Step 3's gate check to
+  say so.
 - each entry's **live** handoffs (its `handoffs` array — `overview` already excludes `resolved/`)
   render as one indented line beneath it: `     └ handoff: <name> (live)`.
 
@@ -175,6 +188,13 @@ to a file, a plan section, a coined id or code, or an earlier turn to learn what
 Here that means an option describes the plan's *work* and where it stands ("Thanos SSA reprojection
 — approved, 3 of 7 steps left"), never a bare slug or a hierarchy position ("the second one"): the
 hierarchy scrolled off the moment the question opened.
+
+**Carry Step 1's worktree tag into this step too.** When the resolved or offered entry has a
+` [worktree: <id>]` tag, repeat it — in an `AskUserQuestion` option's `description`, or in the
+confirmation line for an argument/ordinal pick — rather than letting it disappear once the
+hierarchy scrolls off. By Step 3 a `draft` entry owned by a different, live worktree is a hard
+refusal, not a choice; surfacing the tag here, before dispatch, is what makes that refusal
+expected instead of a surprise two steps later.
 
 ## Step 2.5 — Deps advisory (soft — never a block)
 
@@ -226,30 +246,47 @@ when it does, clearing `origin` so the normal approval sweep can pick it up afte
 on the table below for a deferred stub, and do not offer to build it directly — that is exactly
 the shortcut the `origin` shield exists to prevent.
 
-**A live planning session short-circuits it too, whatever the state.** Check for a *fresh*
-marker before acting on the table:
+**A live planning session short-circuits it too, whatever the state — but which token comes back
+changes what's actually blocked.** Check the gate before acting on the table:
 
 ```bash
-[ "$(bash "${CLAUDE_PLUGIN_ROOT}/hooks/plan-state.sh" gate)" = "ARMED" ] && echo "PLANNING_ACTIVE"
+bash "${CLAUDE_PLUGIN_ROOT}/hooks/plan-state.sh" gate   # ARMED | ARMED_ELSEWHERE | STALE | RELEASED
 ```
 
-`PLANNING_ACTIVE` means the edit gate is armed, so `plan-gate.sh` will deny the first write
-every implementation agent attempts. Dispatching anyway burns the whole batch on a wall — a
-dispatch you cannot finish is worse than one you never started. Say the gate is armed and stop
-before dispatching; do **not** run `approve-plan.sh` to clear it, because it takes no slug and
-promotes every plan newer than the marker, which would silently approve whatever draft that live
-session is still writing.
+- **`ARMED`** — THIS worktree's own gate (or the legacy repo-global marker) is live, so
+  `plan-gate.sh` will deny the first write every implementation agent attempts, whatever state the
+  selected plan is in. Dispatching anyway burns the whole batch on a wall — a dispatch you cannot
+  finish is worse than one you never started. Say the gate is armed and stop before dispatching; do
+  **not** run `approve-plan.sh` to clear it, because it takes no slug and promotes every plan newer
+  than the marker it resolves, which would silently approve whatever draft that live session is
+  still writing.
 
-Two things put you here, and the plan's own sidecar note tells them apart — read
-`.mentor/plans/<slug>/.state.json` directly, since `overview --json` does not carry `note`:
+  Two things put you here, and the plan's own sidecar note tells them apart — read
+  `.mentor/plans/<slug>/.state.json` directly, since `overview --json` does not carry `note`:
 
-- note says `approval retracted` → this plan's approval was taken back (`planning`'s
-  [Retracting an approval](#retract)). Point the user at `/mentor:plan <slug>` to finish planning it.
-- no such note → some *other* plan is being planned right now, and this one is simply waiting.
-  Say so and let the user finish or approve that session rather than guessing on their behalf.
+  - note says `approval retracted` → this plan's approval was taken back (`planning`'s
+    [Retracting an approval](#retract)). Point the user at `/mentor:plan <slug>` to finish planning it.
+  - no such note → some *other* plan is being planned right now, and this one is simply waiting.
+    Say so and let the user finish or approve that session rather than guessing on their behalf.
 
-Both readings share the same conclusion — don't dispatch — which is why the check itself is
-state-agnostic and the diagnosis is only there to make the message useful.
+  Both readings share the same conclusion — don't dispatch — which is why the check itself is
+  state-agnostic and the diagnosis is only there to make the message useful.
+
+- **`ARMED_ELSEWHERE`** — no marker of THIS worktree's own is live; a *sibling* worktree's is. It is
+  an independent gate and does **not** block a write here, so dispatching an already-`approved` plan
+  proceeds exactly as if the token were `RELEASED`. It does **not**, though, clear the way for
+  anything that would promote or dispatch a plan still in `draft`: the `draft` row below and the
+  whole **"Approving a draft plan here"** section are hard-refused while this token shows, because a
+  sibling worktree mid-drafting is exactly the situation that escape hatch cannot tell apart from
+  "safe to promote." Name which worktree with `--verbose`:
+
+  ```bash
+  bash "${CLAUDE_PLUGIN_ROOT}/hooks/plan-state.sh" gate --verbose   # one elsewhere=<wt-id> … line per live sibling
+  ```
+
+  Surface every `elsewhere=` line to the user before continuing past a `draft` selection.
+
+`STALE` and `RELEASED` place no restriction here — proceed to the table below.
 
 Otherwise, act on the effective state:
 
@@ -259,7 +296,7 @@ Otherwise, act on the effective state:
 | `failed` | Show the sidecar's note — it says what broke last time, and on a verification failure it names the topics left unresolved. Then split on the ticks (`steps: {ticked, total}` from Step 1's `overview --json`). **`ticked < total`** — it broke mid-implementation: set `in_progress` and retry from the first unticked step, feeding that note to the first agent. **`ticked == total` with `total > 0`** — it broke at end-to-end verification, whether escalated after a failed remediation or handed off with topics outstanding: re-enter `mentor:dispatch-agents`' **Verifying the plan (execution-time)** round on the topics the note names — every topic, if a bare `set … failed` left the note empty — and leave the state at `failed` until Step 4's close-out writes `implemented`. Writing `in_progress` on this shape is erased on the next read — the tick derivation outranks it, so the plan would report `implemented` before the retry has run. A plan with no step lines at all (`{0, 0}`) takes neither branch: it never ran implementation steps, so read the note and pick up where it says. |
 | `in_progress` | An interrupted run. Re-enter execution **from the first unticked step**; never restart from step 1. |
 | `implemented` | Say so and offer another. Do not rebuild it. |
-| `draft` | **Not buildable as it stands.** The approval gate never released this plan, and once the marker has aged out (or the session that armed it ended) `plan-gate.sh` would happily allow the edits — this refusal is what keeps that from becoming a hole in the gate. A `draft` plan *with* a fresh marker is a paused planning session and never reaches this row: the preflight above catches it. There is exactly one authorized way through, on the user's explicit say-so: **"Approving a draft plan here"** below. |
+| `draft` | **Not buildable as it stands.** The approval gate never released this plan, and once the marker has aged out (or the session that armed it ended) `plan-gate.sh` would happily allow the edits — this refusal is what keeps that from becoming a hole in the gate. A `draft` plan *with* a fresh **own** marker is a paused planning session and never reaches this row: the preflight above catches it. There is exactly one authorized way through, on the user's explicit say-so: **"Approving a draft plan here"** below — unless the preflight's gate check read `ARMED_ELSEWHERE`, in which case even that one way through is hard-refused (see above). |
 | `unknown` | A pre-2.4.0 plan with nothing on record. Never show the approval pointer — it would be false for a plan that shipped months ago. Offer: mark it implemented, or leave it alone. |
 
 To move state:
@@ -270,7 +307,22 @@ bash "${CLAUDE_PLUGIN_ROOT}/hooks/plan-state.sh" set <slug> <state> [--note "…
 
 ### Approving a draft plan here
 
-**Origin check, first.** Confirm `origin` for this slug (from Step 1's `overview --json`, or
+**Worktree check, first — before origin.** Whether you arrived here through Step 3's preflight
+above or the user jumped straight to "approve draft plan X", check the gate before doing anything
+else:
+
+```bash
+bash "${CLAUDE_PLUGIN_ROOT}/hooks/plan-state.sh" gate
+```
+
+`ARMED_ELSEWHERE` **hard-refuses this whole section** — a sibling worktree is mid-planning, and
+this escape hatch cannot tell "safe to promote" from "that worktree is still writing this very
+draft." Run `gate --verbose`, name every `elsewhere=<wt-id> … worktree=<path>` line to the user,
+and stop; do not ask the three-way question below. `ARMED` (this worktree's own marker, or a live
+legacy marker) stops you here too, for the same reason Step 3's preflight already gives for
+`ARMED`. Only `STALE` or `RELEASED` let you continue.
+
+**Origin check, next.** Confirm `origin` for this slug (from Step 1's `overview --json`, or
 re-run it if you no longer have it in hand). If it is `"deferred"` — arriving here any other way
 than through Step 3's short-circuit above, e.g. the user jumped straight to "approve draft plan
 X" — **refuse**: this is an unclaimed `/mentor:defer` stub, and approving it as-is would promote
@@ -295,9 +347,17 @@ bash "${CLAUDE_PLUGIN_ROOT}/hooks/plan-state.sh" set <slug> approved --note "<wh
 ```
 
 That call is what makes this safe: it is slug-scoped, so it promotes the one plan the
-user actually chose. Then check whether the gate is still armed — if
-`.mentor/plans/.planning` exists, edits are still blocked and the state move alone will
-not unblock them:
+user actually chose. Then re-check the gate before running `approve-plan.sh` — the worktree
+check at the top of this section ran before the three-way question was asked, and time (and
+another worktree's session) can pass while the user answers:
+
+```bash
+bash "${CLAUDE_PLUGIN_ROOT}/hooks/plan-state.sh" gate   # must read STALE or RELEASED
+```
+
+`ARMED` or `ARMED_ELSEWHERE` here means stop and re-apply the worktree check above instead of
+running `approve-plan.sh` blind — edits are still blocked (or another worktree's draft is now
+live) and the state move alone will not unblock them:
 
 ```bash
 bash "${CLAUDE_PLUGIN_ROOT}/hooks/approve-plan.sh"

@@ -21,33 +21,46 @@ topic × perspective HTML zooms via `mentor:zooming`, or a plan tour via
 `mentor:plan-touring`, on request) → approve & release →
 subagents-first implementation (dispatch-agents).
 
-While the `.planning` marker is armed, `plan-gate.sh` blocks every
-Write/Edit/MultiEdit/NotebookEdit inside the repo working tree — the only files
-written during planning are the plan and its opt-in zoom artifacts, all inside
-the gate-exempt `.mentor/` tree. Do not run repo-mutating shell commands during
-planning either; Bash is not enforced, but the rule is the same.
+While this worktree's `.planning.<wt-id>` marker is armed — or the legacy,
+repo-global `.planning` marker, which blocks every worktree at once —
+`plan-gate.sh` blocks every Write/Edit/MultiEdit/NotebookEdit inside the repo
+working tree. The only files written during planning are the plan and its
+opt-in zoom artifacts, all inside the gate-exempt `.mentor/` tree. Do not run
+repo-mutating shell commands during planning either; Bash is not enforced,
+but the rule is the same.
 
 ## Step 0 — Mode & constitution {#mode}
 
-**First, confirm the edit gate is actually armed.** This skill is the body of the
-`/mentor:plan` command, which runs `begin-plan.sh` before invoking it. If you were
-loaded some other way — most likely a conversational "help me plan this" — that
-never ran:
+**First, confirm the edit gate is actually armed for THIS worktree.** This skill is
+the body of the `/mentor:plan` command, which runs `begin-plan.sh` before invoking
+it. If you were loaded some other way — most likely a conversational "help me plan
+this" — that never ran:
 
 ```bash
-git_common="$(git rev-parse --git-common-dir 2>/dev/null)"
-if [ -n "$git_common" ]; then
-  case "$git_common" in /*) ;; *) git_common="$PWD/$git_common" ;; esac
-  repo_root="$(cd "$(dirname "$git_common")" && pwd)"
-  [ -f "$repo_root/.mentor/plans/.planning" ] || echo "GATE: NOT ARMED"
-fi
+case "$(bash "${CLAUDE_PLUGIN_ROOT}/hooks/plan-state.sh" dir)" in
+  */.mentor)
+    [ "$(bash "${CLAUDE_PLUGIN_ROOT}/hooks/plan-state.sh" gate)" = "ARMED" ] || echo "GATE: NOT ARMED"
+    ;;
+esac
 ```
 
-(`--git-common-dir`, not `--show-toplevel`: linked worktrees deliberately share the
-main repo's `.mentor/` state dir, so a worktree resolved to its own root would look
-for the marker in the wrong place and refuse to plan while the gate was armed.)
+(The `dir` guard comes first on purpose: outside a git repo, `dir` echoes the
+`_no-repo` fallback path — never one ending in `/.mentor` — so `gate`'s `RELEASED`
+there is never mistaken for "not armed inside a repo"; the `case` simply has no
+branch to match and prints nothing. Inside a repo, `gate` already resolves this
+worktree's own marker or the legacy repo-global one, so this check needs no
+`--git-common-dir`/`--show-toplevel` handling of its own.)
 
-`GATE: NOT ARMED` inside a repo means `plan-gate.sh` has no marker to enforce, so
+The equality is **strict**: only the exact `ARMED` token counts as armed for this
+check. `ARMED_ELSEWHERE` — a sibling worktree's marker is live, an independent gate
+that does not block this one — reads as **NOT ARMED here**, same as `STALE` or
+`RELEASED`. `STALE` reading as NOT ARMED is a **deliberate flip** from the old bare
+`[ -f marker ]` check: a marker file merely *existing* used to read as armed no
+matter its age, but a `STALE` marker is past the self-heal window and
+`plan-gate.sh` no longer enforces it — treating it as armed here would make this
+check stricter than the gate it is checking.
+
+`GATE: NOT ARMED` means `plan-gate.sh` has no marker enforcing THIS worktree, so
 every repo edit stays allowed for the whole session while Step 6 goes on showing its
 "no edits until approved" banner. Planning that only *looks* read-only is worse than
 planning that admits it isn't, so do not continue: say so in one line and ask the
@@ -57,8 +70,8 @@ Do **not** run `begin-plan.sh` yourself to patch this up — on a large session 
 answers `CONTEXT: ASK` and exits *without* arming, and resolving that with the user
 is the command's job, not this skill's.
 
-No output means the gate is armed, or you are outside a repo where there is nothing
-to protect. Either way, continue.
+No output means the gate is armed for this worktree, or you are outside a repo
+where there is nothing to protect. Either way, continue.
 
 `begin-plan.sh` printed a `MODE:` line. The mode is only the **approval-gate
 default** — it decides which option Step 6 lists first; both outcomes are
@@ -359,7 +372,7 @@ topic, and `ensure-dir` below will happily create a second directory beside it,
 orphaning whichever one doesn't get worked on next:
 
 ```bash
-bash "${CLAUDE_PLUGIN_ROOT}/hooks/plan-state.sh" list
+bash "${CLAUDE_PLUGIN_ROOT}/hooks/plan-state.sh" list --owners
 ```
 
 This is a quick scan, not a fuzzy-match algorithm: only act on a genuinely obvious
@@ -367,7 +380,11 @@ naming match — when in doubt, mint fresh, since a false reuse is worse than an
 extra plan dir. If one plainly names the same topic, reuse that slug for
 `plan_dir` below instead of minting a new one, and read its
 `.mentor/plans/<slug>/.state.json` `note` field (`jq -r .note`) for any prior
-decision or rejection worth carrying forward.
+decision or rejection worth carrying forward. **Never reuse a slug the OWNER
+column shows as owned by a different worktree** — that is another worktree's live
+or recent draft, not yours to continue; mint a fresh slug instead, the same call
+you'd make if nothing plainly matched. Reuse is safe only for a slug this
+worktree already owns, or one the OWNER column shows unowned (`-`).
 
 Compute the path (substituting a kebab-case `<slug>` derived from the request —
 ≤30 chars, drop articles, keep nouns/verbs):
@@ -380,6 +397,9 @@ plan_dir="$(bash "${CLAUDE_PLUGIN_ROOT}/hooks/plan-state.sh" ensure-dir "$plans_
 echo "${plan_dir}/plan.md"   # fixed name inside the slug dir, NO timestamp — stable across revisions
 ```
 
+`ensure-dir` stamps THIS worktree as the new dir's `owner` the moment it mints it —
+ownership starts here, not at `init` below.
+
 Write the plan there with the `Write` tool, then register it so mentor can track what
 becomes of it:
 
@@ -388,7 +408,10 @@ slug="<slug>"   # re-derive: the block above was a separate Bash call; an empty 
 bash "${CLAUDE_PLUGIN_ROOT}/hooks/plan-state.sh" init "$slug"
 ```
 
-That records the plan as `draft` in a hidden `.state.json` beside it. Approval, and
+That records the plan as `draft` in a hidden `.state.json` beside it, and re-stamps
+`owner` to THIS worktree too — last-init-wins, so running `init` on a slug another
+worktree minted re-owns it to you (this is also the mechanism `mentor:resuming`
+relies on to re-own a plan being continued in a different worktree). Approval, and
 later `/mentor:track`, read that state to know which plans are built and which are
 pending. It is idempotent, so re-running it on a revision is harmless.
 
@@ -775,10 +798,12 @@ On **Proceed**, run:
 bash "${CLAUDE_PLUGIN_ROOT}/hooks/approve-plan.sh"
 ```
 
-It validates the plan (a non-empty `.md` newer than the `.planning` marker), and
-on success deletes the marker — the gate OPENS. On failure it prints the problem,
-keeps the gate closed, and exits non-zero: fix the plan (re-write per Step 4) and
-re-ask. On success, implement the plan.
+It validates the plan (a non-empty `.md` newer than the marker it resolves — this
+worktree's `.planning.<wt-id>`, or the legacy repo-global `.planning` when running
+in legacy_mode), and on success deletes that marker — the gate OPENS for this
+worktree (repo-wide, in legacy_mode). On failure it prints the problem, keeps the
+gate closed, and exits non-zero: fix the plan (re-write per Step 4) and re-ask. On
+success, implement the plan.
 
 **Executing the implementation after approval (SDD):** implementation is
 subagents-first. Invoke `Skill(skill="mentor:dispatch-agents")` first (skip the
@@ -881,13 +906,19 @@ stay `draft`; that is the whole point of the option, and every flag this skill
 has approves. Instead invoke `Skill(skill="mentor:handoff-note")` with a focus
 that states the planning is unfinished, then print its resume prompt and stop.
 
-Give the handoff note these three facts explicitly, because the next agent cannot
+Give the handoff note these four facts explicitly, because the next agent cannot
 infer them and each one has bitten a real session:
 
 - **The plan is `draft` and the gate is deliberately still ARMED** — `mentor:resuming`
   tells the next agent to trust the marker over the note when they disagree, so an
   armed marker with no explanation reads like a crashed session rather than an
   intentional pause.
+- **Name the ARMING WORKTREE** — this worktree's id and the repo path it maps to
+  (the marker's own `worktree=` line, or `plan-state.sh gate --verbose`'s
+  `owner_worktree=`). The marker is scoped to THIS worktree only: a session resuming
+  from elsewhere finds no marker of its own at all (`gate` there reads `RELEASED` or
+  `ARMED_ELSEWHERE`, never `ARMED`), and without this fact it cannot tell "nothing is
+  armed" from "armed, but only over there — go there, or re-own here first."
 - **Continue the *existing* plan** at `.mentor/plans/<slug>/plan.md` — reuse that slug.
   A fresh `/mentor:plan` derived from a re-typed request can mint a second plan dir and
   orphan this draft.
@@ -937,12 +968,39 @@ bash "${CLAUDE_PLUGIN_ROOT}/hooks/begin-plan.sh"                                
 bash "${CLAUDE_PLUGIN_ROOT}/hooks/plan-state.sh" set <slug> draft --note "approval retracted"
 ```
 
-The second line is not optional. **Every** approval path — no-arg, `--deliver`,
-`--handoff` — promotes the plan's `.state.json` to `approved` before it exits, and
-`begin-plan.sh` touches only the marker. Re-arm alone therefore leaves a plan recorded
-as `approved` behind a closed gate: `/mentor:track` reads the sidecar, not the marker,
-so a later session sees a green light and dispatches implementation agents into a gate
-that denies their first write.
+**Confirm the re-arm actually took before telling the user it did.** `begin-plan.sh`
+can now refuse outright — a live legacy repo-global `.planning` marker fail-closes
+against every worktree, this one included:
+
+```bash
+bash "${CLAUDE_PLUGIN_ROOT}/hooks/plan-state.sh" gate   # expect ARMED
+```
+
+Anything other than `ARMED` means `begin-plan.sh` printed a refusal above instead of
+arming — read it and resolve that first (wait for the legacy marker's owning session,
+or get the user's explicit authorization to remove it by hand). The plan is not
+re-protected until `gate` reads exactly `ARMED`.
+
+**Retracting from a different worktree than the one that drafted this plan needs
+re-owning too.** The gate re-arms per-worktree regardless of who owns the plan, but
+the plan's sidecar `owner` still points at whichever worktree last minted or `init`ed
+it, and re-arming the gate here does not change that. Re-own it before the next
+approval, the same as any cross-worktree resume:
+
+```bash
+bash "${CLAUDE_PLUGIN_ROOT}/hooks/plan-state.sh" init <slug>   # re-owns to THIS worktree, last-init-wins
+```
+
+Skip this line only when you are certain this is the same worktree that drafted the
+plan — `init` is otherwise harmless to run either way (idempotent, never lowers state).
+
+The `plan-state.sh set <slug> draft` line in the first snippet above is not optional
+either. **Every** approval path — no-arg, `--deliver`, `--handoff` — promotes the
+plan's `.state.json` to `approved` before it exits, and `begin-plan.sh` touches only
+the marker. Re-arm alone therefore leaves a plan recorded as `approved` behind a
+closed gate: `/mentor:track` reads the sidecar, not the marker, so a later session
+sees a green light and dispatches implementation agents into a gate that denies
+their first write.
 
 Two consequences to tell the user about while you do it:
 

@@ -163,11 +163,23 @@ it — Step 5's self-check catches that before you report.
   reads, so this section and that command agree.
   Also run `bash "${CLAUDE_PLUGIN_ROOT}/hooks/plan-state.sh" gate --verbose` and record its verdict
   here, rather than inferring the gate by hand (a raw `test -f .mentor/plans/.planning` collapses
-  `ARMED`/`STALE` into one bucket and drops who holds it). `--verbose` only appends
-  `owner_session`/`owner_cwd`/`age_min`/`affected_plans` when the state is `ARMED` — `RELEASED` and
-  `STALE` print the bare token alone, so don't invent fields that aren't there, and don't normalize
-  `STALE` to "released": it means the gate lapsed from age, not from an `approve-plan.sh` decision
-  (`mentor:resuming` treats the two as distinct for the same reason). If the marker is `ARMED`,
+  all four states into one bucket and drops who holds it). `gate` prints exactly one of four tokens
+  on line 1 — `ARMED` (this worktree's own marker, or the legacy repo-global one, is live), `STALE`
+  (an own/legacy marker exists but is past the staleness window), `ARMED_ELSEWHERE` (only a sibling
+  worktree's marker is live — writes HERE are not blocked), `RELEASED` (no marker at all) — and
+  `--verbose` appends a different, token-specific field set, so don't invent a field a token doesn't
+  carry:
+  - `ARMED` → `marker=`, `owner_session=`, `owner_cwd=`, `owner_worktree=`, `age_min=`,
+    `affected_plans=` (the plans a promote-through-this-marker would sweep — filtered to this
+    worktree's own plans, **except** when the live marker is the legacy repo-global one, where it
+    lists every plan in the repo).
+  - `ARMED_ELSEWHERE` → one `elsewhere=<suffix> session=<sid> worktree=<path> age_min=<n>` line per
+    live sibling marker, and nothing else.
+  - `STALE` / `RELEASED` → the bare token alone, no extra fields.
+  Don't normalize `STALE` to "released": it means the gate lapsed from age, not from an
+  `approve-plan.sh` decision (`mentor:resuming` treats the two as distinct for the same reason). Don't
+  normalize `ARMED_ELSEWHERE` to "released" either — a sibling worktree still holds a live gate of its
+  own, it simply doesn't block writes made from here. If the marker is `ARMED`,
   state plainly whether `owner_session` is **this session's own id** — unlike a *resumed* session
   (where an armed marker is always a stranger's), a "Pause — still drafting" handoff is usually
   written by the very session that armed it, so the ordinary case here is the opposite of
@@ -227,13 +239,17 @@ press count) and mark the walk-through as confirmation only, not the primary evi
 - **Unclear approach / unfinished design** → `/mentor:plan <focus>` (runs the gated plan harness).
 - **A plan file exists but was never approved** (state `draft`, gate still armed — the
   "Pause — still drafting" handoff) → `/mentor:plan <slug>`, continuing the existing draft at
-  `<repo>/.mentor/plans/<slug>/plan.md`. Three things to spell out, because the next agent cannot
+  `<repo>/.mentor/plans/<slug>/plan.md`. Four things to spell out, because the next agent cannot
   infer any of them: **reuse that slug** (a `/mentor:plan` derived from a re-typed request can mint
   a second plan dir and orphan this draft); **do not point at `/mentor:track`**, which refuses a
-  `draft` plan by design; and **re-write the plan file before approving it** — `/mentor:plan`
+  `draft` plan by design; **re-write the plan file before approving it** — `/mentor:plan`
   re-arms the marker with a fresh mtime and `approve-plan.sh` rejects any `plan.md` older than the
-  marker, so an unedited draft fails approval with "Newest plan predates this planning session".
-  Say plainly that the armed gate is intentional, not a crashed session.
+  marker, so an unedited draft fails approval with "Newest plan predates this planning session";
+  and **which worktree armed the gate and owns the slug** — name the wt-id and its worktree path
+  from the `gate --verbose` `owner_worktree=` field recorded in Current state above, and say
+  plainly that resuming in a *different* worktree must re-own the slug before any approval will
+  succeed there (`/mentor:plan <slug>` re-owns it via `init` — the only carrier). Say plainly that
+  the armed gate is intentional, not a crashed session.
 - **A plan exists but its decisions feel shaky** → `/mentor:grill` to pressure-test it, then re-plan / approve.
 - **Approved plan(s), ready to build** → `/mentor:track` — it lists each plan's state, lets the next agent pick one, and executes it via `mentor:dispatch-agents`; `/mentor:ship` when done. Point there rather than at "resume implementation": the next agent needs to know *which* plan and *how far it got*, and `/mentor:track` is the only thing that answers both.
 - **Work planned outside mentor** → which branch depends on whether anything still *owns* the planning:

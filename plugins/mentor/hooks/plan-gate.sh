@@ -1,12 +1,15 @@
 #!/usr/bin/env bash
 # plan-gate.sh — PreToolUse:Write|Edit|MultiEdit|NotebookEdit
 #
-# The single fail-closed edit gate of the mentor plan harness. It keys off a
-# repo-scoped `.planning` MARKER (armed by begin-plan.sh, released by
-# approve-plan.sh), so it holds even under bypassPermissions: PreToolUse hooks
-# deny independently of permission mode.
+# The single fail-closed edit gate of the mentor plan harness. It keys off TWO marker
+# forms under <repo>/.mentor/plans/ (v2.23.0, per-worktree gate): this worktree's own
+# `.planning.<wt-id>` (armed by begin-plan.sh, released by approve-plan.sh — scoped to
+# ONE git worktree) and the legacy bare `.planning` (a pre-upgrade repo-global marker —
+# blocks EVERY worktree until released/stale). Either live marker denies; the gate
+# holds even under bypassPermissions: PreToolUse hooks deny independently of
+# permission mode.
 #
-# While the marker is present, ALLOW targets OUTSIDE the repo working tree AND mentor's
+# While a marker is present, ALLOW targets OUTSIDE the repo working tree AND mentor's
 # own in-repo state dir (<repo>/.mentor/ — where the plan file now lives). Any OTHER
 # in-repo target — or an unresolvable/absent path — is DENIED. FAIL-CLOSED.
 #
@@ -15,18 +18,24 @@
 # shell commands during planning but does not enforce it.
 #
 # Staleness: a marker older than 8h is treated as released (a crashed planning
-# session must never permanently lock out editing) — the marker is removed and
-# the call allowed. Checked ONLY for writes the gate would otherwise DENY: a
-# gate-exempt .mentor/ write (an ordinary plan.md revision hours into a live
-# session) must never silently release the gate as a side effect. When the
-# self-heal fires it prints a stdout notice — a silent release is later
-# indistinguishable from an approval.
+# session must never permanently lock out editing). Checked ONLY for writes the gate
+# would otherwise DENY: a gate-exempt .mentor/ write (an ordinary plan.md revision
+# hours into a live session) must never silently release a marker as a side effect.
+# Multi-marker self-heal (v2.23.0): reaching that point evaluates BOTH the own and
+# legacy markers independently — every stale one is deleted, EACH WITH ITS OWN NAMED
+# NOTICE (which marker, whose session, its age) — and the write is denied only if at
+# least one marker is still live afterward. This covers own-live+legacy-stale (heal
+# the legacy so it can't re-block every worktree once the own marker later releases —
+# still deny, the own marker is live), own-stale+legacy-live (heal own, deny on
+# legacy), and both-stale (heal both, allow). A silent release is later
+# indistinguishable from an approval, so every deletion — own or legacy — prints a
+# notice; nothing here is ever pruned quietly.
 #
 # Independently of the marker, a direct write to a plan's `.state.json` sidecar is always
 # denied — plan-state.sh is its only writer. That check runs before the marker check
 # because sidecars are edited mostly at close-out, when the gate is already released.
 #
-# No marker → exit 0 (not planning). Cannot resolve the repo/marker → exit 0
+# Neither marker present → exit 0 (not planning). Cannot resolve the repo → exit 0
 # (nothing to protect). Exit 2 = block (stderr shown to the agent).
 
 set -euo pipefail
@@ -44,11 +53,17 @@ esac
 CWD="$(mentor_cwd "$INPUT")"
 CURRENT_SESSION="$(printf '%s' "$INPUT" | jq -r '.session_id // ""' 2>/dev/null)" || true
 
-# --- resolve the repo-scoped plans dir + marker ---
+# --- resolve the repo-scoped plans dir + both marker forms (v2.23.0) ---
 repo_root_common="$(mentor_repo_root "$CWD")"
 [ -z "$repo_root_common" ] && exit 0
 plans_dir="$(mentor_plans_dir "$repo_root_common")"
-marker="${plans_dir}/.planning"
+wt_id="$(mentor_worktree_id "$CWD")"
+own_marker="$(mentor_plan_marker "$plans_dir" "$wt_id")"
+legacy_marker="${plans_dir}/.planning"
+# Empty wt_id (git failure, bare repo, a cwd under .git/, …): own_marker IS the bare
+# legacy path (mentor_plan_marker's one fallback site) — one physical file, not two.
+same_marker=0
+[ "$own_marker" = "$legacy_marker" ] && same_marker=1
 
 # Canonicalize without requiring the path to exist (new-file writes are the common
 # case). macOS BSD `realpath` lacks -m and fails on non-existent paths, so fall back
@@ -90,8 +105,8 @@ EOF
     ;;
 esac
 
-# No marker → not planning → allow.
-[ -f "$marker" ] || exit 0
+# Neither marker present → not planning → allow.
+[ -f "$own_marker" ] || [ -f "$legacy_marker" ] || exit 0
 
 # The working-tree root to protect (writes anywhere inside it are denied while planning).
 REPO_WT="$(git -C "$CWD" rev-parse --show-toplevel 2>/dev/null || true)"
@@ -107,28 +122,74 @@ if [ -n "$FILE_CANON" ]; then
   esac
 fi
 
-# Stale marker (>8h, MENTOR_PLAN_MARKER_STALE_MIN) → treat as released; self-heal and
-# allow. Reached only for writes the gate would otherwise deny (exempt paths exited
-# above), so an ordinary .mentor/ write can never disarm the gate as a side effect.
-if mentor_marker_stale "$marker"; then
+# --- multi-marker self-heal (reached only for writes the gate would otherwise deny —
+# exempt/outside-repo targets already exited above, so an ordinary .mentor/ write can
+# never disarm a marker as a side effect) ---
+_heal_if_stale() {  # <marker path> <label: own|legacy> — delete <marker> if stale,
+  # printing a named notice (which marker, whose session, its age); no-op when absent
+  # or fresh. See the header doctrine above: nothing here is ever pruned quietly.
+  local marker="$1" label="$2" sess age detail
+  mentor_marker_stale "$marker" || return 0
+  sess="$(mentor_marker_field "$marker" session)"
+  age="$(mentor_marker_age_min "$marker")"
   rm -f "$marker" 2>/dev/null || true
-  echo "[mentor] Stale planning marker (>8h) released — the plan gate is no longer armed. If planning is still active, re-arm it by re-running /mentor:plan (begin-plan.sh)."
+  detail="${marker##*/}"
+  [ -n "$sess" ] && detail="${detail}, session ${sess}"
+  [ -n "$age" ] && detail="${detail}, ~${age}m old"
+  echo "[mentor] Stale ${label} planning marker (${detail}) released — no longer armed here."
+  return 0
+}
+
+if [ "$same_marker" -eq 0 ]; then
+  _heal_if_stale "$own_marker" "own"
+fi
+_heal_if_stale "$legacy_marker" "legacy"
+
+own_live=0
+if [ "$same_marker" -eq 0 ]; then
+  [ -f "$own_marker" ] && own_live=1
+fi
+legacy_live=0
+[ -f "$legacy_marker" ] && legacy_live=1
+
+if [ "$own_live" -eq 0 ] && [ "$legacy_live" -eq 0 ]; then
+  echo "[mentor] Plan gate no longer armed here. If planning is still active, re-arm it by re-running /mentor:plan (begin-plan.sh)."
   exit 0
 fi
 
 # empty path (unresolvable) OR inside-repo → deny (fail-closed).
 # Attribution: the alternative is a blocked agent hand-rolling ls/find-newer forensics
 # to tell "fresh, someone else's live session" from "abandoned, safe to ask the user to
-# clear" apart. mentor_marker_stale already returned false above, so age_min here is
-# always < MENTOR_PLAN_MARKER_STALE_MIN.
-owner_session="$(mentor_marker_field "$marker" session)"
+# clear" apart. Prefer the OWN marker's attribution when it is live (this write is
+# blocked by ITS worktree's own gate); fall back to the legacy marker only when the own
+# marker isn't (or isn't also) live. mentor_marker_stale already returned false for
+# whichever marker we attribute to, so its age_min here is always <
+# MENTOR_PLAN_MARKER_STALE_MIN.
+if [ "$own_live" -eq 1 ]; then
+  attr_marker="$own_marker"; attr_kind="own"
+else
+  attr_marker="$legacy_marker"; attr_kind="legacy"
+fi
+
+owner_session="$(mentor_marker_field "$attr_marker" session)"
 owner_line=""
 if [ -n "$owner_session" ]; then
-  owner_cwd="$(mentor_marker_field "$marker" cwd)"
+  owner_cwd="$(mentor_marker_field "$attr_marker" cwd)"
   owner_line="
   Armed by: session ${owner_session} at ${owner_cwd:-<unknown cwd>}"
 fi
-age_min="$(mentor_marker_age_min "$marker")"
+
+worktree_line=""
+if [ "$attr_kind" = "own" ]; then
+  owner_worktree="$(mentor_marker_field "$attr_marker" worktree)"
+  worktree_line="
+  Worktree: ${owner_worktree:-$REPO_WT} (scoped to this worktree)"
+else
+  worktree_line="
+  Worktree: ALL — pre-upgrade repo-wide marker (${legacy_marker}) blocks every worktree"
+fi
+
+age_min="$(mentor_marker_age_min "$attr_marker")"
 age_line=""
 [ -n "$age_min" ] && age_line="
   Age: ~${age_min}m ago (auto-releases after $(( MENTOR_PLAN_MARKER_STALE_MIN / 60 ))h if abandoned)."
@@ -136,19 +197,30 @@ age_line=""
 cat >&2 << EOF
 BLOCKED by mentor: PLAN PHASE is active — approve the plan first.
 
-  ${FILE_PATH:-<no path>}${owner_line}${age_line}
+  ${FILE_PATH:-<no path>}${owner_line}${worktree_line}${age_line}
 
-The .planning marker blocks edits to any file in the repo working tree until the
-plan is approved through the plan skill (approve-plan.sh validates the plan,
-then releases the gate). This holds even under bypassPermissions. This marker is
-shared across every linked git worktree of this repo, so a foreign session above
-may be a sibling worktree rather than a stray.
 EOF
+
+if [ "$attr_kind" = "own" ]; then
+  cat >&2 << EOF
+This worktree's own .planning.<wt-id> marker blocks edits to any file in ITS working
+tree until the plan is approved through the plan skill (approve-plan.sh validates the
+plan, then releases this worktree's gate). This holds even under bypassPermissions.
+It is scoped to this worktree only — a sibling worktree of this repo is unaffected.
+EOF
+else
+  cat >&2 << EOF
+The legacy .planning marker (armed before this repo's mentor plugin gained per-worktree
+gates) blocks edits to any file in EVERY linked worktree of this repo until it is
+approved through the plan skill (approve-plan.sh validates the plan, then releases it
+repo-wide). This holds even under bypassPermissions.
+EOF
+fi
 
 if [ -n "$owner_session" ] && [ -n "$CURRENT_SESSION" ] && [ "$owner_session" != "$CURRENT_SESSION" ]; then
   cat >&2 << EOF
 
-Do not delete ${marker} yourself, and do not run approve-plan.sh to "clear" it —
+Do not delete ${attr_marker} yourself, and do not run approve-plan.sh to "clear" it —
 approve-plan.sh takes no slug and promotes whatever plan is newest, which may not
 be yours. Ask the user to confirm before touching it.
 EOF

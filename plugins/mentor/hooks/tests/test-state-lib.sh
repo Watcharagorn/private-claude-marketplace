@@ -457,6 +457,140 @@ chk "pre-existing 755 plans/ repaired" test "$(mode "$PSTATE/plans")" = "drwx---
 chk "fail-soft on empty args"        libsh "mentor_ensure_private_dir '' ''"
 chk "fail-soft on unwritable parent" libsh "mentor_ensure_private_dir '$PSTATE' '/proc/nope/x'"
 
+echo "== K. mentor_worktree_id — <name>-<crc>, fail-soft, sanitized, worktrees/-dir-name-safe (v2.23.0) =="
+id_matches_charset()  { printf '%s' "$1" | grep -qE '^[A-Za-z0-9_-]+$'; }
+id_starts_with()      { case "$1" in "$2"*) return 0 ;; *) return 1 ;; esac; }
+id_not_starts_with()  { case "$1" in "$2"*) return 1 ;; *) return 0 ;; esac; }
+id_has_no_raw_specials() { case "$1" in *'!'*|*' '*) return 1 ;; *) return 0 ;; esac; }
+id_main="$(libsh "mentor_worktree_id '$REPO'")"
+id_wt="$(libsh "mentor_worktree_id '$WT'")"
+chk "main worktree id non-empty"          test -n "$id_main"
+chk "linked worktree id non-empty"        test -n "$id_wt"
+chk "main and linked worktree ids differ" test "$id_main" != "$id_wt"
+chk "main id classified main-<crc>"       id_starts_with "$id_main" "main-"
+chk "linked worktree id NOT classified main" id_not_starts_with "$id_wt" "main-"
+id_main_again="$(libsh "mentor_worktree_id '$REPO'")"
+chk "id stable across repeated calls"     test "$id_main" = "$id_main_again"
+chk "main id matches safe charset ^[A-Za-z0-9_-]+\$ (catches the cksum two-field slip)" \
+  id_matches_charset "$id_main"
+chk "linked worktree id matches safe charset" id_matches_charset "$id_wt"
+chk "non-repo dir → empty"                test -z "$(libsh "mentor_worktree_id '$NONGIT'")"
+
+# Sanitization: a linked worktree whose git-internal dir name carries a character
+# outside [A-Za-z0-9_-] (verified empirically: git folds a space to "-" itself but
+# leaves e.g. "!" untouched) must still land in the safe charset, folded — never leak
+# the raw character through into a marker filename.
+WT_SPECIAL="$ROOT/wt special!name"
+git -C "$REPO" worktree add -q "$WT_SPECIAL" -b wt-special-branch >/dev/null 2>&1
+id_special="$(libsh "mentor_worktree_id '$WT_SPECIAL'")"
+chk "special-char worktree id non-empty"            test -n "$id_special"
+chk "special-char worktree id matches safe charset" id_matches_charset "$id_special"
+chk "special-char worktree id has no raw '!' or space" id_has_no_raw_specials "$id_special"
+
+# The "name" component is the `worktrees/<name>` path segment's PARENT BASENAME being
+# exactly "worktrees" — never a substring test on the whole path. Prove the converse: a
+# repo that merely LIVES under a directory literally named worktrees/ (this is its own
+# main checkout, not a linked worktree of anything) must still classify as "main",
+# because ITS git-dir's parent basename is the repo's own directory name.
+HOSTED="$ROOT/worktrees/hosted-repo"
+mkdir -p "$(dirname "$HOSTED")"
+git init -q -b main "$HOSTED" >/dev/null 2>&1
+( cd "$HOSTED"; git config user.email t@t.co; git config user.name t; echo x > f; git add -A; git commit -q -m init ) >/dev/null 2>&1
+id_hosted="$(libsh "mentor_worktree_id '$HOSTED'")"
+chk "repo living under a dir literally named worktrees/ still parses as main" \
+  id_starts_with "$id_hosted" "main-"
+
+echo "== L. mentor_plan_marker — suffixed path / the ONE empty-wt-id fallback site =="
+chk "suffixed path"                test "$(libsh "mentor_plan_marker '/plans' 'main-123'")" = "/plans/.planning.main-123"
+chk "empty wt-id → bare legacy path" test "$(libsh "mentor_plan_marker '/plans' ''")" = "/plans/.planning"
+chk "empty plans_dir → empty"      test -z "$(libsh "mentor_plan_marker '' 'main-123'")"
+chk "empty plans_dir + empty wt-id → empty" test -z "$(libsh "mentor_plan_marker '' ''")"
+
+echo "== M. mentor_newest_plan_owned — ownership-filtered walk; all-superseded fallback stays WITHIN the filtered set =="
+mkdir -p "$PLANS/own-a" "$PLANS/unowned" "$PLANS/own-b"
+printf '# a\n' > "$PLANS/own-a/plan.md"
+libsh "mentor_plan_state_write '$PLANS/own-a' --state draft --owner wt-a"
+sleep 1
+printf '# unowned\n' > "$PLANS/unowned/plan.md"
+sleep 1
+printf '# b\n' > "$PLANS/own-b/plan.md"
+libsh "mentor_plan_state_write '$PLANS/own-b' --state draft --owner wt-b"
+# own-b is the mtime-newest overall, but it's owned by wt-b — a wt-a-scoped read must
+# never see it, so the pick falls to the newest wt-a-or-unowned candidate (unowned).
+chk "wt-a filter skips wt-b's newer plan, returns unowned" \
+  test "$(libsh "mentor_newest_plan_owned '$PLANS' wt-a")" = "$PLANS/unowned/plan.md"
+chk "empty wt_id → unfiltered (newest overall = wt-b's)" \
+  test "$(libsh "mentor_newest_plan_owned '$PLANS' ''")" = "$PLANS/own-b/plan.md"
+# Now supersede everything a wt-a-scoped read can see. own-b (wt-b, non-superseded,
+# still the mtime-newest overall) must NEVER be handed back as the fallback — the
+# all-superseded fallback has to stay inside the ownership-filtered set, exactly the
+# guarantee mentor_newest_plan (unfiltered) does NOT give.
+libsh "mentor_plan_state_write '$PLANS/own-a' --state superseded"
+libsh "mentor_plan_state_write '$PLANS/unowned' --state superseded"
+got="$(libsh "mentor_newest_plan_owned '$PLANS' wt-a")"
+chk "all-superseded fallback never returns a sibling's non-superseded plan" test "$got" != "$PLANS/own-b/plan.md"
+chk "all-superseded fallback returns the newest WITHIN the filtered set"    test "$got" = "$PLANS/unowned/plan.md"
+chk "empty plans_dir → empty"      test -z "$(libsh "mentor_newest_plan_owned '' wt-a")"
+rm -rf "$PLANS"
+
+echo "== N. mentor_newly_planned — the find -newer snapshot, same ownership filter, shared by approve-plan + gate --verbose =="
+mkdir -p "$PLANS"
+MARKER="$PLANS/.planning.wt-a"
+: > "$MARKER"
+sleep 1
+mkdir -p "$PLANS/na" "$PLANS/nb" "$PLANS/nu"
+printf '# a\n' > "$PLANS/na/plan.md"
+libsh "mentor_plan_state_write '$PLANS/na' --state draft --owner wt-a"
+printf '# b\n' > "$PLANS/nb/plan.md"
+libsh "mentor_plan_state_write '$PLANS/nb' --state draft --owner wt-b"
+printf '# u\n' > "$PLANS/nu/plan.md"
+got="$(libsh "mentor_newly_planned '$PLANS' '$MARKER' wt-a" | sort)"
+chk "filtered: only wt-a-owned + unowned newer than the marker" \
+  test "$got" = "$(printf '%s\n' "$PLANS/na/plan.md" "$PLANS/nu/plan.md" | sort)"
+got_unf="$(libsh "mentor_newly_planned '$PLANS' '$MARKER' ''" | sort)"
+chk "empty wt_id → unfiltered (all three newer plans)" \
+  test "$got_unf" = "$(printf '%s\n' "$PLANS/na/plan.md" "$PLANS/nb/plan.md" "$PLANS/nu/plan.md" | sort)"
+chk "fail-soft: no marker → empty"      test -z "$(libsh "mentor_newly_planned '$PLANS' '' wt-a")"
+chk "fail-soft: no plans_dir → empty"   test -z "$(libsh "mentor_newly_planned '' '$MARKER' wt-a")"
+rm -rf "$PLANS"
+
+echo "== O. mentor_plan_state_write --owner/--owner-session — set / preserve-on-omit / clear-on-explicit-empty; old-sidecar readback =="
+mkdir -p "$PLANS/ow1"
+libsh "mentor_plan_state_write '$PLANS/ow1' --state draft --owner wt-main-111 --owner-session sess-1"
+chk "owner stored"         test "$(libsh "mentor_plan_owner '$PLANS/ow1'")" = "wt-main-111"
+chk "owner_session stored" test "$(libsh "mentor_plan_state_field '$PLANS/ow1' owner_session")" = "sess-1"
+# Omitted --owner on a plain write PRESERVES the stored value — the same
+# omit=preserve contract --group/--order/--deps/--origin already carry.
+libsh "mentor_plan_state_write '$PLANS/ow1' --state approved"
+chk "owner preserved across a write that omits --owner"     test "$(libsh "mentor_plan_owner '$PLANS/ow1'")" = "wt-main-111"
+chk "owner_session preserved too"                            test "$(libsh "mentor_plan_state_field '$PLANS/ow1' owner_session")" = "sess-1"
+# Explicit empty CLEARS — the deliberate release-ownership path.
+libsh "mentor_plan_state_write '$PLANS/ow1' --owner ''"
+chk "explicit empty --owner clears it"                        test -z "$(libsh "mentor_plan_owner '$PLANS/ow1'")"
+chk "clearing --owner alone leaves owner_session untouched"  test "$(libsh "mentor_plan_state_field '$PLANS/ow1' owner_session")" = "sess-1"
+libsh "mentor_plan_state_write '$PLANS/ow1' --owner-session ''"
+chk "explicit empty --owner-session clears it"                test -z "$(libsh "mentor_plan_state_field '$PLANS/ow1' owner_session")"
+# Re-owning (the init/claim re-stamp path): a fresh --owner set wins outright.
+libsh "mentor_plan_state_write '$PLANS/ow1' --owner wt-b-222 --owner-session sess-2"
+chk "re-owning sets the new owner"         test "$(libsh "mentor_plan_owner '$PLANS/ow1'")" = "wt-b-222"
+chk "re-owning sets the new owner_session" test "$(libsh "mentor_plan_state_field '$PLANS/ow1' owner_session")" = "sess-2"
+
+# Readback of an OLD sidecar (pre-2.23.0, no owner/owner_session keys at all — or one an
+# older cached plugin copy rewrote without them) must still work: mentor_plan_owner
+# jq-defaults a missing key to unowned, same as deps/origin.
+mkdir -p "$PLANS/oldsc"
+cat > "$PLANS/oldsc/.state.json" <<'JSON'
+{"state":"approved","group":null,"order":null,"note":"","deps":[],"origin":null}
+JSON
+chk "old sidecar (no owner key): state reads back"          test "$(libsh "mentor_plan_state_field '$PLANS/oldsc' state")" = "approved"
+chk "old sidecar (no owner key): owner reads empty"         test -z "$(libsh "mentor_plan_owner '$PLANS/oldsc'")"
+chk "old sidecar (no owner key): owner_session reads empty" test -z "$(libsh "mentor_plan_state_field '$PLANS/oldsc' owner_session")"
+# A later write upgrades it in place — state survives (omit=preserve) while owner lands.
+libsh "mentor_plan_state_write '$PLANS/oldsc' --owner wt-c-333"
+chk "upgrading write preserves the pre-existing state" test "$(libsh "mentor_plan_state_field '$PLANS/oldsc' state")" = "approved"
+chk "upgrading write adds the owner"                    test "$(libsh "mentor_plan_owner '$PLANS/oldsc'")" = "wt-c-333"
+rm -rf "$PLANS"
+
 echo
 echo "RESULT: PASS=$PASS FAIL=$FAIL"
 [ "$FAIL" = "0" ]

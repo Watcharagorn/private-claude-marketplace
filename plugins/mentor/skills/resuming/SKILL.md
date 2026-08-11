@@ -201,43 +201,86 @@ Then resolve a selection:
    released (or armed); check the actual marker before acting:
 
    ```bash
-   bash "${CLAUDE_PLUGIN_ROOT}/hooks/plan-state.sh" gate --verbose   # ARMED | RELEASED | STALE (+ owner/age/affected_plans when ARMED)
+   bash "${CLAUDE_PLUGIN_ROOT}/hooks/plan-state.sh" gate --verbose   # ARMED | STALE | ARMED_ELSEWHERE | RELEASED (+ per-token fields below)
    ```
 
-   If the marker state contradicts the note, say so and follow the marker, not the note.
+   If the marker state contradicts the note, say so and follow the marker, not the note. `gate` is
+   read-only and worktree-scoped (v2.23.0): exactly one of four tokens on the first line, and a
+   different `--verbose` field set per token — a field that doesn't exist for the token you got back
+   was never going to print, it is not "empty":
 
-   **`ARMED` here is never something this session armed itself** — resuming loads a note from a
-   *prior* session, so this session hasn't run `/mentor:plan` yet, and any marker it finds predates
-   it. `--verbose`'s `owner_session`/`owner_cwd`/`age_min` name who holds it; `affected_plans` names
-   which plan(s) `approve-plan.sh` would promote to `approved` if run right now — surface all of it to
-   the user. Do **not** try to clear it yourself: never delete the marker (`plan-gate.sh` is its only
-   remover) and never run `approve-plan.sh` to "free it up" — it takes no slug and promotes *every*
-   plan newer than the marker, which may be a plan nobody reviewed this session (`plan-gate.sh`'s own
-   denial for this exact case carries the same warning).
+   - **`ARMED`** — this worktree's own marker is live, or the legacy repo-global `.planning` marker is
+     live (which blocks every worktree, this one included). `--verbose` adds `marker=`,
+     `owner_session=`, `owner_cwd=`, `owner_worktree=`, `age_min=`, and `affected_plans=` — the plan
+     slug(s) `approve-plan.sh` would promote to `approved` if run right now (repo-wide, unfiltered,
+     when the armed marker is the legacy one; scoped to this worktree otherwise).
+   - **`ARMED_ELSEWHERE`** — no marker of this worktree's own is live, but a *sibling* worktree's is.
+     It is an independent gate: it does **not** block writes here. `--verbose` prints one
+     `elsewhere=<wt-id> session=<sid> worktree=<path> age_min=<n>` line per live sibling, and nothing
+     else — there is no `owner_*`/`affected_plans` for this token.
+   - **`STALE`** — a marker (own or legacy) exists but has aged past the self-heal window; bare token,
+     no `--verbose` fields.
+   - **`RELEASED`** — no marker at all (also what `gate` reads outside any git repo). Bare token, no
+     `--verbose` fields.
+
+   `owner_session`/`owner_cwd`/`age_min` (on `ARMED`) name who holds it; `affected_plans` names which
+   plan(s) an approve would sweep right now — surface all of it to the user. Do **not** try to clear
+   it yourself: `gate` itself never deletes a marker, and it is no longer true that `plan-gate.sh` is
+   the only thing that ever does (`begin-plan.sh` now also prunes a **stale sibling** marker on arm,
+   and `plan-gate.sh` self-heals a stale own/legacy marker on a would-deny write) — but neither of
+   those is you, so still never delete a marker by hand, and never run `approve-plan.sh` to "free it
+   up" — it takes no slug and promotes *every* plan newer than the marker it resolves, which may be a
+   plan nobody reviewed this session (`plan-gate.sh`'s own denial for this exact case carries the same
+   warning).
+
+   **`ARMED_ELSEWHERE` needs one more check before you decide it's someone else's problem: is it your
+   own gate, just parked in a different worktree?** Compare each `elsewhere=` line's `worktree=` path
+   against the worktree the handoff note itself recorded arming (planning's "Pause — still drafting"
+   handoff now names the arming worktree explicitly, for exactly this comparison). A match means this
+   **is** your gate — still armed, just not from here: resume it in that worktree, or re-own it here
+   first (next paragraph) before you can approve from this one. No match means it is genuinely a
+   different, unrelated worktree's planning session — informational only, does not block you.
+
+   **Resuming in a different worktree than the one that armed the gate MUST re-own before any
+   approval.** The gate itself re-arms freely per-worktree — `begin-plan.sh` in a new worktree never
+   collides with another worktree's marker — but the plan's sidecar `owner` still points at whichever
+   worktree minted or last `init`ed it, and `approve-plan.sh`'s owned-filtered candidate search
+   excludes a plan this worktree doesn't own. **`/mentor:plan <slug>` is the only carrier that
+   re-owns it** — it re-runs `init`, which re-stamps `owner` to this worktree (last-init-wins) — so
+   Step 6's `/mentor:plan <slug>` route below is not just how you re-arm, it is how you re-own. On an
+   `ARMED_ELSEWHERE` result specifically, check that slug's `owner` first (`plan-state.sh list
+   --owners`, or read `.mentor/plans/<slug>/.state.json` directly) before routing to `/mentor:plan
+   <slug>`: already owned by THIS worktree means there is nothing to re-own, but owned by the sibling
+   worktree named in `elsewhere=` means re-owning it here is a real decision — it can race that
+   sibling session if it is still actively drafting — worth saying to the user, not a formality to
+   skip past.
 
    **Do not assume Step 6's `/mentor:plan <slug>` route resolves this for you.** `begin-plan.sh`'s
-   foreign-marker guard compares **session IDs only** — it has no notion of slug or plan — so it fires
-   identically whether the marker belongs to a genuinely unrelated plan *or* to the note's own plan
-   left mid-draft by a "Pause — still drafting" handoff (resuming is always a new session, so the ids
-   never match either way). Read its output: `Plan phase ARMED.` means it re-armed for you, safe to
-   continue; `Plan gate NOT armed — another session's plan gate is already active.` means it
-   **declined** — the old marker is still sitting there un-owned by this session. On the refusal,
-   stop; do not proceed into planning believing the repo is gated just because the marker file still
-   exists on disk, and do not fall through to `/mentor:dispatch-agents` or a hand-rolled ship either —
-   `plan-gate.sh` will deny the first write regardless, so dispatching burns the whole batch on a wall
-   it was always going to hit. Tell the user what's armed and let them decide (wait, or explicitly
-   authorize continuing past it). `/mentor:track` is the one route that already handles this itself
-   (it stops on any live marker, "whatever the state") — nothing extra to do there.
+   foreign-marker guard compares **session IDs only**, on this worktree's own marker — it has no
+   notion of slug or plan — so it fires identically whether the marker belongs to a genuinely
+   unrelated plan *or* to the note's own plan left mid-draft by a "Pause — still drafting" handoff
+   (resuming is always a new session, so the ids never match either way). Read its output: `Plan phase
+   ARMED.` means it re-armed for you, safe to continue; `Plan gate NOT armed — another session's plan
+   gate is already active.` means it **declined** — the old marker is still sitting there un-owned by
+   this session. On the refusal, stop; do not proceed into planning believing the repo is gated just
+   because the marker file still exists on disk, and do not fall through to `/mentor:dispatch-agents`
+   or a hand-rolled ship either — `plan-gate.sh` will deny the first write regardless, so dispatching
+   burns the whole batch on a wall it was always going to hit. Tell the user what's armed and let them
+   decide (wait, or explicitly authorize continuing past it). `/mentor:track` is the one route that
+   already handles this itself (it stops on any live marker, "whatever the state") — nothing extra to
+   do there.
 
    **`STALE` is not still-armed, but it is not plain `RELEASED` either — treat it as its own
-   determination.** The marker is still on disk (only `plan-gate.sh` deletes it, lazily, on the next
-   edit attempt it would otherwise deny) but past the self-heal threshold, which is itself positive
-   evidence: `approve-plan.sh` never ran to release it, so the plan was not approved — the gate has
-   merely lapsed from age, not from a decision. Do not start drafting or editing on a `STALE` (or
-   `RELEASED`) marker — run `/mentor:plan <slug>` first to re-arm it. `mentor:planning`'s own
-   unarmed-gate check cannot save you here, because skipping the command means the skill never loads
-   to run it. This is exactly the case a note resuming **planning** (its plan still `draft`) will
-   usually hit.
+   determination.** The marker can still be sitting on disk — nothing you do here removes it, and it
+   is no longer true that only `plan-gate.sh` ever does: it clears lazily, either via
+   `plan-gate.sh`'s self-heal on the next edit attempt it would otherwise deny, or via
+   `begin-plan.sh` pruning a stale **sibling** marker on the next arm in ANY worktree — but its age
+   past the self-heal threshold is itself positive evidence: `approve-plan.sh` never ran to release
+   it, so the plan was not approved — the gate has merely lapsed from age, not from a decision. Do not
+   start drafting or editing on a `STALE` (or `RELEASED`) marker — run `/mentor:plan <slug>` first to
+   re-arm it. `mentor:planning`'s own unarmed-gate check cannot save you here, because skipping the
+   command means the skill never loads to run it. This is exactly the case a note resuming
+   **planning** (its plan still `draft`) will usually hit.
 
    When the note resumes **implementation**, also glance at branch ownership before the first edit
    — GitHub + `gh` only, fail-soft:

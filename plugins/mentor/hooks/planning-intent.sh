@@ -1,6 +1,12 @@
 #!/usr/bin/env bash
 # planning-intent.sh — UserPromptSubmit
 #
+# Suppression check below reads the SAME per-worktree gate markers begin-plan.sh /
+# plan-gate.sh / plan-state.sh gate use (v2.23.0): THIS worktree's own
+# `.planning.<wt-id>` marker or the legacy repo-global `.planning` one — never a
+# sibling worktree's, and never a long-stale one (see lib/state.sh's state-layout
+# header for the full scheme).
+#
 # A narrow, non-blocking advisory: when a prompt OPENS with an explicit planning-intent
 # phrase, print one line suggesting /mentor:plan. This never blocks, never asks a
 # question, and never invokes any skill itself.
@@ -38,8 +44,10 @@
 #   - a harness-synthetic prompt (agent report / task notification / background-agent
 #     stop notice) — nothing to act on, and the once-per-session slot belongs to the
 #     next real human turn
-#   - the plan gate is already armed (.mentor/plans/.planning exists) — the session is
-#     already inside mentor's planning flow; nudging would be noise at best
+#   - THIS worktree's own gate marker (or the legacy repo-global one) is live — the
+#     session is already inside mentor's planning flow; nudging would be noise at
+#     best. A live SIBLING worktree's marker does NOT suppress — it is an independent
+#     gate that does not touch this worktree
 #
 # Fires AT MOST ONCE per session. The marker lives OUTSIDE the target repo's .mentor/
 # tree, under a machine-global scratch dir — a heuristic prompt match must never create
@@ -84,9 +92,20 @@ case "${MENTOR_PLANNING_INTENT:-}" in
 esac
 [ "$(mentor_config_get "$repo_root" "planning_intent")" = "off" ] && exit 0
 
-# Already inside mentor's planning flow → the gate is armed, nudging now is noise.
-if [ -n "$repo_root" ] && [ -f "${repo_root}/.mentor/plans/.planning" ]; then
-  exit 0
+# Already inside mentor's planning flow → THIS worktree's own marker (or the legacy
+# repo-global one) is live, nudging now is noise. Routed through mentor_marker_stale
+# (not a bare `-f` check) so a long-dead marker can't suppress the nudge forever, and
+# through mentor_worktree_id/mentor_plan_marker so a live SIBLING worktree's marker —
+# an independent gate that doesn't touch this worktree — never suppresses here.
+if [ -n "$repo_root" ]; then
+  pi_plans="${repo_root}/.mentor/plans"
+  pi_wt_id="$(mentor_worktree_id "$CWD")"
+  pi_own="$(mentor_plan_marker "$pi_plans" "$pi_wt_id")"
+  pi_legacy="$(mentor_plan_marker "$pi_plans" "")"
+  if { [ -e "$pi_own" ] && ! mentor_marker_stale "$pi_own"; } \
+     || { [ -n "$pi_wt_id" ] && [ -e "$pi_legacy" ] && ! mentor_marker_stale "$pi_legacy"; }; then
+    exit 0
+  fi
 fi
 
 # Narrow, anchored planning-intent openers (case-insensitive). See header for why this

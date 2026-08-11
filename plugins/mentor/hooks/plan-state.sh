@@ -6,6 +6,12 @@
 # It exists so no skill ever hand-rolls the sidecar JSON, and so the three places
 # that used to resolve "the current plan" with their own `ls -t` share one answer.
 #
+# v2.23.0: the plan-gate marker is now per-worktree (`.planning.<wt-id>`, one per
+# linked worktree, legacy bare `.planning` reserved repo-global — see `gate` below
+# and lib/state.sh's state-layout header); plans stay SHARED across every worktree,
+# tracked by an `owner`/`owner_session` pair on the sidecar (stamped by ensure-dir/
+# init/claim — see `current --any`, `list --owners`, and `overview`'s `owner` field).
+#
 #   init <slug> [--group G] [--order N] [--deps a,b] [--deferred]
 #       Create the sidecar as `draft`. Idempotent and never LOWERS an existing
 #       state — re-running it on an approved plan keeps it approved. --deps sets the
@@ -36,14 +42,19 @@
 #       fails loud, no write. Needs no jq: unlike every other subcommand here this
 #       edits plan.md directly, not the JSON sidecar.
 #
-#   list [--group G]
-#       One row per plan: ordinal, EFFECTIVE state, slug, group, order.
-#       Grouped, ordered within a group, `superseded` and `unknown` last.
+#   list [--group G] [--owners]
+#       One row per plan: ordinal, EFFECTIVE state, slug, group, order — and, with
+#       --owners, a 6th OWNER column (the wt-id from the sidecar, "-" when unowned).
+#       Grouped, ordered within a group, `superseded` and `unknown` last. The default
+#       (no --owners) 5-column shape is byte-compatible with pre-2.23.0 output.
 #
-#   current
-#       The plan a bare "review the plan" means. Skips superseded. When the answer
-#       belongs to a split group it prints the whole group and says so, instead of
-#       silently picking one of N children.
+#   current [--any]
+#       The plan a bare "review the plan" means, scoped to plans OWNED by THIS
+#       worktree (or unowned) — a write target must never resolve to a sibling
+#       worktree's in-flight draft. --any drops the filter for a deliberate,
+#       repo-wide read. Skips superseded. When the answer belongs to a split group
+#       it prints the whole group and says so, instead of silently picking one of N
+#       children.
 #
 #   overview --json
 #       Repo-wide JSON array (--json is required — there is no human-table mode): one
@@ -66,27 +77,47 @@
 #       copies drifted, and most dropped the no-repo fallback.
 #
 #   gate [--verbose]
-#       ARMED|RELEASED|STALE, exactly one token on stdout (line 1, always — bare
-#       `gate` and `gate --verbose` alike) — the plan-gate marker's status,
-#       READ-ONLY (never deletes the marker; plan-gate.sh is its only
-#       writer/remover, so its self-heal notice is never silently swallowed
-#       elsewhere, and a guard run just past the threshold during genuinely live
-#       planning can never disarm the gate as a side effect). STALE means the
-#       marker is still on disk but older than MENTOR_PLAN_MARKER_STALE_MIN
-#       (lib/state.sh, ~8h) — plan-gate.sh hasn't self-healed it yet, but for
-#       every other caller it reads as not-armed. Outside a repo (or no marker)
-#       → RELEASED. This answers "is the gate armed", not "should it be" — a
-#       caller that instead needs "we're inside a repo and planning should have
-#       started" wants a different check.
+#       ARMED|STALE|ARMED_ELSEWHERE|RELEASED — exactly one token on stdout (line 1,
+#       always — bare `gate` and `gate --verbose` alike), reporting the plan-gate
+#       marker's status for THIS worktree (v2.23.0 — one `.planning.<wt-id>` marker
+#       per worktree; see lib/state.sh's state-layout header for the full scheme):
+#         ARMED           this worktree's OWN marker is live, or the legacy repo-
+#                          global `.planning` marker is live (it blocks every
+#                          worktree) — a write HERE would be denied right now.
+#         STALE           the own or legacy marker exists but is older than
+#                          MENTOR_PLAN_MARKER_STALE_MIN (lib/state.sh, ~8h) —
+#                          plan-gate.sh/begin-plan.sh haven't pruned/healed it yet,
+#                          but every other caller already reads it as not-armed.
+#         ARMED_ELSEWHERE no own/legacy marker at all, but a SIBLING worktree's
+#                          marker is live — an independent gate; it does not block
+#                          writes here.
+#         RELEASED        no marker at all (outside a repo — the `_no-repo`
+#                          fallback — always reads RELEASED too).
+#       This answers "is the gate armed HERE", not "should it be" — a caller that
+#       instead needs "we're inside a repo and planning should have started" wants
+#       a different check.
+#       READ-ONLY: gate never deletes or heals a marker. That stays true even though
+#       it is no longer the ONLY thing that could remove one — two removers exist now
+#       (plan-gate.sh's self-heal on a would-deny write, and begin-plan.sh's stale-
+#       sibling prune on arm), each printing its own named notice before removing
+#       anything, so a marker is never released silently; gate must never become a
+#       third, silent one.
 #       --verbose is strictly additive: bare `gate` is unchanged (plan-track's and
 #       touring's `[ "$(… gate)" = "ARMED" ]` string-equality checks depend on
-#       staying exactly one token). On ARMED only, --verbose appends
-#       owner_session=/owner_cwd=/age_min= (the same mentor_marker_field/
-#       mentor_marker_age_min facts plan-gate.sh's own deny message already
-#       computes) plus affected_plans= — the plan slugs whose plan.md is newer
-#       than the marker, i.e. exactly the candidates approve-plan.sh would
-#       promote to `approved` if run right now. RELEASED/STALE print nothing
-#       past the token even under --verbose — there is no "owner" to report.
+#       staying exactly one token — and now on ARMED_ELSEWHERE reading as "not armed
+#       for me" by that same equality check). The per-token field contract below is
+#       NORMATIVE — exactly these fields, nothing else:
+#         ARMED           marker= owner_session= owner_cwd= owner_worktree=
+#                          age_min= affected_plans= — the mentor_marker_field/
+#                          mentor_marker_age_min facts plan-gate.sh's own deny
+#                          message already computes, plus the mentor_newly_planned
+#                          slugs approve-plan.sh would promote to `approved` if run
+#                          right now (unfiltered when the armed marker is the legacy
+#                          one — mirrors approve-plan.sh's legacy_mode, which is
+#                          unfiltered too).
+#         ARMED_ELSEWHERE one `elsewhere=<wt-id> session=<sid> worktree=<path>
+#                          age_min=<n>` line per live sibling marker, nothing else.
+#         STALE/RELEASED  bare token only — there is no "owner" to report.
 #
 # EFFECTIVE state (see lib/state.sh): the more advanced of the stored state and the
 # state derived from plan.md's ✅ step ticks. A forgotten `set` therefore costs
@@ -103,6 +134,27 @@ set -euo pipefail
 hook_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 . "${hook_dir}/lib/state.sh"
 
+# warn_same_slug_collision <plan_dir> <this_wt_id> <plans_dir> — stderr WARNING when
+# <plan_dir> already exists AND its sidecar `owner` is a DIFFERENT worktree whose own
+# marker is currently live: two worktrees drafting the same slug is reachable now that
+# the gate is per-worktree (the old repo-global marker used to make this impossible —
+# see begin-plan.sh's matching same-slug WARN on the arm side). Never blocks —
+# informational only. Called from both `ensure-dir` (mint time) and `init` (re-own
+# time), defined here (ahead of both) so `ensure-dir`'s early-exit block can reach it
+# too. Skipped entirely when <this_wt_id> is empty — without a wt-id of our own there
+# is nothing meaningful to compare against.
+warn_same_slug_collision() {
+  local plan_dir="${1:-}" this_wt="${2:-}" pdir="${3:-}" other other_marker
+  [ -n "$plan_dir" ] && [ -d "$plan_dir" ] && [ -n "$this_wt" ] || return 0
+  other="$(mentor_plan_owner "$plan_dir")"
+  [ -n "$other" ] && [ "$other" != "$this_wt" ] || return 0
+  other_marker="$(mentor_plan_marker "$pdir" "$other")"
+  if [ -e "$other_marker" ] && ! mentor_marker_stale "$other_marker"; then
+    echo "[mentor plan-state] WARNING: $(basename "$plan_dir") is already owned by worktree ${other}, whose plan gate is currently live — two worktrees may be drafting the same slug. Coordinate with that worktree, or pick a different slug." >&2
+  fi
+  return 0
+}
+
 usage() {
   cat <<'EOF'
 Usage: plan-state.sh <subcommand>
@@ -112,13 +164,15 @@ Usage: plan-state.sh <subcommand>
   set-deps <slug> a,b                   replace deps wholesale (cycle-checked, fail-soft)
   claim <slug>                          clear origin (a deferred stub enters real planning)
   tick <slug> <N>                       append ✅ to step N in plan.md (idempotent, fails loud)
-  list [--group G]                      every plan with its effective state
-  current                               the current plan (group-aware)
+  list [--group G] [--owners]           every plan with its effective state (--owners adds OWNER)
+  current [--any]                       the current plan, owned-by-this-worktree scoped (group-aware);
+                                         --any for a deliberate repo-wide read
   overview --json                       repo-wide JSON: plans + deps + live handoffs + step counts
   context                               CONTEXT: ASK|HANDOFF|WARN|OK|UNKNOWN (~N tokens)
   dir [--plans]                         the repo-scoped mentor dir (or its plans dir)
-  gate [--verbose]                      ARMED|RELEASED|STALE — read-only marker status
-                                         (--verbose adds owner/age/affected-plans on ARMED)
+  gate [--verbose]                      ARMED|STALE|ARMED_ELSEWHERE|RELEASED — read-only marker
+                                         status for THIS worktree (--verbose adds per-token fields;
+                                         see the gate doc comment above for the exact contract)
   ensure-dir <path>                     mkdir it + chmod 700 the whole path; echoes it
 EOF
 }
@@ -214,14 +268,32 @@ if [ "$sub" = "ensure-dir" ]; then
       exit 1
       ;;
   esac
+  # A direct child of plans/ is a plan TOPIC dir — the first of the three owner-
+  # stamping sites (ensure-dir/init/claim — see the state-layout header comment and
+  # this file's top-of-file v2.23.0 note), because the normal flow writes plan.md
+  # before Step 4's `init`, which is routinely skipped (approve-plan.sh) — leaving
+  # the plan unowned in between is exactly the window this closes. The collision
+  # check runs BEFORE the stamp below, so it still sees whatever owner (if any) was
+  # on record before this call claims it.
+  ed_plans="${ed_mdir}/plans"
+  ed_wt_id=""
+  if [ "$(dirname "$ed_canon")" = "$ed_plans" ]; then
+    ed_wt_id="$(mentor_worktree_id "$(pwd)")"
+    warn_same_slug_collision "$ed_canon" "$ed_wt_id" "$ed_plans"
+  fi
   mentor_ensure_private_dir "$ed_mdir" "$ed_canon"
+  if [ -n "$ed_wt_id" ]; then
+    mentor_plan_state_write "$ed_canon" --owner "$ed_wt_id" --owner-session "${CLAUDE_CODE_SESSION_ID:-}"
+  fi
   echo "$ed_canon"
   exit 0
 fi
 
 # --- gate: read-only plan-gate marker status — needs neither a repo (fallback) nor a
-# plans dir, same as dir/ensure-dir above. Never deletes the marker — see the doc
-# comment near the top of this file for why plan-gate.sh stays its only remover.
+# plans dir, same as dir/ensure-dir above. Never deletes a marker itself — see the doc
+# comment near the top of this file for the full token contract and why gate must
+# never become a third (silent) remover alongside plan-gate.sh's self-heal and
+# begin-plan.sh's stale-sibling prune.
 if [ "$sub" = "gate" ]; then
   g_verbose=0
   while [ "$#" -gt 0 ]; do
@@ -236,27 +308,58 @@ if [ "$sub" = "gate" ]; then
   else
     g_mdir="$HOME/.claude/mentor/_no-repo"
   fi
-  g_marker="${g_mdir}/plans/.planning"
-  if [ ! -e "$g_marker" ]; then
-    echo RELEASED
-  elif mentor_marker_stale "$g_marker"; then
-    echo STALE
-  else
+  g_plans="${g_mdir}/plans"
+  g_wt_id="$(mentor_worktree_id "$(pwd)")"
+  g_own="$(mentor_plan_marker "$g_plans" "$g_wt_id")"
+  g_legacy="$(mentor_plan_marker "$g_plans" "")"
+
+  g_own_exists=0; g_own_live=0
+  [ -e "$g_own" ] && g_own_exists=1
+  if [ "$g_own_exists" -eq 1 ] && ! mentor_marker_stale "$g_own"; then g_own_live=1; fi
+
+  # Legacy is a SEPARATE path only when wt_id is non-empty (empty wt_id already makes
+  # g_own == g_legacy — see mentor_plan_marker) — guarded so the two checks can never
+  # double-count the same file.
+  g_legacy_exists=0; g_legacy_live=0
+  if [ -n "$g_wt_id" ]; then
+    [ -e "$g_legacy" ] && g_legacy_exists=1
+    if [ "$g_legacy_exists" -eq 1 ] && ! mentor_marker_stale "$g_legacy"; then g_legacy_live=1; fi
+  fi
+
+  if [ "$g_own_live" -eq 1 ] || [ "$g_legacy_live" -eq 1 ]; then
+    if [ "$g_own_live" -eq 1 ]; then g_marker="$g_own"; else g_marker="$g_legacy"; fi
     echo ARMED
-    # Additive-only, ARMED-only: RELEASED/STALE have no "owner" to report, and the
-    # bare token above already printed — a caller doing `[ "$(gate)" = "ARMED" ]`
-    # never sees these lines because that form passes no --verbose.
     if [ "$g_verbose" -eq 1 ]; then
+      echo "marker=${g_marker}"
       echo "owner_session=$(mentor_marker_field "$g_marker" session)"
       echo "owner_cwd=$(mentor_marker_field "$g_marker" cwd)"
+      echo "owner_worktree=$(mentor_marker_field "$g_marker" worktree)"
       echo "age_min=$(mentor_marker_age_min "$g_marker")"
-      # Same computation as approve-plan.sh's newly_planned snapshot: the plan
-      # dirs approve-plan.sh would treat as "written this planning session" and
-      # promote toward `approved` if run right now — the fact that actually
-      # answers "would approving this clobber a plan I never reviewed?".
-      g_affected="$(find "${g_mdir}/plans" -mindepth 2 -maxdepth 2 -name plan.md -newer "$g_marker" 2>/dev/null \
+      # Unfiltered when the armed marker is the legacy one, matching approve-plan.sh's
+      # own legacy_mode (unfiltered repo-wide sweep) — a legacy-armed gate blocks every
+      # worktree, so "what would approving promote" must answer for the whole repo, not
+      # just this worktree's slice.
+      if [ "$g_marker" = "$g_legacy" ]; then g_affected_wt=""; else g_affected_wt="$g_wt_id"; fi
+      g_affected="$(mentor_newly_planned "$g_plans" "$g_marker" "$g_affected_wt" \
         | while IFS= read -r g_p; do basename "$(dirname "$g_p")"; done | paste -sd' ' -)"
       echo "affected_plans=${g_affected}"
+    fi
+  elif [ "$g_own_exists" -eq 1 ] || [ "$g_legacy_exists" -eq 1 ]; then
+    echo STALE
+  else
+    g_siblings="$(mentor_live_markers "$g_plans")"
+    if [ -n "$g_siblings" ]; then
+      echo ARMED_ELSEWHERE
+      if [ "$g_verbose" -eq 1 ]; then
+        while IFS= read -r g_m; do
+          [ -n "$g_m" ] || continue
+          g_suffix="$(basename "$g_m")"
+          g_suffix="${g_suffix#.planning.}"
+          echo "elsewhere=${g_suffix} session=$(mentor_marker_field "$g_m" session) worktree=$(mentor_marker_field "$g_m" worktree) age_min=$(mentor_marker_age_min "$g_m")"
+        done <<<"$g_siblings"
+      fi
+    else
+      echo RELEASED
     fi
   fi
   exit 0
@@ -291,16 +394,18 @@ fi
 # --- shared per-plan iterator --------------------------------------------------
 # _plan_walk [group-filter] — the ONE walk over plans_dir for every plan dir that has
 # a plan.md. Emits one tab-separated RAW record per line, unsorted:
-#   slug  state  group  order  deps_json  origin  handoffs_json  ticked  total
-# `deps_json`/`handoffs_json` are compact (`jq -c`) single-line JSON — safe to sit in
-# a tab field because compact jq output never contains a literal tab or newline, even
-# inside a string. `list_rows` (below, byte-compatible with the pre-v2.17.0 format)
-# and `overview --json` (new) both derive from this ONE walk — neither re-walks
-# plans_dir on its own. `list`/`current` never needed deps/handoffs/step-counts, so
-# computing them for those two callers too is a deliberate small cost in exchange for
-# there being exactly one place that decides what "every plan" means.
+#   slug  state  group  order  owner  deps_json  origin  handoffs_json  ticked  total
+# `owner` (v2.23.0, mentor_plan_owner) is the wt-id that minted or last re-owned the
+# plan dir, or "-" when unowned. `deps_json`/`handoffs_json` are compact (`jq -c`)
+# single-line JSON — safe to sit in a tab field because compact jq output never
+# contains a literal tab or newline, even inside a string. `list_rows` (below,
+# byte-compatible with the pre-v2.17.0 5-field format) and `overview --json` both
+# derive from this ONE walk — neither re-walks plans_dir on its own. `list`/`current`
+# never needed deps/handoffs/step-counts, so computing them for those two callers too
+# is a deliberate small cost in exchange for there being exactly one place that
+# decides what "every plan" means.
 _plan_walk() {
-  local filter="${1:-}" d slug state group order origin deps_pairs deps_json
+  local filter="${1:-}" d slug state group order owner origin deps_pairs deps_json
   local handoffs_json ticked total dep miss
   for d in "${plans_dir}"/*/; do
     [ -d "$d" ] || continue
@@ -311,6 +416,7 @@ _plan_walk() {
     group="$(mentor_plan_group "$d")"   # sidecar, else the isolation header
     if [ -n "$filter" ] && [ "$group" != "$filter" ]; then continue; fi
     order="$(mentor_plan_order "$d")"
+    owner="$(mentor_plan_owner "$d")"
     origin="$(mentor_plan_origin "$d")"
     deps_pairs=""
     while IFS= read -r dep; do
@@ -328,27 +434,33 @@ _plan_walk() {
     read -r ticked total <<<"$(mentor_plan_tick_counts "${d}/plan.md")"
     # IFS-whitespace read pitfall: a lone tab in IFS is still "IFS whitespace" to
     # bash's `read` — consecutive tabs COLLAPSE instead of producing an empty field,
-    # so a genuinely-empty group/order/origin would silently shift every field after
-    # it for whoever reads this line. Emit "-" for empty (matching print_table's own
-    # existing display convention) and never a raw empty string here; consumers
+    # so a genuinely-empty group/order/owner/origin would silently shift every field
+    # after it for whoever reads this line. Emit "-" for empty (matching print_table's
+    # own existing display convention) and never a raw empty string here; consumers
     # translate "-" back to "" on read.
-    printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' \
-      "$slug" "$state" "${group:--}" "${order:--}" "$deps_json" "${origin:--}" "$handoffs_json" "$ticked" "$total"
+    printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' \
+      "$slug" "$state" "${group:--}" "${order:--}" "${owner:--}" "$deps_json" "${origin:--}" "$handoffs_json" "$ticked" "$total"
   done
 }
 
-# list_rows [group-filter] — the pre-v2.17.0 5-field row format, byte-compatible:
-# <sortkey> <slug> <effective state> <group> <order>, tab-separated and sorted.
-# Sort key: bucket (0 active / 1 superseded+unknown) | group (ungrouped sorts on its
-# own slug, so it neither splits a group nor clumps with one) | zero-padded order |
-# slug. Derived from _plan_walk's raw records — see that function's comment for why
-# this is no longer its own directory walk.
+# list_rows [group-filter] [with-owner] — the pre-v2.17.0 5-field row format,
+# byte-compatible: <sortkey> <slug> <effective state> <group> <order>, tab-separated
+# and sorted. Sort key: bucket (0 active / 1 superseded+unknown) | group (ungrouped
+# sorts on its own slug, so it neither splits a group nor clumps with one) |
+# zero-padded order | slug. Derived from _plan_walk's raw records — see that
+# function's comment for why this is no longer its own directory walk.
+# with-owner=1 appends a 6th tab field (owner wt-id, "-" when unowned) for `list
+# --owners` — the default (with-owner omitted/0) 5-field shape used by bare `list`
+# stays byte-identical either way, since the extra field is only ever emitted, never
+# read, unless a caller explicitly asks for it.
 list_rows() {
-  local filter="${1:-}" slug state group order _rest bucket gkey okey
-  while IFS="$(printf '\t')" read -r slug state group order _rest; do
+  local filter="${1:-}" with_owner="${2:-0}"
+  local slug state group order owner _rest bucket gkey okey
+  while IFS="$(printf '\t')" read -r slug state group order owner _rest; do
     [ -n "$slug" ] || continue
     [ "$group" = "-" ] && group=""   # un-placeholder — see _plan_walk's comment
     [ "$order" = "-" ] && order=""
+    [ "$owner" = "-" ] && owner=""
     case "$state" in
       superseded|unknown) bucket=1 ;;
       *)                  bucket=0 ;;
@@ -358,16 +470,30 @@ list_rows() {
       ''|*[!0-9]*) okey="999" ;;
       *)           okey="$(printf '%03d' "$order")" ;;
     esac
-    printf '%s|%s|%s|%s\t%s\t%s\t%s\t%s\n' \
-      "$bucket" "$gkey" "$okey" "$slug" "$slug" "$state" "${group:--}" "${order:--}"
+    if [ "$with_owner" = "1" ]; then
+      printf '%s|%s|%s|%s\t%s\t%s\t%s\t%s\t%s\n' \
+        "$bucket" "$gkey" "$okey" "$slug" "$slug" "$state" "${group:--}" "${order:--}" "${owner:--}"
+    else
+      printf '%s|%s|%s|%s\t%s\t%s\t%s\t%s\n' \
+        "$bucket" "$gkey" "$okey" "$slug" "$slug" "$state" "${group:--}" "${order:--}"
+    fi
   done <<<"$(_plan_walk "$filter")" | LC_ALL=C sort -t"$(printf '\t')" -k1,1
 }
 
 print_table() {
-  local filter="${1:-}" rows i=0 key slug state group order
-  rows="$(list_rows "$filter")"
+  local filter="${1:-}" with_owner="${2:-0}" rows i=0 key slug state group order owner
+  rows="$(list_rows "$filter" "$with_owner")"
   if [ -z "$rows" ]; then
     return 1
+  fi
+  if [ "$with_owner" = "1" ]; then
+    printf '%-3s %-13s %-38s %-24s %-6s %s\n' "#" "STATE" "PLAN" "GROUP" "ORDER" "OWNER"
+    while IFS="$(printf '\t')" read -r key slug state group order owner; do
+      [ -n "$slug" ] || continue
+      i=$((i + 1))
+      printf '%-3s %-13s %-38s %-24s %-6s %s\n' "$i" "$state" "$slug" "$group" "$order" "$owner"
+    done <<<"$rows"
+    return 0
   fi
   printf '%-3s %-13s %-38s %-24s %s\n' "#" "STATE" "PLAN" "GROUP" "ORDER"
   while IFS="$(printf '\t')" read -r key slug state group order; do
@@ -513,11 +639,22 @@ case "$sub" in
     require_slug "$slug"
     require_jq
     plan_dir="${plans_dir}/${slug}"
+    init_wt_id="$(mentor_worktree_id "$(pwd)")"
+    # Collision check reads whatever owner is currently on record, BEFORE the
+    # last-init-wins re-stamp below overwrites it.
+    warn_same_slug_collision "$plan_dir" "$init_wt_id" "$plans_dir"
     # Idempotent: keep whatever state is already on record; only fill in a missing one.
     existing="$(mentor_plan_state_stored "$plan_dir")"
     write_args=(--state "${existing:-draft}" --note "$(mentor_plan_state_field "$plan_dir" note)")
     [ -n "$group" ] && write_args+=(--group "$group")
     [ -n "$order" ] && write_args+=(--order "$order")
+    # Second of the three owner-stamping sites (see this file's top-of-file v2.23.0
+    # note): last-init-wins re-owning — this is also how `/mentor:plan <slug>` re-owns
+    # a plan resumed in a different worktree. Skipped entirely when wt-id is empty
+    # (no git / bare repo / etc.) — same fail-soft convention as everywhere else here.
+    if [ -n "$init_wt_id" ]; then
+      write_args+=(--owner "$init_wt_id" --owner-session "${CLAUDE_CODE_SESSION_ID:-}")
+    fi
     deps_summary=""
     if [ -n "$deps" ]; then
       clean_deps=()
@@ -629,7 +766,16 @@ case "$sub" in
     require_jq
     plan_dir="${plans_dir}/${slug}"
     was_deferred="$(mentor_plan_origin "$plan_dir")"
-    mentor_plan_state_write "$plan_dir" --origin "" --note "$(mentor_plan_state_field "$plan_dir" note)"
+    # Third of the three owner-stamping sites (see this file's top-of-file v2.23.0
+    # note): re-stamps on deferred-stub resurrection, same skip-when-empty rule as
+    # `init`. No same-slug WARN here — a deferred stub's own worktree claiming it is
+    # the normal path, not a collision signal.
+    claim_wt_id="$(mentor_worktree_id "$(pwd)")"
+    claim_args=(--origin "" --note "$(mentor_plan_state_field "$plan_dir" note)")
+    if [ -n "$claim_wt_id" ]; then
+      claim_args+=(--owner "$claim_wt_id" --owner-session "${CLAUDE_CODE_SESSION_ID:-}")
+    fi
+    mentor_plan_state_write "$plan_dir" "${claim_args[@]}"
     if [ "$was_deferred" = "deferred" ]; then
       echo "[mentor plan-state] ${slug}: claimed — origin cleared, eligible for the normal approval sweep."
     else
@@ -675,16 +821,17 @@ case "$sub" in
     ;;
 
   list)
-    filter=""
+    filter=""; list_owners=0
     while [ "$#" -gt 0 ]; do
       case "$1" in
         --group) filter="${2:-}"; shift; if [ "$#" -gt 0 ]; then shift; fi ;;
+        --owners) list_owners=1; shift ;;
         *) echo "[mentor plan-state] list: unexpected argument ${1}" >&2; usage >&2; exit 1 ;;
       esac
     done
     echo "PLANS_DIR: ${plans_dir}"
     echo
-    if ! print_table "$filter"; then
+    if ! print_table "$filter" "$list_owners"; then
       echo "[mentor plan-state] No plans${filter:+ in group ${filter}} in ${plans_dir}." >&2
       echo "[mentor plan-state] Topics holding only handoffs (no plan.md yet) never appear here — use 'overview --json' for the full picture." >&2
       exit 0
@@ -695,9 +842,26 @@ case "$sub" in
     ;;
 
   current)
-    plan="$(mentor_newest_plan "$plans_dir")"
+    cur_any=0
+    while [ "$#" -gt 0 ]; do
+      case "$1" in
+        --any) cur_any=1; shift ;;
+        *) echo "[mentor plan-state] current: unexpected argument ${1}" >&2; usage >&2; exit 1 ;;
+      esac
+    done
+    cur_wt_id=""
+    [ "$cur_any" -eq 1 ] || cur_wt_id="$(mentor_worktree_id "$(pwd)")"
+    # Scoped to plans owned by THIS worktree (or unowned) — plan-review WRITES to the
+    # plan `current` resolves, so an unscoped read would let worktree A silently
+    # rewrite worktree B's in-flight draft. --any drops the filter for a deliberate,
+    # repo-wide read (mentor_newest_plan_owned with an empty wt-id is unfiltered).
+    plan="$(mentor_newest_plan_owned "$plans_dir" "$cur_wt_id")"
     if [ -z "$plan" ]; then
-      echo "[mentor plan-state] No plan found in ${plans_dir}." >&2
+      if [ "$cur_any" -eq 1 ]; then
+        echo "[mentor plan-state] No plan found in ${plans_dir}." >&2
+      else
+        echo "[mentor plan-state] No plan owned by this worktree found in ${plans_dir} (plans owned by another worktree are excluded — use --any for a repo-wide, unfiltered read, or /mentor:plan <slug> to re-own one)." >&2
+      fi
       exit 0
     fi
     plan_dir="$(dirname "$plan")"
@@ -753,18 +917,21 @@ case "$sub" in
     ov_entries=""
 
     # 1) every plan dir with a plan.md — the shared per-plan iterator (_plan_walk).
-    while IFS="$(printf '\t')" read -r ov_slug ov_state ov_group ov_order ov_deps ov_origin ov_handoffs ov_ticked ov_total; do
+    while IFS="$(printf '\t')" read -r ov_slug ov_state ov_group ov_order ov_owner ov_deps ov_origin ov_handoffs ov_ticked ov_total; do
       [ -n "$ov_slug" ] || continue
       [ "$ov_group" = "-" ] && ov_group=""    # un-placeholder — see _plan_walk's comment
       [ "$ov_order" = "-" ] && ov_order=""
+      [ "$ov_owner" = "-" ] && ov_owner=""
       [ "$ov_origin" = "-" ] && ov_origin=""
       entry="$(jq -n \
         --arg slug "$ov_slug" --arg state "$ov_state" --arg group "$ov_group" --arg order "$ov_order" \
+        --arg owner "$ov_owner" \
         --argjson deps "$ov_deps" --arg origin "$ov_origin" --argjson handoffs "$ov_handoffs" \
         --argjson ticked "$ov_ticked" --argjson total "$ov_total" '
         {kind: "plan", slug: $slug, state: $state,
          group: (if $group == "" then null else $group end),
          order: (if $order == "" then null else ($order | tonumber? // null) end),
+         owner: (if $owner == "" then null else $owner end),
          deps: $deps, origin: (if $origin == "" then null else $origin end),
          handoffs: $handoffs, steps: {ticked: $ticked, total: $total}}')"
       ov_entries="${ov_entries}${entry}
@@ -783,7 +950,7 @@ case "$sub" in
       [ "$ov_handoffs" = "[]" ] && continue
       entry="$(jq -n --arg slug "$ov_slug" --argjson handoffs "$ov_handoffs" '
         {kind: "no_plan_topic", slug: $slug, state: "no plan yet",
-         group: null, order: null, deps: [], origin: null,
+         group: null, order: null, owner: null, deps: [], origin: null,
          handoffs: $handoffs, steps: {ticked: 0, total: 0}}')"
       ov_entries="${ov_entries}${entry}
 "
@@ -799,7 +966,7 @@ case "$sub" in
       if [ "$ov_legacy_json" != "[]" ]; then
         entry="$(jq -n --argjson handoffs "$ov_legacy_json" '
           {kind: "legacy_handoffs", slug: null, state: null,
-           group: null, order: null, deps: [], origin: null,
+           group: null, order: null, owner: null, deps: [], origin: null,
            handoffs: $handoffs, steps: null}')"
         ov_entries="${ov_entries}${entry}
 "

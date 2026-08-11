@@ -65,6 +65,8 @@ Derive the project-scoped mentor state dir (same derivation as `hooks/lib/state.
 state_dir="$(bash "${CLAUDE_PLUGIN_ROOT}/hooks/plan-state.sh" dir)"   # worktree-safe; _no-repo fallback
 [ -n "$state_dir" ] || { echo "ERROR: mentor state dir unresolved — is CLAUDE_PLUGIN_ROOT set?" >&2; exit 1; }
 ls -t "$state_dir"/plans/*/plan.md 2>/dev/null | head -3   # candidate plan subjects (newest first)
+sibling_wts="$(bash "${CLAUDE_PLUGIN_ROOT}/hooks/plan-state.sh" gate --verbose | sed -n 's/^elsewhere=\([^ ]*\).*/\1/p')"
+[ -n "$sibling_wts" ] && bash "${CLAUDE_PLUGIN_ROOT}/hooks/plan-state.sh" list --owners   # cross-check OWNER col below
 const_rel="$(jq -r '.constitution_path // empty' "$state_dir/config.json" 2>/dev/null)"
 case "$state_dir" in */.mentor)   # in a repo — resolve the constitution against its root
   const_path="${state_dir%/.mentor}/${const_rel:-.mentor/constitution.md}"
@@ -77,7 +79,12 @@ esac
 1. the **argument** — free text ("the ingestion pipeline"), a file/dir path, or a
    plan-slug substring;
 2. the **newest plan** from the listing above, when one exists and the
-   conversation is about it;
+   conversation is about it — but when `$sibling_wts` is non-empty (`ARMED_ELSEWHERE`),
+   first drop any candidate whose OWNER column (from `list --owners` above) matches one
+   of those wt-ids: a sibling's live marker means that plan is mid-write, not this
+   zoom's subject. If the filter empties the listing or leaves the pick ambiguous, ask
+   the user for an explicit subject instead of guessing. **Note:** the newest plan in
+   the raw listing may be the sibling's — name the plan you picked.
 3. the feature/system under discussion in the **current conversation**.
 
 The plan is an *input source*, never a prerequisite — the skill works standalone.
@@ -89,7 +96,7 @@ is what lets `plan-review` and `handoff` find a plan's zooms at
 `zoom_dir="$state_dir/zooms/<subject-slug>"`.
 
 There is **no planning-session guard**: `.mentor/` is exempt from the plan edit
-gate, so zooming is legal while a `.planning` marker is armed — during planning,
+gate, so zooming is legal while this worktree's gate reads `ARMED` — during planning,
 this skill's combo agents are the sole write-capable dispatches allowed, and they
 write ONLY zoom artifacts under `.mentor/zooms/`, never repo source files.
 

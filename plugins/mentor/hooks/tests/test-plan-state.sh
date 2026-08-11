@@ -13,6 +13,11 @@
 #     the calling skill would improvise a listing.
 #   • `current` skips superseded plans and, inside a split group, reports the whole
 #     group instead of silently picking whichever child agent finished last.
+#   • v2.23.0 (worktree-scoped plan gate): `gate` reports one of FOUR tokens
+#     (ARMED/STALE/ARMED_ELSEWHERE/RELEASED) for THIS worktree, with a per-token
+#     `--verbose` field contract; `current` scopes to plans owned by this worktree
+#     (or unowned) unless `--any`; `ensure-dir`/`init`/`claim` stamp sidecar
+#     `owner`/`owner_session`; `list --owners` adds a 6th OWNER column.
 #
 # Runs against a SANDBOX $HOME and CLAUDE_CONFIG_DIR so it never touches real user
 # state and never finds a real session transcript.
@@ -23,15 +28,30 @@ HOOKS="$(dirname "$SCRIPT_DIR")"
 PLANSTATE="$HOOKS/plan-state.sh"
 [ -f "$PLANSTATE" ] || { echo "FATAL: not found: $PLANSTATE" >&2; exit 1; }
 command -v jq >/dev/null 2>&1 || { echo "FATAL: jq required to run this suite" >&2; exit 1; }
+# shellcheck source=../lib/state.sh
+. "$HOOKS/lib/state.sh"   # only for mentor_worktree_id, to derive wt-ids the same way begin-plan.sh does
 
 ROOT="$(cd "$(mktemp -d)" && pwd -P)"
 SANDBOX="$ROOT/home"; mkdir -p "$SANDBOX/.claude/projects/proj"
 REPO="$ROOT/sample-repo"
 git init -q -b main "$REPO" >/dev/null 2>&1
 ( cd "$REPO"; git config user.email t@t.co; git config user.name t; echo x > f; git add -A; git commit -q -m init ) >/dev/null 2>&1
+git -C "$REPO" worktree add -q "$ROOT/wt-b" -b wtb >/dev/null 2>&1
+git -C "$REPO" worktree add -q "$ROOT/wt-c" -b wtc >/dev/null 2>&1
 BARE="$ROOT/bare-repo"          # a repo that has never planned
 git init -q -b main "$BARE" >/dev/null 2>&1
 NONGIT="$ROOT/plain"; mkdir -p "$NONGIT"
+
+# Second/third linked worktrees of the SAME repo (plans stay shared — one plans/
+# dir — but the plan-gate marker is per-worktree, v2.23.0). Ids derived with the
+# exact production recipe so a marker suffix here can never drift from what
+# begin-plan.sh would actually write.
+WTB="$ROOT/wt-b"
+WTC="$ROOT/wt-c"
+WTA_ID="$(mentor_worktree_id "$REPO")"
+WTB_ID="$(mentor_worktree_id "$WTB")"
+WTC_ID="$(mentor_worktree_id "$WTC")"
+[ -n "$WTA_ID" ] && [ -n "$WTB_ID" ] && [ -n "$WTC_ID" ] || { echo "FATAL: could not derive worktree ids for the fixture repo" >&2; exit 1; }
 
 # A PATH with real `git`/`dirname` but NO jq — for overview's fail-soft-without-jq
 # check. Only those two externals run before overview's own require_jq_read guard
@@ -47,6 +67,13 @@ trap 'rm -rf "$ROOT"' EXIT
 
 PLANS="$REPO/.mentor/plans"
 mkdir -p "$PLANS"
+
+# Marker paths (v2.23.0): one per worktree, plus the reserved legacy repo-global
+# bare marker. Sections that exercise `gate` write these directly.
+LEGACY_MARKER="$PLANS/.planning"
+OWN_MARKER="$PLANS/.planning.${WTA_ID}"
+SIB_MARKER="$PLANS/.planning.${WTB_ID}"
+SIB_MARKER_C="$PLANS/.planning.${WTC_ID}"
 
 PASS=0; FAIL=0
 chk() { local desc="$1"; shift
@@ -67,6 +94,12 @@ pserr() { ( cd "${CWD:-$REPO}" && _env bash "$PLANSTATE" "$@" 2>&1 >/dev/null );
 psq_nojq_out() { ( cd "${CWD:-$REPO}" && _env PATH="$NOJQ_DIR" "$BASH_BIN" "$PLANSTATE" "$@" 2>/dev/null ); }
 psq_nojq_err() { ( cd "${CWD:-$REPO}" && _env PATH="$NOJQ_DIR" "$BASH_BIN" "$PLANSTATE" "$@" 2>&1 >/dev/null ); }
 psq_nojq_rc()  { ( cd "${CWD:-$REPO}" && _env PATH="$NOJQ_DIR" "$BASH_BIN" "$PLANSTATE" "$@" >/dev/null 2>&1 ); }
+# Same as ps(), but with an explicit CLAUDE_CODE_SESSION_ID — for the owner_session
+# stamping checks (ps()/psout() deliberately strip it via _env above).
+ps_sess() { local sess="$1"; shift
+  ( cd "${CWD:-$REPO}" && env -u MENTOR_CONTEXT_GATE -u MENTOR_CONTEXT_BLOCK_TOKENS -u MENTOR_CONTEXT_WARN_TOKENS \
+        HOME="$SANDBOX" CLAUDE_CONFIG_DIR="$SANDBOX/.claude" CLAUDE_CODE_SESSION_ID="$sess" bash "$PLANSTATE" "$@" 2>&1 );
+}
 # Read one field straight off a plan's sidecar (deps/origin — list/current never
 # surface these, so the CLI-output assertions above can't reach them).
 sidecar() { jq -r "${2}" "$PLANS/$1/.state.json" 2>/dev/null; }   # sidecar <slug> <jq filter>
@@ -135,6 +168,21 @@ chk "init backfills group/order"        has "idem  *parent  *4" "$out"
 ps set idem in_progress >/dev/null
 out="$(psout list)"
 chk "set preserves group/order"         has "idem  *parent  *4" "$out"
+
+echo "== C2. init/claim re-stamp ownership — last-init-wins (v2.23.0) =="
+plan reown
+CWD="$WTB"; ps init reown >/dev/null; CWD="$REPO"
+chk "reown initially owned by the worktree that inited it (B)" test "$(sidecar reown '.owner')" = "$WTB_ID"
+ps init reown >/dev/null   # re-init from A (this worktree) — re-owns
+chk "re-init from a different worktree re-owns it (last-init-wins)" test "$(sidecar reown '.owner')" = "$WTA_ID"
+ps set reown approved >/dev/null
+chk "a plain set leaves ownership exactly as it was" test "$(sidecar reown '.owner')" = "$WTA_ID"
+
+plan reclaim
+ps init reclaim --deferred >/dev/null
+chk "reclaim initially owned by A (inited here)" test "$(sidecar reclaim '.owner')" = "$WTA_ID"
+CWD="$WTB"; ps claim reclaim >/dev/null; CWD="$REPO"
+chk "claim from a different worktree re-owns it too" test "$(sidecar reclaim '.owner')" = "$WTB_ID"
 
 echo "== D. set upserts onto a sidecar-less plan (the majority path on upgrade) =="
 plan upsert
@@ -233,6 +281,29 @@ out="$(psout current)"
 chk "current skips the finished sibling" has "SLUG: kid-2" "$out"
 chk "current still reports the group"    has "GROUP: huge-thing" "$out"
 
+echo "== G3. current: scoped to this worktree's owned/unowned plans; --any is unfiltered (v2.23.0) =="
+rm -rf "$PLANS"; mkdir -p "$PLANS"
+plan cur-a-owned; plan cur-unowned; plan cur-b-owned
+ps init cur-a-owned >/dev/null                            # owned by A (this worktree)
+CWD="$WTB"; ps init cur-b-owned >/dev/null; CWD="$REPO"    # owned by B
+sleep 1; touch "$PLANS/cur-a-owned/plan.md"
+sleep 1; touch "$PLANS/cur-unowned/plan.md"
+sleep 1; touch "$PLANS/cur-b-owned/plan.md"   # B-owned is now the true mtime-newest
+out="$(psout current)"
+chk "current (scoped): skips the sibling-owned newest, picks next eligible" has "SLUG: cur-unowned" "$out"
+chk "current (scoped): never names the sibling-owned plan"                  hasnt "SLUG: cur-b-owned" "$out"
+out="$(psout current --any)"
+chk "current --any: unfiltered, reports the true mtime-newest (sibling-owned)" has "SLUG: cur-b-owned" "$out"
+
+rm -rf "$PLANS"; mkdir -p "$PLANS"
+plan only-b-owned
+CWD="$WTB"; ps init only-b-owned >/dev/null; CWD="$REPO"
+out="$(ps current)"; rc=$?
+chk "current (scoped), only a sibling-owned plan exists → exit 0" test "$rc" = "0"
+chk "current (scoped) → ownership-aware refusal names it"          has "owned by another worktree" "$out"
+out="$(ps current --any)"; rc=$?
+chk "current --any still finds the sibling-owned plan"             has "SLUG: only-b-owned" "$out"
+
 echo "== H. context: the backstop /mentor:track needs (context-gate.sh passes slash commands) =="
 mktx() { python3 - "$1" "$2" <<'PY'
 import json,sys
@@ -311,7 +382,11 @@ chk "empty plans dir → exit 0"          test "$rc" = "0"
 chk "empty plans dir → reason"          has "No plans" "$out"
 out="$(ps current)"; rc=$?
 chk "current with no plans → exit 0"    test "$rc" = "0"
-chk "current with no plans → reason"    has "No plan found" "$out"
+chk "current with no plans → reason (ownership-scoped wording, v2.23.0)" \
+  has "No plan owned by this worktree found" "$out"
+out="$(ps current --any)"; rc=$?
+chk "current --any with no plans → exit 0"   test "$rc" = "0"
+chk "current --any with no plans → reason"   has "No plan found" "$out"
 
 echo "== ensure-dir — creates + locks to 700, and refuses to escape the mentor dir =="
 # Skills substitute a model-chosen <topic> into these paths, so an unconfined ensure-dir
@@ -325,6 +400,10 @@ chk "ensure-dir locked the leaf to 700" \
   test "$(ls -ld "$ed_mdir/plans/ed-topic/handoffs" | cut -c1-10)" = "drwx------"
 chk "ensure-dir locked the intermediate too" \
   test "$(ls -ld "$ed_mdir/plans/ed-topic" | cut -c1-10)" = "drwx------"
+# The target above (plans/ed-topic/handoffs) is a GRANDCHILD of plans/, not a direct
+# child — ownership is stamped on the plan TOPIC dir only (see ensure-dir2 below).
+chk "ensure-dir on a nested (non-direct-child) target stamps no owner" \
+  test ! -f "$ed_mdir/plans/ed-topic/.state.json"
 
 out="$(ps ensure-dir "$ROOT/escape-me")"; rc=$?
 chk "ensure-dir outside the mentor dir → exit 1" test "$rc" = "1"
@@ -337,6 +416,12 @@ chk "..-escape created nothing"                  test ! -d "$ROOT/escape-dots"
 
 out="$(ps ensure-dir)"; rc=$?
 chk "ensure-dir with no path → exit 1"           test "$rc" = "1"
+
+echo "== ensure-dir2 — a direct child of plans/ gets owner/owner_session stamped (v2.23.0) =="
+out="$(ps_sess owner-sess ensure-dir "$ed_mdir/plans/owner-topic")"; rc=$?
+chk "ensure-dir (direct child of plans/) → exit 0"  test "$rc" = "0"
+chk "ensure-dir stamps owner"                        test "$(sidecar owner-topic '.owner')" = "$WTA_ID"
+chk "ensure-dir stamps owner_session"                test "$(sidecar owner-topic '.owner_session')" = "owner-sess"
 
 echo "== J. init --deps / --deferred (v2.17.0) =="
 rm -rf "$PLANS"; mkdir -p "$PLANS"
@@ -504,6 +589,7 @@ chk "ov-a: step counts 2/2"             test "$(printf '%s' "$ov_a" | jq -r '.st
 chk "ov-a: live handoff only, resolved excluded" test "$(printf '%s' "$ov_a" | jq -c '.handoffs')" = '["live-note.md"]'
 chk "ov-a: no deps"                     test "$(printf '%s' "$ov_a" | jq -c '.deps')" = '[]'
 chk "ov-a: origin null"                 test "$(printf '%s' "$ov_a" | jq -r '.origin')" = "null"
+chk "ov-a: owner carries this worktree's wt-id (v2.23.0)" test "$(printf '%s' "$ov_a" | jq -r '.owner')" = "$WTA_ID"
 
 ov_b="$(printf '%s' "$out" | jq -c '.[] | select(.slug=="ov-b")')"
 chk "ov-b: step counts 1/2"                  test "$(printf '%s' "$ov_b" | jq -r '.steps.ticked,.steps.total' | tr '\n' ' ')" = "1 2 "
@@ -511,18 +597,21 @@ chk "ov-b: deps carry both slugs, in order"  test "$(printf '%s' "$ov_b" | jq -c
 chk "ov-b: known dep marked not missing"     test "$(printf '%s' "$ov_b" | jq -r '.deps[0].missing')" = "false"
 chk "ov-b: unknown dep marked missing"       test "$(printf '%s' "$ov_b" | jq -r '.deps[1].missing')" = "true"
 chk "ov-b: no handoffs"                      test "$(printf '%s' "$ov_b" | jq -c '.handoffs')" = '[]'
+chk "ov-b: owner carries this worktree's wt-id (v2.23.0)" test "$(printf '%s' "$ov_b" | jq -r '.owner')" = "$WTA_ID"
 
 ov_topic="$(printf '%s' "$out" | jq -c '.[] | select(.slug=="ov-topic")')"
 chk "plan-less topic: kind no_plan_topic"  test "$(printf '%s' "$ov_topic" | jq -r '.kind')" = "no_plan_topic"
 chk "plan-less topic: state 'no plan yet'" test "$(printf '%s' "$ov_topic" | jq -r '.state')" = "no plan yet"
 chk "plan-less topic: live handoff listed" test "$(printf '%s' "$ov_topic" | jq -c '.handoffs')" = '["nudge.md"]'
 chk "plan-less topic: zero step counts"    test "$(printf '%s' "$ov_topic" | jq -c '.steps')" = '{"ticked":0,"total":0}'
+chk "plan-less topic: owner null (no sidecar)" test "$(printf '%s' "$ov_topic" | jq -r '.owner')" = "null"
 
 ov_legacy="$(printf '%s' "$out" | jq -c '.[] | select(.kind=="legacy_handoffs")')"
 chk "legacy dir: topic-less (slug null)" test "$(printf '%s' "$ov_legacy" | jq -r '.slug')" = "null"
 chk "legacy dir: state null"             test "$(printf '%s' "$ov_legacy" | jq -r '.state')" = "null"
 chk "legacy dir: steps null"             test "$(printf '%s' "$ov_legacy" | jq -r '.steps')" = "null"
 chk "legacy dir: lists the flat note"    test "$(printf '%s' "$ov_legacy" | jq -c '.handoffs')" = '["legacy-note.md"]'
+chk "legacy dir: owner null"             test "$(printf '%s' "$ov_legacy" | jq -r '.owner')" = "null"
 
 chk "plan dirs never double as a plan-less topic" \
   test -z "$(printf '%s' "$out" | jq -r '.[] | select(.kind=="no_plan_topic" and (.slug=="ov-a" or .slug=="ov-b"))')"
@@ -546,17 +635,37 @@ chk "row is still exactly 5 whitespace-separated columns" \
 chk "row carries no stray JSON from deps/origin" \
   sh -c '! printf "%s" "$0" | grep -qE "[][{}]"' "$row"
 
-echo "== P. gate: read-only plan-gate marker status, before every guard =="
+echo "== O2. list --owners adds a 6th OWNER column; bare list stays 5 (v2.23.0) =="
+row_default="$(psout list | awk -v s="ov-b" '$3 == s')"
+chk "list (default) row is still exactly 5 columns" test "$(printf '%s' "$row_default" | awk '{print NF}')" = "5"
+row_owners="$(psout list --owners | awk -v s="ov-b" '$3 == s')"
+chk "list --owners row is exactly 6 columns"      test "$(printf '%s' "$row_owners" | awk '{print NF}')" = "6"
+chk "list --owners 6th column is the owner wt-id" test "$(printf '%s' "$row_owners" | awk '{print $6}')" = "$WTA_ID"
+
+echo "== P. gate: read-only plan-gate marker status, before every guard (v2.23.0 4-token contract) =="
 CWD="$REPO"
-GATE_MARKER="$REPO/.mentor/plans/.planning"
-rm -f "$GATE_MARKER"
-chk "no marker → RELEASED"                     test "$(psout gate)" = "RELEASED"
-: > "$GATE_MARKER"
-chk "fresh marker → ARMED"                     test "$(psout gate)" = "ARMED"
-touch -t "$(date -v-9H +%Y%m%d%H%M 2>/dev/null || date -d '9 hours ago' +%Y%m%d%H%M)" "$GATE_MARKER" 2>/dev/null || true
-chk "9h-old marker → STALE"                    test "$(psout gate)" = "STALE"
-chk "gate never deletes the marker"            test -e "$GATE_MARKER"
-rm -f "$GATE_MARKER"
+rm -f "$LEGACY_MARKER" "$OWN_MARKER" "$SIB_MARKER" "$SIB_MARKER_C"
+chk "no marker anywhere → RELEASED"            test "$(psout gate)" = "RELEASED"
+
+: > "$OWN_MARKER"
+chk "own marker live → ARMED"                  test "$(psout gate)" = "ARMED"
+rm -f "$OWN_MARKER"
+
+: > "$LEGACY_MARKER"
+chk "legacy marker live → ARMED"               test "$(psout gate)" = "ARMED"
+rm -f "$LEGACY_MARKER"
+
+: > "$SIB_MARKER"
+chk "sibling-only live → ARMED_ELSEWHERE"      test "$(psout gate)" = "ARMED_ELSEWHERE"
+
+: > "$OWN_MARKER"
+touch -t "$(date -v-9H +%Y%m%d%H%M 2>/dev/null || date -d '9 hours ago' +%Y%m%d%H%M)" "$OWN_MARKER" 2>/dev/null || true
+chk "own-stale + sibling-live → STALE (own_exists outranks the sibling check)" \
+  test "$(psout gate)" = "STALE"
+chk "gate never deletes the own marker"        test -e "$OWN_MARKER"
+chk "gate never deletes the sibling marker"    test -e "$SIB_MARKER"
+rm -f "$OWN_MARKER" "$SIB_MARKER"
+
 CWD="$BARE"
 chk "gate in a never-planned repo → RELEASED"  test "$(psout gate)" = "RELEASED"
 CWD="$NONGIT"
@@ -566,33 +675,81 @@ out="$(ps gate extra)"; rc=$?
 chk "gate rejects a stray argument → exit 1"   test "$rc" = "1"
 chk "gate rejects a stray argument → names it" has "unexpected argument" "$out"
 
-echo "== P2. gate --verbose: additive-only, ARMED-only owner/age/affected-plans =="
+echo "== P2. gate --verbose: ARMED (own marker) — exactly marker/owner_session/owner_cwd/owner_worktree/age_min/affected_plans, ownership-filtered =="
 CWD="$REPO"
-rm -f "$GATE_MARKER"
+rm -f "$LEGACY_MARKER" "$OWN_MARKER" "$SIB_MARKER" "$SIB_MARKER_C"
 plan gv-old "old plan — written BEFORE the marker, must not show as affected"
 sleep 1
-{ echo "session=test-session-xyz"; echo "cwd=/some/other/repo"; } > "$GATE_MARKER"
+{ echo "session=test-session-xyz"; echo "cwd=/some/other/repo"; echo "worktree=$REPO"; } > "$OWN_MARKER"
 sleep 1
 plan gv-new "new plan — written AFTER the marker, exactly what approve-plan.sh would promote"
+ps init gv-new >/dev/null   # owned by THIS worktree — must appear in affected_plans
+plan gv-b-owned "written after the marker too, but owned by the sibling worktree — must be excluded (ownership-filtered)"
+CWD="$WTB"; ps init gv-b-owned >/dev/null; CWD="$REPO"
 out="$(psout gate --verbose)"
-chk "gate --verbose: line 1 is still the bare token" \
+chk "gate --verbose (own): line 1 is still the bare token" \
   test "$(printf '%s\n' "$out" | sed -n '1p')" = "ARMED"
-chk "gate --verbose: reports the owning session"      has "owner_session=test-session-xyz" "$out"
-chk "gate --verbose: reports the owning cwd"           has "owner_cwd=/some/other/repo" "$out"
-chk "gate --verbose: reports a numeric age" \
+chk "gate --verbose (own): exactly 7 lines total (token + 6 fields)" \
+  test "$(printf '%s\n' "$out" | wc -l | tr -d ' ')" = "7"
+chk "gate --verbose (own): field order/names are exactly the normative six" \
+  test "$(printf '%s\n' "$out" | sed -n '2,7p' | sed -E 's/=.*//' | tr '\n' ',')" \
+  = "marker,owner_session,owner_cwd,owner_worktree,age_min,affected_plans,"
+chk "gate --verbose (own): reports the marker path"     has "marker=${OWN_MARKER}" "$out"
+chk "gate --verbose (own): reports the owning session"  has "owner_session=test-session-xyz" "$out"
+chk "gate --verbose (own): reports the owning cwd"      has "owner_cwd=/some/other/repo" "$out"
+chk "gate --verbose (own): reports the owning worktree" has "owner_worktree=${REPO}" "$out"
+chk "gate --verbose (own): reports a numeric age" \
   sh -c 'printf "%s" "$0" | grep -qE "age_min=[0-9]+"' "$out"
-chk "gate --verbose: affected_plans is exactly the plan written after the marker" \
+chk "gate --verbose (own): affected_plans is ownership-filtered to gv-new only" \
   test "$(printf '%s\n' "$out" | grep '^affected_plans=')" = "affected_plans=gv-new"
-rm -rf "$PLANS/gv-old" "$PLANS/gv-new"
+rm -rf "$PLANS/gv-old" "$PLANS/gv-new" "$PLANS/gv-b-owned" "$OWN_MARKER"
 
-rm -f "$GATE_MARKER"
+echo "== P3. gate --verbose: ARMED (legacy marker) — affected_plans UNFILTERED, mirroring approve-plan.sh's legacy_mode =="
+CWD="$REPO"
+rm -f "$LEGACY_MARKER" "$OWN_MARKER" "$SIB_MARKER" "$SIB_MARKER_C"
+{ echo "session=legacy-sess"; echo "cwd=/legacy/cwd"; } > "$LEGACY_MARKER"
+sleep 1
+plan lg-a-owned "owned by this worktree"
+ps init lg-a-owned >/dev/null
+plan lg-b-owned "owned by the sibling worktree"
+CWD="$WTB"; ps init lg-b-owned >/dev/null; CWD="$REPO"
+plan lg-unowned "never init'd — unowned"
+out="$(psout gate --verbose)"
+chk "gate --verbose (legacy): line 1 ARMED"        test "$(printf '%s\n' "$out" | sed -n '1p')" = "ARMED"
+chk "gate --verbose (legacy): marker= is the bare legacy path" has "marker=${LEGACY_MARKER}" "$out"
+chk "gate --verbose (legacy): affected_plans includes ALL three, unfiltered by ownership" \
+  sh -c 'line=$(printf "%s\n" "$0" | grep "^affected_plans="); sorted=$(printf "%s" "${line#affected_plans=}" | tr " " "\n" | sort | tr "\n" ","); [ "$sorted" = "lg-a-owned,lg-b-owned,lg-unowned," ]' "$out"
+rm -f "$LEGACY_MARKER"; rm -rf "$PLANS/lg-a-owned" "$PLANS/lg-b-owned" "$PLANS/lg-unowned"
+
+echo "== P4. gate --verbose: ARMED_ELSEWHERE — one elsewhere= line per live sibling, nothing else =="
+CWD="$REPO"
+rm -f "$LEGACY_MARKER" "$OWN_MARKER" "$SIB_MARKER" "$SIB_MARKER_C"
+{ echo "session=sib-sess-b"; echo "cwd=$WTB"; echo "worktree=$WTB"; } > "$SIB_MARKER"
+{ echo "session=sib-sess-c"; echo "cwd=$WTC"; echo "worktree=$WTC"; } > "$SIB_MARKER_C"
+out="$(psout gate --verbose)"
+chk "gate --verbose (elsewhere): line 1 ARMED_ELSEWHERE" test "$(printf '%s\n' "$out" | sed -n '1p')" = "ARMED_ELSEWHERE"
+chk "gate --verbose (elsewhere): exactly 3 lines total (token + one per sibling)" \
+  test "$(printf '%s\n' "$out" | wc -l | tr -d ' ')" = "3"
+chk "gate --verbose (elsewhere): sibling B's line present with all four fields" \
+  has "elsewhere=${WTB_ID} session=sib-sess-b worktree=${WTB} age_min=" "$out"
+chk "gate --verbose (elsewhere): sibling C's line present with all four fields" \
+  has "elsewhere=${WTC_ID} session=sib-sess-c worktree=${WTC} age_min=" "$out"
+rm -f "$SIB_MARKER" "$SIB_MARKER_C"
+
+echo "== P5. gate --verbose on STALE/RELEASED: still exactly the bare token, no fields =="
+CWD="$REPO"
+rm -f "$LEGACY_MARKER" "$OWN_MARKER" "$SIB_MARKER" "$SIB_MARKER_C"
 chk "gate --verbose on RELEASED: still exactly one line" \
   test "$(psout gate --verbose | wc -l | tr -d ' ')" = "1"
-: > "$GATE_MARKER"
-touch -t "$(date -v-9H +%Y%m%d%H%M 2>/dev/null || date -d '9 hours ago' +%Y%m%d%H%M)" "$GATE_MARKER" 2>/dev/null || true
+chk "gate --verbose on RELEASED: bare token" \
+  test "$(psout gate --verbose)" = "RELEASED"
+: > "$OWN_MARKER"
+touch -t "$(date -v-9H +%Y%m%d%H%M 2>/dev/null || date -d '9 hours ago' +%Y%m%d%H%M)" "$OWN_MARKER" 2>/dev/null || true
 chk "gate --verbose on STALE: still exactly one line" \
   test "$(psout gate --verbose | wc -l | tr -d ' ')" = "1"
-rm -f "$GATE_MARKER"
+chk "gate --verbose on STALE: bare token" \
+  test "$(psout gate --verbose)" = "STALE"
+rm -f "$OWN_MARKER"
 
 out="$(ps gate --verbose extra)"; rc=$?
 chk "gate --verbose rejects a further stray argument → exit 1"   test "$rc" = "1"

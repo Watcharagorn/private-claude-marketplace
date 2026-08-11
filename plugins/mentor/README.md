@@ -1,12 +1,14 @@
 # mentor
 
 A lean planning harness for Claude Code. One enforcement mechanism: `/mentor:plan`
-arms a repo-scoped `.planning` marker, and a single fail-closed `PreToolUse` hook
-blocks every repo edit — even under `bypassPermissions` — until the plan is
-approved. Plans are **Mermaid-first Markdown** documents persisted in the repo's
-**`.mentor/`** dir (gitignored), with required per-topic visualizations and a mandatory **Use case
-scenarios** section proving the plan understood the request. They auto-open for
-review and are the single source of truth for implementation, handoff, and review.
+arms this worktree's plan gate marker (`.planning.<wt-id>` — one per git worktree
+since v2.23.0), and a single fail-closed `PreToolUse` hook blocks every repo edit in
+that worktree — even under `bypassPermissions` — until the plan is approved. Plans
+are **Mermaid-first Markdown** documents persisted in the repo's **`.mentor/`** dir
+(gitignored, shared across every worktree), with required per-topic visualizations
+and a mandatory **Use case scenarios** section proving the plan understood the
+request. They auto-open for review and are the single source of truth for
+implementation, handoff, and review.
 
 ## Quick start
 
@@ -18,8 +20,10 @@ review and are the single source of truth for implementation, handoff, and revie
 
 `/mentor:plan`:
 
-1. Runs `begin-plan.sh`, which writes the repo-scoped `.planning` marker — **arming
-   the edit gate**. From here, repo source edits are blocked until approval.
+1. Runs `begin-plan.sh`, which writes this worktree's own `.planning.<wt-id>` marker
+   — **arming the edit gate for this worktree**. From here, repo source edits in
+   THIS worktree are blocked until approval; other worktrees plan and edit
+   independently (see "Known limitations").
 2. Follows the `plan` skill: optional clarify (grilling), research
    (subagent delegation suggested for big tasks), domain routing, open-decision
    resolution (every open question or decision that needs the user is asked via
@@ -101,7 +105,9 @@ v2.2.0, handoffs inside them since v2.10.0):
 ├── .gitignore       # commits config.json + constitution.md; ignores the rest
 ├── config.json      # {"mode": "plan|plan-only", + context-gate keys}   ← committed
 ├── constitution.md  # governing principles (/mentor:constitution)        ← committed
-├── plans/           # the .planning marker + one dir per plan topic      ← gitignored
+├── plans/           # one .planning.<wt-id> gate marker PER WORKTREE (v2.23.0) +
+│                    #   one dir per plan topic, SHARED across every worktree;
+│                    #   bare `.planning` is the reserved legacy repo-wide marker ← gitignored
 │   └── <slug>/      #   plan.md (+ hidden .plan.md.opened sidecar)
 │       │            #   a /mentor:defer stub is an ordinary plan dir born small —
 │       │            #   same shape, same location, just origin:"deferred" (v2.17.0)
@@ -277,7 +283,8 @@ gate): it loads any existing constitution, collects/derives principles, bumps a
 **semantic version** (MAJOR remove/redefine · MINOR add/expand · PATCH reword),
 records ratification + last-amended dates, prepends a **sync-impact report**, and
 writes the file after you confirm. Because it writes in-repo, run it **outside** a
-plan session — while a `.planning` marker is armed the edit gate would block it.
+plan session — while this worktree's plan gate (`.planning.<wt-id>`, or a live
+legacy `.planning`) is armed, the edit gate would block it here.
 
 Once it exists, it is honored automatically — there are no generated templates to
 keep in sync; the plan skill reads it **live**:
@@ -344,15 +351,15 @@ Knobs — env vars under `env` in `~/.claude/settings.json` (or the project's
 | Piece | Role |
 |---|---|
 | `commands/plan.md` | The `/mentor:plan` trigger. |
-| `hooks/begin-plan.sh` | Arms the `.planning` marker (closes the gate); prints the `MODE:` line (the approval-gate default) — and a `CONTEXT:` line: over the ask threshold it asks the user first (hand off, or bypass + lean plan) before arming. |
-| `hooks/plan-gate.sh` | **The one gate.** Fail-closed `PreToolUse` on Write/Edit/MultiEdit/NotebookEdit — denies in-repo writes while the marker exists, even under `bypassPermissions`. Mentor's own `.mentor/` tree (where the plan file lives) is exempt, so the plan is always writable. Stale markers (>8h) self-heal. |
-| `hooks/approve-plan.sh` | Validates the plan (non-empty `.md` **newer than the marker**), releases the gate. Mode-agnostic — flags map to the approval options: no-arg implements, `--deliver` prints the deliverable soft-stop, `--handoff` the hand-off directive (both directives also print on a re-run when the gate is already open); unknown flags are rejected. |
+| `hooks/begin-plan.sh` | Arms **this worktree's own** `.planning.<wt-id>` marker (v2.23.0; closes the gate for this worktree only — an optional `<slug>` argument WARNs if that slug is already owned by a live sibling worktree); prunes stale sibling markers with a per-marker notice; refuses over a live legacy `.planning` (distinct refusal message); prints the `MODE:` line (the approval-gate default), any live siblings as informational "also armed elsewhere" lines — and a `CONTEXT:` line: over the ask threshold it asks the user first (hand off, or bypass + lean plan) before arming. |
+| `hooks/plan-gate.sh` | **The one gate.** Fail-closed `PreToolUse` on Write/Edit/MultiEdit/NotebookEdit — denies in-repo writes while THIS worktree's own marker or the legacy repo-wide marker exists, even under `bypassPermissions`; a live sibling worktree's marker never denies here. Mentor's own `.mentor/` tree (where the plan file lives) is exempt, so the plan is always writable. Stale markers (>8h) self-heal on a would-deny write, each with a named notice. |
+| `hooks/approve-plan.sh` | Validates the plan (non-empty `.md` **newer than the marker**), releases this worktree's gate. Promotes only plans **owned** by this worktree (or unowned, when no sibling marker is live) — never a sibling's in-flight draft; a live legacy marker only sweeps repo-wide when the approving session is the one that armed it. Mode-agnostic — flags map to the approval options: no-arg implements, `--deliver` prints the deliverable soft-stop, `--handoff` the hand-off directive (both directives also print on a re-run when the gate is already open); unknown flags are rejected. |
 | `hooks/plan-open.sh` | Auto-opens the plan for review the first time it is written (VSCode tab / OS default; HTML zoom artifacts in `.mentor/zooms/` open in the browser). |
 | `hooks/set-mode.sh` | Get/set the approval-gate default. |
 | `hooks/context-gate.sh` | **Context gate.** `UserPromptSubmit` — measures live context from the transcript: warns once (~200k), re-warns near the limit (~315k), and above ~350k asks the user — hand off (recommended) or bypass for the session. Never blocks or erases prompts. Fail-soft; slash commands always pass. |
 | `hooks/bypass-context.sh` | Writes the session-scoped `.context-bypass-<session_id>` marker when the user answers "Proceed anyway" — degrades the ask tier to a one-line advisory for the rest of the session. |
-| `hooks/planning-intent.sh` | **Planning-intent advisory.** `UserPromptSubmit` — a narrow, once-per-session, non-blocking nudge: an anchored opener ("help me plan…", "let's plan…") suggests `/mentor:plan <topic>` so a conversational planning ask doesn't silently skip the edit gate. Never blocks, never creates repo state, suppressed while a plan is already armed. |
-| `hooks/plan-state.sh` | **The one plan-state API** (not a hook — skills call it directly). `init` / `set` / `set-deps` / `claim` / `list` / `current` / `overview` / `context` / `dir` / `gate`. Sole writer of `.state.json` (incl. `deps` and `origin`, v2.17.0); derives effective state from the plan's ✅ ticks; `current` is group-aware, so after a split it reports the whole group rather than whichever child agent finished last. `overview --json` computes the repo-wide plans+deps+handoffs hierarchy fresh on every call — nothing cached. `dir` (v2.14.0) is the one repo-scoped `.mentor` path derivation — skills call it instead of hand-rolling `git-common-dir` snippets that drift. `gate` is the one plan-gate marker status check (`ARMED`/`RELEASED`/`STALE`, read-only) — resuming/touring/plan-track call it instead of each re-deriving the marker path and 8h staleness window themselves. |
+| `hooks/planning-intent.sh` | **Planning-intent advisory.** `UserPromptSubmit` — a narrow, once-per-session, non-blocking nudge: an anchored opener ("help me plan…", "let's plan…") suggests `/mentor:plan <topic>` so a conversational planning ask doesn't silently skip the edit gate. Never blocks, never creates repo state; suppressed only while THIS worktree's own marker or the legacy marker is live — routed through the same liveness check as the gate, so a long-stale marker no longer suppresses it forever, and a sibling worktree's marker never suppresses it here. |
+| `hooks/plan-state.sh` | **The one plan-state API** (not a hook — skills call it directly). `init` / `set` / `set-deps` / `claim` / `list [--owners]` / `current [--any]` / `overview` / `context` / `dir` / `ensure-dir` / `gate`. Sole writer of `.state.json` (incl. `deps` and `origin`, v2.17.0; `owner`/`owner_session` — the minting/re-owning worktree — v2.23.0, stamped by `ensure-dir`/`init`/`claim`); derives effective state from the plan's ✅ ticks; `current` is group-aware and, since v2.23.0, ownership-scoped to plans owned by this worktree (`--any` for a deliberate repo-wide read) — after a split it reports the whole owned group rather than whichever child agent finished last. `list --owners` adds an OWNER column for slug-reuse scans. `overview --json` computes the repo-wide plans+deps+handoffs+owner hierarchy fresh on every call — nothing cached. `dir` (v2.14.0) is the one repo-scoped `.mentor` path derivation — skills call it instead of hand-rolling `git-common-dir` snippets that drift. `gate` is the one plan-gate marker status check for THIS worktree (`ARMED`/`STALE`/`ARMED_ELSEWHERE`/`RELEASED`, read-only; `--verbose` adds per-token fields, e.g. `owner_worktree=` on `ARMED` or one `elsewhere=` line per live sibling on `ARMED_ELSEWHERE`) — resuming/touring/plan-track call it instead of each re-deriving the marker path and 8h staleness window themselves. |
 
 ### Commands and skills never share a name
 
@@ -377,14 +384,56 @@ unused in practice.
 - **Bash is not gated.** The gate covers the Write/Edit/MultiEdit/NotebookEdit
   path (Claude's near-universal edit path); the skill instructs against
   repo-mutating shell commands during planning but does not enforce it.
-- **The gate protects the current worktree.** The `.planning` marker is shared
-  across linked git worktrees (via `git-common-dir`), but the deny check runs
-  against the worktree you are planning in — planning from a linked worktree
-  leaves the main worktree writable. The marker does carry the arming session's
-  id + cwd (`begin-plan.sh` writes it, `plan-gate.sh`'s deny message and
-  `begin-plan.sh`'s own foreign-marker guard both read it), so a blocked agent
-  can at least tell which session/worktree owns it instead of guessing from
-  mtime alone — it does not close the leak above.
+- **Gates are per-worktree; plans stay shared (v2.23.0).** Each git worktree now
+  arms and denies against its own `.planning.<wt-id>` marker
+  (`lib/state.sh`'s `mentor_worktree_id`), so planning in one worktree no longer
+  blocks writes in another. Every worktree still drafts into the SAME
+  `.mentor/plans/` tree, and `approve-plan.sh` only promotes plans it **owns**
+  (see "Unowned plans" below) — a sibling's in-flight draft is never swept.
+  Two sessions in the SAME worktree still serialize on the one marker; that
+  stays intentional.
+- **A pre-upgrade bare `.planning` is a reserved legacy marker that blocks
+  EVERY worktree**, fail-closed, until it is released or goes stale — only the
+  session whose id matches the marker's `session=` can approve through it (a
+  repo-wide sweep); every other session is refused and the marker is left
+  untouched. `begin-plan.sh` refuses to arm a new per-worktree marker over a
+  live legacy one (a distinct refusal message names it), so a worktree cannot
+  end up racing both kinds of marker at once.
+- **Unowned plans.** A plan's sidecar `owner` is stamped at creation
+  (`ensure-dir`) and re-stamped by `init`/`claim` — the normal flow — but a
+  plan can still be unowned (e.g. drafted, then `init` skipped). While ANY
+  sibling worktree's marker is live, `approve-plan.sh` excludes unowned
+  candidates from both "current plan" resolution and the promotion sweep,
+  naming them rather than silently promoting or silently skipping them. With
+  no sibling marker live, an unowned plan stays a promotion candidate (the
+  original, solo-worktree behavior).
+- **`git worktree move`/removal orphans state.** Moving or removing a worktree
+  leaves its `.planning.<wt-id>` marker behind with nothing left to deny: in
+  the moved tree the gate reads open silently (`mentor_worktree_id` now
+  derives a different id there), and an approval run from the moved tree lands
+  against that already-open gate, leaving the plan at `draft` instead of
+  promoting it. Recovery: re-arm (`/mentor:plan`) and re-run `init` to re-own
+  the plan in its new worktree. The same move can orphan a plan's sidecar
+  `owner` (pointing at a wt-id that no longer resolves anywhere) — recovery is
+  the same: `/mentor:plan <slug>` re-owns it via `init`.
+- **Mixed-version worktrees can strip `owner`.** An older cached plugin copy
+  rebuilds `.state.json` from its own pre-v2.23.0 key whitelist, dropping keys
+  it doesn't know about — including `owner`/`owner_session`. This degrades the
+  plan to the unowned handling above; it never corrupts the sidecar or loses
+  any other field.
+- **Same-slug concurrent drafting is unguarded beyond a warning.** Two
+  worktrees can now draft the same slug at once (the old repo-global marker
+  made this unreachable). `begin-plan.sh` and `plan-state.sh init`/`ensure-dir`
+  WARN when a target slug is already owned by a worktree with a live marker,
+  but nothing blocks the second worktree from writing anyway — coordinate
+  manually.
+- **`nosession` marker attribution.** A marker armed without
+  `$CLAUDE_CODE_SESSION_ID` set records `session=nosession`, which cannot be
+  told apart from any other `nosession`-armed marker — unchanged from before
+  v2.23.0. The same gap affects the context gate's
+  `.context-bypass-<session_id>` marker: a `nosession` bypass
+  (`.context-bypass-nosession`) is indistinguishable across worktrees and
+  leaks across them the same way.
 
 ### Plan format
 
@@ -434,6 +483,89 @@ extra deliverable. Instruction-only — no hooks.
 | `plan-domain-backend-api` | API/endpoint/route/handler/schema/DTO/contract — or the data model behind it: migration, table, column, index, constraint, enum, RLS policy | Before/after contract diff tables, schema diffs, Mermaid sequence flows; on a DDL change also a per-column delta table + a Mermaid ER diff of the changed entities. |
 | `plan-domain-architecture` | Structural change — services, containers, datastores, queues, integrations, data flows (not pure content/config/doc/style/refactor) | Diff-highlighted C4-style Mermaid flowcharts, only the levels that change; a provenance list for any changed datastore field. |
 | `plan-domain-dynamic` | No registered domain matched, and no already-available project/plugin skill names the technology (fallback) | A dispatched domain-definer names the domain and returns a best-practices brief; the plan gains a practice→step mapping. A substituted available skill can supply the brief instead. |
+
+## Changes in v2.23.0
+
+**The plan gate is now per-worktree — parallel development on one repo no longer
+deadlocks.** Before this, the gate marker `<repo>/.mentor/plans/.planning` was one
+file per repo: `mentor_repo_root` resolves via `git rev-parse --git-common-dir`, so
+every linked worktree shared the same marker, and a session planning in one worktree
+blocked every Write/Edit in every other worktree, including sessions that never armed
+anything. `begin-plan.sh` also refused to arm a second marker over a live one, so a
+second worktree couldn't even start its own plan — and `approve-plan.sh` swept **every**
+`plan.md` newer than the marker, including a sibling worktree's still-drafting one.
+
+Each git worktree now arms and is denied against its own marker,
+`.mentor/plans/.planning.<wt-id>` (`wt-id` derived from the worktree name plus a
+checksum of its real toplevel path — `lib/state.sh`'s new `mentor_worktree_id`). Plans
+themselves stay **shared** in the one `.mentor/plans/` tree — this is not per-worktree
+plan storage, only per-worktree gating. A pre-upgrade bare `.planning` (no suffix) is
+reserved as the **legacy repo-global marker**: it still fail-closed blocks every
+worktree until released or stale, and only the session that armed it (`session=` match)
+can approve through it repo-wide — everyone else is refused, marker untouched.
+Same-worktree serialization is unchanged and intentional: two sessions in one worktree
+still contend for the one marker.
+
+**Ownership closes the sweep hole.** A plan's sidecar `.state.json` gains `owner` +
+`owner_session` (the worktree that minted or last re-owned it), stamped at three
+points — `ensure-dir` (the instant a plan topic dir is created, closing the normal
+unowned-draft window), `init` (last-init-wins re-owning, also how `/mentor:plan <slug>`
+re-owns a plan resumed in a different worktree), and `claim` (deferred-stub
+resurrection). `approve-plan.sh` now promotes only plans owned by the approving
+worktree — and, whenever any sibling worktree's marker is live, excludes UNOWNED
+candidates too, reporting them by name rather than silently promoting or silently
+skipping them; with no sibling live, unowned plans stay promotable (solo back-compat).
+Every failure message names the ownership situation ("owned by another worktree —
+re-own with `/mentor:plan <slug>`") instead of a misleading "No Markdown plan found."
+
+**`plan-state.sh gate` gains a fourth token, `ARMED_ELSEWHERE`.** The full contract is
+now `ARMED` (this worktree's own marker or the legacy marker is live — a write here
+would be denied) / `STALE` (exists but past the staleness window, not yet
+pruned/healed) / `ARMED_ELSEWHERE` (no marker here, but a sibling worktree's is live —
+an independent gate that does not block this worktree) / `RELEASED`. `--verbose` gains
+a normative per-token field contract: `ARMED` reports `marker=` / `owner_session=` /
+`owner_cwd=` / `owner_worktree=` / `age_min=` / `affected_plans=`; `ARMED_ELSEWHERE`
+reports one `elsewhere=<wt-id> session=<sid> worktree=<path> age_min=<n>` line per live
+sibling and nothing else; `STALE`/`RELEASED` stay bare tokens. Bare `gate` is
+byte-unchanged (still exactly one token on line 1), so every existing `= "ARMED"`
+check keeps working — and now correctly reads `ARMED_ELSEWHERE` as "not armed for me."
+`current` is now ownership-scoped to plans owned by this worktree (or unowned), with a
+new `--any` for a deliberate repo-wide read; `list` gains an opt-in `--owners` column;
+`overview` carries an additive `owner` field.
+
+**Every asking/reading skill now understands the difference between "armed here,"
+"armed elsewhere," and "a pre-upgrade repo-wide lock."** `planning`'s Step 0 gate
+check is rewritten for strict `ARMED` equality (a deliberate flip: `STALE` now reads
+as NOT armed) with a guard so it never false-alarms outside a git repo, and its
+slug-reuse scan uses `list --owners` to never mint a slug another worktree already
+owns. `resuming` teaches that resuming a paused plan in a different worktree from the
+one that armed it requires re-owning (`/mentor:plan <slug>` → `init`) before any
+approval. `plan-track` hard-refuses approving a `draft` plan owned by a sibling
+worktree (worktree B could otherwise promote and dispatch a draft worktree A is
+mid-writing) while still allowing dispatch of already-`approved` work under
+`ARMED_ELSEWHERE`, and renders ` [worktree: <id>]` on any listed entry owned by another
+worktree. `constitution-authoring` treats `ARMED_ELSEWHERE` as NOT planning-active (so
+constitution work doesn't re-deadlock repo-wide) while still honoring a live legacy
+marker. `touring`/`plan-touring`/`zooming` exclude sibling-owned plans from subject
+resolution so "the newest plan" can't silently resolve to a worktree you don't own.
+`plan-review` notes its primary-subject resolution is automatically safe via the
+now-scoped `current`, while its related-artifact enumeration deliberately stays
+repo-wide (those paths are read-only labels, never write targets). `plan-split`
+now mints every child's plan dir via the main thread's `ensure-dir` **before**
+dispatching the authoring agents — stamping ownership at creation — and registers
+(`init --group/--order`) each child **as it verifies**, not batched after all N;
+otherwise every child would sit unowned and newer than every live marker for the
+whole verification window (sweepable by a sibling's approve) and permanently unowned
+if the split aborted partway.
+
+**Known, documented, and deliberately not closed:** a pre-existing sidecar can be
+orphaned by `git worktree move`/removal (recovery: re-arm + re-`init`); an older cached
+plugin copy rebuilding `.state.json` from its pre-v2.23.0 key whitelist can strip
+`owner` (degrades to the unowned handling, never corrupts); two worktrees can now draft
+the same slug concurrently, guarded only by a WARN from `begin-plan.sh` and
+`init`/`ensure-dir`; and `nosession` marker attribution (plus the pre-existing
+`.context-bypass-nosession` cross-worktree leak) is unchanged. All are detailed under
+"Known limitations" above.
 
 ## Changes in v2.22.0
 

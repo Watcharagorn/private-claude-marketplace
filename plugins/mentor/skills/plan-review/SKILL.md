@@ -31,7 +31,8 @@ consistency) dispatch — against the UPDATED plan, so they also catch anything
 the fold introduced. Their `MECHANICAL`-tagged fixes are auto-folded;
 `DECISION-REQUIRED` findings are walked the same one-question-per-finding
 way — applied only on the user's verdict, never automatically. Reviewers stay
-read-only and the `.planning` gate stays closed throughout, but this skill
+read-only and this worktree's plan gate (`.planning.<wt-id>`, or a live legacy
+`.planning`) stays closed throughout, but this skill
 itself writes ONE file — the plan `.md`, at Step 5 (fold) and Step 7
 (auto-fold + verdict fold), inside the gate-exempt `.mentor/` tree. The
 mechanical stage can also be invoked **on its own** (see Stage-2-only mode
@@ -97,6 +98,10 @@ found.` and stop. Then `Read` the primary plan — it IS its own canonical sourc
 **not** edit it yet — plan edits happen only at Step 5 (fold) and Step 7 (auto-fold +
 verdict fold).
 
+Primary-subject resolution is safe by construction: bare `current` (no `--any`) is
+ownership-scoped to plans owned by this worktree, or unowned, since v2.23.0 — the
+plan it resolves is never a sibling worktree's in-flight draft.
+
 **When `GROUP:` is not `-`**, the primary plan is one slice of a `/plan-split` group,
 and the script prints its siblings. Reviewing an arbitrary slice is rarely what the
 user wants, so ask which sibling to review — or all of them, which means running this
@@ -123,7 +128,11 @@ const_path="${repo_root}/${const_rel:-.mentor/constitution.md}"
 
 This enumeration deliberately stays a raw `ls` rather than `plan-state.sh current` —
 `current` answers "which ONE plan is the subject", while this needs **every** artifact
-that might contradict it, superseded parents very much included. `plan-state.sh list`
+that might contradict it, superseded parents very much included. It also deliberately
+stays **repo-wide** rather than ownership-scoped like `current`: every path here is
+read only as a **label** (state, critical files) to compare the primary plan against,
+never a write target, so filtering it to this worktree's own plans would silently hide
+a sibling worktree's plan that genuinely contradicts the primary. `plan-state.sh list`
 and the Critical-files grep above are joined onto that list only to **label** each path
 with its state and the files it touches — never to drop one from it.
 
@@ -179,8 +188,8 @@ rules — invoke `Skill(skill="mentor:dispatch-agents")` now if it is not alread
 loaded (this skill runs standalone as often as it runs from `plan`, so usually it
 is not), then end each reviewer's prompt with that section's **"Deliver before
 idling"** block pasted verbatim. Loading it is for that block and the **Standing
-no-subagents policy** check alone: nothing here is being implemented and the
-`.planning` gate stays closed. That block is also what
+no-subagents policy** check alone: nothing here is being implemented and this
+worktree's plan gate stays closed. That block is also what
 produces the durable verdict copy — give each reviewer its own filename for it,
 `.mentor/plans/<slug>/practicality-review.md` and
 `.mentor/plans/<slug>/comprehensiveness-review.md`, since both dispatch in one
@@ -582,10 +591,12 @@ including "Hand off to next agent", and the "only a returned answer approves"
 rule for re-asking an interrupted one — a freshly-invented option set drops
 all three silently. Invoke `Skill(skill="mentor:planning")` first (standalone,
 it usually is not loaded) and run its Step 0 armed-gate check before entering
-Step 6: a resumed session's marker is often `STALE` or `RELEASED`, and
-`approve-plan.sh` on a missing marker reports success while approving and
-promoting nothing. Control passes there — the "do not run `approve-plan.sh`"
-rule below binds this skill, not the one you handed off to.
+Step 6: a resumed session's marker is often `STALE`, `RELEASED`, or
+`ARMED_ELSEWHERE` (armed in a different worktree — this worktree isn't blocked,
+but the plan may need re-owning via `/mentor:plan <slug>` before it can be
+approved here), and `approve-plan.sh` on a missing marker reports success while
+approving and promoting nothing. Control passes there — the "do not run
+`approve-plan.sh`" rule below binds this skill, not the one you handed off to.
 
 ## Stage-2-only mode
 

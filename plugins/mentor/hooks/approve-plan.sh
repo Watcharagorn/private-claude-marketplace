@@ -17,11 +17,28 @@
 # plan stays `draft`. Adding a --handoff-draft flag here would re-create the
 # `approved` promotion below as a side effect, which is the bug it exists to avoid.
 #
-# Validation (only while the gate is armed): the newest Markdown plan
-# (plans/<slug>/plan.md) must be non-empty AND newer than the `.planning`
-# marker (the marker's mtime is the
-# session start — begin-plan.sh — so a stale plan from a prior session can
+# Marker resolution (v2.23.0 — per-worktree gates): this worktree's OWN marker
+# (`.planning.<wt-id>`) is used if present. Otherwise, a live LEGACY bare
+# `.planning` (the reserved pre-upgrade repo-wide marker) is used ONLY when its
+# `session=` matches this session — a session that never armed the legacy
+# marker must not be able to sweep the whole repo and delete another session's
+# marker out from under it; a session/owner mismatch REFUSES instead, marker
+# untouched. With neither marker present/live, this is the gate-already-open
+# branch below. An empty wt-id (git failure, `.git/` cwd, bare repo) makes the
+# own-marker path identical to the legacy path, so that case falls straight
+# into the ordinary own-marker branch with no session check — unchanged
+# pre-upgrade behavior.
+#
+# Validation (only while a marker is resolved above): the newest Markdown plan
+# owned by this worktree (or unowned, when no sibling worktree marker is live)
+# must be non-empty AND newer than the resolved marker (the marker's mtime is
+# the session start — begin-plan.sh — so a stale plan from a prior session can
 # never release the gate). On failure the marker stays (gate CLOSED), exit 1.
+# While ANY sibling worktree's marker is live, an unowned plan is excluded from
+# both validation and the promotion sweep below (reported by name) — ownership
+# stamping happens at plan-dir creation time but is model-followed, not
+# hook-enforced, so it can't be trusted alone to tell two worktrees' drafts
+# apart.
 #
 # Idempotent-directive rule: when the gate is already open, validation and
 # release are skipped, but --deliver/--handoff STILL print their directive —
@@ -33,15 +50,17 @@
 # (implement now / hand off / deliver), not whether the plan was approved. Leaving
 # --handoff plans at `draft` made plan-track refuse them in the next session
 # ("the gate never released" — but it did). See the promotion block for why the
-# candidate set is snapshotted before the marker is deleted.
+# candidate set is snapshotted before the marker is deleted. Promotion also
+# stamps `owner`/`owner_session` (this worktree) on any previously-unowned plan
+# it promotes — see _promote_plan below.
 #
 # Approval-sweep shield (v2.17.0): a candidate whose sidecar carries origin:"deferred"
 # (a stub born via /mentor:defer mid-session) is SKIPPED, not promoted — it stays
 # `draft` until `plan-state.sh claim <slug>` clears origin. The promotion write itself
-# is now flag-style (`--state approved`, no other flags) so it never touches
-# deps/origin/group/order — the old fixed-positional write clobbered them back to
-# defaults on every promotion, which is exactly what made a shield here pointless
-# before the rework.
+# is now flag-style (`--state approved`, no other flags beyond --owner/--owner-session
+# when stamping), so it never touches deps/origin/group/order — the old fixed-positional
+# write clobbered them back to defaults on every promotion, which is exactly what made a
+# shield here pointless before the rework.
 
 set -euo pipefail
 
@@ -68,20 +87,153 @@ if [ -z "$repo_root" ]; then
   exit 1
 fi
 plans_dir="$(mentor_plans_dir "$repo_root")"
-marker="${plans_dir}/.planning"
 
-newest_plan="$(mentor_newest_plan "$plans_dir")"
+wt_id="$(mentor_worktree_id "$cwd")"
+this_session="${CLAUDE_CODE_SESSION_ID:-nosession}"
+own_marker="$(mentor_plan_marker "$plans_dir" "$wt_id")"
+legacy_marker="${plans_dir}/.planning"
+
+# _newest_plan_strict_owned <plans_dir> <wt_id> — mentor_newest_plan_owned's exact walk
+# (mtime-newest non-superseded plan.md, all-superseded fallback), but STRICT: an unowned
+# plan dir is excluded too, not just a foreign-owned one. Used only while a sibling
+# worktree's marker is live — ownership stamping is model-followed, not hook-enforced,
+# so an unowned draft racing a live sibling can't be silently treated as this worktree's
+# own (plan Design §4, [R]).
+_newest_plan_strict_owned() {
+  local plans_dir="$1" wt_id="$2" f owner newest=""
+  while IFS= read -r f; do
+    [ -n "$f" ] || continue
+    owner="$(mentor_plan_owner "$(dirname "$f")")"
+    [ "$owner" = "$wt_id" ] || continue
+    [ -n "$newest" ] || newest="$f"
+    if [ "$(mentor_plan_effective_state "$(dirname "$f")")" != "superseded" ]; then
+      echo "$f"; return 0
+    fi
+  done < <(ls -t "${plans_dir}"/*/plan.md 2>/dev/null || true)
+  echo "$newest"
+  return 0
+}
+
+# _excluded_owner_count <plans_dir> <wt_id> <strict> — how many plan.md files in
+# <plans_dir> the CURRENT filtering (wt_id, plus "strict" = also exclude unowned) would
+# NOT hand back as the candidate — i.e. foreign-owned always, plus unowned too when
+# strict. Used only to explain a validation failure by name, never to gate anything.
+_excluded_owner_count() {
+  local plans_dir="$1" wt_id="$2" strict="$3" f owner cnt=0
+  for f in "${plans_dir}"/*/plan.md; do
+    [ -f "$f" ] || continue
+    owner="$(mentor_plan_owner "$(dirname "$f")")"
+    if [ "$strict" -eq 1 ]; then
+      [ "$owner" = "$wt_id" ] || cnt=$((cnt + 1))
+    else
+      [ -n "$owner" ] && [ "$owner" != "$wt_id" ] && cnt=$((cnt + 1))
+    fi
+  done
+  echo "$cnt"
+  return 0
+}
+
+# _promote_plan <plan_dir> <note> — the one write path for every promotion below:
+# always `--state approved`, always replaces the note (mentor_plan_state_write's
+# documented "note always replaced" contract — "" clears it, same as omitting --note
+# entirely). Additionally stamps `--owner <wt_id> --owner-session <this_session>` when
+# the plan is currently unowned and this worktree has a real wt-id — "promotion
+# additionally stamps owner on previously-unowned candidates" (plan Design §4).
+_promote_plan() {
+  local plan_dir="$1" note="$2"
+  if [ -n "$wt_id" ] && [ -z "$(mentor_plan_owner "$plan_dir")" ]; then
+    mentor_plan_state_write "$plan_dir" --state approved --owner "$wt_id" --owner-session "$this_session" --note "$note"
+  else
+    mentor_plan_state_write "$plan_dir" --state approved --note "$note"
+  fi
+}
+
+marker=""
+legacy_mode=0
+
+if [ -f "$own_marker" ]; then
+  marker="$own_marker"
+elif [ -f "$legacy_marker" ] && ! mentor_marker_stale "$legacy_marker"; then
+  legacy_session="$(mentor_marker_field "$legacy_marker" session)"
+  if [ -n "$legacy_session" ] && [ "$legacy_session" = "$this_session" ]; then
+    marker="$legacy_marker"
+    legacy_mode=1
+  else
+    legacy_cwd="$(mentor_marker_field "$legacy_marker" cwd)"
+    legacy_age="$(mentor_marker_age_min "$legacy_marker")"
+    cat >&2 <<EOF
+[mentor approve-plan] Refusing to approve through the legacy plan gate.
+  marker:   ${legacy_marker}
+  armed by: session ${legacy_session:-<unknown, pre-metadata marker>} at ${legacy_cwd:-<unknown cwd>}
+  age:      ~${legacy_age:-unknown}m ago (not yet stale)
+
+This is the pre-upgrade repo-wide marker — it blocks every worktree until its own
+arming session approves it or it goes stale. This session (${this_session}) never
+armed it, so approving here would sweep the whole repo AND delete another session's
+marker out from under it. The marker is left untouched.
+
+Ask the user to confirm before proceeding — either wait for the arming session to
+approve, or have them explicitly authorize clearing ${legacy_marker}.
+EOF
+    exit 1
+  fi
+fi
+
+# Sibling-liveness (own-marker mode only, real wt-id only): any OTHER live
+# `.planning*` marker besides our own and the legacy one. Drives the strict
+# unowned-exclusion below (plan Design §4, [R]) — irrelevant to legacy_mode
+# (already unfiltered/repo-wide by design) and to an empty wt-id (pre-change
+# behavior, see header).
+sibling_live=0
+strict=0
+if [ -n "$marker" ] && [ "$legacy_mode" -eq 0 ] && [ -n "$wt_id" ]; then
+  while IFS= read -r m; do
+    [ -n "$m" ] || continue
+    case "$m" in
+      "$own_marker"|"$legacy_marker") continue ;;
+    esac
+    sibling_live=1
+    break
+  done < <(mentor_live_markers "$plans_dir")
+  [ "$sibling_live" -eq 1 ] && strict=1
+fi
 
 # Plans written during THIS planning session — snapshotted BEFORE the marker is
 # removed, because `[ a -nt b ]` and `find -newer b` are both TRUE when b is gone:
 # asking "newer than the marker" after the release would match every plan dir in the
 # repo, including months-old ones. Empty on the gate-already-open branch, which is
 # correct — nothing was planned in this session, so nothing gets promoted.
+newest_plan=""
 newly_planned=""
+unowned_skipped=""
 
-if [ -f "$marker" ]; then
+if [ -n "$marker" ]; then
+  filter_wt_id="$wt_id"
+  [ "$legacy_mode" -eq 1 ] && filter_wt_id=""
+
+  if [ "$strict" -eq 1 ]; then
+    newest_plan="$(_newest_plan_strict_owned "$plans_dir" "$wt_id")"
+  else
+    newest_plan="$(mentor_newest_plan_owned "$plans_dir" "$filter_wt_id")"
+  fi
+
   if [ -z "$newest_plan" ] || [ ! -s "$newest_plan" ]; then
-    echo "[mentor approve-plan] No Markdown plan found in ${plans_dir}." >&2
+    excluded=0
+    if [ -n "$wt_id" ] && [ "$legacy_mode" -eq 0 ]; then
+      excluded="$(_excluded_owner_count "$plans_dir" "$wt_id" "$strict")"
+    fi
+    if [ "$excluded" -gt 0 ]; then
+      echo "[mentor approve-plan] No plan owned by this worktree in ${plans_dir}." >&2
+      if [ "$strict" -eq 1 ]; then
+        echo "  (${excluded} plan(s) here are owned by another worktree or unowned while a sibling" >&2
+        echo "   worktree's planning is active — re-own with /mentor:plan <slug> or claim with" >&2
+        echo "   plan-state.sh claim <slug>.)" >&2
+      else
+        echo "  (${excluded} plan(s) here are owned by another worktree — re-own with /mentor:plan <slug>.)" >&2
+      fi
+    else
+      echo "[mentor approve-plan] No Markdown plan found in ${plans_dir}." >&2
+    fi
     echo "Write the plan (<slug>/plan.md) before approving — the gate stays CLOSED." >&2
     exit 1
   fi
@@ -90,34 +242,77 @@ if [ -f "$marker" ]; then
   # planning session). begin-plan never purges prior sessions' approved plans, so
   # "newest non-empty" alone would let a premature approve resurrect an old plan.
   if [ ! "$newest_plan" -nt "$marker" ]; then
+    excluded=0
+    if [ -n "$wt_id" ] && [ "$legacy_mode" -eq 0 ]; then
+      excluded="$(_excluded_owner_count "$plans_dir" "$wt_id" "$strict")"
+    fi
     echo "[mentor approve-plan] Newest plan predates this planning session:" >&2
     echo "  ${newest_plan}" >&2
+    if [ "$excluded" -gt 0 ]; then
+      if [ "$strict" -eq 1 ]; then
+        echo "  (${excluded} plan(s) here are owned by another worktree or unowned while a sibling" >&2
+        echo "   worktree's planning is active — re-own with /mentor:plan <slug> or claim with" >&2
+        echo "   plan-state.sh claim <slug> if one of those is yours.)" >&2
+      else
+        echo "  (${excluded} plan(s) here are owned by another worktree — re-own with /mentor:plan <slug>" >&2
+        echo "   if one of those is yours.)" >&2
+      fi
+    fi
     echo "Write the plan for THIS session before approving — the gate stays CLOSED." >&2
     exit 1
   fi
 
-  newly_planned="$(find "$plans_dir" -mindepth 2 -maxdepth 2 -name plan.md -newer "$marker" 2>/dev/null || true)"
+  newly_planned="$(mentor_newly_planned "$plans_dir" "$marker" "$filter_wt_id")"
+
+  # Strict mode: mentor_newly_planned's own filter keeps unowned candidates (its
+  # contract is owner ∈ {wt_id, unset}) — pull those back out here and report them by
+  # name instead of silently sweeping or silently dropping them.
+  if [ "$strict" -eq 1 ] && [ -n "$newly_planned" ]; then
+    filtered=""
+    while IFS= read -r p; do
+      [ -n "$p" ] || continue
+      if [ -z "$(mentor_plan_owner "$(dirname "$p")")" ]; then
+        unowned_skipped="${unowned_skipped}$(basename "$(dirname "$p")") "
+      else
+        filtered="${filtered}${p}"$'\n'
+      fi
+    done <<<"$newly_planned"
+    newly_planned="${filtered%$'\n'}"
+  fi
 
   # Release the gate.
   rm -f "$marker" 2>/dev/null || true
-  echo "[mentor approve-plan] Plan APPROVED — gate released. Repo edits are now allowed."
+  if [ "$legacy_mode" -eq 1 ]; then
+    echo "[mentor approve-plan] Plan APPROVED — legacy repo-wide gate released. Repo edits are now allowed in every worktree."
+  else
+    echo "[mentor approve-plan] Plan APPROVED — gate released. Repo edits are now allowed."
+  fi
   echo "  plan: ${newest_plan}"
+  if [ "$legacy_mode" -eq 0 ] && [ -n "$wt_id" ] && [ -f "$legacy_marker" ] && ! mentor_marker_stale "$legacy_marker"; then
+    echo "  WARNING: a legacy repo-wide marker is still live (${legacy_marker}) — it blocks edits"
+    echo "  in EVERY worktree (including this one) until its own arming session approves it or it"
+    echo "  goes stale. This worktree's own gate is released, but repo edits stay BLOCKED."
+  fi
 else
   # Idempotency: gate already open (already approved, or never armed). Skip
   # validation/release but still honor the flag directive below.
   #
-  # The marker keeps no history once it's gone, so this branch can never know
-  # which cause applies (another session's approve-plan.sh, plan-gate's stale
-  # self-heal, a manual rm — or the gate was simply never armed this session,
-  # e.g. begin-plan.sh's CONTEXT: ASK or foreign-marker guard exiting 0 without
-  # arming). Name the candidates instead of asserting one, and point at a
-  # command that actually answers "did MY plan promote?" (`list`, not
-  # `overview` — the latter is JSON-only and repo-wide, the wrong shape here).
+  # No marker keeps no history once it's gone, so this branch can never know which
+  # cause applies (another session's approve-plan.sh, plan-gate's stale self-heal, a
+  # manual rm — or the gate was simply never armed this session, e.g. begin-plan.sh's
+  # CONTEXT: ASK or foreign-marker guard exiting 0 without arming). Name the
+  # candidates instead of asserting one, and point at a command that actually
+  # answers "did MY plan promote?" (`list`, not `overview` — the latter is
+  # JSON-only and repo-wide, the wrong shape here).
+  newest_plan="$(mentor_newest_plan "$plans_dir")"
   echo "[mentor approve-plan] Gate is already open — nothing to release."
   echo "  (Could be: another session's approve-plan.sh, plan-gate's stale self-heal,"
   echo "   a manual rm, or the gate was never armed this session. If YOU planned this"
   echo "   session, check: bash \"${hook_dir}/plan-state.sh\" list — and if your plan is"
-  echo "   still draft, promote it: plan-state.sh set <slug> approved --note \"…\".)"
+  echo "   still draft, promote it: plan-state.sh set <slug> approved --note \"…\"."
+  echo "   Or this worktree was moved/renamed (\`git worktree move\` changes the worktree"
+  echo "   id) — check plan-state.sh gate --verbose for a marker owned by a different"
+  echo "   worktree id.)"
   [ -n "$newest_plan" ] && echo "  plan (repo-wide newest, may not be yours): ${newest_plan}"
 fi
 
@@ -143,7 +338,7 @@ fi
 # cached plugin predating it), which is exactly how a plan left at `draft` after a
 # successful-looking approval went unnoticed until the next session refused to build it.
 # One `state:` line always prints, before the --handoff/--deliver early exits below.
-if [ -n "$newly_planned" ]; then
+if [ -n "$newly_planned" ] || [ -n "$unowned_skipped" ]; then
   promoted=""; swept=""; deferred_skipped=""; candidates=0
   while IFS= read -r plan_path; do
     [ -n "$plan_path" ] || continue
@@ -161,9 +356,7 @@ if [ -n "$newly_planned" ]; then
       continue
     fi
     if [ "$plan_path" = "$newest_plan" ]; then
-      # Flag-style: only --state is passed, so deps/origin/group/order ride through
-      # untouched — the whole point of the shield above.
-      mentor_plan_state_write "$plan_dir" --state approved
+      _promote_plan "$plan_dir" ""
       promoted="${promoted}$(basename "$plan_dir") "
     else
       # Swept in only because its plan.md is also newer than this session's marker
@@ -173,8 +366,7 @@ if [ -n "$newly_planned" ]; then
       # a resumed grill — still sees it wasn't individually reviewed, since the
       # promotion write already replaces whatever note was there (mentor_plan_state_write's
       # --note has no "omitted preserves" case) whether we set one or not.
-      mentor_plan_state_write "$plan_dir" --state approved \
-        --note "swept in by approve-plan.sh — plan.md was newer than this session's .planning marker but this wasn't the plan being approved; not individually reviewed. Undo: plan-state.sh set $(basename "$plan_dir") draft"
+      _promote_plan "$plan_dir" "swept in by approve-plan.sh — plan.md was newer than this session's .planning marker but this wasn't the plan being approved; not individually reviewed. Undo: plan-state.sh set $(basename "$plan_dir") draft"
       swept="${swept}$(basename "$plan_dir") "
     fi
   done <<<"$newly_planned"
@@ -189,6 +381,9 @@ if [ -n "$newly_planned" ]; then
   fi
   if [ -n "$deferred_skipped" ]; then
     echo "  state: left draft (deferred stub — run 'plan-state.sh claim <slug>' first) — ${deferred_skipped% }"
+  fi
+  if [ -n "$unowned_skipped" ]; then
+    echo "  state: unowned, skipped — sibling planning active; re-own via /mentor:plan <slug> or plan-state.sh claim — ${unowned_skipped% }"
   fi
 else
   echo "  state: unchanged — no plans written this session, nothing to promote"

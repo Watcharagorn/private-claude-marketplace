@@ -62,6 +62,8 @@ filename and overwrite in place.
 state_dir="$(bash "${CLAUDE_PLUGIN_ROOT}/hooks/plan-state.sh" dir)"   # worktree-safe; _no-repo fallback
 [ -n "$state_dir" ] || { echo "ERROR: mentor state dir unresolved — is CLAUDE_PLUGIN_ROOT set?" >&2; exit 1; }
 ls -t "$state_dir"/plans/*/plan.md 2>/dev/null | head -5              # candidate plans, newest first
+sibling_wts="$(bash "${CLAUDE_PLUGIN_ROOT}/hooks/plan-state.sh" gate --verbose | sed -n 's/^elsewhere=\([^ ]*\).*/\1/p')"
+[ -n "$sibling_wts" ] && bash "${CLAUDE_PLUGIN_ROOT}/hooks/plan-state.sh" list --owners   # cross-check OWNER col below
 ```
 
 Resolve in priority order:
@@ -69,7 +71,12 @@ Resolve in priority order:
 1. **The argument.** Read it as a plan-slug substring first; any token that matches a
    plan dir name resolves the plan, and whatever text is left over is the area and/or
    perspective (`/mentor:plan-tour payments system architect`).
-2. **The newest plan** from the listing.
+2. **The newest plan** from the listing — but when `$sibling_wts` is non-empty
+   (`ARMED_ELSEWHERE`), first drop any candidate whose OWNER column (from `list --owners`
+   above) matches one of those wt-ids: a sibling's live marker means that plan is
+   mid-write, not this tour's subject. If the filter empties the listing or leaves the
+   pick ambiguous, ask the user for an explicit subject instead of guessing. **Note:** the
+   newest plan in the raw listing may be the sibling's — name the plan you picked.
 3. **Nothing.** No `plans/*/plan.md` anywhere → print exactly one line and stop:
 
    ```
@@ -81,16 +88,17 @@ skill deliberately diverges from `zooming`: a tour's page unit *is* the plan's
 implementation steps, so without a plan file there is no arc to page through. A visual
 of something that is not a plan is `/mentor:zoom`.
 
-When a substring matches **several** plans, take the newest match and say which one
-you took in one line. Do not spend a question on disambiguation — the selection gate
-below is the single question this skill is allowed, and a wrong guess costs one re-run
-against a stable filename.
+When a substring matches **several** plans, apply the same sibling-owned exclusion as
+step 2 above, then take the newest remaining match and say which one you took in one
+line. Do not spend a question on disambiguation — the selection gate below is the
+single question this skill is allowed, and a wrong guess costs one re-run against a
+stable filename.
 
 Then read `plan.md` in full (you need it for Step 1 anyway) and hold its path.
 
 **No planning-session guard.** `.mentor/` is exempt from the plan edit gate, so a plan
-tour is legal while a `.planning` marker is armed — which is the common case, since the
-whole point is reviewing a plan *before* approval. This skill's combo agents write only
+tour is legal while this worktree's gate reads `ARMED` — which is the common case, since
+the whole point is reviewing a plan *before* approval. This skill's combo agents write only
 tour artifacts under `.mentor/plans/*/tour/`, never repo source files.
 
 ## Step 1 — Selection gate (exactly one question)

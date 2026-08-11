@@ -9,11 +9,18 @@
 #   ├── .gitignore        # commit config.json + constitution.md; ignore transient state
 #   ├── config.json       # {"mode": "plan|plan-only", "context_gate", "context_*_tokens", "test_command" ...}
 #   ├── constitution.md   # governing principles (committed; managed by /mentor:constitution)
-#   ├── plans/            # the .planning marker + one <slug>/ dir per plan topic:
+#   ├── plans/            # one .planning.<wt-id> gate marker PER WORKTREE (v2.23.0,
+#   │                     #   mentor_worktree_id/mentor_plan_marker below) + one <slug>/
+#   │                     #   dir per plan topic, SHARED across every worktree. Bare
+#   │                     #   `.planning` (no suffix) is the reserved LEGACY repo-global
+#   │                     #   marker — blocks every worktree until released/stale.
 #   │   └── <slug>/       #   plan.md (+ hidden .plan.md.opened sidecar)
-#   │       ├── .state.json  # {"state","group","order","note","deps","origin"} — written
-#   │       │                #   ONLY via plan-state.sh (deps/origin added v2.17.0; old
-#   │       │                #   4-field sidecars read back with deps:[] origin:null)
+#   │       ├── .state.json  # {"state","group","order","note","deps","origin","owner",
+#   │       │                #   "owner_session"} — written ONLY via plan-state.sh
+#   │       │                #   (deps/origin added v2.17.0; owner/owner_session — the
+#   │       │                #   minting/re-owning worktree, v2.23.0 — added below; older
+#   │       │                #   or mixed-version sidecars read back with any missing key
+#   │       │                #   jq-defaulted to []/null/"")
 #   │       └── handoffs/ #   <ts>-<slug>.md; solved/superseded notes → handoffs/resolved/
 #   ├── zooms/            # mentor:zooming artifacts — <subject-slug>/<topic>-<perspective>.html
 #   │                     #   (+ hidden .*.opened sidecars; pre-v2.12 they lived in plans/<slug>/zoom/)
@@ -60,6 +67,79 @@ mentor_plans_dir() {
   return 0
 }
 
+# mentor_worktree_id <cwd> — echo "<name>-<crc>" identifying the git worktree at <cwd>,
+# or empty on any git failure (not a repo, bare repo, a cwd inside `.git/`, etc.) —
+# callers then fall back to the legacy repo-global marker (see mentor_plan_marker).
+#
+# name: "main" for the primary worktree, else the `<name>` in `.git/worktrees/<name>`
+# (git's own linked-worktree layout). Determined from `--absolute-git-dir`'s PARENT
+# BASENAME being exactly "worktrees" — never a substring test on the whole path, which
+# would mislabel a repo that merely lives under a directory literally named
+# `worktrees/` (e.g. `/tmp/worktrees/myrepo/.git` parent-basename is `myrepo`, not
+# `worktrees`, so that repo's primary worktree still gets "main"). Sanitized
+# `[^A-Za-z0-9_-] → -` so the id is always marker-filename-safe.
+#
+# crc: `git rev-parse --show-toplevel | cksum | cut -d' ' -f1` — reproduced here as a
+# captured toplevel re-fed through `cksum` (command substitution strips the trailing
+# newline `rev-parse` prints, so it's restored before hashing) rather than a second git
+# call. `--show-toplevel` is the ONLY sanctioned source: it is the one path form that
+# comes back canonical/physical from every derivation site this id is read from (hook
+# stdin cwd, `pwd`, symlinked/logical paths, APFS case variance) — `$PWD` and
+# `mentor_repo_root`'s output are NOT canonical and must never be hashed instead. The
+# `cut` is mandatory: `cksum` emits "<checksum> <byte-count> [file]", and dropping it
+# would fold the byte count into the id.
+mentor_worktree_id() {
+  local cwd="${1:-$PWD}" git_dir parent parent_base name toplevel crc
+  git_dir="$(git -C "$cwd" rev-parse --absolute-git-dir 2>/dev/null || true)"
+  if [ -z "$git_dir" ]; then echo ""; return 0; fi
+  parent="$(dirname "$git_dir")"
+  parent_base="$(basename "$parent")"
+  if [ "$parent_base" = "worktrees" ]; then
+    name="$(basename "$git_dir")"
+  else
+    name="main"
+  fi
+  name="$(printf '%s' "$name" | sed 's/[^A-Za-z0-9_-]/-/g')"
+  toplevel="$(git -C "$cwd" rev-parse --show-toplevel 2>/dev/null || true)"
+  if [ -z "$toplevel" ]; then echo ""; return 0; fi
+  crc="$(printf '%s\n' "$toplevel" | cksum | cut -d' ' -f1)"
+  if [ -z "$crc" ]; then echo ""; return 0; fi
+  echo "${name}-${crc}"
+  return 0
+}
+
+# mentor_plan_marker <plans_dir> <wt_id> — echo the gate marker path for <wt_id>:
+# <plans_dir>/.planning.<wt_id>, or the bare legacy <plans_dir>/.planning when <wt_id>
+# is empty. THE ONE fallback site for the empty-wt-id case — every caller that needs a
+# worktree's own marker path goes through this function so the fallback can never drift
+# between call sites. Empty <plans_dir> → empty.
+mentor_plan_marker() {
+  local plans_dir="${1:-}" wt_id="${2:-}"
+  if [ -z "$plans_dir" ]; then echo ""; return 0; fi
+  if [ -z "$wt_id" ]; then echo "${plans_dir}/.planning"; return 0; fi
+  echo "${plans_dir}/.planning.${wt_id}"
+  return 0
+}
+
+# mentor_live_markers <plans_dir> — echo one NON-STALE `.planning*` path per output
+# line (both the bare legacy marker and every per-worktree `.planning.<wt-id>` marker),
+# using the same staleness convention as everywhere else in this file
+# (mentor_marker_stale / MENTOR_PLAN_MARKER_STALE_MIN) so "live" can never mean two
+# different things depending on which caller asks. Read-only — never prunes, never
+# writes; callers that need to release a marker do so themselves with a named notice
+# (the never-release-silently doctrine — see plan-gate.sh). Empty plans_dir or no
+# matching files → no output.
+mentor_live_markers() {
+  local plans_dir="${1:-}" m
+  [ -n "$plans_dir" ] && [ -d "$plans_dir" ] || return 0
+  while IFS= read -r m; do
+    [ -n "$m" ] || continue
+    mentor_marker_stale "$m" && continue
+    echo "$m"
+  done < <(find "$plans_dir" -maxdepth 1 -name '.planning*' 2>/dev/null || true)
+  return 0
+}
+
 # mentor_newest_plan <plans_dir> — echo the current plan file: the mtime-newest
 # <plans_dir>/<slug>/plan.md, or empty when none exist. Legacy flat
 # <plans_dir>/*.md files are ignored (begin-plan.sh migrates them on arm).
@@ -78,6 +158,69 @@ mentor_newest_plan() {
     fi
   done < <(ls -t "${plans_dir}"/*/plan.md 2>/dev/null || true)
   echo "$newest"
+  return 0
+}
+
+# mentor_plan_owner <plan_dir> — echo the sidecar's `owner` (the wt-id that minted or
+# last re-owned this plan dir — see the ensure-dir/init/claim stamping sites), or empty
+# for unowned (no sidecar / no jq / corrupt / unset / null — including a pre-v2.23.0
+# plan dir, or one whose sidecar was rewritten by an older cached plugin copy that
+# doesn't know the `owner` key and strips it). Thin wrapper over the generic scalar
+# reader, named to match mentor_plan_group/mentor_plan_deps at call sites that read
+# ownership alongside the other sidecar fields.
+mentor_plan_owner() {
+  mentor_plan_state_field "${1:-}" owner
+}
+
+# mentor_newest_plan_owned <plans_dir> <wt_id> — mentor_newest_plan's exact walk
+# (mtime-newest non-superseded plan.md, falling back to the mtime-newest overall when
+# every candidate is superseded), restricted to plan dirs whose owner is <wt_id> or
+# unset. A sibling worktree's owned plan is never a candidate here, in EITHER role —
+# not as the preferred non-superseded pick, and not as the all-superseded fallback
+# either, because the fallback is computed from `newest` which this function only ever
+# sets from an already-filtered candidate (unlike mentor_newest_plan, which sets it
+# from the very first file the unfiltered walk sees). Without that, an ownership-scoped
+# caller (approve-plan, plan-state.sh `current`) could still hand back a sibling's
+# superseded plan on the empty-non-superseded-set path — exactly the sweep this
+# function exists to prevent. Empty <wt_id> → unfiltered, i.e. behaves identically to
+# mentor_newest_plan (repo-wide reads, e.g. `current --any`).
+mentor_newest_plan_owned() {
+  local plans_dir="${1:-}" wt_id="${2:-}" f owner newest=""
+  if [ -z "$plans_dir" ]; then echo ""; return 0; fi
+  while IFS= read -r f; do
+    [ -n "$f" ] || continue
+    if [ -n "$wt_id" ]; then
+      owner="$(mentor_plan_owner "$(dirname "$f")")"
+      if [ -n "$owner" ] && [ "$owner" != "$wt_id" ]; then continue; fi
+    fi
+    [ -n "$newest" ] || newest="$f"
+    if [ "$(mentor_plan_effective_state "$(dirname "$f")")" != "superseded" ]; then
+      echo "$f"; return 0
+    fi
+  done < <(ls -t "${plans_dir}"/*/plan.md 2>/dev/null || true)
+  echo "$newest"
+  return 0
+}
+
+# mentor_newly_planned <plans_dir> <marker> <wt_id> — echo one plan.md path per output
+# line: the same `find … -newer "$marker"` snapshot approve-plan.sh takes (plans
+# written since <marker> was armed), restricted to the mentor_newest_plan_owned
+# ownership filter (owner ∈ {<wt_id>, unset}; empty <wt_id> → unfiltered). Shared by
+# approve-plan.sh's promotion sweep and `plan-state.sh gate --verbose`'s
+# `affected_plans=` field so the two can never report a different candidate set for
+# the same marker. Caller snapshots BEFORE removing the marker, same as before — `find
+# -newer` on a gone marker matches everything.
+mentor_newly_planned() {
+  local plans_dir="${1:-}" marker="${2:-}" wt_id="${3:-}" f owner
+  [ -n "$plans_dir" ] && [ -n "$marker" ] || return 0
+  while IFS= read -r f; do
+    [ -n "$f" ] || continue
+    if [ -n "$wt_id" ]; then
+      owner="$(mentor_plan_owner "$(dirname "$f")")"
+      if [ -n "$owner" ] && [ "$owner" != "$wt_id" ]; then continue; fi
+    fi
+    echo "$f"
+  done < <(find "$plans_dir" -mindepth 2 -maxdepth 2 -name plan.md -newer "$marker" 2>/dev/null || true)
   return 0
 }
 
@@ -162,25 +305,33 @@ mentor_cwd() {
   return 0
 }
 
-# --- plan state (v2.4.0, deps/origin added v2.17.0) -------------------------
+# --- plan state (v2.4.0, deps/origin added v2.17.0, owner/owner_session added v2.23.0) --
 #
 # Each plan dir carries a hidden `.state.json` sidecar:
 #   {"state":"draft|approved|in_progress|implemented|failed|superseded",
 #    "group":"<parent slug>"|null, "order":<n>|null, "note":"<free text>",
-#    "deps":["<slug>", …], "origin":"deferred"|null}
+#    "deps":["<slug>", …], "origin":"deferred"|null,
+#    "owner":"<wt-id>"|null, "owner_session":"<session id>"|null}
 # `group` is the slug of the plan that /plan-split replaced; standalone plans hold null.
 # `deps` names plan slugs this one needs first (unknown slugs allowed — the dep may be
 # deferred later; `plan-state.sh overview` marks those `missing`). `origin` is
 # `"deferred"` for a stub born via `/mentor:defer` (shields it from the approval
-# sweep — see approve-plan.sh) and null once `claim`ed or for an ordinary plan.
+# sweep — see approve-plan.sh) and null once `claim`ed or for an ordinary plan. `owner`
+# is the wt-id (mentor_worktree_id) that minted or last re-owned this plan dir —
+# stamped only by ensure-dir/init/claim, never by `set`; read it via mentor_plan_owner,
+# never mentor_plan_state_field directly, for the same reason mentor_plan_group exists
+# — a future second read site must not have to remember the field name by hand.
+# `owner_session` is the session id that performed that stamp, alongside it.
 #
 # The sidecar is a CACHE, not the only truth. Reads go through
 # mentor_plan_effective_state, which takes the more advanced of the stored state and
 # the state derived from plan.md's ✅ step ticks — so a forgotten state write costs
-# nothing, and pre-2.4.0 plan dirs read correctly with no migration. `deps`/`origin`
-# are jq-defaulted the same way (`// []`, `// null`): a pre-2.17.0 4-field sidecar
-# needs no migration pass either. Writes go through hooks/plan-state.sh (the CLI);
-# skills never hand-roll this JSON.
+# nothing, and pre-2.4.0 plan dirs read correctly with no migration. `deps`/`origin`/
+# `owner`/`owner_session` are jq-defaulted the same way (`// []`, `// null`): a
+# pre-2.17.0 4-field sidecar, or one an OLDER cached plugin copy rewrote without the
+# owner keys (mixed-version worktrees during a rollout), reads back as unowned with no
+# migration pass — degrades to the unowned handling, never corrupts. Writes go through
+# hooks/plan-state.sh (the CLI); skills never hand-roll this JSON.
 
 MENTOR_PLAN_STATES="draft approved in_progress implemented failed superseded"
 
@@ -569,18 +720,19 @@ mentor_plan_effective_state() {
 }
 
 # mentor_plan_state_write <plan_dir> [--state S] [--group G] [--order N] [--note "…"]
-#   [--deps a,b] [--origin deferred|""] — upsert the sidecar (create-then-set: most
-#   plans have no sidecar yet).
+#   [--deps a,b] [--origin deferred|""] [--owner W] [--owner-session S] — upsert the
+#   sidecar (create-then-set: most plans have no sidecar yet).
 #
 # Flag-style since v2.17.0 (was fixed positional <state> <group> <order> <note>) so a
 # write that only touches one or two fields — set-deps, claim, approve-plan's
 # promotion — doesn't have to thread every other field through by hand.
 #
 # AN OMITTED FLAG PRESERVES THE EXISTING STORED VALUE for --state/--group/--order/
-# --deps/--origin. This is what lets `deps`/`origin` survive every state transition:
-# approve-plan's promotion write passes only `--state approved` and deps/origin ride
-# through untouched, instead of getting clobbered back to defaults the way a
-# mandatory-positional write would.
+# --deps/--origin/--owner/--owner-session. This is what lets `deps`/`origin`/`owner`
+# survive every state transition: approve-plan's promotion write passes only `--state
+# approved` and deps/origin/owner ride through untouched, instead of getting clobbered
+# back to defaults the way a mandatory-positional write would. In particular, `set`
+# never passes --owner, so it never touches ownership — only ensure-dir/init/claim do.
 #
 # --note is the ONE exception to "omitted preserves": it is ALWAYS replaced with
 # whatever was passed (empty when the flag is omitted) — unchanged from before the
@@ -588,15 +740,20 @@ mentor_plan_effective_state() {
 # --note clears a stale failure note); a caller that wants to keep the current note
 # must re-pass it, the same way `init` already reads it back before writing.
 #
-# Passing a flag with an EXPLICIT EMPTY VALUE clears that field (group/order/origin →
-# null, deps → []) rather than preserving it — this is how `claim` clears origin
-# (`--origin ""`) without touching anything else. --state cannot be cleared this way:
-# an empty/invalid --state is rejected outright (fail-soft: no write), same as before.
-# --origin only accepts "deferred" or "" (clear); anything else is also rejected.
+# Passing a flag with an EXPLICIT EMPTY VALUE clears that field (group/order/origin/
+# owner/owner_session → null, deps → []) rather than preserving it — this is how
+# `claim` clears origin (`--origin ""`) without touching anything else, and how a
+# caller can deliberately release ownership (`--owner ""`). --state cannot be cleared
+# this way: an empty/invalid --state is rejected outright (fail-soft: no write), same
+# as before. --origin only accepts "deferred" or "" (clear); anything else is also
+# rejected.
 #
 # jq has no in-place edit, so this is tmp-file + mv. A torn write leaves the sidecar
 # unreadable, which reads back as "unknown" — recoverable, because a split child's
-# isolation header carries the same group/order inside plan.md.
+# isolation header carries the same group/order inside plan.md. Lost-update semantics:
+# the tmp+mv happens inside the sidecar's own dir, so each individual write is atomic —
+# but two worktrees writing the same slug's sidecar concurrently can still lose one
+# write to the other (last mv wins), never corrupt it.
 # Fail-soft: always status 0, echoes nothing; a bad --state/--origin or missing jq
 # writes nothing.
 mentor_plan_state_write() {
@@ -607,6 +764,8 @@ mentor_plan_state_write() {
   local order="" order_set=0
   local note="" deps="" deps_set=0
   local origin="" origin_set=0
+  local owner="" owner_set=0
+  local owner_session="" owner_session_set=0
   local f tmp deps_json
   while [ "$#" -gt 0 ]; do
     case "$1" in
@@ -616,6 +775,9 @@ mentor_plan_state_write() {
       --note)   note="${2:-}";                 shift; if [ "$#" -gt 0 ]; then shift; fi ;;
       --deps)   deps="${2:-}";   deps_set=1;   shift; if [ "$#" -gt 0 ]; then shift; fi ;;
       --origin) origin="${2:-}"; origin_set=1; shift; if [ "$#" -gt 0 ]; then shift; fi ;;
+      --owner)  owner="${2:-}";  owner_set=1;  shift; if [ "$#" -gt 0 ]; then shift; fi ;;
+      --owner-session)
+                owner_session="${2:-}"; owner_session_set=1; shift; if [ "$#" -gt 0 ]; then shift; fi ;;
       *) shift ;;   # fail-soft: an unrecognized flag is ignored, never aborts a caller
     esac
   done
@@ -639,14 +801,18 @@ mentor_plan_state_write() {
         --arg order "$order" --argjson order_set "$order_set" \
         --arg note "$note" \
         --argjson deps "$deps_json" --argjson deps_set "$deps_set" \
-        --arg origin "$origin" --argjson origin_set "$origin_set" '
+        --arg origin "$origin" --argjson origin_set "$origin_set" \
+        --arg owner "$owner" --argjson owner_set "$owner_set" \
+        --arg owner_session "$owner_session" --argjson owner_session_set "$owner_session_set" '
         {
           state: (if $state_set == 1 then $state else (.state // null) end),
           group: (if $group_set == 1 then (if $group == "" then null else $group end) else (.group // null) end),
           order: (if $order_set == 1 then (if $order == "" then null else ($order | tonumber? // null) end) else (.order // null) end),
           note:  $note,
           deps:  (if $deps_set == 1 then $deps else (.deps // []) end),
-          origin: (if $origin_set == 1 then (if $origin == "" then null else $origin end) else (.origin // null) end)
+          origin: (if $origin_set == 1 then (if $origin == "" then null else $origin end) else (.origin // null) end),
+          owner: (if $owner_set == 1 then (if $owner == "" then null else $owner end) else (.owner // null) end),
+          owner_session: (if $owner_session_set == 1 then (if $owner_session == "" then null else $owner_session end) else (.owner_session // null) end)
         }' "$f" > "$tmp" 2>/dev/null; then
     mv -f "$tmp" "$f" 2>/dev/null || rm -f "$tmp" 2>/dev/null || true
   else
