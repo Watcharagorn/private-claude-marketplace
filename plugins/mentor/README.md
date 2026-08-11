@@ -197,24 +197,41 @@ lists with the right state, group, and position — a plan dir needs nothing but
 > written only by `hooks/plan-state.sh` and is *derivable from the plan file*, so
 > forgetting is a no-op rather than a corruption.
 
-### Sidecar schema (v2.17.0: `deps` + `origin`)
+### Sidecar schema
 
-Two fields joined the sidecar, both written only through `plan-state.sh`; old 4-field
-sidecars need no migration — every reader defaults the new fields.
+Every field is written only through `plan-state.sh`; older, shorter sidecars need no
+migration — every reader defaults the fields it doesn't find.
 
-| Field | Before v2.17.0 | v2.17.0 | Written by |
+| Field | Type | Written by | Since |
 |---|---|---|---|
-| `state` | 6 states | unchanged | `init` / `set` |
-| `group` | split-parent slug or `null` | unchanged | `init --group` |
-| `order` | int or `null` | unchanged | `init --order` |
-| `note` | free text, replaced each write | unchanged | `set --note` |
-| `deps` | — | array of plan slugs, default `[]` | `init --deps a,b` / `set-deps <slug> a,b` |
-| `origin` | — | `"deferred"` or `null` | `init --deferred` sets it; `claim <slug>` clears it |
+| `state` | one of 6 states | `init` / `set` | v2.4.0 |
+| `group` | split-parent slug or `null` | `init --group` | v2.4.0 |
+| `order` | int or `null` | `init --order` | v2.4.0 |
+| `note` | free text, replaced each write | `set --note` | v2.4.0 |
+| `deps` | array of plan slugs, default `[]` | `init --deps a,b` / `set-deps <slug> a,b` | v2.17.0 |
+| `origin` | `"deferred"` or `null` | `init --deferred` sets it; `claim <slug>` clears it | v2.17.0 |
+| `owner` / `owner_session` | wt-id + session id, or `null` | `ensure-dir` / `init` / `claim` | v2.23.0 |
+| `priority` | `critical`\|`high`\|`medium`\|`low`\|`noise`, or `null` | `init --priority P` / `set-priority <slug> P` | v2.24.0 |
+
+Omitting a flag **preserves** whatever is stored, which is what lets deps, origin,
+ownership and priority all survive a later `set <slug> approved` untouched; passing one
+with an explicit empty value **clears** it. `note` is the one exception — it is replaced
+on every write, so a plain `set` deliberately clears a stale failure note.
 
 `set-deps` replaces a plan's deps wholesale and refuses a write that would create a
 dependency cycle (direct or transitive) — fail-soft: a stderr warning, no write.
 Unknown dep slugs are allowed (the dep plan may not exist yet); `overview` marks them
 `missing` rather than failing.
+
+`priority` is the plan's **impact tier** — how much this plan matters, so
+`/mentor:track`'s hierarchy can separate the work that counts from the noise. It is
+orthogonal to the other two ordering fields: `order` sequences siblings *inside* a split
+group, `deps` says what must be built *first*, and neither says whether a plan is worth
+building at all. Unlike `deps`' arbitrary slugs the vocabulary is a **closed set**,
+validated on write — the field exists so a renderer can bucket plans by tier, and an
+unvalidated typo would silently become a sixth bucket. An unset priority stays `null` and
+renders as absent, never as a default tier: "nobody has judged this plan" is a different
+and more honest answer than `medium`. `set-priority <slug> ""` clears it back to unset.
 
 ### Deferring work (`/mentor:defer`)
 
@@ -233,10 +250,10 @@ promotes it like any plan.
 ### The repo-wide hierarchy (`overview --json`)
 
 `plan-state.sh overview --json` is the one call that answers "what's remaining?" — a
-JSON array covering every plan dir with a `plan.md` (state, group, order, `deps`, each
-marked `missing` when no such plan dir exists, `origin`, live handoffs, ticked/total
-step counts), plus topic dirs with a live handoff but no `plan.md` yet, plus the
-legacy flat `.mentor/handoffs/` dir. Computed fresh on every call — nothing is cached,
+JSON array covering every plan dir with a `plan.md` (state, group, order, `priority`,
+`deps`, each marked `missing` when no such plan dir exists, `origin`, live handoffs,
+ticked/total step counts), plus topic dirs with a live handoff but no `plan.md` yet,
+plus the legacy flat `.mentor/handoffs/` dir. Computed fresh on every call — nothing is cached,
 so it can never drift from the sidecars, plan ticks, or filesystem it reads. `/mentor:track`
 renders it as a hierarchy, e.g.:
 
@@ -359,7 +376,7 @@ Knobs — env vars under `env` in `~/.claude/settings.json` (or the project's
 | `hooks/context-gate.sh` | **Context gate.** `UserPromptSubmit` — measures live context from the transcript: warns once (~200k), re-warns near the limit (~315k), and above ~350k asks the user — hand off (recommended) or bypass for the session. Never blocks or erases prompts. Fail-soft; slash commands always pass. |
 | `hooks/bypass-context.sh` | Writes the session-scoped `.context-bypass-<session_id>` marker when the user answers "Proceed anyway" — degrades the ask tier to a one-line advisory for the rest of the session. |
 | `hooks/planning-intent.sh` | **Planning-intent advisory.** `UserPromptSubmit` — a narrow, once-per-session, non-blocking nudge: an anchored opener ("help me plan…", "let's plan…") suggests `/mentor:plan <topic>` so a conversational planning ask doesn't silently skip the edit gate. Never blocks, never creates repo state; suppressed only while THIS worktree's own marker or the legacy marker is live — routed through the same liveness check as the gate, so a long-stale marker no longer suppresses it forever, and a sibling worktree's marker never suppresses it here. |
-| `hooks/plan-state.sh` | **The one plan-state API** (not a hook — skills call it directly). `init` / `set` / `set-deps` / `claim` / `list [--owners]` / `current [--any]` / `overview` / `context` / `dir` / `ensure-dir` / `gate`. Sole writer of `.state.json` (incl. `deps` and `origin`, v2.17.0; `owner`/`owner_session` — the minting/re-owning worktree — v2.23.0, stamped by `ensure-dir`/`init`/`claim`); derives effective state from the plan's ✅ ticks; `current` is group-aware and, since v2.23.0, ownership-scoped to plans owned by this worktree (`--any` for a deliberate repo-wide read) — after a split it reports the whole owned group rather than whichever child agent finished last. `list --owners` adds an OWNER column for slug-reuse scans. `overview --json` computes the repo-wide plans+deps+handoffs+owner hierarchy fresh on every call — nothing cached. `dir` (v2.14.0) is the one repo-scoped `.mentor` path derivation — skills call it instead of hand-rolling `git-common-dir` snippets that drift. `gate` is the one plan-gate marker status check for THIS worktree (`ARMED`/`STALE`/`ARMED_ELSEWHERE`/`RELEASED`, read-only; `--verbose` adds per-token fields, e.g. `owner_worktree=` on `ARMED` or one `elsewhere=` line per live sibling on `ARMED_ELSEWHERE`) — resuming/touring/plan-track call it instead of each re-deriving the marker path and 8h staleness window themselves. |
+| `hooks/plan-state.sh` | **The one plan-state API** (not a hook — skills call it directly). `init` / `set` / `set-deps` / `set-priority` / `claim` / `list [--owners]` / `current [--any]` / `overview` / `context` / `dir` / `ensure-dir` / `gate`. Sole writer of `.state.json` (incl. `deps` and `origin`, v2.17.0; `owner`/`owner_session` — the minting/re-owning worktree — v2.23.0, stamped by `ensure-dir`/`init`/`claim`; `priority` — the impact tier, v2.24.0, written by `init --priority`/`set-priority` and surfaced on every `overview` entry); derives effective state from the plan's ✅ ticks; `current` is group-aware and, since v2.23.0, ownership-scoped to plans owned by this worktree (`--any` for a deliberate repo-wide read) — after a split it reports the whole owned group rather than whichever child agent finished last. `list --owners` adds an OWNER column for slug-reuse scans. `overview --json` computes the repo-wide plans+deps+handoffs+owner hierarchy fresh on every call — nothing cached. `dir` (v2.14.0) is the one repo-scoped `.mentor` path derivation — skills call it instead of hand-rolling `git-common-dir` snippets that drift. `gate` is the one plan-gate marker status check for THIS worktree (`ARMED`/`STALE`/`ARMED_ELSEWHERE`/`RELEASED`, read-only; `--verbose` adds per-token fields, e.g. `owner_worktree=` on `ARMED` or one `elsewhere=` line per live sibling on `ARMED_ELSEWHERE`) — resuming/touring/plan-track call it instead of each re-deriving the marker path and 8h staleness window themselves. |
 
 ### Commands and skills never share a name
 
@@ -416,11 +433,14 @@ unused in practice.
   the plan in its new worktree. The same move can orphan a plan's sidecar
   `owner` (pointing at a wt-id that no longer resolves anywhere) — recovery is
   the same: `/mentor:plan <slug>` re-owns it via `init`.
-- **Mixed-version worktrees can strip `owner`.** An older cached plugin copy
-  rebuilds `.state.json` from its own pre-v2.23.0 key whitelist, dropping keys
-  it doesn't know about — including `owner`/`owner_session`. This degrades the
-  plan to the unowned handling above; it never corrupts the sidecar or loses
-  any other field.
+- **An older cached plugin copy strips the newest keys.** `plan-state.sh`
+  rebuilds `.state.json` as an explicit key-by-key object on every write, so a
+  copy that predates a field drops it — an older cache strips
+  `owner`/`owner_session` (v2.23.0) or `priority` (v2.24.0) the next time
+  anything writes that sidecar. Each degrades to the field's own unset
+  handling (unowned; untiered); nothing is corrupted and no other field is
+  lost. It is also why a hand-added key of your own never survives: the
+  rebuild only emits the fields the schema knows.
 - **Same-slug concurrent drafting is unguarded beyond a warning.** Two
   worktrees can now draft the same slug at once (the old repo-global marker
   made this unreachable). `begin-plan.sh` and `plan-state.sh init`/`ensure-dir`
@@ -483,6 +503,37 @@ extra deliverable. Instruction-only — no hooks.
 | `plan-domain-backend-api` | API/endpoint/route/handler/schema/DTO/contract — or the data model behind it: migration, table, column, index, constraint, enum, RLS policy | Before/after contract diff tables, schema diffs, Mermaid sequence flows; on a DDL change also a per-column delta table + a Mermaid ER diff of the changed entities. |
 | `plan-domain-architecture` | Structural change — services, containers, datastores, queues, integrations, data flows (not pure content/config/doc/style/refactor) | Diff-highlighted C4-style Mermaid flowcharts, only the levels that change; a provenance list for any changed datastore field. |
 | `plan-domain-dynamic` | No registered domain matched, and no already-available project/plugin skill names the technology (fallback) | A dispatched domain-definer names the domain and returns a best-practices brief; the plan gains a practice→step mapping. A substituted available skill can supply the brief instead. |
+
+## Changes in v2.24.0
+
+**Plans carry an impact tier.** `.state.json` gains `priority` — `critical`, `high`,
+`medium`, `low`, `noise`, or `null` — so `/mentor:track`'s hierarchy can say which plans
+matter and which are noise. Until now there was nowhere to put that: the sidecar was a
+fixed key set that silently dropped anything hand-added on the next write, and `--note`
+is replaced on every `set` and never surfaced by `overview --json`.
+
+Written two ways: `init <slug> --priority <p>` at mint time, and `set-priority <slug>
+<p>` for an existing plan (`""` clears it back to unset). `set-priority` is its own
+subcommand for the same reason `set-deps` and `claim` are — `set <slug> <state>` takes
+the state as a required positional, so a tier-only edit through it would have to restate
+a state the caller never meant to touch. The tier then rides through every later write
+untouched, under the same omitted-preserves contract that already carries `deps`,
+`origin`, and ownership.
+
+The vocabulary is a **closed set**, validated on write — deliberately unlike `deps`'
+arbitrary slugs. The field exists so a renderer can bucket plans by tier, and an
+unvalidated typo would silently become a sixth bucket. An invalid value is a usage error
+(exit 1, nothing written), never a fail-soft skip: a tiering pass over twenty plans must
+not report success having quietly dropped one.
+
+`overview --json` carries `priority` on every entry, `null` where none is set —
+including the `no_plan_topic` and `legacy_handoffs` kinds, so a consumer never branches
+on kind to read it. An unset tier renders as **absent**, never as a default: "nobody has
+judged this plan's impact" is a different and more honest answer than `medium`.
+`/mentor:track` renders it as an aligned tag beside each entry and never sorts or filters
+on it — a view of what's remaining that quietly hid the low tiers would be a lie in the
+one place a user goes to trust it. Old sidecars need no migration, and `list`'s output is
+byte-identical in both its shapes.
 
 ## Changes in v2.23.0
 

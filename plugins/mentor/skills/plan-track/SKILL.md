@@ -88,11 +88,11 @@ bash "${CLAUDE_PLUGIN_ROOT}/hooks/plan-state.sh" overview --json
 ```
 
 This is the ONE call that answers "what's remaining?" — a JSON array covering every plan dir with
-a `plan.md` (slug, effective state, group, order, `deps` — each marked `missing` when no such plan
-dir exists, `origin`, live handoffs, `✅` step counts), plus topic dirs holding a live handoff but
-no plan yet, plus the legacy flat `.mentor/handoffs/*.md` dir. It replaces the old `list` table —
-`list` still exists and is byte-compatible, but `overview` is the only call that also carries deps,
-origin, and step counts, so it is Step 1 now. Whenever it prints anything, that output is valid JSON
+a `plan.md` (slug, effective state, group, order, `priority`, `deps` — each marked `missing` when
+no such plan dir exists, `origin`, live handoffs, `✅` step counts), plus topic dirs holding a live
+handoff but no plan yet, plus the legacy flat `.mentor/handoffs/*.md` dir. It replaces the old
+`list` table — `list` still exists and is byte-compatible, but `overview` is the only call that
+also carries deps, origin, priority, and step counts, so it is Step 1 now. Whenever it prints anything, that output is valid JSON
 (`jq .` parses it); see the hook script's header comment for the exact per-entry shape
 (`kind: "plan" | "no_plan_topic" | "legacy_handoffs"`). Plan files live at `PLANS_DIR/<PLAN>/plan.md`.
 
@@ -125,16 +125,30 @@ group headers and `handoff:` sub-lines never consume a number, because that numb
 what Step 2's ordinal selection resolves against:
 
 ```
-1. ● recommended-first-clean   implemented (3/3 steps)
-2. ○ oauth-refactor            draft (deferred) — deps: fix-gate-msg-typo
-3. ○ fix-gate-msg-typo         draft (deferred)
-4. ◐ some-feature              in_progress (1/4 steps)
+1. ● [high]  recommended-first-clean   implemented (3/3 steps)
+2. ○ [crit]  oauth-refactor            draft (deferred) — deps: fix-gate-msg-typo
+3. ○ [noise] fix-gate-msg-typo         draft (deferred)
+4. ◐         some-feature              in_progress (1/4 steps)
      └ handoff: 20260801-224510-implement.md (live)
 ```
 
-Per plan entry: `<glyph> <slug>   <state>[ (deferred)] [(<ticked>/<total> steps)][ — deps: <a>[,
-<b> (missing)]]`.
+Per plan entry: `<glyph> [<tier>] <slug>   <state>[ (deferred)] [(<ticked>/<total> steps)][ —
+deps: <a>[, <b> (missing)]]`.
 
+- the **tier tag** carries the entry's `priority` — one of `critical`, `high`, `medium`, `low`,
+  `noise`, abbreviated to fit one padded column (`crit`/`high`/`med`/`low`/`noise`). An entry whose
+  `priority` is `null` gets **blank padding, not a tag** — nobody has judged that plan's impact,
+  which is a different fact from judging it `medium`, and inventing a default here would launder a
+  guess into something that reads like a record. Keep the column aligned so a scan down it answers
+  "what actually matters" without reading a single slug — that separation is the whole reason the
+  field exists.
+- **Never sort or filter on the tier.** The sort below stays exactly as it was, and a `noise` plan
+  still renders in its usual place: `/mentor:track` is the inventory of what's left, and a view
+  that quietly dropped the low tiers would make "what's remaining?" a lie in the one place a user
+  goes to trust it. The tag is there to let a reader *skip* the noise, not to decide for them.
+  When the user's ask is explicitly about impact ("what actually matters here?"), say which
+  entries sit in the top tiers in a sentence after the hierarchy — that answers the question
+  without reshuffling a view the rest of this skill's steps index into by ordinal.
 - `(deferred)` only when `origin == "deferred"` — the tag that marks an unclaimed `/mentor:defer`
   stub, so it is never mistaken for a plan someone drafted by hand and left in `draft`.
 - step counts only when `steps.total > 0`.
@@ -170,6 +184,19 @@ Sort `kind: "plan"` entries the same way the old `list` table did: active states
 (`superseded`/`unknown` last), then by group (an ungrouped plan sorts on its own slug), then
 `order`, then slug — so a reader who knew the old table still recognizes the order.
 
+**Setting a tier** is one call, and it is the natural follow-up when the user reacts to the
+hierarchy with a judgment ("that one's noise", "these three are critical"):
+
+```bash
+bash "${CLAUDE_PLUGIN_ROOT}/hooks/plan-state.sh" set-priority <slug> critical   # "" clears
+```
+
+It writes nothing but the tier — state, note, deps and ownership all ride through untouched — so
+it is safe to run against a plan mid-flight. Only these five values are accepted; an invalid one
+exits 1 having written nothing, so a batch that tiers several plans should check each call rather
+than assume the last one landed. When the user hands you a judgment in their own words ("this is
+just cleanup"), map it to the nearest tier and say which one you picked — don't invent a sixth.
+
 ## Step 2 — Select a plan
 
 Resolve the selection using **`mentor:resuming` Step 4's rule, unchanged**: a bare
@@ -182,6 +209,14 @@ covers the rest.
 "Most relevant" here means the ones the user can act on: unfinished plans first, in group and
 `order` sequence, deferred stubs included (their entry already says so). Do not offer
 `superseded` parents as quick options — they were replaced by their children.
+
+Where that leaves more than four candidates, **let the tier break the tie** — a `critical` plan
+earns one of the four slots over a `noise` one, and an untiered plan sits between them rather than
+last (unjudged is not the same as judged unimportant). This is the one place the tier is allowed
+to change what the user sees, and only because four slots have to be chosen somehow; Step 1's
+rendered hierarchy still shows everything, in its own unchanged order. Name the tier in the
+option's `description` when it is doing that work, so a user who disagrees can say so instead of
+wondering why their plan wasn't offered.
 
 **Every question stands on its own.** The user answers from the question screen alone — never sent
 to a file, a plan section, a coined id or code, or an earlier turn to learn what the question means.

@@ -16,11 +16,12 @@
 #   │                     #   marker — blocks every worktree until released/stale.
 #   │   └── <slug>/       #   plan.md (+ hidden .plan.md.opened sidecar)
 #   │       ├── .state.json  # {"state","group","order","note","deps","origin","owner",
-#   │       │                #   "owner_session"} — written ONLY via plan-state.sh
-#   │       │                #   (deps/origin added v2.17.0; owner/owner_session — the
-#   │       │                #   minting/re-owning worktree, v2.23.0 — added below; older
-#   │       │                #   or mixed-version sidecars read back with any missing key
-#   │       │                #   jq-defaulted to []/null/"")
+#   │       │                #   "owner_session","priority"} — written ONLY via
+#   │       │                #   plan-state.sh (deps/origin added v2.17.0;
+#   │       │                #   owner/owner_session — the minting/re-owning worktree,
+#   │       │                #   v2.23.0; priority — the impact tier, v2.24.0 — added
+#   │       │                #   below; older or mixed-version sidecars read back with
+#   │       │                #   any missing key jq-defaulted to []/null/"")
 #   │       └── handoffs/ #   <ts>-<slug>.md; solved/superseded notes → handoffs/resolved/
 #   ├── zooms/            # mentor:zooming artifacts — <subject-slug>/<topic>-<perspective>.html
 #   │                     #   (+ hidden .*.opened sidecars; pre-v2.12 they lived in plans/<slug>/zoom/)
@@ -305,13 +306,15 @@ mentor_cwd() {
   return 0
 }
 
-# --- plan state (v2.4.0, deps/origin added v2.17.0, owner/owner_session added v2.23.0) --
+# --- plan state (v2.4.0, deps/origin added v2.17.0, owner/owner_session added
+# v2.23.0, priority added v2.24.0) -------------------------------------------
 #
 # Each plan dir carries a hidden `.state.json` sidecar:
 #   {"state":"draft|approved|in_progress|implemented|failed|superseded",
 #    "group":"<parent slug>"|null, "order":<n>|null, "note":"<free text>",
 #    "deps":["<slug>", …], "origin":"deferred"|null,
-#    "owner":"<wt-id>"|null, "owner_session":"<session id>"|null}
+#    "owner":"<wt-id>"|null, "owner_session":"<session id>"|null,
+#    "priority":"critical|high|medium|low|noise"|null}
 # `group` is the slug of the plan that /plan-split replaced; standalone plans hold null.
 # `deps` names plan slugs this one needs first (unknown slugs allowed — the dep may be
 # deferred later; `plan-state.sh overview` marks those `missing`). `origin` is
@@ -322,18 +325,48 @@ mentor_cwd() {
 # never mentor_plan_state_field directly, for the same reason mentor_plan_group exists
 # — a future second read site must not have to remember the field name by hand.
 # `owner_session` is the session id that performed that stamp, alongside it.
+# `priority` is the plan's IMPACT tier — how much this plan matters, so
+# /mentor:track's hierarchy can separate the work that counts from the noise. It is
+# orthogonal to every other field here: `order` sequences siblings INSIDE a split
+# group, `deps` says what must be built FIRST, and neither says anything about
+# whether a plan is worth building at all. Unset (null) is a first-class answer — an
+# unprioritized plan renders with no tier rather than defaulting into one, the same
+# reason mentor_plan_state_stored refuses to invent `draft`.
 #
 # The sidecar is a CACHE, not the only truth. Reads go through
 # mentor_plan_effective_state, which takes the more advanced of the stored state and
 # the state derived from plan.md's ✅ step ticks — so a forgotten state write costs
 # nothing, and pre-2.4.0 plan dirs read correctly with no migration. `deps`/`origin`/
-# `owner`/`owner_session` are jq-defaulted the same way (`// []`, `// null`): a
-# pre-2.17.0 4-field sidecar, or one an OLDER cached plugin copy rewrote without the
-# owner keys (mixed-version worktrees during a rollout), reads back as unowned with no
-# migration pass — degrades to the unowned handling, never corrupts. Writes go through
-# hooks/plan-state.sh (the CLI); skills never hand-roll this JSON.
+# `owner`/`owner_session`/`priority` are jq-defaulted the same way (`// []`, `// null`):
+# a pre-2.17.0 4-field sidecar, or one an OLDER cached plugin copy rewrote without the
+# owner or priority keys (mixed-version worktrees during a rollout), reads back as
+# unowned/unprioritized with no migration pass — degrades to the unset handling, never
+# corrupts. Writes go through hooks/plan-state.sh (the CLI); skills never hand-roll
+# this JSON.
 
 MENTOR_PLAN_STATES="draft approved in_progress implemented failed superseded"
+
+# The impact tiers, most impactful first — the order every renderer sorts and groups
+# by, so "which matters more" lives here rather than being re-derived per caller.
+# A CLOSED set, validated on write exactly like MENTOR_PLAN_STATES, and deliberately
+# unlike `deps` (arbitrary slugs) or `note` (free text): the whole point of the field
+# is that /mentor:track can bucket plans by tier, and a typo'd `hgih` would silently
+# render as its own sixth tier rather than failing. `group` stays free text for the
+# opposite reason — it names another plan's slug, which no closed set could know.
+MENTOR_PLAN_PRIORITIES="critical high medium low noise"
+
+# mentor_plan_priority_valid <priority> — status 0 when <priority> is one of the five
+# above. A predicate like mentor_plan_state_valid — only call it as a condition. The
+# EMPTY string is NOT valid here: clearing goes through an explicit `--priority ""` in
+# mentor_plan_state_write, which never consults this function.
+mentor_plan_priority_valid() {
+  local p="${1:-}"
+  [ -n "$p" ] || return 1
+  case " ${MENTOR_PLAN_PRIORITIES} " in
+    *" ${p} "*) return 0 ;;
+  esac
+  return 1
+}
 
 # The plan-gate marker (.planning) is treated as released once it is this old, in
 # minutes — a crashed planning session must never permanently lock out editing.
@@ -405,8 +438,8 @@ mentor_plan_state_file() {
 }
 
 # mentor_plan_state_field <plan_dir> <key> — echo the stored value of <key>
-# (state|group|order|note|origin), or empty when no sidecar / no jq / corrupt /
-# unset / null. SCALAR fields only — it `tostring`s whatever it finds, so on `deps`
+# (state|group|order|note|origin|owner|owner_session|priority), or empty when no
+# sidecar / no jq / corrupt / unset / null. SCALAR fields only — it `tostring`s whatever it finds, so on `deps`
 # (an array) it would return a JSON-stringified array rather than a real list; use
 # mentor_plan_deps for that field instead.
 mentor_plan_state_field() {
@@ -492,6 +525,21 @@ mentor_plan_deps() {
 # read both fields side by side.
 mentor_plan_origin() {
   mentor_plan_state_field "${1:-}" origin
+}
+
+# mentor_plan_priority <plan_dir> — echo the sidecar's `priority` (one of
+# MENTOR_PLAN_PRIORITIES) or empty (null / unset / no sidecar / no jq / a pre-v2.24.0
+# plan dir — an UNPRIORITIZED plan). Thin wrapper over the generic scalar reader,
+# named to match mentor_plan_origin/mentor_plan_owner so a second read site never has
+# to remember the field name by hand.
+#
+# Deliberately NO fallback and NO default: unlike mentor_plan_group/mentor_plan_order
+# there is no plan.md header carrying this (nothing writes an impact tier into the
+# plan body), and unlike mentor_plan_effective_state there is nothing in the plan file
+# to derive it from. Empty means "nobody has judged this plan's impact", which is a
+# different and more honest answer than `medium`.
+mentor_plan_priority() {
+  mentor_plan_state_field "${1:-}" priority
 }
 
 # mentor_plan_would_cycle <plans_dir> <slug> <tentative deps, space-separated> — echo
@@ -720,19 +768,22 @@ mentor_plan_effective_state() {
 }
 
 # mentor_plan_state_write <plan_dir> [--state S] [--group G] [--order N] [--note "…"]
-#   [--deps a,b] [--origin deferred|""] [--owner W] [--owner-session S] — upsert the
-#   sidecar (create-then-set: most plans have no sidecar yet).
+#   [--deps a,b] [--origin deferred|""] [--owner W] [--owner-session S]
+#   [--priority P|""] — upsert the sidecar (create-then-set: most plans have no
+#   sidecar yet).
 #
 # Flag-style since v2.17.0 (was fixed positional <state> <group> <order> <note>) so a
 # write that only touches one or two fields — set-deps, claim, approve-plan's
 # promotion — doesn't have to thread every other field through by hand.
 #
 # AN OMITTED FLAG PRESERVES THE EXISTING STORED VALUE for --state/--group/--order/
-# --deps/--origin/--owner/--owner-session. This is what lets `deps`/`origin`/`owner`
-# survive every state transition: approve-plan's promotion write passes only `--state
-# approved` and deps/origin/owner ride through untouched, instead of getting clobbered
-# back to defaults the way a mandatory-positional write would. In particular, `set`
-# never passes --owner, so it never touches ownership — only ensure-dir/init/claim do.
+# --deps/--origin/--owner/--owner-session/--priority. This is what lets `deps`/
+# `origin`/`owner`/`priority` survive every state transition: approve-plan's promotion
+# write passes only `--state approved` and deps/origin/owner/priority ride through
+# untouched, instead of getting clobbered back to defaults the way a
+# mandatory-positional write would. In particular, `set` never passes --owner or
+# --priority, so it never touches ownership or the impact tier — only
+# ensure-dir/init/claim stamp ownership, and only init/set-priority write the tier.
 #
 # --note is the ONE exception to "omitted preserves": it is ALWAYS replaced with
 # whatever was passed (empty when the flag is omitted) — unchanged from before the
@@ -741,12 +792,14 @@ mentor_plan_effective_state() {
 # must re-pass it, the same way `init` already reads it back before writing.
 #
 # Passing a flag with an EXPLICIT EMPTY VALUE clears that field (group/order/origin/
-# owner/owner_session → null, deps → []) rather than preserving it — this is how
-# `claim` clears origin (`--origin ""`) without touching anything else, and how a
-# caller can deliberately release ownership (`--owner ""`). --state cannot be cleared
-# this way: an empty/invalid --state is rejected outright (fail-soft: no write), same
-# as before. --origin only accepts "deferred" or "" (clear); anything else is also
-# rejected.
+# owner/owner_session/priority → null, deps → []) rather than preserving it — this is
+# how `claim` clears origin (`--origin ""`) without touching anything else, how a
+# caller can deliberately release ownership (`--owner ""`), and how `set-priority
+# <slug> ""` un-tiers a plan. --state cannot be cleared this way: an empty/invalid
+# --state is rejected outright (fail-soft: no write), same as before. --origin only
+# accepts "deferred" or "" (clear), and --priority only a MENTOR_PLAN_PRIORITIES value
+# or "" (clear); anything else is also rejected, whole write and all — a rejected
+# --priority must not leave a half-applied write behind that looks like it worked.
 #
 # jq has no in-place edit, so this is tmp-file + mv. A torn write leaves the sidecar
 # unreadable, which reads back as "unknown" — recoverable, because a split child's
@@ -766,6 +819,7 @@ mentor_plan_state_write() {
   local origin="" origin_set=0
   local owner="" owner_set=0
   local owner_session="" owner_session_set=0
+  local priority="" priority_set=0
   local f tmp deps_json
   while [ "$#" -gt 0 ]; do
     case "$1" in
@@ -778,12 +832,15 @@ mentor_plan_state_write() {
       --owner)  owner="${2:-}";  owner_set=1;  shift; if [ "$#" -gt 0 ]; then shift; fi ;;
       --owner-session)
                 owner_session="${2:-}"; owner_session_set=1; shift; if [ "$#" -gt 0 ]; then shift; fi ;;
+      --priority)
+                priority="${2:-}"; priority_set=1; shift; if [ "$#" -gt 0 ]; then shift; fi ;;
       *) shift ;;   # fail-soft: an unrecognized flag is ignored, never aborts a caller
     esac
   done
   [ -n "$d" ] && [ -d "$d" ] || return 0
   if [ "$state_set" -eq 1 ] && ! mentor_plan_state_valid "$state"; then return 0; fi
   if [ "$origin_set" -eq 1 ] && [ -n "$origin" ] && [ "$origin" != "deferred" ]; then return 0; fi
+  if [ "$priority_set" -eq 1 ] && [ -n "$priority" ] && ! mentor_plan_priority_valid "$priority"; then return 0; fi
   command -v jq >/dev/null 2>&1 || return 0
   f="${d}/.state.json"
   if [ ! -f "$f" ] || ! jq -e 'type == "object"' "$f" >/dev/null 2>&1; then
@@ -803,7 +860,8 @@ mentor_plan_state_write() {
         --argjson deps "$deps_json" --argjson deps_set "$deps_set" \
         --arg origin "$origin" --argjson origin_set "$origin_set" \
         --arg owner "$owner" --argjson owner_set "$owner_set" \
-        --arg owner_session "$owner_session" --argjson owner_session_set "$owner_session_set" '
+        --arg owner_session "$owner_session" --argjson owner_session_set "$owner_session_set" \
+        --arg priority "$priority" --argjson priority_set "$priority_set" '
         {
           state: (if $state_set == 1 then $state else (.state // null) end),
           group: (if $group_set == 1 then (if $group == "" then null else $group end) else (.group // null) end),
@@ -812,7 +870,8 @@ mentor_plan_state_write() {
           deps:  (if $deps_set == 1 then $deps else (.deps // []) end),
           origin: (if $origin_set == 1 then (if $origin == "" then null else $origin end) else (.origin // null) end),
           owner: (if $owner_set == 1 then (if $owner == "" then null else $owner end) else (.owner // null) end),
-          owner_session: (if $owner_session_set == 1 then (if $owner_session == "" then null else $owner_session end) else (.owner_session // null) end)
+          owner_session: (if $owner_session_set == 1 then (if $owner_session == "" then null else $owner_session end) else (.owner_session // null) end),
+          priority: (if $priority_set == 1 then (if $priority == "" then null else $priority end) else (.priority // null) end)
         }' "$f" > "$tmp" 2>/dev/null; then
     mv -f "$tmp" "$f" 2>/dev/null || rm -f "$tmp" 2>/dev/null || true
   else

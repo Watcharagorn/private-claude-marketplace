@@ -246,7 +246,12 @@ with no children, which would delete the user's plan.
    ```
    `init` re-stamps `owner`/`owner_session` for this worktree (Step 4's `ensure-dir`
    already stamped it at mint time — this is the last-init-wins re-own, and the
-   carrier for `--group`/`--order`). Registering per child, as it verifies, matters
+   carrier for `--group`/`--order`). A tiered parent's `priority` is **not** inherited:
+   nothing copies it down, and a split is exactly where a blanket copy would be wrong —
+   a `critical` parent usually splits into one critical slice and several ordinary
+   ones. If the parent carried a tier, add `--priority <p>` per child here, judging
+   each on its own, so the tiering survives the split instead of being silently lost
+   with the parent. Registering per child, as it verifies, matters
    for the same reason Step 4 mints before dispatch: batching registration until
    every child exists would leave each already-verified child relying on nothing
    but its mint-time stamp for the whole remaining verification window, and if the

@@ -591,6 +591,51 @@ chk "upgrading write preserves the pre-existing state" test "$(libsh "mentor_pla
 chk "upgrading write adds the owner"                    test "$(libsh "mentor_plan_owner '$PLANS/oldsc'")" = "wt-c-333"
 rm -rf "$PLANS"
 
+echo "== O2. mentor_plan_state_write --priority — closed vocabulary, set / preserve-on-omit / clear-on-explicit-empty (v2.24.0) =="
+chk "priority_valid accepts every tier" \
+  libsh 'for p in critical high medium low noise; do mentor_plan_priority_valid "$p" || exit 1; done'
+chk "priority_valid rejects a typo"     libsh '! mentor_plan_priority_valid hgih'
+chk "priority_valid rejects empty"      libsh '! mentor_plan_priority_valid ""'
+chk "priority_valid is a predicate, safe under set -e" \
+  libsh 'if mentor_plan_priority_valid nope; then :; fi; echo ok >/dev/null'
+
+mkdir -p "$PLANS/pr1"
+libsh "mentor_plan_state_write '$PLANS/pr1' --state draft --priority critical --note 'n'"
+chk "priority stored"                   test "$(libsh "mentor_plan_priority '$PLANS/pr1'")" = "critical"
+# Omitted --priority on a plain write PRESERVES — the same omit=preserve contract
+# --group/--order/--deps/--origin/--owner already carry. This is the property the
+# whole feature rests on: a tier set once must survive every later state transition.
+libsh "mentor_plan_state_write '$PLANS/pr1' --state approved"
+chk "priority preserved across a write that omits it" test "$(libsh "mentor_plan_priority '$PLANS/pr1'")" = "critical"
+chk "the state still moved"                            test "$(libsh "mentor_plan_state_field '$PLANS/pr1' state")" = "approved"
+# Explicit empty CLEARS — the deliberate un-tier path.
+libsh "mentor_plan_state_write '$PLANS/pr1' --priority ''"
+chk "explicit empty --priority clears it"              test -z "$(libsh "mentor_plan_priority '$PLANS/pr1'")"
+chk "clearing --priority leaves the state untouched"   test "$(libsh "mentor_plan_state_field '$PLANS/pr1' state")" = "approved"
+# An INVALID tier rejects the WHOLE write, fail-soft (status 0, nothing changed) —
+# same shape as an invalid --state or --origin. A half-applied write that dropped only
+# the bad field would look to a caller exactly like a successful one.
+libsh "mentor_plan_state_write '$PLANS/pr1' --priority high"
+libsh "mentor_plan_state_write '$PLANS/pr1' --state draft --priority hgih"
+chk "invalid --priority → whole write rejected (state unchanged)"    test "$(libsh "mentor_plan_state_field '$PLANS/pr1' state")" = "approved"
+chk "invalid --priority → whole write rejected (priority unchanged)" test "$(libsh "mentor_plan_priority '$PLANS/pr1'")" = "high"
+chk "invalid --priority never aborts a set -e caller" \
+  libsh "mentor_plan_state_write '$PLANS/pr1' --priority nope; echo ok >/dev/null"
+
+# Readback of an OLD sidecar (pre-2.24.0, no priority key at all — or one an older
+# cached plugin copy rewrote without it) must read as UNPRIORITIZED, never a default.
+mkdir -p "$PLANS/prold"
+cat > "$PLANS/prold/.state.json" <<'JSON'
+{"state":"implemented","group":null,"order":null,"note":"","deps":[],"origin":null,"owner":"wt-x","owner_session":"s"}
+JSON
+chk "old sidecar (no priority key): reads empty"    test -z "$(libsh "mentor_plan_priority '$PLANS/prold'")"
+chk "old sidecar (no priority key): state reads back" test "$(libsh "mentor_plan_state_field '$PLANS/prold' state")" = "implemented"
+libsh "mentor_plan_state_write '$PLANS/prold' --priority noise"
+chk "upgrading write adds the priority"             test "$(libsh "mentor_plan_priority '$PLANS/prold'")" = "noise"
+chk "upgrading write preserves the state"           test "$(libsh "mentor_plan_state_field '$PLANS/prold' state")" = "implemented"
+chk "upgrading write preserves the owner"           test "$(libsh "mentor_plan_owner '$PLANS/prold'")" = "wt-x"
+rm -rf "$PLANS"
+
 echo
 echo "RESULT: PASS=$PASS FAIL=$FAIL"
 [ "$FAIL" = "0" ]

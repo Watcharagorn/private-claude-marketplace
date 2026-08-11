@@ -12,12 +12,20 @@
 # tracked by an `owner`/`owner_session` pair on the sidecar (stamped by ensure-dir/
 # init/claim — see `current --any`, `list --owners`, and `overview`'s `owner` field).
 #
-#   init <slug> [--group G] [--order N] [--deps a,b] [--deferred]
+# v2.24.0: the sidecar carries a `priority` — the plan's IMPACT tier, one of
+# critical|high|medium|low|noise or null — so /mentor:track's hierarchy can say which
+# plans matter and which are noise. Written by `init --priority` and `set-priority`;
+# read back on every `overview --json` plan entry. Orthogonal to `order` (sequence
+# WITHIN a split group) and `deps` (what must be built FIRST) — neither of those says
+# whether a plan is worth building at all.
+#
+#   init <slug> [--group G] [--order N] [--deps a,b] [--deferred] [--priority P]
 #       Create the sidecar as `draft`. Idempotent and never LOWERS an existing
 #       state — re-running it on an approved plan keeps it approved. --deps sets the
 #       initial dependency slugs (cycle-checked, same as set-deps); --deferred marks
 #       the plan a stub born via /mentor:defer (origin: "deferred" — shields it from
-#       approve-plan's promotion sweep until `claim`ed).
+#       approve-plan's promotion sweep until `claim`ed); --priority sets the initial
+#       impact tier (same closed vocabulary as set-deps' sibling `set-priority`).
 #
 #   set <slug> <state> [--note "…"]
 #       Upsert (create-then-set): most plans predate the sidecar. <state> is one of
@@ -29,6 +37,19 @@
 #       (empty string clears them). Unknown slugs are allowed — the dep plan may be
 #       deferred later. Refuses a write that would create a dependency cycle (direct
 #       self-cycle or transitive): fail-soft, stderr warning, no write.
+#
+#   set-priority <slug> <critical|high|medium|low|noise|"">
+#       Set <slug>'s impact tier; an EMPTY string clears it back to unset (null),
+#       which renders as absent rather than as any tier. A CLOSED vocabulary,
+#       validated here — unlike set-deps' arbitrary slugs — because the field exists
+#       so /mentor:track can bucket plans by tier, and an unvalidated typo would
+#       silently become a sixth bucket. An invalid value is a usage error (exit 1, no
+#       write), not a fail-soft skip: a tiering pass over N plans must not report
+#       success while one of them silently kept its old tier.
+#       Its own subcommand rather than a `set` flag for exactly the reason `set-deps`
+#       and `claim` are: `set <slug> <state>` takes state as a REQUIRED positional, so
+#       a priority-only edit would have to restate (and risk re-writing) a state the
+#       caller never meant to touch.
 #
 #   claim <slug>
 #       Clear `origin` — used when a deferred stub (born via /mentor:defer) enters
@@ -47,6 +68,9 @@
 #       --owners, a 6th OWNER column (the wt-id from the sidecar, "-" when unowned).
 #       Grouped, ordered within a group, `superseded` and `unknown` last. The default
 #       (no --owners) 5-column shape is byte-compatible with pre-2.23.0 output.
+#       Deliberately carries NO priority column, in either shape: `overview --json` is
+#       what every rendering skill reads, and a third column layout here would buy a
+#       table nothing consumes at the cost of the byte-compatibility promise above.
 #
 #   current [--any]
 #       The plan a bare "review the plan" means, scoped to plans OWNED by THIS
@@ -58,10 +82,12 @@
 #
 #   overview --json
 #       Repo-wide JSON array (--json is required — there is no human-table mode): one
-#       object per plan dir with a plan.md (slug, effective state, group, order, deps
-#       — each marked missing when no such plan dir exists, origin, live handoffs,
-#       ticked/total step counts), plus topic dirs that hold live handoffs but no
-#       plan.md yet (state "no plan yet") and the legacy flat handoffs/ dir (topic-less).
+#       object per plan dir with a plan.md (slug, effective state, group, order,
+#       priority, deps — each marked missing when no such plan dir exists, origin,
+#       live handoffs, ticked/total step counts), plus topic dirs that hold live
+#       handoffs but no plan.md yet (state "no plan yet") and the legacy flat handoffs/
+#       dir (topic-less). `priority` is null on every entry that has none, including
+#       both non-plan kinds, so a consumer never has to branch on kind to read it.
 #       Computed fresh every call — nothing is cached.
 #
 #   context
@@ -158,10 +184,11 @@ warn_same_slug_collision() {
 usage() {
   cat <<'EOF'
 Usage: plan-state.sh <subcommand>
-  init <slug> [--group G] [--order N] [--deps a,b] [--deferred]
+  init <slug> [--group G] [--order N] [--deps a,b] [--deferred] [--priority P]
                                          create the sidecar as draft (idempotent)
   set <slug> <state> [--note "…"]       state: draft|approved|in_progress|implemented|failed|superseded
   set-deps <slug> a,b                   replace deps wholesale (cycle-checked, fail-soft)
+  set-priority <slug> <P>               impact tier: critical|high|medium|low|noise ("" clears)
   claim <slug>                          clear origin (a deferred stub enters real planning)
   tick <slug> <N>                       append ✅ to step N in plan.md (idempotent, fails loud)
   list [--group G] [--owners]           every plan with its effective state (--owners adds OWNER)
@@ -366,7 +393,7 @@ if [ "$sub" = "gate" ]; then
 fi
 
 case "$sub" in
-  init|set|set-deps|claim|tick|list|current|overview) ;;
+  init|set|set-deps|set-priority|claim|tick|list|current|overview) ;;
   ""|-h|--help|help)
     usage
     [ -n "$sub" ] && exit 0
@@ -395,8 +422,13 @@ fi
 # _plan_walk [group-filter] — the ONE walk over plans_dir for every plan dir that has
 # a plan.md. Emits one tab-separated RAW record per line, unsorted:
 #   slug  state  group  order  owner  deps_json  origin  handoffs_json  ticked  total
+#   priority
 # `owner` (v2.23.0, mentor_plan_owner) is the wt-id that minted or last re-owned the
-# plan dir, or "-" when unowned. `deps_json`/`handoffs_json` are compact (`jq -c`)
+# plan dir, or "-" when unowned. `priority` (v2.24.0, mentor_plan_priority) is the
+# impact tier, or "-" when unset; it is APPENDED at the end rather than slotted beside
+# `order` on purpose — `list_rows` reads only the first five fields and drops the
+# tail into a single `_rest`, so a trailing field cannot disturb the byte-compatible
+# 5-column `list` output, while an inserted one would shift every field after it. `deps_json`/`handoffs_json` are compact (`jq -c`)
 # single-line JSON — safe to sit in a tab field because compact jq output never
 # contains a literal tab or newline, even inside a string. `list_rows` (below,
 # byte-compatible with the pre-v2.17.0 5-field format) and `overview --json` both
@@ -406,7 +438,7 @@ fi
 # decides what "every plan" means.
 _plan_walk() {
   local filter="${1:-}" d slug state group order owner origin deps_pairs deps_json
-  local handoffs_json ticked total dep miss
+  local handoffs_json ticked total dep miss priority
   for d in "${plans_dir}"/*/; do
     [ -d "$d" ] || continue
     d="${d%/}"
@@ -418,6 +450,7 @@ _plan_walk() {
     order="$(mentor_plan_order "$d")"
     owner="$(mentor_plan_owner "$d")"
     origin="$(mentor_plan_origin "$d")"
+    priority="$(mentor_plan_priority "$d")"
     deps_pairs=""
     while IFS= read -r dep; do
       [ -n "$dep" ] || continue
@@ -434,12 +467,14 @@ _plan_walk() {
     read -r ticked total <<<"$(mentor_plan_tick_counts "${d}/plan.md")"
     # IFS-whitespace read pitfall: a lone tab in IFS is still "IFS whitespace" to
     # bash's `read` — consecutive tabs COLLAPSE instead of producing an empty field,
-    # so a genuinely-empty group/order/owner/origin would silently shift every field
-    # after it for whoever reads this line. Emit "-" for empty (matching print_table's
-    # own existing display convention) and never a raw empty string here; consumers
-    # translate "-" back to "" on read.
-    printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' \
-      "$slug" "$state" "${group:--}" "${order:--}" "${owner:--}" "$deps_json" "${origin:--}" "$handoffs_json" "$ticked" "$total"
+    # so a genuinely-empty group/order/owner/origin/priority would silently shift
+    # every field after it for whoever reads this line. Emit "-" for empty (matching
+    # print_table's own existing display convention) and never a raw empty string
+    # here; consumers translate "-" back to "" on read. This applies to the LAST field
+    # as much as the middle ones: `read` assigns an absent trailing field as empty
+    # anyway, so a bare "" there would be indistinguishable from a short record.
+    printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' \
+      "$slug" "$state" "${group:--}" "${order:--}" "${owner:--}" "$deps_json" "${origin:--}" "$handoffs_json" "$ticked" "$total" "${priority:--}"
   done
 }
 
@@ -623,7 +658,7 @@ tick_reconciliation_reminder() {
 case "$sub" in
 
   init)
-    slug=""; group=""; order=""; deps=""; deferred=0
+    slug=""; group=""; order=""; deps=""; deferred=0; priority=""
     while [ "$#" -gt 0 ]; do
       case "$1" in
         # shift 1 then conditionally 1 more: a bare trailing `--group` must not
@@ -632,11 +667,24 @@ case "$sub" in
         --order) order="${2:-}"; shift; if [ "$#" -gt 0 ]; then shift; fi ;;
         --deps) deps="${2:-}"; shift; if [ "$#" -gt 0 ]; then shift; fi ;;
         --deferred) deferred=1; shift ;;
+        --priority) priority="${2:-}"; shift; if [ "$#" -gt 0 ]; then shift; fi ;;
         -*) echo "[mentor plan-state] init: unknown flag ${1}" >&2; usage >&2; exit 1 ;;
         *)  [ -z "$slug" ] && slug="$1" || { echo "[mentor plan-state] init: unexpected argument ${1}" >&2; exit 1; }; shift ;;
       esac
     done
     require_slug "$slug"
+    # Validated BEFORE any write, like `set`'s state check — a typo'd tier is a usage
+    # error, not a fail-soft skip, so `init` can never report success having quietly
+    # dropped the one field the caller passed it. (A `--deps` cycle stays fail-soft by
+    # contrast: that is a graph condition the caller could not have known locally,
+    # not a misspelling.) An EMPTY --priority is not an error and not a clear — init
+    # never clears anything; every other flag here preserves on empty the same way,
+    # and `set-priority <slug> ""` is the one path that un-tiers a plan.
+    if [ -n "$priority" ] && ! mentor_plan_priority_valid "$priority"; then
+      echo "[mentor plan-state] init: invalid priority '${priority}'." >&2
+      echo "Valid priorities: ${MENTOR_PLAN_PRIORITIES}  (or \"\" to leave unset)" >&2
+      exit 1
+    fi
     require_jq
     plan_dir="${plans_dir}/${slug}"
     init_wt_id="$(mentor_worktree_id "$(pwd)")"
@@ -648,6 +696,7 @@ case "$sub" in
     write_args=(--state "${existing:-draft}" --note "$(mentor_plan_state_field "$plan_dir" note)")
     [ -n "$group" ] && write_args+=(--group "$group")
     [ -n "$order" ] && write_args+=(--order "$order")
+    [ -n "$priority" ] && write_args+=(--priority "$priority")
     # Second of the three owner-stamping sites (see this file's top-of-file v2.23.0
     # note): last-init-wins re-owning — this is also how `/mentor:plan <slug>` re-owns
     # a plan resumed in a different worktree. Skipped entirely when wt-id is empty
@@ -674,7 +723,7 @@ case "$sub" in
     fi
     [ "$deferred" -eq 1 ] && write_args+=(--origin deferred)
     mentor_plan_state_write "$plan_dir" "${write_args[@]}"
-    echo "[mentor plan-state] ${slug}: $(mentor_plan_effective_state "$plan_dir")${group:+  group=${group}}${order:+  order=${order}}${deps_summary:+  deps=${deps_summary}}$([ "$deferred" -eq 1 ] && printf '  origin=deferred')"
+    echo "[mentor plan-state] ${slug}: $(mentor_plan_effective_state "$plan_dir")${group:+  group=${group}}${order:+  order=${order}}${priority:+  priority=${priority}}${deps_summary:+  deps=${deps_summary}}$([ "$deferred" -eq 1 ] && printf '  origin=deferred')"
     ;;
 
   set)
@@ -753,6 +802,38 @@ case "$sub" in
     # the current note to avoid silently wiping it.
     mentor_plan_state_write "$plan_dir" --deps "$clean_csv" --note "$(mentor_plan_state_field "$plan_dir" note)"
     echo "[mentor plan-state] ${slug}: deps = ${clean_csv:-(none)}"
+    ;;
+
+  set-priority)
+    # The VALUE is required as a positional even when it is the empty string, so
+    # `set-priority <slug>` with nothing after it is a usage error rather than a
+    # silent clear — un-tiering must be something the caller typed on purpose
+    # (`set-priority <slug> ""`), not what a dropped shell argument decays into.
+    slug="${1:-}"; if [ "$#" -gt 0 ]; then shift; fi
+    require_slug "$slug"
+    if [ "$#" -eq 0 ]; then
+      echo "[mentor plan-state] set-priority: a <priority> is required (use \"\" to clear)." >&2
+      usage >&2
+      exit 1
+    fi
+    prio="$1"; shift
+    if [ "$#" -gt 0 ]; then
+      echo "[mentor plan-state] set-priority: unexpected argument ${1}" >&2
+      usage >&2
+      exit 1
+    fi
+    if [ -n "$prio" ] && ! mentor_plan_priority_valid "$prio"; then
+      echo "[mentor plan-state] set-priority: invalid priority '${prio}'." >&2
+      echo "Valid priorities: ${MENTOR_PLAN_PRIORITIES}  (or \"\" to clear)" >&2
+      exit 1
+    fi
+    require_jq
+    plan_dir="${plans_dir}/${slug}"
+    # Re-read and re-pass the note for the same reason set-deps does:
+    # mentor_plan_state_write always REPLACES --note (even when omitted, which would
+    # clear it), so a priority-only write must round-trip the current note.
+    mentor_plan_state_write "$plan_dir" --priority "$prio" --note "$(mentor_plan_state_field "$plan_dir" note)"
+    echo "[mentor plan-state] ${slug}: priority = ${prio:-(unset)}"
     ;;
 
   claim)
@@ -917,21 +998,23 @@ case "$sub" in
     ov_entries=""
 
     # 1) every plan dir with a plan.md — the shared per-plan iterator (_plan_walk).
-    while IFS="$(printf '\t')" read -r ov_slug ov_state ov_group ov_order ov_owner ov_deps ov_origin ov_handoffs ov_ticked ov_total; do
+    while IFS="$(printf '\t')" read -r ov_slug ov_state ov_group ov_order ov_owner ov_deps ov_origin ov_handoffs ov_ticked ov_total ov_priority; do
       [ -n "$ov_slug" ] || continue
       [ "$ov_group" = "-" ] && ov_group=""    # un-placeholder — see _plan_walk's comment
       [ "$ov_order" = "-" ] && ov_order=""
       [ "$ov_owner" = "-" ] && ov_owner=""
       [ "$ov_origin" = "-" ] && ov_origin=""
+      [ "$ov_priority" = "-" ] && ov_priority=""
       entry="$(jq -n \
         --arg slug "$ov_slug" --arg state "$ov_state" --arg group "$ov_group" --arg order "$ov_order" \
-        --arg owner "$ov_owner" \
+        --arg owner "$ov_owner" --arg priority "$ov_priority" \
         --argjson deps "$ov_deps" --arg origin "$ov_origin" --argjson handoffs "$ov_handoffs" \
         --argjson ticked "$ov_ticked" --argjson total "$ov_total" '
         {kind: "plan", slug: $slug, state: $state,
          group: (if $group == "" then null else $group end),
          order: (if $order == "" then null else ($order | tonumber? // null) end),
          owner: (if $owner == "" then null else $owner end),
+         priority: (if $priority == "" then null else $priority end),
          deps: $deps, origin: (if $origin == "" then null else $origin end),
          handoffs: $handoffs, steps: {ticked: $ticked, total: $total}}')"
       ov_entries="${ov_entries}${entry}
@@ -950,7 +1033,7 @@ case "$sub" in
       [ "$ov_handoffs" = "[]" ] && continue
       entry="$(jq -n --arg slug "$ov_slug" --argjson handoffs "$ov_handoffs" '
         {kind: "no_plan_topic", slug: $slug, state: "no plan yet",
-         group: null, order: null, owner: null, deps: [], origin: null,
+         group: null, order: null, owner: null, priority: null, deps: [], origin: null,
          handoffs: $handoffs, steps: {ticked: 0, total: 0}}')"
       ov_entries="${ov_entries}${entry}
 "
@@ -966,7 +1049,7 @@ case "$sub" in
       if [ "$ov_legacy_json" != "[]" ]; then
         entry="$(jq -n --argjson handoffs "$ov_legacy_json" '
           {kind: "legacy_handoffs", slug: null, state: null,
-           group: null, order: null, owner: null, deps: [], origin: null,
+           group: null, order: null, owner: null, priority: null, deps: [], origin: null,
            handoffs: $handoffs, steps: null}')"
         ov_entries="${ov_entries}${entry}
 "

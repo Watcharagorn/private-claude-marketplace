@@ -18,6 +18,12 @@
 #     `--verbose` field contract; `current` scopes to plans owned by this worktree
 #     (or unowned) unless `--any`; `ensure-dir`/`init`/`claim` stamp sidecar
 #     `owner`/`owner_session`; `list --owners` adds a 6th OWNER column.
+#   • v2.24.0 (impact tier): the sidecar carries `priority` — a CLOSED vocabulary
+#     (critical|high|medium|low|noise), written by `init --priority` and
+#     `set-priority`, surfaced on every `overview --json` entry. Unset stays null
+#     and never defaults into a tier; an invalid value is a usage error (exit 1,
+#     nothing written), not a fail-soft skip; and `list`'s column count is
+#     unchanged in both its shapes.
 #
 # Runs against a SANDBOX $HOME and CLAUDE_CONFIG_DIR so it never touches real user
 # state and never finds a real session transcript.
@@ -493,6 +499,83 @@ ps set-deps note-dep sd-b >/dev/null
 chk "set-deps preserves the note"            test "$(sidecar note-dep '.note')" = "keep me"
 chk "set-deps preserves the state"           test "$(state_of note-dep)" = "failed"
 
+echo "== K2. init --priority / set-priority: closed vocabulary, clear-on-empty, survives unrelated writes (v2.24.0) =="
+rm -rf "$PLANS"; mkdir -p "$PLANS"
+plan pr-a '# a' '## Implementation steps' '1. one' '2. two'
+plan pr-b
+out="$(ps init pr-a --priority critical)"; rc=$?
+chk "init --priority → exit 0"               test "$rc" = "0"
+chk "init --priority echoes the tier"        has "priority=critical" "$out"
+chk "init --priority stores it"              test "$(sidecar pr-a '.priority')" = "critical"
+# A typo'd tier is a USAGE error (exit 1, nothing written), not a fail-soft skip — a
+# tiering pass over N plans must never report success having dropped one silently.
+ps init pr-b >/dev/null
+out="$(ps init pr-b --priority hgih)"; rc=$?
+chk "init: invalid priority → exit 1"        test "$rc" = "1"
+chk "init: invalid priority names the set"   has "critical high medium low noise" "$out"
+chk "init: invalid priority wrote nothing"   test "$(sidecar pr-b '.priority')" = "null"
+# init never CLEARS — an empty value preserves, like every other init flag.
+ps set-priority pr-b low >/dev/null
+ps init pr-b --order 3 >/dev/null
+chk "init with no --priority preserves it"   test "$(sidecar pr-b '.priority')" = "low"
+ps init pr-b --priority "" >/dev/null
+chk "init --priority '' preserves (never clears)" test "$(sidecar pr-b '.priority')" = "low"
+
+out="$(ps set-priority pr-b noise)"; rc=$?
+chk "set-priority → exit 0"                  test "$rc" = "0"
+chk "set-priority reports the tier"          has "priority = noise" "$out"
+chk "set-priority stores it"                 test "$(sidecar pr-b '.priority')" = "noise"
+out="$(ps set-priority pr-b bogus)"; rc=$?
+chk "set-priority: invalid → exit 1"         test "$rc" = "1"
+chk "set-priority: invalid wrote nothing"    test "$(sidecar pr-b '.priority')" = "noise"
+# A dropped shell argument must not decay into a silent clear — the value is required
+# as a positional even when it is the empty string.
+out="$(ps set-priority pr-b)"; rc=$?
+chk "set-priority with no value → exit 1"    test "$rc" = "1"
+chk "set-priority with no value: no write"   test "$(sidecar pr-b '.priority')" = "noise"
+out="$(ps set-priority pr-b low extra)"; rc=$?
+chk "set-priority: extra argument → exit 1"  test "$rc" = "1"
+out="$(ps set-priority no-such-plan low)"; rc=$?
+chk "set-priority: unknown slug → exit 1"    test "$rc" = "1"
+out="$(ps set-priority pr-b "")"; rc=$?
+chk "set-priority '' → exit 0"               test "$rc" = "0"
+chk "set-priority '' reports unset"          has "priority = (unset)" "$out"
+chk "set-priority '' clears to null"         test "$(sidecar pr-b '.priority')" = "null"
+
+# The whole point of the omitted-preserves contract: a tier set once must ride through
+# every later state transition instead of being clobbered back to null.
+ps set-priority pr-a high >/dev/null
+ps set pr-a approved --note "n1" >/dev/null
+chk "priority survives set <slug> approved"  test "$(sidecar pr-a '.priority')" = "high"
+ps set pr-a in_progress >/dev/null
+chk "priority survives a note-clearing set"  test "$(sidecar pr-a '.priority')" = "high"
+ps set-deps pr-a pr-b >/dev/null
+chk "priority survives set-deps"             test "$(sidecar pr-a '.priority')" = "high"
+ps claim pr-a >/dev/null
+chk "priority survives claim"                test "$(sidecar pr-a '.priority')" = "high"
+ps tick pr-a 1 >/dev/null
+chk "priority survives tick"                 test "$(sidecar pr-a '.priority')" = "high"
+# …and set-priority is a priority-ONLY write: it must not disturb its neighbours.
+ps set pr-a failed --note "broke here" >/dev/null
+ps set-priority pr-a medium >/dev/null
+chk "set-priority preserves the note"        test "$(sidecar pr-a '.note')" = "broke here"
+chk "set-priority preserves stored state"    test "$(sidecar pr-a '.state')" = "failed"
+chk "set-priority preserves effective state" test "$(state_of pr-a)" = "failed"
+chk "set-priority preserves deps"            test "$(sidecar pr-a '(.deps//[])|join(",")')" = "pr-b"
+
+# A pre-v2.24.0 sidecar (no `priority` key at all) reads back unprioritized with no
+# migration, and a later write upgrades it in place without touching anything else.
+mkdir -p "$PLANS/pr-old"; printf '# old\n' > "$PLANS/pr-old/plan.md"
+cat > "$PLANS/pr-old/.state.json" <<'JSON'
+{"state":"approved","group":null,"order":null,"note":"n","deps":[],"origin":null}
+JSON
+chk "old sidecar: priority reads null"       test "$(sidecar pr-old '.priority // "null"')" = "null"
+chk "old sidecar: state still reads back"    test "$(state_of pr-old)" = "approved"
+ps set-priority pr-old critical >/dev/null
+chk "upgrading write adds the priority"      test "$(sidecar pr-old '.priority')" = "critical"
+chk "upgrading write preserves the state"    test "$(sidecar pr-old '.state')" = "approved"
+chk "upgrading write preserves the note"     test "$(sidecar pr-old '.note')" = "n"
+
 echo "== L. claim: clears origin; note and other fields round-trip =="
 rm -rf "$PLANS"; mkdir -p "$PLANS"
 plan clm
@@ -568,7 +651,7 @@ mkdir -p "$PLANS/ov-a/handoffs/resolved"
 ps init ov-a >/dev/null
 
 plan ov-b '# b' '## Implementation steps' '1. one ✅' '2. two'
-ps init ov-b >/dev/null
+ps init ov-b --priority critical >/dev/null
 ps set-deps ov-b "ov-a,ov-missing" >/dev/null
 
 mkdir -p "$PLANS/ov-topic/handoffs"
@@ -590,6 +673,8 @@ chk "ov-a: live handoff only, resolved excluded" test "$(printf '%s' "$ov_a" | j
 chk "ov-a: no deps"                     test "$(printf '%s' "$ov_a" | jq -c '.deps')" = '[]'
 chk "ov-a: origin null"                 test "$(printf '%s' "$ov_a" | jq -r '.origin')" = "null"
 chk "ov-a: owner carries this worktree's wt-id (v2.23.0)" test "$(printf '%s' "$ov_a" | jq -r '.owner')" = "$WTA_ID"
+chk "ov-a: unprioritized → priority null, never a default tier (v2.24.0)" \
+  test "$(printf '%s' "$ov_a" | jq -r '.priority')" = "null"
 
 ov_b="$(printf '%s' "$out" | jq -c '.[] | select(.slug=="ov-b")')"
 chk "ov-b: step counts 1/2"                  test "$(printf '%s' "$ov_b" | jq -r '.steps.ticked,.steps.total' | tr '\n' ' ')" = "1 2 "
@@ -598,6 +683,7 @@ chk "ov-b: known dep marked not missing"     test "$(printf '%s' "$ov_b" | jq -r
 chk "ov-b: unknown dep marked missing"       test "$(printf '%s' "$ov_b" | jq -r '.deps[1].missing')" = "true"
 chk "ov-b: no handoffs"                      test "$(printf '%s' "$ov_b" | jq -c '.handoffs')" = '[]'
 chk "ov-b: owner carries this worktree's wt-id (v2.23.0)" test "$(printf '%s' "$ov_b" | jq -r '.owner')" = "$WTA_ID"
+chk "ov-b: priority carries the tier (v2.24.0)" test "$(printf '%s' "$ov_b" | jq -r '.priority')" = "critical"
 
 ov_topic="$(printf '%s' "$out" | jq -c '.[] | select(.slug=="ov-topic")')"
 chk "plan-less topic: kind no_plan_topic"  test "$(printf '%s' "$ov_topic" | jq -r '.kind')" = "no_plan_topic"
@@ -625,11 +711,12 @@ chk "no jq → empty stdout"            test -z "$out"
 chk "no jq → one-line stderr notice"  test "$(printf '%s\n' "$err" | wc -l | tr -d ' ')" = "1"
 chk "no jq → notice names the problem" has "jq not found" "$err"
 
-echo "== O. list stays byte-compatible even when a plan carries deps/origin =="
+echo "== O. list stays byte-compatible even when a plan carries deps/origin/priority =="
 ps init ov-b --deferred >/dev/null   # give ov-b an origin too, alongside its deps
+chk "the fixture plan really does carry a priority" test "$(sidecar ov-b '.priority')" = "critical"
 out="$(psout list)"
 row="$(printf '%s' "$out" | awk -v s="ov-b" '$3 == s')"
-chk "row for a deps+origin plan is still found"    test -n "$row"
+chk "row for a deps+origin+priority plan is still found" test -n "$row"
 chk "row is still exactly 5 whitespace-separated columns" \
   test "$(printf '%s' "$row" | awk '{print NF}')" = "5"
 chk "row carries no stray JSON from deps/origin" \
