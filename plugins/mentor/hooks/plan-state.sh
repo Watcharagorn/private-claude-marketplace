@@ -728,7 +728,10 @@ require_jq_read() {
 
 # closing_checklist_reminder <transcript_path> <implemented|failed> — best-effort
 # stdout nudge for dispatch-agents' CLOSING CHECKLIST. The caller fires this only on a
-# FRESH transition into a terminal state (before != state), so shipping/merging's own
+# FRESH transition into a terminal state, gauged off the STORED sidecar
+# (before_stored != state), not the tick-self-healing effective read — a plan whose
+# ✅ ticks alone already self-heal the effective state to "implemented" must still
+# get this reminder on its real first `set … implemented`. So shipping/merging's
 # later `set … implemented` — which idempotently re-closes a plan dispatch-agents
 # already closed — stays silent instead of re-nagging mid-ship. The TaskList line is
 # the only conditional part: it prints only when this session's own transcript shows an
@@ -906,6 +909,13 @@ case "$sub" in
     require_jq
     plan_dir="${plans_dir}/${slug}"
     before="$(mentor_plan_effective_state "$plan_dir")"
+    # Freshness for the reminders below is judged off this STORED read, not `before`
+    # above — `before` is effective (max of stored, tick-derived) and self-heals to
+    # "implemented" from ✅ ticks alone, before any `set` call ever runs. Gating on
+    # that would make the real first `set … implemented` look like an idempotent
+    # re-close and silently skip every reminder. `before_stored` only changes when a
+    # write actually persists it, so ticks alone can't fool it.
+    before_stored="$(mentor_plan_state_stored "$plan_dir")"
     mentor_plan_state_write "$plan_dir" --state "$state" --note "$note"
     after="$(mentor_plan_effective_state "$plan_dir")"
     echo "[mentor plan-state] ${slug}: ${before} → ${after}${note:+  (${note})}"
@@ -916,10 +926,10 @@ case "$sub" in
     fi
     case "$state" in
       implemented|failed)
-        # Fire only on a FRESH transition — before == state means this call is an
-        # idempotent re-close (e.g. shipping/merging re-running `set … implemented`
+        # Fire only on a FRESH transition — before_stored == state means this call is
+        # an idempotent re-close (e.g. shipping/merging re-running `set … implemented`
         # after dispatch-agents already closed it), which must stay silent.
-        if [ "$before" != "$state" ]; then
+        if [ "$before_stored" != "$state" ]; then
           closing_checklist_reminder "$(mentor_find_transcript "$(pwd)")" "$state"
           # Only implemented claims verification passed — failed has nothing to fake.
           if [ "$state" = "implemented" ]; then

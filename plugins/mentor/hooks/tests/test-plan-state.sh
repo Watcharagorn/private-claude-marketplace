@@ -1009,6 +1009,19 @@ chk "failed → defer sweep still fires"                       has "/mentor:defe
 chk "failed → tour offer held (checklist carve-out)"         hasnt "/mentor:tour" "$out"
 chk "failed → ship pointer held (checklist carve-out)"       hasnt "/mentor:ship" "$out"
 
+# Regression for the before_stored fix: a plan whose ✅ ticks alone already self-heal
+# mentor_plan_effective_state to "implemented" — with NO prior `set` call, so the
+# sidecar was never actually written — must still get this reminder on its real
+# first `set … implemented`. Pre-fix, `before` (effective) already read "implemented"
+# here, `before == state`, and the whole block was skipped as a false idempotent
+# re-close.
+tx_agent_only
+plan cc-selfheal '## Implementation steps' '1. one ✅' '2. two ✅'
+merged="$(ps set cc-selfheal implemented)"; rc=$?
+chk "ticks alone self-heal effective state → reminder still fires" has "Closing checklist" "$merged"
+chk "self-heal case → still reports the state transition"          has "implemented → implemented" "$merged"
+chk "self-heal reminder path still exits 0"                        test "$rc" = "0"
+
 echo "== R. set … implemented: verification-artifact reminder (verification_artifact_reminder) =="
 tx_no_agent   # this section only cares about the verification line, not the checklist above it
 plan va-empty '# a' '## Implementation steps' '1. one'
@@ -1059,17 +1072,13 @@ chk "warning → names the plan slug"                 has "tr-partial" "$merged"
 chk "warning → gives the tick remediation command"  has "plan-state.sh tick tr-partial" "$merged"
 chk "reminder path still exits 0"                   test "$rc" = "0"
 
-# Fully ticked must NOT start from a stored state the tick-derived "implemented"
-# already outranks (draft/approved/in_progress) — mentor_plan_effective_state would
-# then already read "implemented" before this call, `before == state`, and the whole
-# reminder block (including this one) would be skipped for a reason unrelated to the
-# ratio being fine. `failed` outranks the tick derivation (mentor_plan_state_rank:
-# failed=5 > implemented=4), so it's the only stored state that reaches this
-# function with a fully-ticked plan.
+# The reminder gate is judged off the STORED sidecar (before_stored), not the
+# tick-derived effective read, so a plan whose ✅ ticks alone would already self-heal
+# the effective state to "implemented" still reaches this function on its first real
+# `set … implemented` — no detour through another stored state required.
 plan tr-full '## Implementation steps' '1. one ✅' '2. two ✅'
-ps set tr-full failed --note "blocked" >/dev/null
 out="$(ps set tr-full implemented)"
-chk "2/2 ticked (from failed) → silent"             hasnt "steps ticked" "$out"
+chk "2/2 ticked (no prior close) → silent"          hasnt "steps ticked" "$out"
 
 plan tr-empty '## Notes' 'no Implementation steps section at all'
 out="$(ps set tr-empty implemented)"

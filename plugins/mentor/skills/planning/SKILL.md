@@ -505,6 +505,10 @@ Required sections, in order:
    finishing the write, rather than waiting for the Step 6 gate to catch an already-
    oversized plan. A plan that arrives at Step 6 already trimmed rarely needs the
    full split treatment.
+   **Never title a step "Verification pass," "Testing," or similar** — that name
+   belongs to the plan's own `## Verification` section below, and a step that reads
+   as satisfying it invites skipping that section's mandatory per-topic dispatch at
+   execution time. Name the step for what it builds or fixes instead.
    **A literal command written into a step here, on a live or shared system, must already
    be verified** per Step 2's directive — not transcribed from memory as you draft.
    **A `git diff`/`git log` written against a pathspec needs `--` before the path**

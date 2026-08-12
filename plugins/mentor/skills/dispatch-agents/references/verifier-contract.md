@@ -21,6 +21,9 @@ confirm-instead-of-check failure this contract exists to prevent.
   re-deriving (module path, executable location, launch flags), the exact
   working invocation already resolved earlier this session — never send the
   verifier off to rediscover it from scratch.
+- If the topic is concurrency- or timing-sensitive (a race, a flaky-under-load
+  path), say so in the brief and ask for 5+ independent runs before a PASS —
+  one clean run is not evidence for a race condition.
 
 When the plan predates the `Topic N —` grammar and its `## Verification` is
 still prose, build those three lines yourself before dispatching, one topic per
