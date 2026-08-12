@@ -522,7 +522,11 @@ Required sections, in order:
    `grep -c … || echo 0`, a real git failure and a genuine zero-match print the same
    output, so the fallback silently launders an error into a passing `Done when:`. Prefer
    checking the command's own exit status over papering over it with `|| echo 0`.
-7. `## Critical files`
+7. `## Critical files` — cite a file this repo's own tooling edits
+   automatically by **section heading**, never a line number: a stale line
+   reads as confirmed instead of wrong. This applies anywhere in the plan
+   that cites such a file, not just here — `## Implementation steps` and
+   `## Verification` included.
 8. `## Out of scope` — name every carve-out so the reviewer sees the
    boundary, but give one a **plan number or slug** only when it resolves on
    disk (a `/plan-split` sibling, or a `/mentor:defer` stub for work the user
