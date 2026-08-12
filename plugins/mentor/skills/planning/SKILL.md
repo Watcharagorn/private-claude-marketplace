@@ -164,14 +164,18 @@ all candidates. Search for that producer before drafting, and carry what you
 find into Step 3.5 as a scope decision, the same way a sibling instance is
 above.
 
-**A same-session restart is not a blank page.** When the user interrupts
-mid-research to broaden or redirect the request and re-invokes `/mentor:plan`,
+**A same-session restart — or an earlier grill — is not a blank page.** When
+the user interrupts mid-research to broaden or redirect the request and
+re-invokes `/mentor:plan`, or when a `grilling` phase (via `/mentor:grill`
+directly, or Step 1's own route into it) already ran earlier in this session,
 check the conversation for research FINDINGS already delivered on the same
 subject before dispatching a fresh round — a broadened scope usually extends
-prior findings rather than replacing them, so re-running agents over ground
-already covered wastes a full research fan-out on overlap the transcript
-already has the answer to. Dispatch new agents only for the ground the
-broadened request genuinely adds.
+prior findings rather than replacing them, and a prior grill's dispatched
+agent may have already covered the same ground, so re-running agents over
+territory already covered wastes a full research fan-out on overlap the
+transcript already has the answer to. Dispatch new agents only for the
+ground the broadened request — or the grill's own research — genuinely
+didn't cover.
 
 **`.mentor/` is gitignored — a plain `grep -r` can miss it, even aimed straight at the
 dir.** `hooks/lib/state.sh` writes `.mentor/.gitignore` as `*` + negations (only
