@@ -457,6 +457,29 @@ chk "pre-existing 755 plans/ repaired" test "$(mode "$PSTATE/plans")" = "drwx---
 chk "fail-soft on empty args"        libsh "mentor_ensure_private_dir '' ''"
 chk "fail-soft on unwritable parent" libsh "mentor_ensure_private_dir '$PSTATE' '/proc/nope/x'"
 
+echo "== mentor_confine_path — canonicalize + refuse anything outside <state_dir> =="
+# Shared by handoff-path/handoff-selfcheck (ensure-dir keeps its own older inline copy) —
+# a model-chosen path segment (a plan slug, a handoff topic) reaches an mkdir/mv call site,
+# so refusing anything that resolves outside <state_dir> is the one thing this must get right.
+out="$(libsh "mentor_confine_path '$PSTATE' '$PSTATE/plans/slug'")"; rc=$?
+chk "inside → exit 0"                     test "$rc" = "0"
+chk "inside → prints the canonical path"  test "$out" = "$PSTATE/plans/slug"
+out="$(libsh "mentor_confine_path '$PSTATE' '$PSTATE/plans/slug/handoffs'")"; rc=$?
+chk "inside (nested) → exit 0"            test "$rc" = "0"
+
+libsh "mentor_confine_path '$PSTATE' '$ROOT/outside'" >/dev/null 2>&1; rc=$?
+chk "outside → nonzero exit"              test "$rc" != "0"
+out="$(libsh "mentor_confine_path '$PSTATE' '$ROOT/outside'" 2>/dev/null)"
+chk "outside → nothing on stdout"         test -z "$out"
+
+libsh "mentor_confine_path '$PSTATE' '$PSTATE/../escape'" >/dev/null 2>&1; rc=$?
+chk "a ..-escape that resolves outside → nonzero exit" test "$rc" != "0"
+
+libsh "mentor_confine_path '' '$PSTATE/plans/slug'" >/dev/null 2>&1; rc=$?
+chk "fail-soft: empty state_dir → nonzero, no crash" test "$rc" != "0"
+libsh "mentor_confine_path '$PSTATE' ''" >/dev/null 2>&1; rc=$?
+chk "fail-soft: empty target → nonzero, no crash"    test "$rc" != "0"
+
 echo "== K. mentor_worktree_id — <name>-<crc>, fail-soft, sanitized, worktrees/-dir-name-safe (v2.23.0) =="
 id_matches_charset()  { printf '%s' "$1" | grep -qE '^[A-Za-z0-9_-]+$'; }
 id_starts_with()      { case "$1" in "$2"*) return 0 ;; *) return 1 ;; esac; }

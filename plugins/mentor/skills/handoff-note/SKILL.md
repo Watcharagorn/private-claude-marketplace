@@ -96,17 +96,15 @@ the plan gate, so the write is always allowed.) Resolve `topic` first:
 ```bash
 topic="<topic>"  # ← REPLACE per the rule above (kebab-case; the plan's slug, or the focus slug)
 slug="session"   # ← REPLACE with a short kebab-case of the next-session focus, e.g. "auth-retry-fix"
-mentor_dir="$(bash "${CLAUDE_PLUGIN_ROOT}/hooks/plan-state.sh" dir)"   # worktree-safe; _no-repo fallback
-[ -n "$mentor_dir" ] || { echo "ERROR: mentor dir unresolved — is CLAUDE_PLUGIN_ROOT set? do not search the plugin cache or hardcode a version path; ask the user to /reload-plugins or restart" >&2; exit 1; }
-hand_dir="$(bash "${CLAUDE_PLUGIN_ROOT}/hooks/plan-state.sh" ensure-dir "$mentor_dir/plans/$topic/handoffs")" || exit 1
-# keep transient handoffs out of git (in-repo only); never clobber a user-tweaked file
-case "$mentor_dir" in
-  */_no-repo) ;;   # outside a repo — nothing to gitignore
-  *) [ -e "$mentor_dir/.gitignore" ] || printf '%s\n' '*' '!.gitignore' '!config.json' '!constitution.md' > "$mentor_dir/.gitignore" ;;
-esac
-out="${hand_dir}/$(date +%Y%m%d-%H%M%S)-${slug}.md"
+out="$(bash "${CLAUDE_PLUGIN_ROOT}/hooks/plan-state.sh" handoff-path "$topic" "$slug")"
+[ -n "$out" ] || { echo "ERROR: handoff path unresolved — see the actual reason on stderr above (a bad topic/slug, a path-confinement refusal) or, if nothing printed, check CLAUDE_PLUGIN_ROOT is set; do not search the plugin cache or hardcode a version path — ask the user to /reload-plugins or restart" >&2; exit 1; }
 echo "$out"
 ```
+
+`handoff-path` resolves the worktree-safe mentor dir, confines + creates `<topic>`'s private
+`handoffs/` dir, writes the mentor-dir gitignore (in-repo only; never clobbers a user-tweaked file),
+and prints the timestamped path — the one call, so there is exactly one
+`${CLAUDE_PLUGIN_ROOT}` substitution to get right, not several.
 
 Derive `slug` from the focus you resolved in Step 1 (short kebab-case, ≤40 chars). Set both `topic=`
 and `slug=` **before** running the snippet — never leave a literal `<…>` placeholder in the path. If
@@ -209,8 +207,9 @@ it — Step 5's self-check catches that before you report.
   - **scripts or data built outside the repo this session** (the session-scoped scratchpad, `/tmp`)
     that took real time to produce — a non-trivial API-call sweep, a generated dataset, a one-off
     analysis script — and would otherwise vanish once the session ends: copy them into
-    `<repo>/.mentor/plans/<topic>/{scripts,data}/` (siblings of `handoffs/`, gitignored by Step 2's
-    `.gitignore` — re-derive that path the same way Step 2 does, never off a stale `$hand_dir`, since
+    `<repo>/.mentor/plans/<topic>/{scripts,data}/` (siblings of `handoffs/`, gitignored by
+    `handoff-path`'s gitignore write — re-derive `<repo>/.mentor` via
+    `bash "${CLAUDE_PLUGIN_ROOT}/hooks/plan-state.sh" dir`, never off a stale variable, since
     variables don't survive between Bash calls) *before* writing this note, then link the copied
     paths here, e.g. `mkdir -p "<repo>/.mentor/plans/<topic>/data" && cp -R /tmp/my-sweep/* "<repo>/.mentor/plans/<topic>/data/"`.
     Skip this when it is already reproducible from a command recorded in this note (re-running it is
@@ -318,9 +317,9 @@ scoped once-rule in Step 2 above). Author it per Step 3's section structure, but
 **Recommended mentor commands for the next agent** from **that topic's own** state — the `overview
 --json` render above already carries its `state`/`steps.ticked`/`steps.total` — never copy the
 primary note's routing onto it; that would just recommit the stale instruction you're correcting.
-Redact it (Step 4) and run Step 5's supersede + self-check snippet against **its own** `hand_dir`,
-independently of the primary note's: each topic dir's `CHECK: live notes now` must read `1` on its
-own, and each superseded basename is reported separately.
+Redact it (Step 4) and run Step 5's `handoff-selfcheck` against **its own** note path, independently
+of the primary note's: each topic dir's `CHECK: live notes now` must read `1` on its own, and each
+superseded basename is reported separately.
 
 Report both notes' absolute paths in the report body. The trailing copy-paste resume prompt (the
 last thing on screen, per Step 5 below) stays **singular**, for the primary note's slug only — the
@@ -349,45 +348,32 @@ case — a session resumed from an earlier note and is now handing off again). S
 `resolved/` subdir so `/mentor:resume` and the hooks stop listing them.
 
 Set `out=` explicitly — shell variables do NOT survive between Bash tool calls, and the Write in
-Step 3 sits between this snippet and the Step 2 one, so Step 2's `$out`/`$hand_dir` are gone here.
-An empty `$hand_dir` makes the `find` a silent no-op and the stale note stays listed:
+Step 3 sits between this call and the Step 2 one, so Step 2's `$out` is gone here:
 
 ```bash
 out="<absolute note path from Step 2>"   # ← REPLACE — the file you just wrote
-hand_dir="$(dirname "$out")"
-# supersede: older conforming notes of this topic → resolved/ (the new note replaces them)
-find "$hand_dir" -maxdepth 1 -type f -name '*.md' ! -name "$(basename "$out")" 2>/dev/null \
-| while IFS= read -r old; do
-    case "$(basename "$old")" in
-      [0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9]-[0-9][0-9][0-9][0-9][0-9][0-9]-*.md)
-        bash "${CLAUDE_PLUGIN_ROOT}/hooks/plan-state.sh" ensure-dir "$hand_dir/resolved" >/dev/null
-        mv "$old" "$hand_dir/resolved/$(basename "$old")"
-        echo "superseded → resolved: $(basename "$old")" ;;
-      *)
-        echo "  (skipping non-conforming file: $(basename "$old"))" ;;
-    esac
-  done
-# self-check — silence proves nothing, so print a verdict on every path
-[ -f "$out" ] || echo "CHECK: \$out is not a file — the note is not where you think it is"
-live="$(find "$hand_dir" -maxdepth 1 -type f -name '[0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9]-[0-9][0-9][0-9][0-9][0-9][0-9]-*.md' 2>/dev/null | wc -l | tr -d ' ')"
-echo "CHECK: live notes now ${live} (expect 1 — the note just written)"
-# the two machine-read headings. Goal's pattern is resuming Step 2's awk verbatim, so this check
-# and that listing can never disagree; Recommended stays loose on purpose — only an agent reads it,
-# and real notes say "Recommended next mentor commands" / "Recommended commands for the next agent".
-miss=""
-grep -Eq '^#+[[:space:]].*[Gg]oal.*next-session focus' "$out" || miss="$miss Goal/next-session-focus"
-grep -Eq '^#+[[:space:]].*[Rr]ecommended.*commands' "$out"    || miss="$miss Recommended-mentor-commands"
-echo "CHECK: headings missing:${miss:- none (2/2 present)}"
+bash "${CLAUDE_PLUGIN_ROOT}/hooks/plan-state.sh" handoff-selfcheck "$out"
 ```
 
-Read the `CHECK:` line before writing the report — it is the only evidence you have. `live notes
+`handoff-selfcheck` first verifies `$out` is actually on disk — **before** touching anything else —
+then supersedes this topic's older conforming notes into `resolved/` (printing one `superseded →
+resolved: <basename>` line per file it moves, or a `(skipping non-conforming file: …)` line for
+anything else in the dir), then prints three verdicts on every path — silence proves nothing, so
+there is always a `CHECK:` line, never a silent partial run. Because all three checks live inside
+the one command, there is no way to reproduce the supersede half and drop the headings half, the way
+a hand-copied multi-line snippet could. The command also **exits non-zero** whenever the live-notes
+or headings verdict is bad (a wrong `$out` refuses to supersede anything and exits non-zero on the
+spot) — so a bad run surfaces as a visible tool error, not just prose you have to remember to read.
+
+Read the `CHECK:` lines before writing the report — they are the only evidence you have. `live notes
 now 1` licenses a supersession claim, but only for the basenames the `superseded → resolved:` lines
 actually printed (none printed = there was nothing to supersede — say that, never imply it
-happened). `0` means the note is not on disk where you think it is — an empty `$hand_dir`, a wrong
-`$out`, or a non-conforming filename; fix that before reporting anything. `2` or more means the
-`mv` did not run: name the files still live and tell the user `$hand_dir` needs a manual check.
-**No `CHECK:` line at all means the snippet never ran — you have no basis for any claim about
-superseding.** Claiming supersession that did not happen is the failure this step exists to prevent.
+happened). `0` means the note is not on disk where you think it is — a wrong `$out`, an empty
+handoffs dir, or a non-conforming filename; fix that before reporting anything. `2` or more means
+the `mv` did not run: name the files still live and tell the user the handoffs dir needs a manual
+check. **No `CHECK:` line at all means the command never ran (or failed before printing) — you have
+no basis for any claim about superseding.** Claiming supersession that did not happen is the failure
+this step exists to prevent.
 
 `CHECK: headings missing:` is the second verdict, and it names the sections `/mentor:resume` parses
 rather than merely reads. A missing `Goal/next-session-focus` renders the note as `(no focus
@@ -395,9 +381,18 @@ section)` in the listing; a missing `Recommended-mentor-commands` leaves the nex
 with nothing to route on, which is how a resumed session ends up improvising instead of running the
 harness. Fix the note and re-run the check — don't report the miss and move on.
 
-If this session was resumed from a note that lives **outside `$hand_dir`**, the snippet above cannot
-see it — stamp that specific note the same way (`mkdir -p` a `resolved/` beside it, `mv` it in). The
-three ways this happens: a **legacy flat-dir note** (under `.mentor/handoffs/`), a **different
+`CHECK: current-state evidence missing:` is the third verdict — it greps the note body itself for a
+`gate --verbose` token (`ARMED`/`STALE`/`RELEASED`, `ARMED_ELSEWHERE` included since it contains
+`ARMED`) and a `TaskList` mention, the two pieces of evidence Step 3's **Current state** section is
+required to carry. Unlike the two verdicts above, this one is informational only — it is a heuristic
+over free-form prose, not a deterministic heading parse, so it never fails the command — but a real
+miss here means going back to Step 3 and actually pasting the `gate --verbose` verdict and the
+`TaskList` result, not paraphrasing that you ran them.
+
+If this session was resumed from a note that lives **outside** the handoffs dir this note was just
+written into, `handoff-selfcheck` cannot see it — stamp that specific note the same way (`mkdir -p`
+a `resolved/` beside it, `mv` it in). The three ways this happens: a **legacy flat-dir note** (under
+`.mentor/handoffs/`), a **different
 topic dir** — e.g. the work started under a pre-plan focus-slug topic and, now that a plan exists,
 you are handing off under the plan's slug — and the **reverse**: Step 2's `implemented`-plan
 branch, where this note deliberately does *not* file under a finished plan whose own topic dir may
@@ -411,7 +406,7 @@ note you did not echo is one you may not report as superseded.
 Then tell the user the **absolute path** of the new note and note that it is **gitignored**.
 Report superseding from the echoed lines alone — name each `superseded → resolved:` basename, or
 say plainly that nothing was superseded.
-If the Step 2 snippet just created `.mentor/.gitignore`, that file itself shows as untracked —
+If Step 2's `handoff-path` call just created `.mentor/.gitignore`, that file itself shows as untracked —
 don't claim `git status` is clean; instead suggest committing it once (it is designed to be
 committed, alongside `config.json`/`constitution.md`), after which the `.mentor/` tree stays out
 of `git status` for good. Offer a one-line summary of what the next agent should do first.
@@ -465,12 +460,19 @@ substitute for it.
 ## Done when
 
 - The document is written under the per-repo, **gitignored** `.mentor/plans/<topic>/handoffs/` dir.
-- The supersede snippet **ran**, and its `CHECK: live notes now` line reported `1` — the new note is
+- `handoff-selfcheck` **ran**, and its `CHECK: live notes now` line reported `1` — the new note is
   the topic's only live resume point. Any other reading: the report names what is still live instead
   of claiming supersession.
 - Its `CHECK: headings missing:` line reported `none` — the note carries both machine-read sections
   (`Goal / next-session focus`, `Recommended mentor commands …`) as `##` headings, so
-  `/mentor:resume` can preview and route on it.
+  `/mentor:resume` can preview and route on it. Either of these two verdicts being anything but
+  clean makes `handoff-selfcheck` itself exit non-zero — fix the note and re-run it rather than
+  reporting the miss and moving on.
+- Its `CHECK: current-state evidence missing:` line named `none` too — **Current state** carries
+  the actual `gate --verbose` verdict token (Step 3) and Step 1's `TaskList` close-out, not just the
+  `overview --json` rendering. This third line is informational (it never fails the command — it is
+  a prose heuristic, not a heading parse) but a real miss here means the section has nothing backing
+  its "current state" claim beyond the plan-overview table.
 - Existing artifacts are referenced by path/URL, **not duplicated**.
 - Secrets are redacted.
 - The content is tailored to the next-session focus.

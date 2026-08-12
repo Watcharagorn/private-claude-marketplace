@@ -429,6 +429,109 @@ chk "ensure-dir (direct child of plans/) → exit 0"  test "$rc" = "0"
 chk "ensure-dir stamps owner"                        test "$(sidecar owner-topic '.owner')" = "$WTA_ID"
 chk "ensure-dir stamps owner_session"                test "$(sidecar owner-topic '.owner_session')" = "owner-sess"
 
+echo "== HP. handoff-path <topic> <slug> — the ONE call handoff-note Step 2 needs =="
+out="$(ps handoff-path hp-topic hp-slug)"; rc=$?
+chk "handoff-path → exit 0"                       test "$rc" = "0"
+chk "handoff-path echoes a path under handoffs/"  has "plans/hp-topic/handoffs/" "$out"
+chk "handoff-path echoes the slug"                has "-hp-slug.md" "$out"
+chk "handoff-path filename matches /mentor:resume's pattern" \
+  bash -c '[[ "$(basename "$1")" =~ ^[0-9]{8}-[0-9]{6}-hp-slug\.md$ ]]' _ "$out"
+chk "handoff-path created the handoffs dir"       test -d "$ed_mdir/plans/hp-topic/handoffs"
+chk "handoff-path locked handoffs/ to 700" \
+  test "$(ls -ld "$ed_mdir/plans/hp-topic/handoffs" | cut -c1-10)" = "drwx------"
+chk "handoff-path locked the topic dir to 700" \
+  test "$(ls -ld "$ed_mdir/plans/hp-topic" | cut -c1-10)" = "drwx------"
+chk "handoff-path wrote the mentor-dir gitignore" test -f "$ed_mdir/.gitignore"
+
+out="$(ps handoff-path)"; rc=$?
+chk "handoff-path with no args → exit 1"          test "$rc" = "1"
+out="$(ps handoff-path hp-topic)"; rc=$?
+chk "handoff-path with only <topic> → exit 1"     test "$rc" = "1"
+
+out="$(ps handoff-path "my/topic" slug)"; rc=$?
+chk "handoff-path refuses a topic with '/' → exit 1" test "$rc" = "1"
+chk "..refusal named on stderr"                       has "refuses a topic" "$out"
+chk "..created nothing under a slash-topic dir"       test ! -d "$ed_mdir/plans/my"
+
+out="$(ps handoff-path ".." slug)"; rc=$?
+chk "handoff-path refuses topic '..' → exit 1"    test "$rc" = "1"
+
+out="$(ps handoff-path topic "a/b")"; rc=$?
+chk "handoff-path refuses a slug with '/' → exit 1" test "$rc" = "1"
+
+out="$(ps handoff-path "<topic>" slug)"; rc=$?
+chk "handoff-path refuses an unreplaced <topic> placeholder → exit 1" test "$rc" = "1"
+chk "..refusal names the placeholder"                                 has "placeholder" "$out"
+
+echo "== HS. handoff-selfcheck <note-path> — the ONE call handoff-note Step 5 needs =="
+note1="$(ps handoff-path hs-topic session)"
+cat > "$note1" << 'EOF'
+## Goal / next-session focus
+x
+
+## Recommended mentor commands for the next agent
+x
+
+## Current state
+ARMED marker=owner. TaskList found 0 live tasks.
+EOF
+out="$(ps handoff-selfcheck "$note1")"; rc=$?
+chk "handoff-selfcheck (first note, nothing to supersede) → exit 0" test "$rc" = "0"
+chk "..reports live notes now 1"      has "CHECK: live notes now 1" "$out"
+chk "..reports headings none missing" has "CHECK: headings missing: none" "$out"
+chk "..reports evidence none missing" has "CHECK: current-state evidence missing: none" "$out"
+chk "..nothing superseded (none printed)" hasnt "superseded" "$out"
+
+sleep 1
+note2="$(ps handoff-path hs-topic session2)"
+cat > "$note2" << 'EOF'
+## Goal / next-session focus
+y
+
+## Recommended mentor commands for the next agent
+y
+EOF
+out="$(ps handoff-selfcheck "$note2")"; rc=$?
+chk "handoff-selfcheck (second note) → exit 0"      test "$rc" = "0"
+chk "..supersedes the first note"                    has "superseded → resolved: $(basename "$note1")" "$out"
+chk "..first note now lives under resolved/"         test -f "$(dirname "$note1")/resolved/$(basename "$note1")"
+chk "..reports live notes now 1"                     has "CHECK: live notes now 1" "$out"
+chk "..evidence check names both (note has neither)" \
+  has "CHECK: current-state evidence missing: gate-verdict TaskList-evidence" "$out"
+
+echo "junk" > "$(dirname "$note2")/README.md"
+out="$(ps handoff-selfcheck "$note2")"
+chk "handoff-selfcheck skips a non-conforming filename" has "skipping non-conforming file: README.md" "$out"
+chk "..non-conforming file NOT moved"                    test -f "$(dirname "$note2")/README.md"
+
+sleep 1
+badnote="$(dirname "$note2")/$(date +%Y%m%d-%H%M%S)-broken.md"
+echo "no headings here" > "$badnote"
+out="$(ps handoff-selfcheck "$badnote")"; rc=$?
+chk "handoff-selfcheck (headings missing) → exit 1" test "$rc" = "1"
+chk "..names both missing headings" \
+  has "CHECK: headings missing: Goal/next-session-focus Recommended-mentor-commands" "$out"
+chk "..still supersedes the prior live note (session2)" has "superseded → resolved: $(basename "$note2")" "$out"
+
+# CRITICAL: a wrong/hallucinated note path (the agent re-typing $out across a Bash-call
+# boundary, per Step 5) must NOT supersede/sweep the real live note — validating $out is
+# on disk happens BEFORE the supersede loop runs, not after.
+ghost="$(dirname "$badnote")/99999999-999999-ghost.md"
+out="$(ps handoff-selfcheck "$ghost")"; rc=$?
+chk "handoff-selfcheck (note not on disk) → exit 1" test "$rc" = "1"
+chk "..reports \$out is not a file"                   has "is not a file" "$out"
+chk "..did NOT touch the real live note"              test -f "$badnote"
+chk "..real live note NOT swept into resolved/" \
+  test ! -f "$(dirname "$badnote")/resolved/$(basename "$badnote")"
+
+out="$(ps handoff-selfcheck)"; rc=$?
+chk "handoff-selfcheck with no args → exit 1" test "$rc" = "1"
+
+out="$(ps handoff-selfcheck "$ROOT/outside-mentor/20260101-000000-x.md")"; rc=$?
+chk "handoff-selfcheck refuses a path outside the mentor dir → exit 1" test "$rc" = "1"
+chk "..refusal named on stderr"      has "refuses a note path outside" "$out"
+chk "..created nothing outside"      test ! -d "$ROOT/outside-mentor"
+
 echo "== J. init --deps / --deferred (v2.17.0) =="
 rm -rf "$PLANS"; mkdir -p "$PLANS"
 plan dep-a; plan dep-b

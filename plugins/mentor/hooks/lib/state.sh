@@ -244,6 +244,25 @@ GITIGNORE
   return 0
 }
 
+# mentor_confine_path <state_dir> <target> — canonicalize <target> (realpath) and print it
+# on stdout iff it resolves under <state_dir> itself; else print nothing and return 1.
+#
+# Every call site that turns a model-chosen path segment (a plan slug, a handoff topic) into
+# an mkdir/mv target needs this same guard — without it a prompt-steered `../` walks the write
+# outside the mentor tree. `ensure-dir` keeps its own inline copy (predates this helper, already
+# covered by its own tests) rather than being refactored to call it; newer call sites should
+# call this instead of adding a third/fourth copy of the same six lines.
+mentor_confine_path() {
+  local state_dir="${1:-}" target="${2:-}" canon base
+  [ -n "$state_dir" ] && [ -n "$target" ] || return 1
+  canon="$(python3 -c 'import os,sys; print(os.path.realpath(sys.argv[1]))' "$target" 2>/dev/null || echo "$target")"
+  base="$(python3 -c 'import os,sys; print(os.path.realpath(sys.argv[1]))' "$state_dir" 2>/dev/null || echo "$state_dir")"
+  case "$canon" in
+    "$base"|"$base"/*) printf '%s\n' "$canon"; return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
 # mentor_ensure_private_dir <state_dir> <target_dir> — mkdir -p <target_dir>, then chmod
 # 700 every level from <state_dir>/plans down to <target_dir> inclusive.
 #

@@ -201,6 +201,10 @@ Usage: plan-state.sh <subcommand>
                                          status for THIS worktree (--verbose adds per-token fields;
                                          see the gate doc comment above for the exact contract)
   ensure-dir <path>                     mkdir it + chmod 700 the whole path; echoes it
+  handoff-path <topic> <slug>           resolve/create <topic>'s private handoffs/ dir + gitignore,
+                                         echo the timestamped note path (handoff-note Step 2)
+  handoff-selfcheck <note-path>         supersede <topic>'s older notes into resolved/, print
+                                         CHECK: live notes now / CHECK: headings missing: (Step 5)
 EOF
 }
 
@@ -314,6 +318,159 @@ if [ "$sub" = "ensure-dir" ]; then
   fi
   echo "$ed_canon"
   exit 0
+fi
+
+# --- handoff-path <topic> <slug>: the ONE call handoff-note's Step 2 needs — resolve
+# the worktree-safe mentor dir, confine + create <topic>'s private handoffs/ dir, write
+# the mentor-dir gitignore, and print the timestamped note path. Replaces a 4-invocation
+# inline snippet (dir, ensure-dir, a hand-rolled gitignore write, then the timestamp)
+# that needed ${CLAUDE_PLUGIN_ROOT} substituted correctly at every one of those calls —
+# collapsing them to one command means only one substitution can go wrong, not several
+# (a session was observed hardcoding a version-pinned cache path instead, defeating the
+# ERROR guard Step 2 already carried for exactly this failure).
+if [ "$sub" = "handoff-path" ]; then
+  hp_topic="${1:-}"; hp_slug="${2:-}"
+  if [ -z "$hp_topic" ] || [ -z "$hp_slug" ]; then
+    echo "[mentor plan-state] handoff-path needs <topic> <slug>." >&2
+    exit 1
+  fi
+  # <topic>/<slug> are model-chosen and become path segments — reject a slash/dot-segment
+  # (path traversal or a bogus nesting) and an unreplaced `<…>` placeholder (Step 2's own
+  # "never leave a literal <…> placeholder" rule) before they ever reach a path.
+  case "$hp_topic$hp_slug" in
+    *'<'*|*'>'*)
+      echo "[mentor plan-state] handoff-path refuses an unreplaced <…> placeholder in topic/slug: '${hp_topic}' '${hp_slug}'" >&2
+      exit 1
+      ;;
+  esac
+  case "$hp_topic" in
+    */*|.|..)
+      echo "[mentor plan-state] handoff-path refuses a topic containing '/' or being '.'/'..': ${hp_topic}" >&2
+      exit 1
+      ;;
+  esac
+  case "$hp_slug" in
+    */*|.|..)
+      echo "[mentor plan-state] handoff-path refuses a slug containing '/' or being '.'/'..': ${hp_slug}" >&2
+      exit 1
+      ;;
+  esac
+  hp_repo="$(mentor_repo_root "$(pwd)")"
+  if [ -n "$hp_repo" ]; then
+    hp_mdir="$(mentor_state_dir "$hp_repo")"
+  else
+    hp_mdir="$HOME/.claude/mentor/_no-repo"
+  fi
+  hp_target="${hp_mdir}/plans/${hp_topic}/handoffs"
+  # Confine it — <topic> is model-chosen, so without this a handoff-note run could be
+  # steered to create/chmod an arbitrary path via `../` (same guard as `ensure-dir`).
+  if ! hp_canon="$(mentor_confine_path "$hp_mdir" "$hp_target")"; then
+    echo "[mentor plan-state] handoff-path refuses a path outside ${hp_mdir}: ${hp_topic}" >&2
+    exit 1
+  fi
+  # mentor_ensure_private_dir wants the STATE dir (for its own base-relative chmod cascade),
+  # not the target — pass the canonical form of hp_mdir, not hp_canon, or a symlinked repo
+  # path (e.g. macOS /tmp → /private/tmp) makes its own base check miss and degrade to a
+  # leaf-only chmod.
+  hp_base="$(python3 -c 'import os,sys; print(os.path.realpath(sys.argv[1]))' "$hp_mdir" 2>/dev/null || echo "$hp_mdir")"
+  mentor_ensure_private_dir "$hp_base" "$hp_canon"
+  case "$hp_mdir" in
+    */_no-repo) ;;   # outside a repo — nothing to gitignore
+    *) mentor_ensure_gitignore "$hp_mdir" ;;
+  esac
+  echo "${hp_canon}/$(date +%Y%m%d-%H%M%S)-${hp_slug}.md"
+  exit 0
+fi
+
+# --- handoff-selfcheck <note-path>: the ONE call handoff-note's Step 5 needs —
+# supersede this topic's older notes into resolved/, then print THREE verdict lines
+# (`CHECK: live notes now …` / `CHECK: headings missing:…` / `CHECK: current-state
+# evidence missing:…`) atomically, and exit non-zero when any of the first two verdicts
+# is bad — a non-zero exit surfaces in the tool result even if the note-writing agent
+# only skims it, which is stronger than "print a verdict and hope it gets read". Replaces
+# a ~25-line inline snippet the agent had to hand-reproduce from prose on every run; a
+# session was observed reproducing only the supersede + live-notes half and silently
+# dropping the headings-check, then reporting "written and verified" anyway — a
+# partial-copy failure a single command call cannot exhibit.
+#
+# NOT consolidated here (deliberately, not an oversight): skills/shipping/SKILL.md has
+# its own independent "supersede every conforming note in a topic's handoffs/ into
+# resolved/" loop (no --except, label "work shipped" instead of "superseded") that is
+# the same mechanical operation minus the exclusion this subcommand needs. Folding both
+# into one shared `handoff-resolve <dir> [--except <note>] [--label <text>]` primitive
+# is the right long-term shape, but doing that here would mean editing a second
+# skill doc this session never analyzed evidence from — left for a future
+# `/loom:learn mentor` pass with its own session evidence and review cycle.
+if [ "$sub" = "handoff-selfcheck" ]; then
+  hs_out="${1:-}"
+  if [ -z "$hs_out" ]; then
+    echo "[mentor plan-state] handoff-selfcheck needs <note-path>." >&2
+    exit 1
+  fi
+  hs_repo="$(mentor_repo_root "$(pwd)")"
+  if [ -n "$hs_repo" ]; then
+    hs_mdir="$(mentor_state_dir "$hs_repo")"
+  else
+    hs_mdir="$HOME/.claude/mentor/_no-repo"
+  fi
+  hs_dir="$(dirname "$hs_out")"
+  # Confine it — <note-path> crosses a Bash-tool-call boundary (the agent re-types it from
+  # Step 2's output), so a mistyped/hallucinated path must refuse rather than supersede or
+  # `mv` files somewhere outside the mentor tree.
+  if ! hs_canon_dir="$(mentor_confine_path "$hs_mdir" "$hs_dir")"; then
+    echo "[mentor plan-state] handoff-selfcheck refuses a note path outside ${hs_mdir}: ${hs_out}" >&2
+    exit 1
+  fi
+  hs_fail=0
+  # Verify BEFORE superseding — if $out isn't actually on disk, there is nothing to
+  # supersede FOR, and running the loop anyway would archive the topic's real prior note
+  # (the only remaining live one) while reporting the wrong thing was written.
+  if [ -f "$hs_out" ]; then
+    hs_name="$(basename "$hs_out")"
+    for hs_old in "$hs_canon_dir"/*.md; do
+      [ -f "$hs_old" ] || continue
+      [ "$(basename "$hs_old")" = "$hs_name" ] && continue
+      case "$(basename "$hs_old")" in
+        [0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9]-[0-9][0-9][0-9][0-9][0-9][0-9]-*.md)
+          mkdir -p "$hs_canon_dir/resolved" 2>/dev/null || true
+          chmod 700 "$hs_canon_dir/resolved" 2>/dev/null || true
+          mv "$hs_old" "$hs_canon_dir/resolved/$(basename "$hs_old")"
+          echo "superseded → resolved: $(basename "$hs_old")" ;;
+        *)
+          echo "  (skipping non-conforming file: $(basename "$hs_old"))" ;;
+      esac
+    done
+  else
+    echo "CHECK: \$out is not a file — the note is not where you think it is"
+    hs_fail=1
+  fi
+  hs_live=0
+  for hs_f in "$hs_canon_dir"/[0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9]-[0-9][0-9][0-9][0-9][0-9][0-9]-*.md; do
+    [ -f "$hs_f" ] || continue
+    hs_live=$((hs_live + 1))
+  done
+  echo "CHECK: live notes now ${hs_live} (expect 1 — the note just written)"
+  [ "$hs_live" -eq 1 ] || hs_fail=1
+  hs_miss=""
+  if [ -f "$hs_out" ]; then
+    grep -Eq '^#+[[:space:]].*[Gg]oal.*next-session focus' "$hs_out" || hs_miss="$hs_miss Goal/next-session-focus"
+    grep -Eq '^#+[[:space:]].*[Rr]ecommended.*commands' "$hs_out"    || hs_miss="$hs_miss Recommended-mentor-commands"
+  fi
+  echo "CHECK: headings missing:${hs_miss:- none (2/2 present)}"
+  [ -z "$hs_miss" ] || hs_fail=1
+  # Current-state evidence: informational only (does not affect the exit code) — unlike the
+  # two checks above, this is a heuristic over free-form prose, not a deterministic parse of
+  # a fixed heading pattern, so a false positive here must never block a genuinely-complete
+  # note. Step 3 requires the gate --verbose token and a TaskList-close-out mention to be
+  # PRESENT in Current state, not merely run — this is that presence check.
+  hs_ev=""
+  if [ -f "$hs_out" ]; then
+    grep -Eq 'ARMED|STALE|RELEASED' "$hs_out"  || hs_ev="$hs_ev gate-verdict"
+    grep -Eiq 'tasklist'            "$hs_out"  || hs_ev="$hs_ev TaskList-evidence"
+  fi
+  echo "CHECK: current-state evidence missing:${hs_ev:- none (2/2 present)}"
+  [ "$hs_fail" -eq 0 ] && exit 0
+  exit 1
 fi
 
 # --- gate: read-only plan-gate marker status — needs neither a repo (fallback) nor a
