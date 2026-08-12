@@ -56,7 +56,9 @@ implementation, handoff, and review.
 > skill trigger like "dispatch agents" resolves, and Claude Code silently falls
 > back to whatever else claims the name, or improvises a substitute. Old
 > versions also linger in `~/.claude/plugins/cache/` — never `Read` one as if
-> it were current; check `.claude-plugin/plugin.json` for the live version.
+> it were current; check `.claude-plugin/plugin.json` for the live version,
+> then match it against the `Changes in vX.Y.Z` sections below to see whether
+> a given fix is in your copy.
 
 ## Commands
 
