@@ -259,6 +259,12 @@ single-select question, and the next question is not asked until the current
 verdict lands. Never batch several edits into one question or one call — the
 point is that the user judges each finding on its own merits, the way a
 reviewer walks a colleague through a review, instead of skimming a checklist.
+Before building each call, count the edits still ahead of this one: the
+option set is exactly 4 (`Fold in`, `Skip`, `Skip the rest`, `Fold in the
+rest`) while more than one remains, exactly 2 (`Fold in`, `Skip`) on the
+last — a long walk is where a call quietly drops back to the 2-option form
+out of habit, so treat a mismatch between the count and the position as a
+malformed call and rebuild it before sending, not after the user notices.
 
 **Each question must carry the full case, written like a human review — and
 stand entirely on its own.** This is the fullest statement of a rule every
@@ -340,6 +346,18 @@ a second copy, never anywhere else. Do not apply skipped edits, and do not
 fixes. If every edit was skipped, skip the write.
 
 ## Step 6 — Stage 2: fan out the two mechanical reviewers
+
+**Re-check context before this dispatch.** Stage 1's two-reviewer round plus
+Step 4's walk can spend real budget, and this skill has no earlier context
+reading of its own to have grown stale — nothing measures it before this
+point, whether entered via Step 5 or, in Stage-2-only mode, directly. Run
+`bash "${CLAUDE_PLUGIN_ROOT}/hooks/plan-state.sh" context` and follow its
+printed guidance verbatim rather than improvising a question: `ASK` hands you
+the exact `AskUserQuestion` to ask, with its hand-off and bypass options, and
+holds the dispatch below until it's answered; `HANDOFF`/`WARN` print a note to
+carry into Step 7's report and you proceed; `OK`/`UNKNOWN` proceed silently.
+This is the same backstop `mentor:track` already runs before its own
+dispatch — Stage 2 is this skill's equivalent moment.
 
 Dispatch **only after Step 5 completes** (the write, or the fold-nothing
 decision) — both reviewers read the UPDATED plan, so they also catch anything
@@ -545,6 +563,11 @@ each resolution costs. The options come from the finding itself:
 - `"Leave open"` — keep the plan as-is; the finding is recorded in the report.
 - `"Skip the rest"` — leave this and every remaining finding open and go to
   the report. (Offer only while more than one finding remains.)
+
+Before building each question, count the findings still ahead: `"Skip the
+rest"` belongs in the option list only while more than one remains — the
+same drift a long walk invites in Step 4's fold gate reaches this walk too,
+so check the count rather than carrying the last question's shape forward.
 
 **Free-text bulk-accept.** If the user declines the question and free-types a
 bulk instruction instead ("accept the rest", "take all the recommendations"),
