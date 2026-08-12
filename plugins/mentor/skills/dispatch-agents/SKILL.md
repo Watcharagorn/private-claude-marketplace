@@ -242,7 +242,7 @@ Effort and model are independent levers: a `low`-effort `opus` step is fine, and
 5. **Assign roles.** Smallest specialist that covers the work.
 6. **Assign models.** Default `sonnet`; upgrade only with a reason.
 7. **Assign effort.** Default `medium`; upgrade for design/cross-cutting, downgrade for trivial.
-8. **Write prompt sketches.** Each agent has zero memory of this conversation — the brief must stand alone. If a `Done when:` is a long test suite, brief the agent to iterate on a filtered subset and run the suite whole only as the final gate. When any step's `Done when:` runs tests, resolve the repo's test invocation **once per session** — `mentor:shipping` Step 4's own order (`.mentor/config.json`'s `test_command` first, else auto-detect, confirmed once it actually runs) — and paste that literal command into every prompt sketch that needs it. A fresh agent told to "run the tests" with no memory of earlier steps will re-derive (or mis-derive) the invocation independently each time; a copy-pasteable string is the only thing that transfers. The same rule covers any other repeatedly-launched tool a `Done when:` needs (a browser/E2E runner, a dev server): resolve the working invocation the first time it's needed and reuse that exact command in every later prompt sketch — no `.mentor/config.json` key exists for these, so state the resolved command directly rather than pointing at one.
+8. **Write prompt sketches.** Each agent has zero memory of this conversation — the brief must stand alone. If a `Done when:` is a long test suite, brief the agent to iterate on a filtered subset and run the suite whole only as the final gate. When any step's `Done when:` runs tests, resolve the repo's test invocation **once per session** — `mentor:shipping` Step 4's own order (`.mentor/config.json`'s `test_command` first, else auto-detect, confirmed once it actually runs) — and paste that literal command into every prompt sketch that needs it. A fresh agent told to "run the tests" with no memory of earlier steps will re-derive (or mis-derive) the invocation independently each time; a copy-pasteable string is the only thing that transfers. The same rule covers any other repeatedly-launched tool a `Done when:` needs (a browser/E2E runner, a dev server): resolve the working invocation the first time it's needed and reuse that exact command in every later prompt sketch — no `.mentor/config.json` key exists for these, so state the resolved command directly rather than pointing at one. It also covers *checkers*, not just invocations: when the repo or environment already ships a validator for the kind of artifact a step produces, name that command in the step's `Done when:` rather than leaving the agent to write its own equivalent — a freelance check is a second, unverified implementation of one that already exists, and can fail in ways the real one doesn't (a missing dependency, a stale assumption about the format) without anyone noticing the two have drifted apart.
 9. **State done-when.** Observable, verifiable, no "looks good".
 
 ## Example
@@ -300,12 +300,22 @@ before issuing `Agent` calls. Then:
      ask via `AskUserQuestion` — commit it as this plan's work (recommended) /
      leave it uncommitted, the user commits by hand. Any dirty path this session
      did **not** touch: show the split, same question, scoped to only the paths
-     this session owns. The orchestrator is the only legal committer here — the
-     standing contract above already bars dispatched agents from touching the
-     index — and this is deliberately a **question**, never `mentor:shipping`
-     Step 3's silent auto-commit: that allowance is scoped to files `simplify`
-     itself just created, not to a whole implementation run. Skip this bullet
-     only when the tree is already clean.
+     this session owns. Also check the inverse before trusting a clean tree: for
+     each step's touched path (its return contract's file list) that is now
+     absent from the porcelain output, `git log -1 --format='%h %an %s' -- <path>`
+     — no commit at all means a no-op step (nothing to flag), but a commit this
+     session didn't make means a concurrent process silently absorbed that path
+     mid-dispatch (this has happened: a `loom` automation run committing into a
+     shared working tree mid-session). Fold that into the same question (name the
+     absorbing commit) and, however it resolves, record the split in this
+     session's own closing commit message — the plan's ✅ ticks still stand, only
+     the attribution needs stating. The orchestrator is the only legal committer
+     here — the standing contract above already bars dispatched agents from
+     touching the index — and this is deliberately a **question**, never
+     `mentor:shipping` Step 3's silent auto-commit: that allowance is scoped to
+     files `simplify` itself just created, not to a whole implementation run.
+     Skip this bullet only when the tree is clean and nothing was flagged as
+     absorbed.
    - **Point at `/mentor:ship`** — one line: once the ticks above are verified and
      the tree is committed (above), the next move is `/mentor:ship` (it hands off
      to `/mentor:merge`'s bounded watch) — not a hand-rolled `git push`, `gh pr
@@ -454,9 +464,13 @@ the contract does not apply to them, which is exactly how a fan-out goes out raw
   contract. If you are still working, reply with the one thing that's
   left." Do not restate the step's criteria —
   the agent's context is warm, and a re-brief invites it to redo finished work.
-  Only if the nudge fails, fall back to independent re-verification. Never
-  re-run expensive verification (full builds, E2E suites) while the agent's own
-  report may still be in flight. The race also resolves in the other direction:
+  Only if the nudge fails, fall back to independent re-verification — and if
+  that closes the step with no author report ever received, say so plainly in
+  the plan file: that step's `## Verification` topic verifier has no author
+  rationale to weigh against, so its own read of the artifact is the step's
+  only judgment, not a second opinion, and deserves the scrutiny that implies.
+  Never re-run expensive verification (full builds, E2E suites) while the
+  agent's own report may still be in flight. The race also resolves in the other direction:
   an idle notification arriving from an agent **already** `TaskStop`ped needs no
   reply at all — the stop already closed it out.
 - **Agent died (infra/API error).** Don't reinvent recovery glue: wait with
