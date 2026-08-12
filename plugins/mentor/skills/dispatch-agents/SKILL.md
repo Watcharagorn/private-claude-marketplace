@@ -183,7 +183,9 @@ The point of SDD: quality through narrow focus, and a lean main thread.
 - **Work discovered mid-flight is captured, not lost.** If the orchestrator or a
   dispatched agent notices real work outside the current step's scope, capture it with
   `/mentor:defer` (one item or several) and keep going — never leave it as an aside in
-  a chat message that disappears at session end.
+  a chat message that disappears at session end. Eligibility follows the scope rule —
+  work to build, never a check to run: a check on the current plan's own work is never
+  a stub, only a confirmed defect's fix is.
 
 ## Per-step output shape
 
@@ -294,7 +296,10 @@ before issuing `Agent` calls. Then:
      before *nudging* on idle — that path has no id-rejection safety net at all).
    - **Offer `/mentor:tour`** — one line: a hands-on acceptance pass building an editable guided-tour review artifact (pass/not-pass scenarios) of what shipped. Do not auto-run it.
    - **Sweep the report you're about to write** — every follow-up, gap, or known-broken
-     item in it goes through `/mentor:defer` first (orchestrator contract above).
+     item in it goes through `/mentor:defer` first (orchestrator contract above), scoped
+     to work to build, never a check to run: an unresolved verification topic or an
+     unverified claim is never a stub — it's `set <slug> failed --note` on the plan;
+     only a confirmed defect's fix still defers.
    - **Commit this session's implementation work.** `git status --porcelain`: if
      every dirty/untracked path is something this session's dispatches touched,
      ask via `AskUserQuestion` — commit it as this plan's work (recommended) /
@@ -367,9 +372,10 @@ Step 1 instead. A verification round moves the plan with `set`.
   sets `failed` (the one-retry contract above). **Hand off**: set `failed` with the
   unresolved topics as its note, then `mentor:handoff-note` with the verifier reports,
   then stop — `handoff-note` writes no plan state, so an all-ticked plan would read
-  `implemented` to the next session. A deferred/accepted gap exits the loop; concurrent
-  remediations run **sequentially, never in parallel** — parallel fixes on shared files
-  race.
+  `implemented` to the next session. A deferred/accepted gap exits the loop — "deferred"
+  here can only mean the confirmed gap's **fix**, never the verification topic itself,
+  which instead exits via `failed --note`; concurrent remediations run **sequentially,
+  never in parallel** — parallel fixes on shared files race.
 - **No escape hatch.** Runs even when the plan opened `Dispatch: skipped`. One allowance
   (**lite verify**): a skipped plan with ≤2 topics may dispatch **one combined fresh
   verifier** carrying both — independence holds, only the fan-out relaxes. `implemented`

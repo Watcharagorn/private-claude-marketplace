@@ -430,8 +430,9 @@ Do **not** copy or duplicate the note into the repo source tree — it lives in 
 - Do **not** skip the stamp when the work DID finish — an unstamped solved note WILL be re-listed
   and re-worked by a later session.
 - Do **not** hand-write a note into `.mentor/` — `/mentor:handoff` owns a resume point for
-  **unfinished** work here, `/mentor:defer` owns work that **outlives this topic** (a flaky test,
-  debt, a follow-up), and they are not interchangeable. A hand-composed name lands in Step 2's
+  **unfinished** work here, `/mentor:defer` owns work that **outlives this topic** (a flaky test
+  *on the base branch* — a pre-existing defect whose **fix** is work to build, never a check to run;
+  debt; a follow-up), and they are not interchangeable. A hand-composed name lands in Step 2's
   skipped list instead of the resume list; a follow-up misfiled as a handoff after the work shipped
   is retired by the next handoff's supersede sweep. Either way it is lost.
 - Do **not** rename a skipped non-conforming file unasked — surface it and wait for the user.

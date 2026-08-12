@@ -294,6 +294,47 @@ chk "tick H3 step 1 → the ✅ landed on the heading line" \
   bash -c "sed -n '3p' '$PLANS/tsh/plan.md' | grep -qF '✅'"
 rm -rf "$PLANS"
 
+echo "== B11. mentor_plan_goal_line — ## Goal first paragraph, reflowed + word-boundary truncated (v2.25.0) =="
+# A real wrapped-Goal shape: the first paragraph spans THREE physical lines. Pinning
+# this exact output proves reflow crosses the original line breaks (the cut lands on
+# "reflects", the first word of physical line 2 — it could only appear here if the
+# three lines were joined before truncating) rather than truncating line 1 alone.
+# The same fixture text is used by test-plan-state.sh's overview-level assertion, so
+# the two suites pin the identical reflow+truncation at different layers.
+mkdir -p "$PLANS/goalw"
+printf '# stub\n\n## Goal\n\n`claim_order()` in `daily-run.sh` orders concurrent learn slots by key that\nreflects real lock-acquisition order, so the plan promise that the oldest backlog\nsession gets first crack at merging is actually true under three-way concurrency.\n\n## Context\nmore prose here\n' > "$PLANS/goalw/plan.md"
+chk "wrapped Goal: reflowed to one line, word-boundary truncated at ~85 chars + …" \
+  test "$(libsh "mentor_plan_goal_line '$PLANS/goalw/plan.md'")" = '`claim_order()` in `daily-run.sh` orders concurrent learn slots by key that reflects…'
+
+# A short first paragraph (well under the truncation limit) comes back byte-identical,
+# with NO trailing `…` — truncation only ever fires when it actually truncates.
+mkdir -p "$PLANS/goals"
+printf '# t\n\n## Goal\n\nAdd a set-category subcommand mirroring set-priority exactly.\n\n## Context\nx\n' > "$PLANS/goals/plan.md"
+chk "short Goal: returned untruncated, no trailing …" \
+  test "$(libsh "mentor_plan_goal_line '$PLANS/goals/plan.md'")" = "Add a set-category subcommand mirroring set-priority exactly."
+
+# Tabs inside the paragraph are replaced by spaces — the hygiene rule that keeps this
+# text safe to sit in _plan_walk's tab-separated row downstream.
+mkdir -p "$PLANS/goalt"
+printf '# t\n\n## Goal\n\nLine one with\ttab\tchars.\nLine two continues without any.\n\n## Context\nx\n' > "$PLANS/goalt/plan.md"
+chk "tabs in the paragraph become spaces" \
+  test "$(libsh "mentor_plan_goal_line '$PLANS/goalt/plan.md'")" = "Line one with tab chars. Line two continues without any."
+
+# A `## Goal` heading with no first paragraph (goes straight to the next section) →
+# empty, not an error.
+mkdir -p "$PLANS/goale"
+printf '# t\n\n## Goal\n\n## Context\nno paragraph in goal\n' > "$PLANS/goale/plan.md"
+chk "## Goal with no paragraph → empty" test -z "$(libsh "mentor_plan_goal_line '$PLANS/goale/plan.md'")"
+
+# No `## Goal` section at all → empty, same as an old plan.md predating this convention.
+mkdir -p "$PLANS/goaln"
+printf '# t\n\n## Context\nno goal section at all\n' > "$PLANS/goaln/plan.md"
+chk "no ## Goal section → empty" test -z "$(libsh "mentor_plan_goal_line '$PLANS/goaln/plan.md'")"
+
+chk "missing plan_md → empty, no crash" test -z "$(libsh "mentor_plan_goal_line '/nope.md'")"
+chk "empty arg → empty, no crash"       test -z "$(libsh "mentor_plan_goal_line ''")"
+rm -rf "$PLANS"
+
 echo "== D. mentor_get_mode / mentor_config_get =="
 STATE="$expect_root/.mentor"
 RCONF="$STATE/config.json"
@@ -657,6 +698,89 @@ libsh "mentor_plan_state_write '$PLANS/prold' --priority noise"
 chk "upgrading write adds the priority"             test "$(libsh "mentor_plan_priority '$PLANS/prold'")" = "noise"
 chk "upgrading write preserves the state"           test "$(libsh "mentor_plan_state_field '$PLANS/prold' state")" = "implemented"
 chk "upgrading write preserves the owner"           test "$(libsh "mentor_plan_owner '$PLANS/prold'")" = "wt-x"
+rm -rf "$PLANS"
+
+echo "== O3. mentor_plan_state_write --category — closed vocabulary, set / preserve-on-omit / clear-on-explicit-empty (v2.25.0) =="
+chk "category_valid accepts every kind" \
+  libsh 'for c in feature fix refactor docs tooling; do mentor_plan_category_valid "$c" || exit 1; done'
+chk "category_valid rejects a typo"     libsh '! mentor_plan_category_valid featur'
+chk "category_valid rejects empty"      libsh '! mentor_plan_category_valid ""'
+# The vocabulary deliberately excludes anything test/verify-shaped — the scope rule
+# that keeps a deferred stub's Goal naming work to BUILD, never a check to run.
+chk "category_valid rejects 'test'"     libsh '! mentor_plan_category_valid test'
+chk "category_valid rejects 'verify'"   libsh '! mentor_plan_category_valid verify'
+chk "category_valid is a predicate, safe under set -e" \
+  libsh 'if mentor_plan_category_valid nope; then :; fi; echo ok >/dev/null'
+
+mkdir -p "$PLANS/ct1"
+libsh "mentor_plan_state_write '$PLANS/ct1' --state draft --category fix --note 'n'"
+chk "category stored"                   test "$(libsh "mentor_plan_category '$PLANS/ct1'")" = "fix"
+# Omitted --category on a plain write PRESERVES — the same omit=preserve contract
+# --group/--order/--deps/--origin/--owner/--priority already carry.
+libsh "mentor_plan_state_write '$PLANS/ct1' --state approved"
+chk "category preserved across a write that omits it" test "$(libsh "mentor_plan_category '$PLANS/ct1'")" = "fix"
+chk "the state still moved"                            test "$(libsh "mentor_plan_state_field '$PLANS/ct1' state")" = "approved"
+# Explicit empty CLEARS — the deliberate un-categorize path.
+libsh "mentor_plan_state_write '$PLANS/ct1' --category ''"
+chk "explicit empty --category clears it"              test -z "$(libsh "mentor_plan_category '$PLANS/ct1'")"
+chk "clearing --category leaves the state untouched"   test "$(libsh "mentor_plan_state_field '$PLANS/ct1' state")" = "approved"
+# An INVALID category rejects the WHOLE write, fail-soft (status 0, nothing changed) —
+# same shape as an invalid --state/--origin/--priority. A half-applied write that
+# dropped only the bad field would look to a caller exactly like a successful one.
+libsh "mentor_plan_state_write '$PLANS/ct1' --category tooling"
+libsh "mentor_plan_state_write '$PLANS/ct1' --state draft --category verify"
+chk "invalid --category → whole write rejected (state unchanged)"    test "$(libsh "mentor_plan_state_field '$PLANS/ct1' state")" = "approved"
+chk "invalid --category → whole write rejected (category unchanged)" test "$(libsh "mentor_plan_category '$PLANS/ct1'")" = "tooling"
+chk "invalid --category never aborts a set -e caller" \
+  libsh "mentor_plan_state_write '$PLANS/ct1' --category nope; echo ok >/dev/null"
+
+# Readback of an OLD sidecar (pre-2.25.0, no category key at all) must read as
+# UNCATEGORIZED, never a default.
+mkdir -p "$PLANS/ctold"
+cat > "$PLANS/ctold/.state.json" <<'JSON'
+{"state":"implemented","group":null,"order":null,"note":"","deps":[],"origin":null,"priority":"critical"}
+JSON
+chk "old sidecar (no category key): reads empty"      test -z "$(libsh "mentor_plan_category '$PLANS/ctold'")"
+chk "old sidecar (no category key): state reads back" test "$(libsh "mentor_plan_state_field '$PLANS/ctold' state")" = "implemented"
+libsh "mentor_plan_state_write '$PLANS/ctold' --category docs"
+chk "upgrading write adds the category"             test "$(libsh "mentor_plan_category '$PLANS/ctold'")" = "docs"
+chk "upgrading write preserves the state"           test "$(libsh "mentor_plan_state_field '$PLANS/ctold' state")" = "implemented"
+chk "upgrading write preserves the (unrelated) priority field too" \
+  test "$(libsh "mentor_plan_priority '$PLANS/ctold'")" = "critical"
+rm -rf "$PLANS"
+
+echo "== O4. mentor_plan_state_write --deferred-from / mentor_plan_deferred_from — UNVALIDATED pass-through, set / preserve-on-omit / clear-on-explicit-empty (v2.25.0) =="
+mkdir -p "$PLANS/df1"
+chk "unset deferred_from reads empty" test -z "$(libsh "mentor_plan_deferred_from '$PLANS/df1'")"
+libsh "mentor_plan_state_write '$PLANS/df1' --state draft --deferred-from some-plan --note 'n'"
+chk "deferred_from stored"            test "$(libsh "mentor_plan_deferred_from '$PLANS/df1'")" = "some-plan"
+# UNVALIDATED, like a `deps` target — any string is accepted, including a slug for a
+# plan dir that doesn't exist; the dangle is a render-time concern, not this layer's.
+libsh "mentor_plan_state_write '$PLANS/df1' --deferred-from no-such-plan-at-all"
+chk "deferred_from accepts a dangling slug (unvalidated)" \
+  test "$(libsh "mentor_plan_deferred_from '$PLANS/df1'")" = "no-such-plan-at-all"
+# Omitted --deferred-from on a plain write PRESERVES — the same omit=preserve
+# contract every other field here carries.
+libsh "mentor_plan_state_write '$PLANS/df1' --state approved"
+chk "deferred_from preserved across a write that omits it" \
+  test "$(libsh "mentor_plan_deferred_from '$PLANS/df1'")" = "no-such-plan-at-all"
+chk "the state still moved"                                  test "$(libsh "mentor_plan_state_field '$PLANS/df1' state")" = "approved"
+# Explicit empty CLEARS.
+libsh "mentor_plan_state_write '$PLANS/df1' --deferred-from ''"
+chk "explicit empty --deferred-from clears it"              test -z "$(libsh "mentor_plan_deferred_from '$PLANS/df1'")"
+chk "clearing --deferred-from leaves the state untouched"   test "$(libsh "mentor_plan_state_field '$PLANS/df1' state")" = "approved"
+
+# Readback of an OLD sidecar (pre-2.25.0, no deferred_from key at all) reads empty,
+# same as every other jq-defaulted field; a later write upgrades it in place.
+mkdir -p "$PLANS/dfold"
+cat > "$PLANS/dfold/.state.json" <<'JSON'
+{"state":"draft","group":null,"order":null,"note":"","deps":[],"origin":"deferred"}
+JSON
+chk "old sidecar (no deferred_from key): reads empty"        test -z "$(libsh "mentor_plan_deferred_from '$PLANS/dfold'")"
+chk "old sidecar (no deferred_from key): origin reads back"  test "$(libsh "mentor_plan_origin '$PLANS/dfold'")" = "deferred"
+libsh "mentor_plan_state_write '$PLANS/dfold' --deferred-from origin-plan"
+chk "upgrading write adds deferred_from"              test "$(libsh "mentor_plan_deferred_from '$PLANS/dfold'")" = "origin-plan"
+chk "upgrading write preserves origin"                test "$(libsh "mentor_plan_origin '$PLANS/dfold'")" = "deferred"
 rm -rf "$PLANS"
 
 echo

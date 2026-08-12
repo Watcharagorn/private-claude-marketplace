@@ -679,6 +679,116 @@ chk "upgrading write adds the priority"      test "$(sidecar pr-old '.priority')
 chk "upgrading write preserves the state"    test "$(sidecar pr-old '.state')" = "approved"
 chk "upgrading write preserves the note"     test "$(sidecar pr-old '.note')" = "n"
 
+echo "== K3. init --category / set-category: closed vocabulary, clear-on-empty, survives unrelated writes (v2.25.0) =="
+plan cat-a '# a' '## Implementation steps' '1. one' '2. two'
+plan cat-b
+out="$(ps init cat-a --category fix)"; rc=$?
+chk "init --category → exit 0"               test "$rc" = "0"
+chk "init --category echoes the kind"        has "category=fix" "$out"
+chk "init --category stores it"              test "$(sidecar cat-a '.category')" = "fix"
+# A typo'd (or deliberately EXCLUDED, like "verify") category is a USAGE error (exit
+# 1, nothing written), not a fail-soft skip — the vocabulary excludes anything
+# test/verify-shaped on purpose (the scope rule: a category classifies work to BUILD),
+# so this also pins that exclusion.
+ps init cat-b >/dev/null
+out="$(ps init cat-b --category verify)"; rc=$?
+chk "init: invalid category → exit 1"        test "$rc" = "1"
+chk "init: invalid category names the set"   has "feature fix refactor docs tooling" "$out"
+chk "init: invalid category wrote nothing"   test "$(sidecar cat-b '.category')" = "null"
+# init never CLEARS — an empty value preserves, like every other init flag.
+ps set-category cat-b docs >/dev/null
+ps init cat-b --order 3 >/dev/null
+chk "init with no --category preserves it"   test "$(sidecar cat-b '.category')" = "docs"
+ps init cat-b --category "" >/dev/null
+chk "init --category '' preserves (never clears)" test "$(sidecar cat-b '.category')" = "docs"
+
+out="$(ps set-category cat-b tooling)"; rc=$?
+chk "set-category → exit 0"                  test "$rc" = "0"
+chk "set-category reports the kind"          has "category = tooling" "$out"
+chk "set-category stores it"                 test "$(sidecar cat-b '.category')" = "tooling"
+out="$(ps set-category cat-b bogus)"; rc=$?
+chk "set-category: invalid → exit 1"         test "$rc" = "1"
+chk "set-category: invalid wrote nothing"    test "$(sidecar cat-b '.category')" = "tooling"
+# A dropped shell argument must not decay into a silent clear — the value is required
+# as a positional even when it is the empty string.
+out="$(ps set-category cat-b)"; rc=$?
+chk "set-category with no value → exit 1"    test "$rc" = "1"
+chk "set-category with no value: no write"   test "$(sidecar cat-b '.category')" = "tooling"
+out="$(ps set-category cat-b docs extra)"; rc=$?
+chk "set-category: extra argument → exit 1"  test "$rc" = "1"
+out="$(ps set-category no-such-plan docs)"; rc=$?
+chk "set-category: unknown slug → exit 1"    test "$rc" = "1"
+out="$(ps set-category cat-b "")"; rc=$?
+chk "set-category '' → exit 0"               test "$rc" = "0"
+chk "set-category '' reports unset"          has "category = (unset)" "$out"
+chk "set-category '' clears to null"         test "$(sidecar cat-b '.category')" = "null"
+
+# The whole point of the omitted-preserves contract: a category set once must ride
+# through every later state transition instead of being clobbered back to null.
+ps set-category cat-a feature >/dev/null
+ps set cat-a approved --note "n1" >/dev/null
+chk "category survives set <slug> approved"  test "$(sidecar cat-a '.category')" = "feature"
+ps set cat-a in_progress >/dev/null
+chk "category survives a note-clearing set"  test "$(sidecar cat-a '.category')" = "feature"
+ps set-deps cat-a cat-b >/dev/null
+chk "category survives set-deps"             test "$(sidecar cat-a '.category')" = "feature"
+ps claim cat-a >/dev/null
+chk "category survives claim"                test "$(sidecar cat-a '.category')" = "feature"
+ps tick cat-a 1 >/dev/null
+chk "category survives tick"                 test "$(sidecar cat-a '.category')" = "feature"
+# …and set-category is a category-ONLY write: it must not disturb its neighbours.
+ps set cat-a failed --note "broke here" >/dev/null
+ps set-category cat-a refactor >/dev/null
+chk "set-category preserves the note"        test "$(sidecar cat-a '.note')" = "broke here"
+chk "set-category preserves stored state"    test "$(sidecar cat-a '.state')" = "failed"
+chk "set-category preserves effective state" test "$(state_of cat-a)" = "failed"
+chk "set-category preserves deps"            test "$(sidecar cat-a '(.deps//[])|join(",")')" = "cat-b"
+
+# A pre-v2.25.0 sidecar (no `category` key at all) reads back uncategorized with no
+# migration, and a later write upgrades it in place without touching anything else.
+mkdir -p "$PLANS/cat-old"; printf '# old\n' > "$PLANS/cat-old/plan.md"
+cat > "$PLANS/cat-old/.state.json" <<'JSON'
+{"state":"approved","group":null,"order":null,"note":"n","deps":[],"origin":null,"priority":"high"}
+JSON
+chk "old sidecar: category reads null"       test "$(sidecar cat-old '.category // "null"')" = "null"
+chk "old sidecar: state still reads back"    test "$(state_of cat-old)" = "approved"
+ps set-category cat-old tooling >/dev/null
+chk "upgrading write adds the category"      test "$(sidecar cat-old '.category')" = "tooling"
+chk "upgrading write preserves the state"    test "$(sidecar cat-old '.state')" = "approved"
+chk "upgrading write preserves the note"     test "$(sidecar cat-old '.note')" = "n"
+chk "upgrading write preserves the (unrelated) priority field too" \
+  test "$(sidecar cat-old '.priority')" = "high"
+
+echo "== K4. init --from → deferred_from: unvalidated pass-through, no set-deferred-from subcommand (v2.25.0) =="
+plan from-a
+ps init from-a >/dev/null
+chk "no --from → deferred_from stays null" test "$(sidecar from-a '.deferred_from // "null"')" = "null"
+
+plan from-b
+out="$(ps init from-b --from from-a)"; rc=$?
+chk "init --from → exit 0"                 test "$rc" = "0"
+chk "init --from echoes the source plan"   has "from=from-a" "$out"
+chk "init --from stores deferred_from"     test "$(sidecar from-b '.deferred_from')" = "from-a"
+# UNVALIDATED, like a `deps` target — a slug for a plan that doesn't exist (yet, or
+# ever) is accepted without complaint; a dangling deferred_from is resolved at render
+# time by the consumer (plan-track's `(missing)` marker), not by this script.
+plan from-c
+out="$(ps init from-c --from no-such-plan)"; rc=$?
+chk "init --from accepts a dangling slug (unvalidated)" test "$rc" = "0"
+chk "init --from stores the dangling slug anyway"       test "$(sidecar from-c '.deferred_from')" = "no-such-plan"
+# init never CLEARS deferred_from — same preserve-on-empty contract as --priority/
+# --category, and (there being no set-deferred-from subcommand) init --from is the
+# ONLY way to write it at all.
+ps init from-b --order 2 >/dev/null
+chk "init with no --from preserves it"        test "$(sidecar from-b '.deferred_from')" = "from-a"
+ps init from-b --from "" >/dev/null
+chk "init --from '' preserves (never clears)" test "$(sidecar from-b '.deferred_from')" = "from-a"
+# deferred_from survives ordinary writes exactly like priority/category do.
+ps set from-b approved >/dev/null
+chk "deferred_from survives set <slug> approved" test "$(sidecar from-b '.deferred_from')" = "from-a"
+ps claim from-b >/dev/null
+chk "deferred_from survives claim"               test "$(sidecar from-b '.deferred_from')" = "from-a"
+
 echo "== L. claim: clears origin; note and other fields round-trip =="
 rm -rf "$PLANS"; mkdir -p "$PLANS"
 plan clm
@@ -701,6 +811,20 @@ ps init clm2 >/dev/null   # never deferred
 out="$(ps claim clm2)"; rc=$?
 chk "claim on a never-deferred plan → exit 0"           test "$rc" = "0"
 chk "claim on a never-deferred plan → nothing to claim" has "origin already unset" "$out"
+
+echo "== L3. claim keeps category/priority/deferred_from — only origin clears (v2.25.0) =="
+plan clm3
+ps init clm3 --deferred --priority high --category fix --from some-source >/dev/null
+chk "clm3 fixture carries priority"        test "$(sidecar clm3 '.priority')" = "high"
+chk "clm3 fixture carries category"        test "$(sidecar clm3 '.category')" = "fix"
+chk "clm3 fixture carries deferred_from"   test "$(sidecar clm3 '.deferred_from')" = "some-source"
+out="$(ps claim clm3)"; rc=$?
+chk "claim → exit 0"                       test "$rc" = "0"
+chk "claim clears origin"                  test "$(sidecar clm3 '.origin')" = "null"
+chk "claim keeps priority — a claimed stub's triage history stays readable" \
+  test "$(sidecar clm3 '.priority')" = "high"
+chk "claim keeps category"                 test "$(sidecar clm3 '.category')" = "fix"
+chk "claim keeps deferred_from"            test "$(sidecar clm3 '.deferred_from')" = "some-source"
 
 echo "== L2. tick: writes the ✅ a hand-rolled Edit used to place by hand =="
 rm -rf "$PLANS"; mkdir -p "$PLANS"
@@ -754,8 +878,21 @@ mkdir -p "$PLANS/ov-a/handoffs/resolved"
 ps init ov-a >/dev/null
 
 plan ov-b '# b' '## Implementation steps' '1. one ✅' '2. two'
-ps init ov-b --priority critical >/dev/null
+# --from is stamped here WITHOUT --deferred — deliberately, to prove `goal` gates on
+# `origin == "deferred"`, not on `deferred_from` merely being set.
+ps init ov-b --priority critical --category fix --from ov-a >/dev/null
 ps set-deps ov-b "ov-a,ov-missing" >/dev/null
+
+# A deferred stub whose `## Goal` first paragraph WRAPS across three physical lines —
+# the exact text mentor_plan_goal_line's own unit test in test-state-lib.sh pins, so
+# the two suites verify the same reflow+truncation at different layers (lib helper vs.
+# the CLI's overview plumbing).
+plan ov-deferred '# stub' '' '## Goal' '' \
+  '`claim_order()` in `daily-run.sh` orders concurrent learn slots by key that' \
+  'reflects real lock-acquisition order, so the plan promise that the oldest backlog' \
+  'session gets first crack at merging is actually true under three-way concurrency.' '' \
+  '## Context' 'more prose here'
+ps init ov-deferred --deferred --priority medium --category fix --from ov-a >/dev/null
 
 mkdir -p "$PLANS/ov-topic/handoffs"
 : > "$PLANS/ov-topic/handoffs/nudge.md"
@@ -766,7 +903,7 @@ mkdir -p "$REPO/.mentor/handoffs"
 out="$(psout overview --json)"; rc=$?
 chk "overview --json → exit 0"    test "$rc" = "0"
 chk "overview --json → valid JSON" sh -c 'printf "%s" "$0" | jq . >/dev/null 2>&1' "$out"
-chk "overview → 4 entries (2 plans + plan-less topic + legacy)" test "$(printf '%s' "$out" | jq 'length')" = "4"
+chk "overview → 5 entries (3 plans + plan-less topic + legacy)" test "$(printf '%s' "$out" | jq 'length')" = "5"
 
 ov_a="$(printf '%s' "$out" | jq -c '.[] | select(.slug=="ov-a")')"
 chk "ov-a: kind plan"                   test "$(printf '%s' "$ov_a" | jq -r '.kind')" = "plan"
@@ -778,6 +915,9 @@ chk "ov-a: origin null"                 test "$(printf '%s' "$ov_a" | jq -r '.or
 chk "ov-a: owner carries this worktree's wt-id (v2.23.0)" test "$(printf '%s' "$ov_a" | jq -r '.owner')" = "$WTA_ID"
 chk "ov-a: unprioritized → priority null, never a default tier (v2.24.0)" \
   test "$(printf '%s' "$ov_a" | jq -r '.priority')" = "null"
+chk "ov-a: uncategorized → category null (v2.25.0)" test "$(printf '%s' "$ov_a" | jq -r '.category')" = "null"
+chk "ov-a: no deferred_from"                        test "$(printf '%s' "$ov_a" | jq -r '.deferred_from')" = "null"
+chk "ov-a: goal null on a non-deferred plan"        test "$(printf '%s' "$ov_a" | jq -r '.goal')" = "null"
 
 ov_b="$(printf '%s' "$out" | jq -c '.[] | select(.slug=="ov-b")')"
 chk "ov-b: step counts 1/2"                  test "$(printf '%s' "$ov_b" | jq -r '.steps.ticked,.steps.total' | tr '\n' ' ')" = "1 2 "
@@ -787,6 +927,19 @@ chk "ov-b: unknown dep marked missing"       test "$(printf '%s' "$ov_b" | jq -r
 chk "ov-b: no handoffs"                      test "$(printf '%s' "$ov_b" | jq -c '.handoffs')" = '[]'
 chk "ov-b: owner carries this worktree's wt-id (v2.23.0)" test "$(printf '%s' "$ov_b" | jq -r '.owner')" = "$WTA_ID"
 chk "ov-b: priority carries the tier (v2.24.0)" test "$(printf '%s' "$ov_b" | jq -r '.priority')" = "critical"
+chk "ov-b: category carries the kind (v2.25.0)" test "$(printf '%s' "$ov_b" | jq -r '.category')" = "fix"
+chk "ov-b: deferred_from carries the slug even though origin is null" \
+  test "$(printf '%s' "$ov_b" | jq -r '.deferred_from')" = "ov-a"
+chk "ov-b: goal null — deferred_from alone does not compute a goal (origin gates it)" \
+  test "$(printf '%s' "$ov_b" | jq -r '.goal')" = "null"
+
+ov_def="$(printf '%s' "$out" | jq -c '.[] | select(.slug=="ov-deferred")')"
+chk "ov-deferred: origin deferred"     test "$(printf '%s' "$ov_def" | jq -r '.origin')" = "deferred"
+chk "ov-deferred: priority medium"     test "$(printf '%s' "$ov_def" | jq -r '.priority')" = "medium"
+chk "ov-deferred: category fix"        test "$(printf '%s' "$ov_def" | jq -r '.category')" = "fix"
+chk "ov-deferred: deferred_from ov-a"  test "$(printf '%s' "$ov_def" | jq -r '.deferred_from')" = "ov-a"
+chk "ov-deferred: goal reflowed to one line, word-boundary truncated at ~85 chars" \
+  test "$(printf '%s' "$ov_def" | jq -r '.goal')" = '`claim_order()` in `daily-run.sh` orders concurrent learn slots by key that reflects…'
 
 ov_topic="$(printf '%s' "$out" | jq -c '.[] | select(.slug=="ov-topic")')"
 chk "plan-less topic: kind no_plan_topic"  test "$(printf '%s' "$ov_topic" | jq -r '.kind')" = "no_plan_topic"
@@ -794,6 +947,8 @@ chk "plan-less topic: state 'no plan yet'" test "$(printf '%s' "$ov_topic" | jq 
 chk "plan-less topic: live handoff listed" test "$(printf '%s' "$ov_topic" | jq -c '.handoffs')" = '["nudge.md"]'
 chk "plan-less topic: zero step counts"    test "$(printf '%s' "$ov_topic" | jq -c '.steps')" = '{"ticked":0,"total":0}'
 chk "plan-less topic: owner null (no sidecar)" test "$(printf '%s' "$ov_topic" | jq -r '.owner')" = "null"
+chk "plan-less topic: category/deferred_from/goal all null too (v2.25.0, uniform shape)" \
+  test "$(printf '%s' "$ov_topic" | jq -r '.category,.deferred_from,.goal' | tr '\n' ' ')" = "null null null "
 
 ov_legacy="$(printf '%s' "$out" | jq -c '.[] | select(.kind=="legacy_handoffs")')"
 chk "legacy dir: topic-less (slug null)" test "$(printf '%s' "$ov_legacy" | jq -r '.slug')" = "null"
@@ -801,6 +956,8 @@ chk "legacy dir: state null"             test "$(printf '%s' "$ov_legacy" | jq -
 chk "legacy dir: steps null"             test "$(printf '%s' "$ov_legacy" | jq -r '.steps')" = "null"
 chk "legacy dir: lists the flat note"    test "$(printf '%s' "$ov_legacy" | jq -c '.handoffs')" = '["legacy-note.md"]'
 chk "legacy dir: owner null"             test "$(printf '%s' "$ov_legacy" | jq -r '.owner')" = "null"
+chk "legacy dir: category/deferred_from/goal all null too (v2.25.0, uniform shape)" \
+  test "$(printf '%s' "$ov_legacy" | jq -r '.category,.deferred_from,.goal' | tr '\n' ' ')" = "null null null "
 
 chk "plan dirs never double as a plan-less topic" \
   test -z "$(printf '%s' "$out" | jq -r '.[] | select(.kind=="no_plan_topic" and (.slug=="ov-a" or .slug=="ov-b"))')"
@@ -814,16 +971,31 @@ chk "no jq → empty stdout"            test -z "$out"
 chk "no jq → one-line stderr notice"  test "$(printf '%s\n' "$err" | wc -l | tr -d ' ')" = "1"
 chk "no jq → notice names the problem" has "jq not found" "$err"
 
-echo "== O. list stays byte-compatible even when a plan carries deps/origin/priority =="
+echo "== O. list stays byte-compatible even when a plan carries deps/origin/priority/category/deferred_from (v2.25.0: 3 more append-last fields) =="
 ps init ov-b --deferred >/dev/null   # give ov-b an origin too, alongside its deps
 chk "the fixture plan really does carry a priority" test "$(sidecar ov-b '.priority')" = "critical"
+chk "the fixture plan really does carry a category (v2.25.0)"      test "$(sidecar ov-b '.category')" = "fix"
+chk "the fixture plan really does carry a deferred_from (v2.25.0)" test "$(sidecar ov-b '.deferred_from')" = "ov-a"
 out="$(psout list)"
 row="$(printf '%s' "$out" | awk -v s="ov-b" '$3 == s')"
-chk "row for a deps+origin+priority plan is still found" test -n "$row"
+chk "row for a deps+origin+priority+category+deferred_from plan is still found" test -n "$row"
 chk "row is still exactly 5 whitespace-separated columns" \
   test "$(printf '%s' "$row" | awk '{print NF}')" = "5"
 chk "row carries no stray JSON from deps/origin" \
   sh -c '! printf "%s" "$0" | grep -qE "[][{}]"' "$row"
+chk "row carries no stray text from category/deferred_from either" \
+  sh -c '! printf "%s" "$0" | grep -qE "fix|ov-a"' "$row"
+
+# Byte-compat proper: a fixture WITHOUT any of the new fields set produces the exact
+# same bare `list` row today as before this plan's row-append (fields 12-14) landed —
+# proving the 3 appended _plan_walk fields never disturb list_rows' 5-column shape.
+plan byte-compat
+ps init byte-compat >/dev/null
+row_plain="$(psout list | awk -v s="byte-compat" '$3 == s')"
+chk "row-append safety: an unset-new-fields plan's bare list row is exactly 5 columns" \
+  test "$(printf '%s' "$row_plain" | awk '{print NF}')" = "5"
+chk "row-append safety: that row matches the pre-v2.25.0 shape exactly" \
+  test "$(printf '%s' "$row_plain" | awk '{print $2, $3, $4, $5}')" = "draft byte-compat - -"
 
 echo "== O2. list --owners adds a 6th OWNER column; bare list stays 5 (v2.23.0) =="
 row_default="$(psout list | awk -v s="ov-b" '$3 == s')"

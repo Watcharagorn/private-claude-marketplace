@@ -11,9 +11,10 @@ description: >
   .mentor/plans/, named for its own slug — same shape as a real plan, just born small
   and marked draft + origin "deferred" — so overview, the approval sweep, and
   /mentor:track already know
-  how to handle it with no new machinery. This is capture only: it never plans,
+  how to handle it. This is capture only: it never plans,
   approves, or implements — that comes later via /mentor:plan (which claims the stub)
-  or /mentor:track (which surveys and routes it).
+  or /mentor:track (which surveys and routes it). Refuses check-shaped items — only
+  isolated work to build is captured.
 ---
 
 # Defer — Stash Work for Later
@@ -36,6 +37,31 @@ back.
 ## When NOT to use
 
 - The work IS this session's scope — just do it, or fold it into the plan already being written.
+- **It's a check, not work to build.** A deferred stub names work to build, never a check to run: it
+  captures an isolated feature, function, fix, or improvement — something that ships on its own. It
+  never captures testing or verification of the *current plan's* own work, because checks belong to
+  the plan that made the claims. An unresolvable verification topic ends
+  `plan-state.sh set <slug> failed --note "<why>"`, which keeps the retry cheap — never a backlog
+  stub that lets the plan close clean while its own claims stay unverified.
+
+  Two nuances keep this honest:
+
+  - **Fix vs check.** When a check *ran* and confirmed a defect, deferring the *fix* is legitimate —
+    that's isolated work. Deferring the *check itself* is not.
+  - **Ownership of the claim, not the word "test".** A check on *this* plan's own work is never
+    deferrable. But a *pre-existing* defect — a flaky test on the base branch, a CI job that was
+    already broken before this work began — discovered incidentally is ordinary work to build, and
+    deferring its *fix* is exactly what `/mentor:defer` is for.
+
+  Worked examples:
+
+  - Mid-merge, a test on the base branch turns out to have been flaky for weeks → legitimate
+    fix-stub: `deferred → fix-flaky-auth-test [med · fix] (.mentor/plans/fix-flaky-auth-test/)`.
+  - "Let's verify topic 2 later" (a verification topic with no staging environment available) →
+    refused. Point it back at the plan's own record instead:
+    `plan-state.sh set <slug> failed --note "Topic 2 unresolved — no staging env"`. If that check
+    had *already run* and confirmed a defect the user chooses not to fix now, the fix is deferrable:
+    `deferred → fix-empty-input-handling [high · fix] (.mentor/plans/fix-empty-input-handling/)`.
 - The user wants to browse or act on stubs that already exist — that's `/mentor:track` ("what's
   remaining?"), which routes a picked stub through `/mentor:plan` + `claim`. This skill only
   creates; it never lists or picks up.
@@ -55,7 +81,21 @@ planning):
 - **why it's deferred right now** — scope, timing, priority, whatever the conversation makes
   obvious,
 - optionally, which other plan or stub it depends on, if the user said so or it's evident (e.g.
-  "after the gate typo fix lands").
+  "after the gate typo fix lands"),
+- **priority tier** — judge it from the conversation's own signal: severity words ("fragile",
+  "broken"), the user's emphasis, or a stated impact. Leave it unset when the conversation gives no
+  signal — never invent a default just to fill the field. Whatever you judge gets reported in Step 3
+  so the user can correct it with one word,
+- **category** — one of the closed vocabulary `feature | fix | refactor | docs | tooling`, picked
+  from what the item itself obviously is. Leave it unset if nothing fits cleanly,
+- **source plan** — the slug of the plan flow being interrupted, when there is one, so the stub
+  records where it came from. Leave it out entirely for a conversational capture that isn't
+  interrupting any plan flow.
+
+**Scope check, one line, then keep moving:** is this item work to build, or a check to run? Only
+work to build is deferrable — see "When NOT to use" below for the full rule, the fix-vs-check
+nuance, and worked examples. Judge it from what's already in the conversation; never research it or
+stall the interrupted flow to decide.
 
 ## Step 2 — Create a stub per item
 
@@ -101,7 +141,7 @@ same batch — the stub exists on disk by the time you get there):
 4. **Register it:**
 
    ```bash
-   bash "${CLAUDE_PLUGIN_ROOT}/hooks/plan-state.sh" init "$slug" --deferred${deps:+ --deps "$deps"}
+   bash "${CLAUDE_PLUGIN_ROOT}/hooks/plan-state.sh" init "$slug" --deferred${deps:+ --deps "$deps"}${priority:+ --priority "$priority"}${category:+ --category "$category"}${from_plan:+ --from "$from_plan"}
    ```
 
    `--deferred` sets the sidecar's `origin: "deferred"` — the marker that (a) shields this stub
@@ -110,6 +150,9 @@ same batch — the stub exists on disk by the time you get there):
    and its draft-approval escape hatch check before they'll treat this as a buildable plan. `--deps`
    is a comma-separated list of plan slugs — existing or not-yet-created (`overview` marks an
    unknown one `missing` rather than failing); pass it only when a dependency is actually known now.
+   `--priority`, `--category`, and `--from` carry Step 1's judgment onto the sidecar — each flag is
+   passed only when that field was actually judged or known; an unjudged field is simply omitted
+   from the command, never sent as an empty or invented value.
 
 This runs exactly the same whether the edit gate is armed or open: `.mentor/` is gate-exempt, so
 `plan-gate.sh` never blocks these writes. Deferring mid-`/mentor:plan` (gate armed, read-only
@@ -118,12 +161,19 @@ special-casing.
 
 ## Step 3 — Report and return
 
-One line per stub created, in the order they were made:
+One line per stub created, in the order they were made, carrying whatever Step 1 judged:
 
 ```
-deferred → fix-gate-msg-typo   (.mentor/plans/fix-gate-msg-typo/)
-deferred → oauth-refactor      (.mentor/plans/oauth-refactor/) — deps: fix-gate-msg-typo
+deferred → fix-flaky-auth-test [med · fix]  (.mentor/plans/fix-flaky-auth-test/) — from: merge-oauth-refactor
+deferred → oauth-refactor      [feat]       (.mentor/plans/oauth-refactor/) — deps: fix-gate-msg-typo
+deferred → fix-gate-msg-typo                (.mentor/plans/fix-gate-msg-typo/)
 ```
+
+The `[<tier> · <cat>]` tag, the `from: <plan>` clause, and the `deps: <a>` clause each render **only
+when that field was actually judged or given** — an unjudged field is dropped from the line
+entirely, never shown as an invented placeholder. When only one of tier/category was judged, show
+that one word alone in brackets (as `oauth-refactor` does above); the bracket never renders both
+sides blank, e.g. `[– · –]` must never appear.
 
 Then **continue exactly where the interrupted flow left off.** Deferring is a side note in the
 middle of the current task, not a reason to end the turn, ask a follow-up question, or wait for
@@ -132,9 +182,12 @@ acknowledgement — the whole point is that the current task never stalls for th
 ## Done when
 
 - Every item became its own plan dir with a stub `plan.md` and a sidecar carrying
-  `origin: "deferred"`.
+  `origin: "deferred"`, plus whatever `priority` / `category` / `deferred_from` Step 1 judged.
 - No stub's `plan.md` contains a "Relations" section — deps live only in the sidecar.
-- The user saw one line per stub, with its path (and deps, when set).
+- Every item passed the scope check — no stub was created for a check on the current plan's own
+  work; a refused item was pointed back at that plan's own Verification record instead.
+- The user saw one line per stub, with its path, its judged tag(s) (when any), `from:` (when
+  known), and `deps:` (when set) — never an invented placeholder.
 - The interrupted flow continued in the same response.
 
 ### Do NOT
@@ -145,3 +198,8 @@ acknowledgement — the whole point is that the current task never stalls for th
   picked up (it runs `claim` on it then).
 - Do NOT stop and wait after creating the stubs — return to the interrupted work.
 - Do NOT hand-edit `.state.json` — `plan-state.sh init` is the only writer.
+- Do NOT invent a priority or category when the conversation gives no signal — leave the field
+  unset rather than guess.
+- Do NOT create a stub for testing or verification of the current plan's own work — that names work
+  to build, never a check to run; route it to the plan's own Verification record
+  (`plan-state.sh set <slug> failed --note "<why>"`) instead.

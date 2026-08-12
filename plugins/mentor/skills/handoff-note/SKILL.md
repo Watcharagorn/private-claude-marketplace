@@ -478,14 +478,18 @@ substitute for it.
 - The content is tailored to the next-session focus.
 - The recommended next-step mentor commands are listed.
 - Work the note surfaced that **outlives the note** — repo-wide breakage, a follow-up feature, debt
-  discovered while shipping — was captured with `/mentor:defer` so `/mentor:track` can see it. The
-  note's own next steps need no stub: the note itself is durable and will be resumed. What needs one
-  is everything that stays true after this topic closes, which otherwise survives only as prose in a
-  document nobody re-reads once its work is done.
+  discovered while shipping — was captured with `/mentor:defer` so `/mentor:track` can see it,
+  scoped to work to build, never a check to run: a check on this plan's own work is never eligible,
+  only a confirmed defect's fix is. The note's own next steps need no stub: the note itself is
+  durable and will be resumed. What needs one is everything that stays true after this topic closes,
+  which otherwise survives only as prose in a document nobody re-reads once its work is done.
 - Any claim in the note that findings are closed or verification is clean ("no open findings," "all
   verified") was checked against the plan's own `## Verification` `Topic N —` outcomes first — a
-  topic logged as partial, skipped, or substitute-verified either gets named as a caveat here or gets
-  its own `/mentor:defer` stub, never silently dropped in favor of the cleaner-sounding claim.
+  topic logged as partial, skipped, or substitute-verified is never silently dropped in favor of the
+  cleaner-sounding claim: it is named as a caveat here **and** recorded on the plan via
+  `set <slug> failed --note`, never routed to its own `/mentor:defer` stub. A stub is eligible only
+  when the topic **ran** and confirmed a defect the user chooses not to fix now — then the defect's
+  fix, isolated work to build, is what gets deferred, never the topic itself.
 - The report **ends with literal copy-paste resume prompts** (`/mentor:resume <slug>` + the
   plugin-free alternative) — real values filled in, no placeholders.
 - Any claim about state **outside this repo's working tree** (a deploy target, a PR/CI/remote-branch

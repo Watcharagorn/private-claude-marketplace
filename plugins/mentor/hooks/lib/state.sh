@@ -16,10 +16,12 @@
 #   │                     #   marker — blocks every worktree until released/stale.
 #   │   └── <slug>/       #   plan.md (+ hidden .plan.md.opened sidecar)
 #   │       ├── .state.json  # {"state","group","order","note","deps","origin","owner",
-#   │       │                #   "owner_session","priority"} — written ONLY via
-#   │       │                #   plan-state.sh (deps/origin added v2.17.0;
-#   │       │                #   owner/owner_session — the minting/re-owning worktree,
-#   │       │                #   v2.23.0; priority — the impact tier, v2.24.0 — added
+#   │       │                #   "owner_session","priority","category","deferred_from"} —
+#   │       │                #   written ONLY via plan-state.sh (deps/origin added
+#   │       │                #   v2.17.0; owner/owner_session — the minting/re-owning
+#   │       │                #   worktree, v2.23.0; priority — the impact tier, v2.24.0;
+#   │       │                #   category — the work kind, and deferred_from — the plan
+#   │       │                #   slug a stub was captured out of, both v2.25.0 — added
 #   │       │                #   below; older or mixed-version sidecars read back with
 #   │       │                #   any missing key jq-defaulted to []/null/"")
 #   │       └── handoffs/ #   <ts>-<slug>.md; solved/superseded notes → handoffs/resolved/
@@ -326,14 +328,16 @@ mentor_cwd() {
 }
 
 # --- plan state (v2.4.0, deps/origin added v2.17.0, owner/owner_session added
-# v2.23.0, priority added v2.24.0) -------------------------------------------
+# v2.23.0, priority added v2.24.0, category/deferred_from added v2.25.0) -----
 #
 # Each plan dir carries a hidden `.state.json` sidecar:
 #   {"state":"draft|approved|in_progress|implemented|failed|superseded",
 #    "group":"<parent slug>"|null, "order":<n>|null, "note":"<free text>",
 #    "deps":["<slug>", …], "origin":"deferred"|null,
 #    "owner":"<wt-id>"|null, "owner_session":"<session id>"|null,
-#    "priority":"critical|high|medium|low|noise"|null}
+#    "priority":"critical|high|medium|low|noise"|null,
+#    "category":"feature|fix|refactor|docs|tooling"|null,
+#    "deferred_from":"<plan slug>"|null}
 # `group` is the slug of the plan that /plan-split replaced; standalone plans hold null.
 # `deps` names plan slugs this one needs first (unknown slugs allowed — the dep may be
 # deferred later; `plan-state.sh overview` marks those `missing`). `origin` is
@@ -351,17 +355,25 @@ mentor_cwd() {
 # whether a plan is worth building at all. Unset (null) is a first-class answer — an
 # unprioritized plan renders with no tier rather than defaulting into one, the same
 # reason mentor_plan_state_stored refuses to invent `draft`.
+# `category` is the plan's WORK KIND — a CLOSED vocabulary like `priority`,
+# deliberately excluding anything test/verify-shaped (see MENTOR_PLAN_CATEGORIES
+# below): a deferred stub's Goal names work to build, never a check to run.
+# `deferred_from` is the slug of the plan a `/mentor:defer` stub was captured out
+# of mid-flow — UNVALIDATED, like a `deps` target, since the source plan may be
+# deleted later; a dangling value is resolved at render time (plan-track's
+# `(missing)` marker), never by this layer.
 #
 # The sidecar is a CACHE, not the only truth. Reads go through
 # mentor_plan_effective_state, which takes the more advanced of the stored state and
 # the state derived from plan.md's ✅ step ticks — so a forgotten state write costs
 # nothing, and pre-2.4.0 plan dirs read correctly with no migration. `deps`/`origin`/
-# `owner`/`owner_session`/`priority` are jq-defaulted the same way (`// []`, `// null`):
-# a pre-2.17.0 4-field sidecar, or one an OLDER cached plugin copy rewrote without the
-# owner or priority keys (mixed-version worktrees during a rollout), reads back as
-# unowned/unprioritized with no migration pass — degrades to the unset handling, never
-# corrupts. Writes go through hooks/plan-state.sh (the CLI); skills never hand-roll
-# this JSON.
+# `owner`/`owner_session`/`priority`/`category`/`deferred_from` are jq-defaulted the
+# same way (`// []`, `// null`): a pre-2.17.0 4-field sidecar, or one an OLDER cached
+# plugin copy rewrote without the owner/priority/category/deferred_from keys
+# (mixed-version worktrees during a rollout), reads back as
+# unowned/unprioritized/uncategorized with no migration pass — degrades to the unset
+# handling, never corrupts. Writes go through hooks/plan-state.sh (the CLI); skills
+# never hand-roll this JSON.
 
 MENTOR_PLAN_STATES="draft approved in_progress implemented failed superseded"
 
@@ -383,6 +395,26 @@ mentor_plan_priority_valid() {
   [ -n "$p" ] || return 1
   case " ${MENTOR_PLAN_PRIORITIES} " in
     *" ${p} "*) return 0 ;;
+  esac
+  return 1
+}
+
+# The work-kind categories — a CLOSED set like MENTOR_PLAN_PRIORITIES, validated on
+# write the same way. Deliberately excludes anything test/verify-shaped: a category
+# exists to classify SHIPPABLE work — a deferred stub's Goal names work to build,
+# never a check to run — so a `test`/`verify` bucket would hand the scope rule a side
+# door to leak through.
+MENTOR_PLAN_CATEGORIES="feature fix refactor docs tooling"
+
+# mentor_plan_category_valid <category> — status 0 when <category> is one of the five
+# above. A predicate like mentor_plan_priority_valid — only call it as a condition.
+# The EMPTY string is NOT valid here either: clearing goes through an explicit
+# `--category ""` in mentor_plan_state_write, which never consults this function.
+mentor_plan_category_valid() {
+  local c="${1:-}"
+  [ -n "$c" ] || return 1
+  case " ${MENTOR_PLAN_CATEGORIES} " in
+    *" ${c} "*) return 0 ;;
   esac
   return 1
 }
@@ -457,8 +489,9 @@ mentor_plan_state_file() {
 }
 
 # mentor_plan_state_field <plan_dir> <key> — echo the stored value of <key>
-# (state|group|order|note|origin|owner|owner_session|priority), or empty when no
-# sidecar / no jq / corrupt / unset / null. SCALAR fields only — it `tostring`s whatever it finds, so on `deps`
+# (state|group|order|note|origin|owner|owner_session|priority|category|
+# deferred_from), or empty when no sidecar / no jq / corrupt / unset / null.
+# SCALAR fields only — it `tostring`s whatever it finds, so on `deps`
 # (an array) it would return a JSON-stringified array rather than a real list; use
 # mentor_plan_deps for that field instead.
 mentor_plan_state_field() {
@@ -561,6 +594,26 @@ mentor_plan_priority() {
   mentor_plan_state_field "${1:-}" priority
 }
 
+# mentor_plan_category <plan_dir> — echo the sidecar's `category` (one of
+# MENTOR_PLAN_CATEGORIES) or empty (null / unset / no sidecar / no jq / a
+# pre-v2.25.0 plan dir — an UNCATEGORIZED plan). Thin wrapper over the generic
+# scalar reader, named to match mentor_plan_origin/mentor_plan_priority so a second
+# read site never has to remember the field name by hand.
+mentor_plan_category() {
+  mentor_plan_state_field "${1:-}" category
+}
+
+# mentor_plan_deferred_from <plan_dir> — echo the sidecar's `deferred_from` (a plan
+# slug) or empty (null / unset / no sidecar / no jq / an ordinary plan, or one
+# deferred before v2.25.0). UNVALIDATED, like mentor_plan_deps' targets — the source
+# plan may itself be deleted later; resolving that dangle is a render-time concern
+# (plan-track's `(missing)` marker checked against the same overview array), never
+# this reader's job. Thin wrapper over the generic scalar reader, matching
+# mentor_plan_origin/mentor_plan_priority.
+mentor_plan_deferred_from() {
+  mentor_plan_state_field "${1:-}" deferred_from
+}
+
 # mentor_plan_would_cycle <plans_dir> <slug> <tentative deps, space-separated> — echo
 # "cycle" when giving <slug> exactly this deps list would create a dependency cycle
 # (including a direct self-cycle, <slug> listed in its own deps), else echo nothing.
@@ -655,6 +708,68 @@ mentor_plan_tick_counts() {
     }
     END { printf "%d %d\n", ticked+0, total+0 }
   ' "$md" 2>/dev/null || echo "0 0"
+  return 0
+}
+
+# Word-boundary truncation length for mentor_plan_goal_line — see its own comment.
+MENTOR_GOAL_LINE_MAX=85
+
+# mentor_plan_goal_line <plan_md> — echo the plan's `## Goal` section's FIRST
+# paragraph, reflowed to ONE line (Markdown wraps at ~90 cols, so a raw line ends
+# mid-sentence), tabs replaced by spaces (so it can never corrupt a tab-separated
+# row downstream), and truncated at a word boundary at MENTOR_GOAL_LINE_MAX chars
+# with a trailing `…` — added only when truncation actually happens. Empty when no
+# plan.md, no `## Goal` section, or the section has no first paragraph.
+#
+# The plugin's only other plan.md text-parser besides mentor_plan_tick_counts, and
+# built the same way (an awk pass gated on the current `##` section). Deliberately
+# NOT called for every plan: its ONE call site (`_plan_walk` in plan-state.sh) gates
+# it on the entry's `origin` being "deferred", so an ordinary plan never pays this
+# file read — see that call site's comment for the gate itself.
+mentor_plan_goal_line() {
+  local md="${1:-}" para w out candidate
+  if [ -z "$md" ] || [ ! -f "$md" ]; then echo ""; return 0; fi
+  para="$(awk '
+    /^##[[:space:]]/ {
+      h = tolower($0)
+      insec = (h ~ /^##[[:space:]]+goal([[:space:]]|$)/) ? 1 : 0
+      next
+    }
+    !insec { next }
+    /^[[:space:]]*$/ {
+      if (started) exit
+      next
+    }
+    {
+      started = 1
+      line = $0
+      gsub(/\t/, " ", line)
+      sub(/^[[:space:]]+/, "", line)
+      sub(/[[:space:]]+$/, "", line)
+      buf = (buf == "") ? line : buf " " line
+    }
+    END { print buf }
+  ' "$md" 2>/dev/null)"
+  if [ -z "$para" ]; then echo ""; return 0; fi
+  if [ "${#para}" -le "$MENTOR_GOAL_LINE_MAX" ]; then
+    printf '%s\n' "$para"
+    return 0
+  fi
+  out=""
+  # `read -a` (not a bare `for w in $para`) so a paragraph containing `*`/`[`/`?` —
+  # ordinary Markdown emphasis/link syntax — is split on whitespace only, never
+  # pathname-expanded against the caller's cwd.
+  local -a words
+  IFS=' ' read -r -a words <<<"$para"
+  for w in "${words[@]}"; do
+    if [ -z "$out" ]; then candidate="$w"; else candidate="${out} ${w}"; fi
+    [ "${#candidate}" -gt "$MENTOR_GOAL_LINE_MAX" ] && break
+    out="$candidate"
+  done
+  # A single word longer than the limit (e.g. one long inline code span) has no
+  # earlier boundary to fall back to — hard-cut it rather than emit nothing.
+  [ -z "$out" ] && out="${para:0:$MENTOR_GOAL_LINE_MAX}"
+  printf '%s…\n' "$out"
   return 0
 }
 
@@ -788,21 +903,24 @@ mentor_plan_effective_state() {
 
 # mentor_plan_state_write <plan_dir> [--state S] [--group G] [--order N] [--note "…"]
 #   [--deps a,b] [--origin deferred|""] [--owner W] [--owner-session S]
-#   [--priority P|""] — upsert the sidecar (create-then-set: most plans have no
-#   sidecar yet).
+#   [--priority P|""] [--category C|""] [--deferred-from S] — upsert the sidecar
+#   (create-then-set: most plans have no sidecar yet).
 #
 # Flag-style since v2.17.0 (was fixed positional <state> <group> <order> <note>) so a
 # write that only touches one or two fields — set-deps, claim, approve-plan's
 # promotion — doesn't have to thread every other field through by hand.
 #
 # AN OMITTED FLAG PRESERVES THE EXISTING STORED VALUE for --state/--group/--order/
-# --deps/--origin/--owner/--owner-session/--priority. This is what lets `deps`/
-# `origin`/`owner`/`priority` survive every state transition: approve-plan's promotion
-# write passes only `--state approved` and deps/origin/owner/priority ride through
-# untouched, instead of getting clobbered back to defaults the way a
-# mandatory-positional write would. In particular, `set` never passes --owner or
-# --priority, so it never touches ownership or the impact tier — only
-# ensure-dir/init/claim stamp ownership, and only init/set-priority write the tier.
+# --deps/--origin/--owner/--owner-session/--priority/--category/--deferred-from.
+# This is what lets `deps`/`origin`/`owner`/`priority`/`category`/`deferred_from`
+# survive every state transition: approve-plan's promotion write passes only
+# `--state approved` and every one of those fields rides through untouched, instead
+# of getting clobbered back to defaults the way a mandatory-positional write would.
+# In particular, `set` never passes --owner, --priority, --category, or
+# --deferred-from, so it never touches ownership, the impact tier, the work kind, or
+# the source plan — only ensure-dir/init/claim stamp ownership, only init/
+# set-priority write the tier, only init/set-category write the category, and only
+# init writes deferred_from (no set-deferred-from subcommand exists — see plan-state.sh).
 #
 # --note is the ONE exception to "omitted preserves": it is ALWAYS replaced with
 # whatever was passed (empty when the flag is omitted) — unchanged from before the
@@ -811,14 +929,18 @@ mentor_plan_effective_state() {
 # must re-pass it, the same way `init` already reads it back before writing.
 #
 # Passing a flag with an EXPLICIT EMPTY VALUE clears that field (group/order/origin/
-# owner/owner_session/priority → null, deps → []) rather than preserving it — this is
-# how `claim` clears origin (`--origin ""`) without touching anything else, how a
-# caller can deliberately release ownership (`--owner ""`), and how `set-priority
-# <slug> ""` un-tiers a plan. --state cannot be cleared this way: an empty/invalid
-# --state is rejected outright (fail-soft: no write), same as before. --origin only
-# accepts "deferred" or "" (clear), and --priority only a MENTOR_PLAN_PRIORITIES value
-# or "" (clear); anything else is also rejected, whole write and all — a rejected
-# --priority must not leave a half-applied write behind that looks like it worked.
+# owner/owner_session/priority/category/deferred_from → null, deps → []) rather than
+# preserving it — this is how `claim` clears origin (`--origin ""`) without touching
+# anything else, how a caller can deliberately release ownership (`--owner ""`), and
+# how `set-priority <slug> ""` un-tiers a plan (`set-category <slug> ""` mirrors it
+# for category). --state cannot be cleared this way: an empty/invalid --state is
+# rejected outright (fail-soft: no write), same as before. --origin only accepts
+# "deferred" or "" (clear), --priority only a MENTOR_PLAN_PRIORITIES value or ""
+# (clear), and --category only a MENTOR_PLAN_CATEGORIES value or "" (clear); anything
+# else is also rejected, whole write and all — a rejected --priority/--category must
+# not leave a half-applied write behind that looks like it worked. --deferred-from is
+# UNVALIDATED (like `deps` targets — the source plan may not exist, or may be deleted
+# later; that dangle is resolved at render time, not here).
 #
 # jq has no in-place edit, so this is tmp-file + mv. A torn write leaves the sidecar
 # unreadable, which reads back as "unknown" — recoverable, because a split child's
@@ -826,8 +948,8 @@ mentor_plan_effective_state() {
 # the tmp+mv happens inside the sidecar's own dir, so each individual write is atomic —
 # but two worktrees writing the same slug's sidecar concurrently can still lose one
 # write to the other (last mv wins), never corrupt it.
-# Fail-soft: always status 0, echoes nothing; a bad --state/--origin or missing jq
-# writes nothing.
+# Fail-soft: always status 0, echoes nothing; a bad --state/--origin/--priority/
+# --category or missing jq writes nothing.
 mentor_plan_state_write() {
   local d="${1:-}"
   shift || true
@@ -839,6 +961,8 @@ mentor_plan_state_write() {
   local owner="" owner_set=0
   local owner_session="" owner_session_set=0
   local priority="" priority_set=0
+  local category="" category_set=0
+  local deferred_from="" deferred_from_set=0
   local f tmp deps_json
   while [ "$#" -gt 0 ]; do
     case "$1" in
@@ -853,6 +977,10 @@ mentor_plan_state_write() {
                 owner_session="${2:-}"; owner_session_set=1; shift; if [ "$#" -gt 0 ]; then shift; fi ;;
       --priority)
                 priority="${2:-}"; priority_set=1; shift; if [ "$#" -gt 0 ]; then shift; fi ;;
+      --category)
+                category="${2:-}"; category_set=1; shift; if [ "$#" -gt 0 ]; then shift; fi ;;
+      --deferred-from)
+                deferred_from="${2:-}"; deferred_from_set=1; shift; if [ "$#" -gt 0 ]; then shift; fi ;;
       *) shift ;;   # fail-soft: an unrecognized flag is ignored, never aborts a caller
     esac
   done
@@ -860,6 +988,7 @@ mentor_plan_state_write() {
   if [ "$state_set" -eq 1 ] && ! mentor_plan_state_valid "$state"; then return 0; fi
   if [ "$origin_set" -eq 1 ] && [ -n "$origin" ] && [ "$origin" != "deferred" ]; then return 0; fi
   if [ "$priority_set" -eq 1 ] && [ -n "$priority" ] && ! mentor_plan_priority_valid "$priority"; then return 0; fi
+  if [ "$category_set" -eq 1 ] && [ -n "$category" ] && ! mentor_plan_category_valid "$category"; then return 0; fi
   command -v jq >/dev/null 2>&1 || return 0
   f="${d}/.state.json"
   if [ ! -f "$f" ] || ! jq -e 'type == "object"' "$f" >/dev/null 2>&1; then
@@ -880,7 +1009,9 @@ mentor_plan_state_write() {
         --arg origin "$origin" --argjson origin_set "$origin_set" \
         --arg owner "$owner" --argjson owner_set "$owner_set" \
         --arg owner_session "$owner_session" --argjson owner_session_set "$owner_session_set" \
-        --arg priority "$priority" --argjson priority_set "$priority_set" '
+        --arg priority "$priority" --argjson priority_set "$priority_set" \
+        --arg category "$category" --argjson category_set "$category_set" \
+        --arg deferred_from "$deferred_from" --argjson deferred_from_set "$deferred_from_set" '
         {
           state: (if $state_set == 1 then $state else (.state // null) end),
           group: (if $group_set == 1 then (if $group == "" then null else $group end) else (.group // null) end),
@@ -890,7 +1021,9 @@ mentor_plan_state_write() {
           origin: (if $origin_set == 1 then (if $origin == "" then null else $origin end) else (.origin // null) end),
           owner: (if $owner_set == 1 then (if $owner == "" then null else $owner end) else (.owner // null) end),
           owner_session: (if $owner_session_set == 1 then (if $owner_session == "" then null else $owner_session end) else (.owner_session // null) end),
-          priority: (if $priority_set == 1 then (if $priority == "" then null else $priority end) else (.priority // null) end)
+          priority: (if $priority_set == 1 then (if $priority == "" then null else $priority end) else (.priority // null) end),
+          category: (if $category_set == 1 then (if $category == "" then null else $category end) else (.category // null) end),
+          deferred_from: (if $deferred_from_set == 1 then (if $deferred_from == "" then null else $deferred_from end) else (.deferred_from // null) end)
         }' "$f" > "$tmp" 2>/dev/null; then
     mv -f "$tmp" "$f" 2>/dev/null || rm -f "$tmp" 2>/dev/null || true
   else

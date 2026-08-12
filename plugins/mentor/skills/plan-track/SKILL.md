@@ -125,15 +125,18 @@ group headers and `handoff:` sub-lines never consume a number, because that numb
 what Step 2's ordinal selection resolves against:
 
 ```
-1. ● [high]  recommended-first-clean   implemented (3/3 steps)
-2. ○ [crit]  oauth-refactor            draft (deferred) — deps: fix-gate-msg-typo
-3. ○ [noise] fix-gate-msg-typo         draft (deferred)
-4. ◐         some-feature              in_progress (1/4 steps)
+1. ● [high]          recommended-first-clean   implemented (3/3 steps)
+2. ○ [crit]          oauth-refactor            draft (deferred) — deps: fix-gate-msg-typo
+3. ○ [noise]         fix-gate-msg-typo         draft (deferred)
+4. ◐                 some-feature              in_progress (1/4 steps)
      └ handoff: 20260801-224510-implement.md (live)
+5. ○ [med]   [fix]   claim-order-tiebreak      draft (deferred, from: loom-automation)
+     └ goal: `claim_order()` in `plugins/loom/scripts/automate/daily-run.sh` orders…
 ```
 
-Per plan entry: `<glyph> [<tier>] <slug>   <state>[ (deferred)] [(<ticked>/<total> steps)][ —
-deps: <a>[, <b> (missing)]]`.
+Per plan entry: `<glyph> [<tier>] [<cat>] <slug>   <state>[ (deferred[, from: <slug>[ (missing)]])]
+[(<ticked>/<total> steps)][ — deps: <a>[, <b> (missing)]]`, with an optional `     └ goal: <text>`
+subline beneath a deferred entry.
 
 - the **tier tag** carries the entry's `priority` — one of `critical`, `high`, `medium`, `low`,
   `noise`, abbreviated to fit one padded column (`crit`/`high`/`med`/`low`/`noise`). An entry whose
@@ -142,15 +145,27 @@ deps: <a>[, <b> (missing)]]`.
   guess into something that reads like a record. Keep the column aligned so a scan down it answers
   "what actually matters" without reading a single slug — that separation is the whole reason the
   field exists.
-- **Never sort or filter on the tier.** The sort below stays exactly as it was, and a `noise` plan
-  still renders in its usual place: `/mentor:track` is the inventory of what's left, and a view
-  that quietly dropped the low tiers would make "what's remaining?" a lie in the one place a user
-  goes to trust it. The tag is there to let a reader *skip* the noise, not to decide for them.
-  When the user's ask is explicitly about impact ("what actually matters here?"), say which
-  entries sit in the top tiers in a sentence after the hierarchy — that answers the question
-  without reshuffling a view the rest of this skill's steps index into by ordinal.
+- the **category tag** carries the entry's `category` — one of `feature`, `fix`, `refactor`,
+  `docs`, `tooling`, abbreviated to fit one padded column (`feat`/`fix`/`refac`/`docs`/`tool`),
+  rendered right after the tier column. An entry whose `category` is `null` gets **blank padding,
+  not a tag** — same philosophy as the tier: nobody has categorized that work, which is different
+  from having categorized it, and inventing a default here would launder a guess into something
+  that reads like a record.
+- **Never sort or filter on the tier or category.** The sort below stays exactly as it was, and a
+  `noise` plan (or an uncategorized one) still renders in its usual place: `/mentor:track` is the
+  inventory of what's left, and a view that quietly dropped the low tiers or hid a category would
+  make "what's remaining?" a lie in the one place a user goes to trust it. The tags are there to let
+  a reader *skip* the noise, not to decide for them. When the user's ask is explicitly about impact
+  ("what actually matters here?"), say which entries sit in the top tiers in a sentence after the
+  hierarchy — that answers the question without reshuffling a view the rest of this skill's steps
+  index into by ordinal.
 - `(deferred)` only when `origin == "deferred"` — the tag that marks an unclaimed `/mentor:defer`
   stub, so it is never mistaken for a plan someone drafted by hand and left in `draft`.
+- `from: <slug>` joins that parenthetical on a deferred entry whose `deferred_from` is set — e.g.
+  `(deferred, from: loom-automation)` — resolved against the same `overview --json` array already
+  in hand (never a filesystem probe). When the slug matches **no entry in that same output**, render
+  `from: <slug> (missing)` instead — a deleted source plan must never silently dangle in the very
+  view built for triage trust (parity with the `deps` `(missing)` marker below).
 - step counts only when `steps.total > 0`.
 - the `deps` clause only when `deps` is non-empty; a dep entry with `missing: true` gets
   ` (missing)` appended — named as a dependency, but no such plan dir exists yet.
@@ -169,6 +184,9 @@ deps: <a>[, <b> (missing)]]`.
   say so.
 - each entry's **live** handoffs (its `handoffs` array — `overview` already excludes `resolved/`)
   render as one indented line beneath it: `     └ handoff: <name> (live)`.
+- a deferred entry's `goal` (non-null only when `origin == "deferred"`) renders as one indented
+  line beneath it, at the same indent the `handoff:` line above uses: `     └ goal: <text>` —
+  straight from `overview --json`'s `goal` key; the render never re-opens the plan file.
 
 Split-group siblings (`group` set) stay contiguous, ordered by `order`; on the group's first
 sibling, print a one-line header `▸ group: <group-slug>` and indent the members two spaces under
@@ -184,18 +202,22 @@ Sort `kind: "plan"` entries the same way the old `list` table did: active states
 (`superseded`/`unknown` last), then by group (an ungrouped plan sorts on its own slug), then
 `order`, then slug — so a reader who knew the old table still recognizes the order.
 
-**Setting a tier** is one call, and it is the natural follow-up when the user reacts to the
-hierarchy with a judgment ("that one's noise", "these three are critical"):
+**Setting a tier or category** is one call each, and both are the natural follow-up when the user
+reacts to the hierarchy with a judgment ("that one's noise", "these three are critical", "that's
+really a docs task"):
 
 ```bash
 bash "${CLAUDE_PLUGIN_ROOT}/hooks/plan-state.sh" set-priority <slug> critical   # "" clears
+bash "${CLAUDE_PLUGIN_ROOT}/hooks/plan-state.sh" set-category <slug> fix       # "" clears
 ```
 
-It writes nothing but the tier — state, note, deps and ownership all ride through untouched — so
-it is safe to run against a plan mid-flight. Only these five values are accepted; an invalid one
-exits 1 having written nothing, so a batch that tiers several plans should check each call rather
-than assume the last one landed. When the user hands you a judgment in their own words ("this is
-just cleanup"), map it to the nearest tier and say which one you picked — don't invent a sixth.
+Each writes nothing but its own field — state, note, deps and ownership all ride through untouched
+— so either is safe to run against a plan mid-flight. Only the five tier values, or the five
+category values (`feature`/`fix`/`refactor`/`docs`/`tooling`), are accepted; an invalid one exits 1
+having written nothing, so a batch that tags several plans should check each call rather than
+assume the last one landed. When the user hands you a judgment in their own words ("this is just
+cleanup"), map it to the nearest tier or category and say which one you picked — don't invent a
+sixth.
 
 ## Step 2 — Select a plan
 
@@ -222,7 +244,10 @@ wondering why their plan wasn't offered.
 to a file, a plan section, a coined id or code, or an earlier turn to learn what the question means.
 Here that means an option describes the plan's *work* and where it stands ("Thanos SSA reprojection
 — approved, 3 of 7 steps left"), never a bare slug or a hierarchy position ("the second one"): the
-hierarchy scrolled off the moment the question opened.
+hierarchy scrolled off the moment the question opened. For a deferred stub, that description can
+draw on `overview`'s `goal`, `deferred_from`, and `priority` keys directly — e.g. "claim-order-
+tiebreak — medium-priority fix deferred from loom-automation: `claim_order()` in daily-run.sh orders
+concurrent…" — rather than falling back to the bare stub state.
 
 **Carry Step 1's worktree tag into this step too.** When the resolved or offered entry has a
 ` [worktree: <id>]` tag, repeat it — in an `AskUserQuestion` option's `description`, or in the

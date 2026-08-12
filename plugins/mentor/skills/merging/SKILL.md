@@ -152,9 +152,11 @@ the question, not a link to the run.
 cannot reach green by waiting: drop **Auto-merge on green** (it would queue forever) and
 offer instead **Merge anyway** — stating plainly which jobs *did* pass, so the user is
 weighing real evidence rather than a bare override — alongside **Leave open**. Whichever
-they pick, the rot itself outlives this PR, so capture it with `/mentor:defer "<failing
-job> broken on <base> since <date>"` before you finish; a verdict that lives only in this
-turn's output is how the same five `gh` calls get spent again next week.
+they pick, the rot itself outlives this PR: it's a pre-existing defect on `base`, not a
+check on this PR's own work, so under the scope rule its **fix** is deferrable. Capture
+that fix with `/mentor:defer "fix <failing job>, broken on <base> since <date>"` before
+you finish; a verdict that lives only in this turn's output is how the same five `gh`
+calls get spent again next week.
 
 Report the result (merged SHA or queued state) and, if the branch is deletable
 per repo convention, mention `--delete-branch` as an option — don't apply it
@@ -223,8 +225,10 @@ the base branch is a fresh working session, not a tail on this one.
 
 When the red is the **same test Step 3 flake-verdicted**, that is not a second budget — it is a test
 that failed, went green on a rerun, and failed again on what actually landed, which is as easily a
-real failure the rerun masked as a flake. Name it and capture it with `/mentor:defer "<test> flaky
-on <base>"`: that verdict outlives this session, while another rerun would only re-roll it.
+real failure the rerun masked as a flake. This is a pre-existing defect on `base`, not a check on
+this PR's own work, so its fix is work to build, never a check to run — name it and capture **that
+fix** with `/mentor:defer "fix <test> flaky on <base>"`: that verdict outlives this session, while
+another rerun would only re-roll it.
 
 **A green run on `base` is when a deploy artifact actually goes live** — the merged PR may have
 touched one. The detection is `mentor:shipping` Step 7's ("Say when the shipped diff touches a

@@ -64,8 +64,13 @@ Gaps line" rule does not apply to it. Name the finding and stop there; do not
 verdict a sibling topic's scope from inside this one — independence is the
 whole point of the per-topic split (above). The orchestrator routes it: to
 that topic's verifier if still live (`dispatch-agents/SKILL.md` → "Follow-up
-vs re-dispatch"), as a round gap if that topic already returned, or through
-`/mentor:defer` if it belongs to no topic at all.
+vs re-dispatch"), or as a round gap (`Gaps / Missing:`) if that topic already
+returned. A finding that belongs to no topic at all is a round gap too,
+**unless** it is a *confirmed* pre-existing defect (present before this
+plan's work began) — only then does its fix route through `/mentor:defer`. A
+finding on *this* plan's own, uncovered work is never a defer candidate
+regardless of topic coverage: an unconfirmed suspicion about the plan's own
+deliverable stays a round gap for the orchestrator's failure-loop handling.
 
 Before going idle, write a durable copy to
 `.mentor/plans/<slug>/topic-N-verify.md` — the flat, no-subdirectory naming

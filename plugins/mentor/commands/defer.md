@@ -10,9 +10,15 @@ Stash work discovered **mid-flow** — during planning or during implementation 
 lightweight plan stubs, without derailing what you are doing right now.
 
 Immediately call `Skill({"skill": "mentor:deferring"})` and follow it end to end. It accepts one item
-or many in a single call, creates a stub `plan.md` (Goal / Context / Why deferred / Suggested first
-steps) plus a `.state.json` marked `origin: "deferred"` for each, reports the created stubs one
-line each, then returns you to the interrupted flow.
+or many in a single call, judges each item's **priority** (`critical|high|medium|low|noise`) and
+**category** (`feature|fix|refactor|docs|tooling` — deliberately no `test`/`verify` entry) from the
+conversation's own evidence, plus the **source plan** (`--from`) when one is interrupted, leaving
+any of the three unset rather than inventing a default. It refuses check-shaped items — a deferred
+stub captures work to build, never a check to run — then creates a stub `plan.md` (Goal / Context /
+Why deferred / Suggested first steps) plus a `.state.json` marked `origin: "deferred"` (with the
+judged `priority`/`category`/`deferred_from`) for each, reports every created stub as
+`deferred → <slug> [<tier> · <cat>] (.mentor/plans/<slug>/) — from: <plan> — deps: <a>` (tags shown
+only when judged), then returns you to the interrupted flow.
 
 The items to defer — one or many, freeform (semicolons, a bullet list, or plain "and" are all
 fine):

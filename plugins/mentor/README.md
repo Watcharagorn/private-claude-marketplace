@@ -214,6 +214,8 @@ migration — every reader defaults the fields it doesn't find.
 | `origin` | `"deferred"` or `null` | `init --deferred` sets it; `claim <slug>` clears it | v2.17.0 |
 | `owner` / `owner_session` | wt-id + session id, or `null` | `ensure-dir` / `init` / `claim` | v2.23.0 |
 | `priority` | `critical`\|`high`\|`medium`\|`low`\|`noise`, or `null` | `init --priority P` / `set-priority <slug> P` | v2.24.0 |
+| `category` | `feature`\|`fix`\|`refactor`\|`docs`\|`tooling`, or `null` | `init --category C` / `set-category <slug> C` | v2.25.0 |
+| `deferred_from` | a plan slug (unvalidated), or `null` | `init --from S` | v2.25.0 |
 
 Omitting a flag **preserves** whatever is stored, which is what lets deps, origin,
 ownership and priority all survive a later `set <slug> approved` untouched; passing one
@@ -235,6 +237,18 @@ unvalidated typo would silently become a sixth bucket. An unset priority stays `
 renders as absent, never as a default tier: "nobody has judged this plan" is a different
 and more honest answer than `medium`. `set-priority <slug> ""` clears it back to unset.
 
+`category` is the stub's **kind of work** — a closed set like `priority`, validated the same
+way, deliberately excluding `test`/`verify`: a deferred stub captures work to build, never a
+check to run, and a vocabulary with a testing entry would quietly invite the very thing the
+scope rule rules out. `set-category <slug> ""` clears it back to unset, mirroring
+`set-priority`.
+
+`deferred_from` names the plan slug a stub was captured out of — unvalidated like `deps`'
+targets, since the source plan may itself be deleted later. Unlike `deps`, `plan-state.sh`
+carries **no** script-side `missing` flag for it: a dangling `deferred_from` is resolved
+render-side, by `/mentor:track` checking the slug against the same `overview --json` array it
+already holds, rendering `from: <slug> (missing)`.
+
 ### Deferring work (`/mentor:defer`)
 
 Work discovered mid-planning or mid-implementation that isn't the current task's scope
@@ -253,11 +267,14 @@ promotes it like any plan.
 
 `plan-state.sh overview --json` is the one call that answers "what's remaining?" — a
 JSON array covering every plan dir with a `plan.md` (state, group, order, `priority`,
-`deps`, each marked `missing` when no such plan dir exists, `origin`, live handoffs,
-ticked/total step counts), plus topic dirs with a live handoff but no `plan.md` yet,
-plus the legacy flat `.mentor/handoffs/` dir. Computed fresh on every call — nothing is cached,
-so it can never drift from the sidecars, plan ticks, or filesystem it reads. `/mentor:track`
-renders it as a hierarchy, e.g.:
+`category`, `deps`, each marked `missing` when no such plan dir exists, `origin`,
+`deferred_from`, live handoffs, ticked/total step counts, and `goal` — a one-line summary
+computed only for `origin: "deferred"` entries, `null` otherwise; it is not a sidecar
+field, it is extracted from the stub's own `## Goal` section at read time), plus topic
+dirs with a live handoff but no `plan.md` yet, plus the legacy flat `.mentor/handoffs/`
+dir. Computed fresh on every call — nothing is cached, so it can never drift from the
+sidecars, plan ticks, or filesystem it reads. `/mentor:track` renders it as a hierarchy,
+e.g.:
 
 ```
 1. ● recommended-first-clean   implemented (3/3 steps)
@@ -511,6 +528,44 @@ extra deliverable. Instruction-only — no hooks.
 | `plan-domain-backend-api` | API/endpoint/route/handler/schema/DTO/contract — or the data model behind it: migration, table, column, index, constraint, enum, RLS policy | Before/after contract diff tables, schema diffs, Mermaid sequence flows; on a DDL change also a per-column delta table + a Mermaid ER diff of the changed entities. |
 | `plan-domain-architecture` | Structural change — services, containers, datastores, queues, integrations, data flows (not pure content/config/doc/style/refactor) | Diff-highlighted C4-style Mermaid flowcharts, only the levels that change; a provenance list for any changed datastore field. |
 | `plan-domain-dynamic` | No registered domain matched, and no already-available project/plugin skill names the technology (fallback) | A dispatched domain-definer names the domain and returns a best-practices brief; the plan gains a practice→step mapping. A substituted available skill can supply the brief instead. |
+
+## Changes in v2.25.0
+
+**Deferred stubs carry triage signals, and the plugin now enforces one rule everywhere it
+routes work toward `/mentor:defer`: a deferred stub captures work to build, never a check
+to run.** Before this, every stub rendered as a bare `○ <slug> draft (deferred)` line —
+no purpose, no priority, no relation to the plan it came out of — and nothing stopped a
+plan from stashing its own unresolved verification as a "verify X later" stub.
+
+`.state.json` gains two fields, mirroring the v2.24.0 `priority` pattern exactly:
+`category` (closed set `feature`/`fix`/`refactor`/`docs`/`tooling`, deliberately no
+`test`/`verify` entry) and `deferred_from` (an unvalidated plan slug, like `deps`'
+targets). `init` takes `--category`/`--from`; `set-category` joins `set-priority` as the
+follow-up subcommand; `claim` clears `origin` as before but now also **keeps**
+`category`/`priority`/`deferred_from`, so a claimed stub's triage history stays readable.
+
+`/mentor:defer` (via the `deferring` skill) judges **priority**, **category**, and
+**source plan** from the conversation's own evidence at capture time — the moment that
+context still exists — leaving any of the three unset rather than inventing a default,
+and reports what it judged inline:
+`deferred → <slug> [<tier> · <cat>] (.mentor/plans/<slug>/) — from: <plan> — deps: <a>`.
+`overview --json` appends `category`, `deferred_from`, and a computed `goal` key (a
+one-line summary of the stub's own `## Goal`, `null` on non-deferred entries — see "The
+repo-wide hierarchy" above); `/mentor:track` renders the tier and category as aligned tag
+columns, a `from:` clause (`from: <slug> (missing)` when the source plan is gone), and a
+`└ goal:` subline, extending the never-sort/never-filter rule to category too.
+
+**The scope rule now runs through every funnel that routes work toward `/mentor:defer`** —
+`dispatch-agents`' closing sweep and verification failure loop, `planning`'s oversize-plan
+defer offers, `merging` and `resuming`'s flaky-test capture points, and `handoff-note`'s
+close-out checklist. An unresolvable verification topic always ends `set <slug> failed
+--note`, never a stub; a check that **ran** and confirmed a defect still lets its **fix**
+defer, since a pre-existing bug found incidentally (a flaky test on the base branch, CI
+broken before this work began) is ordinary work-to-build, not the check itself.
+
+No auto-migration: this repo's pre-2.25.0 stubs keep `category`/`deferred_from` as `null`
+and render exactly as before; backfill with `set-priority`/`set-category` while surveying
+is a manual, one-time choice, not a requirement.
 
 ## Changes in v2.24.0
 
