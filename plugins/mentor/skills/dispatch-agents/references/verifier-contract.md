@@ -24,6 +24,12 @@ confirm-instead-of-check failure this contract exists to prevent.
 - If the topic is concurrency- or timing-sensitive (a race, a flaky-under-load
   path), say so in the brief and ask for 5+ independent runs before a PASS —
   one clean run is not evidence for a race condition.
+- The safe-check-idiom rule from `dispatch-agents/SKILL.md` → "Executing the
+  dispatches" item 4: a zero-hit or empty result from a check is not evidence
+  until you've confirmed the check itself works. A verifier's own evidence
+  commands are exposed to the same false negatives as the orchestrator's —
+  a single-line `grep` missing a claim that wraps across lines, an unquoted
+  glob aborting under zsh's `nomatch`, `\|` where ERE wants `|`.
 
 When the plan predates the `Topic N —` grammar and its `## Verification` is
 still prose, build those three lines yourself before dispatching, one topic per
@@ -41,12 +47,25 @@ Verdict: PASS | FAIL
 
 Gaps / Missing:
 <concrete items found, or the literal words "none found">
+
+Cross-topic:
+<a finding that belongs to a DIFFERENT topic's Focus:/Checks: — name the sibling
+topic and the finding in one line, or the literal word "none">
 ```
 
 `Gaps / Missing:` is mandatory even on a `PASS` verdict. An absent or empty
 one is a contract violation, not an oversight: that explicit line is the
 only thing that forces "what is missing?" to actually get asked, instead of
 silence reading as "nothing to report."
+
+`Cross-topic:` is not a gap against this verdict — a PASS with a real
+`Cross-topic:` line is still a PASS; the failure loop's "any non-`none found`
+Gaps line" rule does not apply to it. Name the finding and stop there; do not
+verdict a sibling topic's scope from inside this one — independence is the
+whole point of the per-topic split (above). The orchestrator routes it: to
+that topic's verifier if still live (`dispatch-agents/SKILL.md` → "Follow-up
+vs re-dispatch"), as a round gap if that topic already returned, or through
+`/mentor:defer` if it belongs to no topic at all.
 
 Before going idle, write a durable copy to
 `.mentor/plans/<slug>/topic-N-verify.md` — the flat, no-subdirectory naming

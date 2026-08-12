@@ -279,7 +279,7 @@ before issuing `Agent` calls. Then:
 1. **Read the approved plan file** (`<repo>/.mentor/plans/<slug>/plan.md`) — do not work from memory.
 2. **Dispatch "Run in parallel:" groups** — issue ALL `Agent()` calls for each parallel group in a **single message** so they run concurrently. Every prompt ends with the solution-quality line plus the full standing contract block ("Deliver before idling," "Async runtime & lifecycle" below) **pasted verbatim** — compressing it to a paraphrase (even a well-intentioned one-liner) silently drops directives a dispatched agent has no other way to learn, including the no-nested-fan-out ban this exact block is what enforces. After dispatching, apply **No busy-wait**: stop and let the harness re-invoke you when agents complete.
 3. **Dispatch "Sequential:" steps one at a time** — wait for the prior step's result before issuing the next call.
-4. **Verify each `Done when:` criterion** before moving to the next step — agents describe what they intended; trust but verify. On a concurrency- or timing-sensitive criterion, one clean run is not evidence — re-run it yourself 5+ times before accepting a PASS; an agent's self-reported `PASS=N/FAIL=0` from a single run proves nothing about a race.
+4. **Verify each `Done when:` criterion** before moving to the next step — agents describe what they intended; trust but verify. On a concurrency- or timing-sensitive criterion, one clean run is not evidence — re-run it yourself 5+ times before accepting a PASS; an agent's self-reported `PASS=N/FAIL=0` from a single run proves nothing about a race. A zero-hit or empty result from your own check is likewise not evidence the criterion failed until you've confirmed the check itself works — a single-line `grep` can miss a claim that wraps across lines, an unquoted glob aborts outright under zsh's `nomatch`, and ERE alternation is `|`, not `\|`; when a check comes back empty, narrow it to one line or run it against a known-positive before trusting the negative.
 5. **Execute the plan's Verification section** — dispatch one fresh verifier per `Topic N —` block, all in a single message, even when the plan opened `Dispatch: skipped`. Full contract in "Verifying the plan (execution-time)" below. A plan's own implementation step titled "Verification pass" or similar is not this step; it's ordinary self-graded work covered by item 4 above, never a substitute for this dispatch.
 6. **CLOSING CHECKLIST — always, whatever Verification returned** (on a `failed` or handed-off plan the first two items still run; hold the tour and ship offers, which speak for work that was accepted)**:**
    - **Close out finished agents** — enumerate live tasks with `TaskList` and diff
@@ -353,8 +353,13 @@ Step 1 instead. A verification round moves the plan with `set`.
   with no `Gaps / Missing:` line is not a verdict yet — ask that same verifier for it
   ("Follow-up vs re-dispatch" below); silence is never `none found`.
 - **Failure loop.** A `FAIL`, or any non-`none found` Gaps line even on a PASS, surfaces
-  the round's gaps and asks ONE question for the round, however many topics failed —
-  **remediate now, or hand off to a fresh session?** (offered early, since verification
+  the round's gaps. **Re-check context first** — the same move as `planning`'s "Re-check
+  context": run `bash "${CLAUDE_PLUGIN_ROOT}/hooks/plan-state.sh" context` fresh rather
+  than trusting an earlier reading. A verification round runs mostly on harness-synthetic
+  prompts (inbound agent reports), which `context-gate.sh`'s own WARN tier deliberately
+  skips, so a round can grow well past WARN with nothing having said so. Then ask ONE
+  question for the round, however many topics failed — **remediate now, or hand off to
+  a fresh session?**, informed by that fresh reading (offered early, since verification
   runs when the session is often largest). **Remediate**: one dispatch by the file's
   implementation role; a skipped plan assigned none, so pick one the normal way
   ("Choosing `role`" above) — the skip covered the original edits, not their repair.
@@ -472,7 +477,9 @@ the contract does not apply to them, which is exactly how a fan-out goes out raw
   Never re-run expensive verification (full builds, E2E suites) while the
   agent's own report may still be in flight. The race also resolves in the other direction:
   an idle notification arriving from an agent **already** `TaskStop`ped needs no
-  reply at all — the stop already closed it out.
+  reply at all — the stop already closed it out. Dismiss it silently rather than
+  narrating it; on a dispatch-heavy plan, note the dismissed count once at close-out
+  if it's worth mentioning at all, not once per echo.
 - **Agent died (infra/API error).** Don't reinvent recovery glue: wait with
   escalating patience (minutes-scale, roughly doubling — this sanctioned wait
   for a *dead* agent is not the busy-polling of a healthy one forbidden

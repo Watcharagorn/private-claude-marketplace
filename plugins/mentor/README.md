@@ -323,8 +323,14 @@ quality degrade. The **context gate** (`hooks/context-gate.sh`, a `UserPromptSub
 hook) measures the live context size from the session transcript and acts in three
 tiers — it **never blocks or erases a prompt**; it warns, then asks:
 
-- **Warn** (default **200000** tokens) — a one-time-per-session notice suggesting
-  `/mentor:handoff` (→ `/mentor:resume` in a fresh session) or `/compact`.
+- **Warn** (default **200000** tokens) — a notice suggesting `/mentor:handoff`
+  (→ `/mentor:resume` in a fresh session) or `/compact`; re-arms every ~50000
+  tokens of further growth (a quarter of the warn threshold at defaults)
+  rather than firing only once. Skipped entirely for harness-synthetic
+  prompts (see below) — a fan-out-heavy stretch that runs almost entirely on
+  inbound agent reports can sit in this band a long while with no nudge;
+  `dispatch-agents`' verification failure loop re-checks context explicitly
+  for that reason.
 - **Warn-high** (default **90% of the ask threshold**, i.e. 315000) — a near-limit
   nudge that re-fires on every prompt: wrap the current unit of work and steer toward
   a natural handoff boundary; avoid opening new large workstreams.
@@ -336,8 +342,8 @@ tiers — it **never blocks or erases a prompt**; it warns, then asks:
   A fresh handoff note (<30 min old) suppresses the question — the advisory just
   points at `/mentor:resume`. Harness-synthetic prompts (inbound agent/teammate reports,
   task notifications, background-agent stop notices) get a loud advisory instead of a
-  question, so autonomous flows are never stalled — and they never spend the
-  once-per-session warn, which belongs to your next real prompt.
+  question, so autonomous flows are never stalled — and they never trigger a
+  WARN re-arm, which belongs to your next real prompt.
   `/mentor:plan` gets the same treatment: over the threshold `begin-plan.sh` asks
   first (hand off & plan fresh, or bypass + lean plan) before arming.
 
