@@ -544,6 +544,52 @@ extra deliverable. Instruction-only — no hooks.
 | `plan-domain-architecture` | Structural change — services, containers, datastores, queues, integrations, data flows (not pure content/config/doc/style/refactor) | Diff-highlighted C4-style Mermaid flowcharts, only the levels that change; a provenance list for any changed datastore field. |
 | `plan-domain-dynamic` | No registered domain matched, and no already-available project/plugin skill names the technology (fallback) | A dispatched domain-definer names the domain and returns a best-practices brief; the plan gains a practice→step mapping. A substituted available skill can supply the brief instead. |
 
+## Changes in v2.27.0
+
+**Plan steps are budgeted to one agent's context, and live end-to-end proof runs once.**
+Measured across a real project's sessions, every dispatched step-executor teammate reached
+400–750k tokens of context over 150–420 tool calls (worst case 746k), with zero compaction
+events — a teammate's context only ever grows. Four mentor design choices multiplied into
+that: unbounded step granularity, the solo-teammate rule, live e2e proof demanded from the
+implementer inside its own `Done when:` (then re-proved by the plan's verifiers), and no
+brake on overrun.
+
+Four coordinated instruction changes, no hook or script changes:
+
+- **`dispatch-agents` — new Decomposition rubric item, "Budget each step to one agent's
+  context."** The operative test is a five-smell list, all checkable while authoring: spans
+  more than one service/layer; touches more than ~10 files across distinct areas; its
+  `Done when:` needs a live multi-service stack driven end-to-end; its `Inputs:` or implied
+  reconnaissance pull several whole large files; the prompt sketch reads like a project
+  brief rather than a task. An oversized step splits into **sequential steps, one dispatch
+  each**, handing off by report — preserving `one plan step = one dispatch`, so
+  `plan-state.sh tick` still finds a step line for every dispatch. *Collapse small dependent
+  steps* bounds the opposite end, and a split that pushes the plan past ~12 steps is
+  `/plan-split`'s threshold doing its job, not a reason to re-merge.
+- **`Done when:` ownership split.** A dispatched step's acceptance must be provable by the
+  implementer with bounded commands — build, typecheck, unit, targeted integration. Live
+  multi-service end-to-end proof belongs to a `## Verification` topic, where a fresh verifier
+  proves it exactly once instead of the implementer proving it in the most expensive context
+  and a verifier re-proving the same ground. `planning`'s content spec cites the rule from
+  both item 6 (sizing) and item 9 (e2e ownership).
+- **Stop-and-hand-back.** The canonical "Deliver before idling" block gains a clause: when
+  work has clearly outgrown its brief, finish the current phase cleanly and hand back —
+  what is DONE, what remains as a concrete list, and any contracts discovered. A partial
+  result with a sharp remainder brief beats a complete one delivered from a bloated context.
+  Orchestrator side, as an addendum to the existing "On a failed `Done when:`" bullet: a
+  hand-back is **not** a failure and does **not** spend the one remediation re-dispatch —
+  but the chain is bounded at one, because a second hand-back on the same step means the
+  step was mis-scoped, not merely unlucky.
+- **`plan-review` cleanliness reviewer** flags oversized-step smells and e2e-in-`Done when:`
+  as `[DECISION-REQUIRED]` — splitting a step reshapes the plan, so it never auto-folds.
+
+**The standing contract block now has exactly one authored home.** `plan-split`'s child-author
+prompt template previously pasted the "Deliver before idling" block verbatim, and that copy had
+already drifted once. It now **cites** the canonical block in `dispatch-agents` (the pattern
+`references/verifier-contract.md` already used), naming the section, that it must be pasted
+verbatim, where it goes, and how to load it — superseding the v2.21.0 note below that recorded
+the copy as verbatim. A repo-wide search for the block's lines now hits exactly one file.
+
 ## Changes in v2.25.0
 
 **Deferred stubs carry triage signals, and the plugin now enforces one rule everywhere it

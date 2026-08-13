@@ -142,7 +142,7 @@ what a sibling worktree's `approve-plan.sh` sweeps when no sibling marker is liv
 `Write` stays permanently unowned. Mint first, and every child is owned by this
 worktree from its very first byte on disk.
 
-Prompt template — every child gets all of it:
+Prompt template — every child gets all of it, then the contract block cited below:
 
 ```
 Author one plan file. You are writing a plan, not implementing anything.
@@ -169,41 +169,18 @@ Author one plan file. You are writing a plan, not implementing anything.
    <REPO>/.mentor/plans/<CHILD-SLUG>/plan.md
    Create no other files. Edit no repo source. Return only the path and a
    one-line summary — never the plan body.
-
-Do not call the Agent/Task tool — you have no sub-agents. Complete this alone,
-or stop and report the blocker.
-Never poll to pass time (`Bash true`, chained `sleep`s). Wait with ONE bounded
-call: `until <check>; do sleep N; done` (under 600s), a backgrounded run, or a
-monitor tool.
-If this step runs long, send a one-line progress message at each phase boundary
-(what just finished, what is next). The orchestrator ended its turn after
-dispatching you, so your messages are the only thing that can wake it — silence
-is indistinguishable from a hang, and the session's only remaining recovery is a
-human noticing.
-If a correction to this brief arrives mid-run, apply it before you return.
-Deliver your full result via SendMessage BEFORE going idle — if SendMessage
-is not already in your tool list, fetch it first with ToolSearch,
-select:SendMessage. Ending your turn on a plain final-text reply with no
-SendMessage call is a contract violation: it is indistinguishable from not
-reporting at all, because only SendMessage reaches the orchestrator. Include
-the exact command(s) that produced your verification output, copy-pasteable.
-Leave the git index as you found it: edit the working tree and let the orchestrator
-commit — never `git add` / `git rm` / `git mv` / `git stash` / `git commit` (use plain
-`rm`/`mv` to delete or rename a file). If you staged something while investigating,
-`git restore --staged <path>` before you return — staged state you never commit has no
-owner once you go idle, and rides silently into someone else's next commit.
-If you are producing a verdict or report (reviewer, verifier), also write a
-durable copy to `<repo>/.mentor/plans/<slug>/` (e.g. `step-N-review.md`,
-`<lens>-review.md`, or `topic-N-verify.md` for a Verification-topic
-verifier) before returning — a dropped notification must never be the
-only copy of completed work.
 ```
 
-The block closing that template is `mentor:dispatch-agents`' standing contract
-("Deliver before idling"), pasted verbatim — it is what makes a child report
-instead of signalling idle with nothing written, and without it Step 6's
-missing-child re-dispatch loop becomes the normal path rather than the rare one.
-Keep it byte-identical to the copy in that skill's "Async runtime & lifecycle".
+**Every child prompt ends with `mentor:dispatch-agents`' standing contract block**, and
+that block has exactly one authored home — so read **"Deliver before idling"** in that
+skill's "Async runtime & lifecycle" section and paste it verbatim after item 7, the same
+read-it-at-the-source pattern its `references/verifier-contract.md` uses. Invoke
+`Skill(skill="mentor:dispatch-agents")` here if it is not already loaded; a `/plan-split`
+reached directly has loaded nothing. A second copy kept here is how this template drifted
+out of step with the canonical text once already. The block is what makes a child report
+instead of signalling idle with nothing written — without it, Step 6's missing-child
+re-dispatch loop becomes the normal path rather than the rare one, and a paraphrase is no
+substitute: it drops directives the child has no other way to learn.
 
 ## Step 5 — The isolation header
 

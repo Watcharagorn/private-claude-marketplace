@@ -413,6 +413,18 @@ constitution, gitignore caveat) with these lane specifics:
 
 - `Critique the plan's solution strictly through the lens of cleanliness.` →
   `Is the resulting design simple, maintainable, and reuse-aware?`
+- One lane-specific check, since step size is a maintainability property of the
+  plan itself: have the reviewer flag any implementation step showing the
+  oversized smells from `mentor:dispatch-agents`' **"Budget each step to one
+  agent's context"** rubric item, and any step whose `Done when:` requires a live
+  multi-service stack driven end-to-end — that proof belongs to a
+  `## Verification` topic, so a step carrying it makes the implementer prove it in
+  the session's most expensive context and a fresh verifier re-prove the same
+  ground. Paste that rubric item's smell list into the prompt rather than
+  paraphrasing it (this step already loads the skill for the standing block), so
+  the check cannot drift from the rule it enforces. Both findings are
+  `[DECISION-REQUIRED]`: splitting a step, or moving its acceptance into
+  `## Verification`, reshapes the plan and must never auto-fold.
 - Required structured output: the `Strengths/Risks/Gaps/Recommended plan
   edits` block, where every `Recommended plan edits` item MUST open with
   `[MECHANICAL]` or `[DECISION-REQUIRED]` per the tagging contract, and a

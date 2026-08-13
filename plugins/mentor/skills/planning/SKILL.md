@@ -519,6 +519,13 @@ Required sections, in order:
    **Escape hatch:** when the implementation meets the dispatch-agents skill's
    skip rule, omit the annotations, but the section MUST then open with one
    line: `Dispatch: skipped — <reason>`. No line, no skip.
+   **Size each step as you write it:** run every step past the dispatch-agents
+   rubric's **"Budget each step to one agent's context"** item — a dispatched
+   agent never compacts, so an oversized step burns its context on reconnaissance
+   and re-proof rather than the change. Its five smells are all checkable here;
+   a step showing any of them splits into sequential steps, one dispatch each,
+   handing off by report. If that pushes the count past ~12, that is the
+   oversize threshold below doing its job, not a reason to re-merge.
    **Keep it small while you write:** if the step count creeps past ~12 while
    drafting this section — Step 6's oversize threshold below, just reached early —
    pause and offer to defer non-core **isolated deliverables** — a plan's `## Verification`
@@ -573,6 +580,13 @@ Required sections, in order:
    declares a judgment-heavy topic at authoring time, so the model upgrade is
    a reviewable decision rather than an execution-time guess; without it,
    execution defaults to `sonnet · medium`.
+
+   **This section owns live end-to-end proof.** When a behavior can only be shown
+   by driving a running multi-service stack, write that check as a topic here, not
+   into a step's `Done when:` — dispatch-agents' **"State done-when"** rubric item
+   keeps those to bounded commands (build, typecheck, unit, targeted integration).
+   In both places, it is proved twice: by the implementer, in the session's most
+   expensive context, and again by the fresh verifier this section dispatches.
 
 **Confirm every matched domain's deliverable actually landed.** If Step 3 matched one
 or more domains, check before finishing this revision that each one's *Extra plan

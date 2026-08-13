@@ -134,6 +134,15 @@ The point of SDD: quality through narrow focus, and a lean main thread.
 - **On a failed `Done when:`**, re-dispatch the same role once with the failure
   evidence (diff + command output) as inputs. If it fails again, surface to the
   user — only then may the main thread read the files and take over.
+  **A hand-back is not a failure and does not spend that one re-dispatch.** An agent
+  that delivers partial work plus a remainder brief (the "outgrown this brief" clause
+  in the standing contract block below) did the right thing: verify the delivered part
+  against the clauses it actually claims, then dispatch the same role fresh with the
+  remainder brief as its `Inputs:` — a continuation, not a remediation. The chain is
+  bounded at one: a second hand-back on the same step means the step was mis-scoped
+  rather than unlucky, so stop dispatching continuations and put the re-scope (or a
+  split of the remainder) to the user, rather than letting a badly-sized step
+  slow-bleed across N contexts in place of the one blowup it was meant to prevent.
 - **Track progress in the plan file:** as each step's `Done when:` passes, run
   `bash "${CLAUDE_PLUGIN_ROOT}/hooks/plan-state.sh" tick <slug> <N>` (N = the
   step's ordinal, counting either `Step N — …` or numbered-item lines) to append
@@ -256,11 +265,37 @@ Effort and model are independent levers: a `low`-effort `opus` step is fine, and
 2. **Find the critical path.** Which steps must finish before others can start? Those are sequential.
 3. **Find independent steps.** Disjoint files/areas, separate research questions, parallel verifications — group these for fan-out. Disjoint files are not enough: steps that each mint a value from a **shared sequence** (migration numbers, ports, generated ids, an append-only registry) collide even in separate files — pre-assign the concrete values in each step's `Inputs:`, or make them `Sequential:`.
 4. **Collapse small dependent steps.** Adjacent `Sequential:` steps that are individually small (combined ≤ ~40 changed lines) and suit the same role/model collapse into ONE dispatch — don't pay agent startup per tiny step.
-5. **Assign roles.** Smallest specialist that covers the work.
-6. **Assign models.** Default `sonnet`; upgrade only with a reason.
-7. **Assign effort.** Default `medium`; upgrade for design/cross-cutting, downgrade for trivial.
-8. **Write prompt sketches.** Each agent has zero memory of this conversation — the brief must stand alone. If a `Done when:` is a long test suite, brief the agent to iterate on a filtered subset and run the suite whole only as the final gate. When any step's `Done when:` runs tests, resolve the repo's test invocation **once per session** — `mentor:shipping` Step 4's own order (`.mentor/config.json`'s `test_command` first, else auto-detect, confirmed once it actually runs) — and paste that literal command into every prompt sketch that needs it. A fresh agent told to "run the tests" with no memory of earlier steps will re-derive (or mis-derive) the invocation independently each time; a copy-pasteable string is the only thing that transfers. The same rule covers any other repeatedly-launched tool a `Done when:` needs (a browser/E2E runner, a dev server): resolve the working invocation the first time it's needed and reuse that exact command in every later prompt sketch — no `.mentor/config.json` key exists for these, so state the resolved command directly rather than pointing at one. It also covers *checkers*, not just invocations: when the repo or environment already ships a validator for the kind of artifact a step produces, name that command in the step's `Done when:` rather than leaving the agent to write its own equivalent — a freelance check is a second, unverified implementation of one that already exists, and can fail in ways the real one doesn't (a missing dependency, a stale assumption about the format) without anyone noticing the two have drifted apart.
-9. **State done-when.** Observable, verifiable, no "looks good".
+5. **Budget each step to one agent's context.** A dispatched agent never compacts:
+   every tool result and every thinking block it emits stays in its context until the
+   step ends. A step scoped as a feature slice — proto + server + worker + UI, proved
+   end-to-end — has been measured at 350–420 tool calls and 500–750k tokens in one
+   such context. Nobody can count those calls while authoring, so size by smells
+   instead; a step showing any of these is oversized and gets split:
+   - it spans more than one service or layer;
+   - it touches more than ~10 files across distinct areas;
+   - its `Done when:` needs a live multi-service stack driven end-to-end (that proof
+     belongs to a `## Verification` topic — see **State done-when** below);
+   - its `Inputs:`, or the reconnaissance it implies, pull in several whole large
+     files (tens of KB each) — raw file reads were ~40% of the measured blowup, so a
+     narrow-sounding step that must ingest them is oversized in the way that costs;
+   - its prompt sketch reads like a project brief rather than a task.
+
+   Split an oversized step into **sequential steps, one dispatch each, handing off by
+   report** — each later step takes the prior step's report as its `Inputs:`. *Collapse small
+   dependent steps* above bounds the opposite end (collapse tiny steps, split giant
+   ones), and if splitting pushes the plan past ~12 steps that is `/plan-split`'s
+   threshold doing its job, not a reason to re-merge.
+6. **Assign roles.** Smallest specialist that covers the work.
+7. **Assign models.** Default `sonnet`; upgrade only with a reason.
+8. **Assign effort.** Default `medium`; upgrade for design/cross-cutting, downgrade for trivial.
+9. **Write prompt sketches.** Each agent has zero memory of this conversation — the brief must stand alone. If a `Done when:` is a long test suite, brief the agent to iterate on a filtered subset and run the suite whole only as the final gate. When any step's `Done when:` runs tests, resolve the repo's test invocation **once per session** — `mentor:shipping` Step 4's own order (`.mentor/config.json`'s `test_command` first, else auto-detect, confirmed once it actually runs) — and paste that literal command into every prompt sketch that needs it. A fresh agent told to "run the tests" with no memory of earlier steps will re-derive (or mis-derive) the invocation independently each time; a copy-pasteable string is the only thing that transfers. The same rule covers any other repeatedly-launched tool a `Done when:` needs (a browser/E2E runner, a dev server): resolve the working invocation the first time it's needed and reuse that exact command in every later prompt sketch — no `.mentor/config.json` key exists for these, so state the resolved command directly rather than pointing at one. When the proof that tool serves is the live multi-service kind, item 10 sends the proof itself to a `## Verification` topic — the invocation is still resolved once, but it is handed to that topic's verifier (`references/verifier-contract.md` → "What to hand the verifier") instead of repeated across prompt sketches. It also covers *checkers*, not just invocations: when the repo or environment already ships a validator for the kind of artifact a step produces, name that command in the step's `Done when:` rather than leaving the agent to write its own equivalent — a freelance check is a second, unverified implementation of one that already exists, and can fail in ways the real one doesn't (a missing dependency, a stale assumption about the format) without anyone noticing the two have drifted apart.
+10. **State done-when.** Observable, verifiable, no "looks good" — and provable by the
+    implementer with **bounded commands**: build, typecheck, unit tests, a targeted
+    integration check. Live end-to-end proof across a running multi-service stack
+    belongs in a `## Verification` topic, where one fresh verifier runs it exactly
+    once. Writing it into a step's `Done when:` as well makes the implementer prove it
+    first, in the most expensive context of the session, and the topic then re-proves
+    the same ground.
 
 ## Example
 
@@ -296,7 +331,7 @@ before issuing `Agent` calls. Then:
 1. **Read the approved plan file** (`<repo>/.mentor/plans/<slug>/plan.md`) — do not work from memory.
 2. **Dispatch "Run in parallel:" groups** — issue ALL `Agent()` calls for each parallel group in a **single message** so they run concurrently. Every prompt ends with the solution-quality line plus the full standing contract block ("Deliver before idling," "Async runtime & lifecycle" below) **pasted verbatim** — compressing it to a paraphrase (even a well-intentioned one-liner) silently drops directives a dispatched agent has no other way to learn, including the no-nested-fan-out ban this exact block is what enforces. After dispatching, apply **No busy-wait**: stop and let the harness re-invoke you when agents complete.
 3. **Dispatch "Sequential:" steps one at a time** — wait for the prior step's result before issuing the next call.
-4. **Verify each `Done when:` criterion** before moving to the next step — agents describe what they intended; trust but verify. On a concurrency- or timing-sensitive criterion, one clean run is not evidence — re-run it yourself 5+ times before accepting a PASS; an agent's self-reported `PASS=N/FAIL=0` from a single run proves nothing about a race. A zero-hit or empty result from your own check is likewise not evidence the criterion failed until you've confirmed the check itself works — a single-line `grep` can miss a claim that wraps across lines, an unquoted glob aborts outright under zsh's `nomatch`, and ERE alternation is `|`, not `\|`; when a check comes back empty, narrow it to one line or run it against a known-positive before trusting the negative.
+4. **Verify each `Done when:` criterion** before moving to the next step — agents describe what they intended; trust but verify. On a concurrency- or timing-sensitive criterion, one clean run is not evidence — re-run it yourself 5+ times before accepting a PASS; an agent's self-reported `PASS=N/FAIL=0` from a single run proves nothing about a race. A zero-hit or empty result from your own check is likewise not evidence the criterion failed until you've confirmed the check itself works — a single-line `grep` can miss a claim that wraps across lines, an unquoted glob aborts outright under zsh's `nomatch`, and ERE alternation is `|`, not `\|`; when a check comes back empty, narrow it to one line or run it against a known-positive before trusting the negative. A step that hands back partial work plus a remainder brief has not failed its criterion — verify what it actually claims, then continue it per the hand-back addendum under "On a failed `Done when:`" above.
 5. **Execute the plan's Verification section** — dispatch one fresh verifier per `Topic N —` block, all in a single message, even when the plan opened `Dispatch: skipped`. Full contract in "Verifying the plan (execution-time)" below. A plan's own implementation step titled "Verification pass" or similar is not this step; it's ordinary self-graded work covered by item 4 above, never a substitute for this dispatch.
 6. **CLOSING CHECKLIST — always, whatever Verification returned** (on a `failed` or handed-off plan the first two items still run; hold the tour and ship offers, which speak for work that was accepted)**:**
    - **Close out finished agents** — enumerate live tasks with `TaskList` and diff
@@ -458,6 +493,11 @@ the contract does not apply to them, which is exactly how a fan-out goes out raw
   dispatching you, so your messages are the only thing that can wake it — silence
   is indistinguishable from a hang, and the session's only remaining recovery is a
   human noticing.
+  If the work has clearly outgrown this brief — you are repeatedly debugging something
+  the brief never named, or a whole extra layer of work has surfaced — finish the
+  current phase cleanly and hand back instead of pushing on: deliver what is DONE,
+  what remains as a concrete list, and any contracts you discovered. A partial result
+  with a sharp remainder brief beats a complete one delivered from a bloated context.
   If a correction to this brief arrives mid-run, apply it before you return.
   Deliver your full result via SendMessage BEFORE going idle — if SendMessage
   is not already in your tool list, fetch it first with ToolSearch,
