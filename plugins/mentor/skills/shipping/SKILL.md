@@ -413,7 +413,7 @@ stamp on their own triggers.
 # subcommand handoff/resume use: from a linked worktree it resolves to the MAIN
 # repo's .mentor, where the notes actually live (show-toplevel would miss them).
 plans_dir="$(bash "${CLAUDE_PLUGIN_ROOT}/hooks/plan-state.sh" dir --plans)"
-[ -n "$plans_dir" ] || { echo "ERROR: mentor plans dir unresolved — is CLAUDE_PLUGIN_ROOT set?" >&2; exit 1; }
+[ -n "$plans_dir" ] || { echo "ERROR: mentor plans dir unresolved — is CLAUDE_PLUGIN_ROOT set? do not search the plugin cache or hardcode a version path; ask the user to /reload-plugins or restart" >&2; exit 1; }
 hand_dir="$plans_dir/<topic>/handoffs"   # ← REPLACE <topic> per the rule above
 find "$hand_dir" -maxdepth 1 -type f -name '*.md' 2>/dev/null | while IFS= read -r n; do
   case "$(basename "$n")" in
@@ -440,7 +440,7 @@ the next session's `/mentor:track`:
 
 ```bash
 plans_dir="$(bash "${CLAUDE_PLUGIN_ROOT}/hooks/plan-state.sh" dir --plans)"
-[ -n "$plans_dir" ] || { echo "ERROR: mentor plans dir unresolved — is CLAUDE_PLUGIN_ROOT set?" >&2; exit 1; }
+[ -n "$plans_dir" ] || { echo "ERROR: mentor plans dir unresolved — is CLAUDE_PLUGIN_ROOT set? do not search the plugin cache or hardcode a version path; ask the user to /reload-plugins or restart" >&2; exit 1; }
 [ -d "$plans_dir/<topic>" ] && \
   bash "${CLAUDE_PLUGIN_ROOT}/hooks/plan-state.sh" set <topic> implemented
 ```

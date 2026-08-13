@@ -98,6 +98,12 @@ A snippet that lists conforming notes newest-first with their topic and focus pr
 deliberately `find`-based, not glob-based — an unmatched glob aborts the whole command under zsh
 (and either location may legitimately be empty), while `find` just yields nothing for a missing dir:
 
+**Plugin-wide convention:** every Bash call anywhere in mentor that dereferences
+`${CLAUDE_PLUGIN_ROOT}` guards it first — a new Bash tool call is a new shell, so a guard earlier
+in the same skill does not cover it. Applies across every skill/command in this plugin, not just
+here; when adding a new `${CLAUDE_PLUGIN_ROOT}` call, grep for `CLAUDE_PLUGIN_ROOT unresolved` to
+match the existing wording rather than inventing a new one.
+
 ```bash
 # Re-derive: Step 1's block was a separate Bash call and its variables are gone. An unset
 # $mentor_dir would make `find` search "/plans" and "/handoffs" instead of the repo's —

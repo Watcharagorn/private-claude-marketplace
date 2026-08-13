@@ -36,6 +36,7 @@ The flow: guard → load any existing constitution → collect/derive principles
 ## Step 1 — Guard {#guard}
 
 ```bash
+[ -n "$CLAUDE_PLUGIN_ROOT" ] && [ -d "$CLAUDE_PLUGIN_ROOT/hooks" ] || { echo "ERROR: CLAUDE_PLUGIN_ROOT unresolved or stale — do not search the plugin cache or hardcode a version path; ask the user to /reload-plugins or restart" >&2; exit 1; }
 git_common="$(git rev-parse --git-common-dir 2>/dev/null || true)"
 if [ -z "$git_common" ]; then
   echo "NOT-A-REPO"

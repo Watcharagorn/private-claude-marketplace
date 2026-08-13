@@ -97,7 +97,7 @@ the plan gate, so the write is always allowed.) Resolve `topic` first:
 topic="<topic>"  # ← REPLACE per the rule above (kebab-case; the plan's slug, or the focus slug)
 slug="session"   # ← REPLACE with a short kebab-case of the next-session focus, e.g. "auth-retry-fix"
 out="$(bash "${CLAUDE_PLUGIN_ROOT}/hooks/plan-state.sh" handoff-path "$topic" "$slug")"
-[ -n "$out" ] || { echo "ERROR: handoff path unresolved — see the actual reason on stderr above (a bad topic/slug, a path-confinement refusal) or, if nothing printed, check CLAUDE_PLUGIN_ROOT is set; do not search the plugin cache or hardcode a version path — ask the user to /reload-plugins or restart" >&2; exit 1; }
+[ -n "$out" ] || { echo "ERROR: handoff path unresolved — see the actual reason on stderr above (a bad topic/slug, a path-confinement refusal) or, if nothing printed, check CLAUDE_PLUGIN_ROOT is set; do not search the plugin cache or hardcode a version path; ask the user to /reload-plugins or restart" >&2; exit 1; }
 echo "$out"
 ```
 

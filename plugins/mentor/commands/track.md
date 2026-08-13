@@ -17,6 +17,7 @@ Do these in order:
 1. **Check the context first — before listing, and certainly before dispatching:**
 
    ```bash
+   [ -n "$CLAUDE_PLUGIN_ROOT" ] && [ -d "$CLAUDE_PLUGIN_ROOT/hooks" ] || { echo "ERROR: CLAUDE_PLUGIN_ROOT unresolved or stale — do not search the plugin cache or hardcode a version path; ask the user to /reload-plugins or restart" >&2; exit 1; }
    bash "${CLAUDE_PLUGIN_ROOT}/hooks/plan-state.sh" context
    ```
 

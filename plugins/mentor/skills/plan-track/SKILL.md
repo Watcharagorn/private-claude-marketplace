@@ -60,6 +60,7 @@ honest on their own.
 ## Step 0 — Check the context before doing anything else
 
 ```bash
+[ -n "$CLAUDE_PLUGIN_ROOT" ] && [ -d "$CLAUDE_PLUGIN_ROOT/hooks" ] || { echo "ERROR: CLAUDE_PLUGIN_ROOT unresolved or stale — do not search the plugin cache or hardcode a version path; ask the user to /reload-plugins or restart" >&2; exit 1; }
 bash "${CLAUDE_PLUGIN_ROOT}/hooks/plan-state.sh" context
 ```
 
@@ -175,6 +176,7 @@ subline beneath a deferred entry.
   re-deriving the recipe by hand:
 
   ```bash
+  [ -n "$CLAUDE_PLUGIN_ROOT" ] && [ -d "$CLAUDE_PLUGIN_ROOT/hooks" ] || { echo "ERROR: CLAUDE_PLUGIN_ROOT unresolved or stale — do not search the plugin cache or hardcode a version path; ask the user to /reload-plugins or restart" >&2; exit 1; }
   this_wt="$(. "${CLAUDE_PLUGIN_ROOT}/hooks/lib/state.sh"; mentor_worktree_id "$(pwd)")"
   ```
 
