@@ -104,9 +104,20 @@ When you reach shared understanding:
    [ "$(bash "${CLAUDE_PLUGIN_ROOT}/hooks/plan-state.sh" gate)" = "ARMED" ] && echo "GATE: ARMED — trivial-implement branch does not apply"
    ```
    and you state plainly that plan ceremony was skipped, why, and the command you ran (with its
-   output) to confirm the change works — a re-read of the file alone doesn't count; if nothing
-   runnable exists, dispatch one verifier agent under Step 2's dispatch rules rather than skip
-   verification. `ARMED_ELSEWHERE` (only a sibling worktree's marker is live) does **not** count as armed here — this worktree's own edits are unblocked, so the trivial-implement branch still applies. If the gate reads `ARMED` for THIS worktree, this branch does not apply — `plan-gate.sh` blocks repo edits, so surface the deltas per item 2 and let the plan flow re-render them. Once the edit is
+   output) to confirm the change works — a re-read of the file alone doesn't count. Two cases that
+   command cannot settle, each with its own route. **Nothing runnable exists** → dispatch one fresh
+   verifier under Step 2's dispatch rules, briefed the way
+   `dispatch-agents/references/verifier-contract.md` briefs one: a `Focus:` / `Checks:` / `Pass when:`
+   you write for this one change, plus its `Verdict:` / `Gaps / Missing:` return block — there is no
+   plan dir on this branch, so it reports inline instead of writing `topic-N-verify.md`.
+   **The criterion turns on a physical or manual event** — a real keypress, a mouse action, any
+   human-only input → a tool-driven stand-in (`tmux send-keys`, a synthesized event, a scripted
+   click) travels a different path than the real one and can pass while the real one fails, and a
+   fresh agent would run that same stand-in, so dispatching one buys nothing here. You are
+   mid-interview with the user: ask them to do the real thing and report back before you call it
+   confirmed. If they've gone, close with the gap named — "scrolls under `tmux send-keys`;
+   unverified with a real keypress" — never as confirmed. `ARMED_ELSEWHERE` (only a sibling
+   worktree's marker is live) does **not** count as armed here — this worktree's own edits are unblocked, so the trivial-implement branch still applies. If the gate reads `ARMED` for THIS worktree, this branch does not apply — `plan-gate.sh` blocks repo edits, so surface the deltas per item 2 and let the plan flow re-render them. Once the edit is
    verified, route the same way any other close would: `/mentor:ship` if it's ready to go out,
    `/mentor:defer` for anything surfaced but not done, or `/mentor:handoff` if the session ends here.
 
@@ -118,6 +129,7 @@ When you reach shared understanding:
 - Codebase-answerable questions were answered by a dispatched `Explore` agent, not by asking the user or by bulk-reading.
 - A declined question or an interview cut short still left resolved decisions recoverable — recapped and pointed at `/mentor:handoff`, not silently lost.
 - Step 1's related-plans check (`plan-state.sh list`) ran before the interview started, whichever branch resolved the subject.
+- A trivial-implement close named its verification honestly — a runnable command with output, a dispatched verifier when nothing runnable existed, or, for a criterion only a real keypress/mouse/human action settles, the user's own confirmation or an explicit "unverified with real input" line.
 
 ### Do NOT
 
