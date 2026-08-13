@@ -322,7 +322,9 @@ reading and that report is exactly the shape `context-gate.sh`'s own WARN tier c
    past the self-heal threshold is itself positive evidence: `approve-plan.sh` never ran to release
    it, so the plan was not approved — the gate has merely lapsed from age, not from a decision. Do not
    start drafting or editing on a `STALE` (or `RELEASED`) marker — run `/mentor:plan <slug>` first to
-   re-arm it. `mentor:planning`'s own unarmed-gate check cannot save you here, because skipping the
+   re-arm it, unless the note's recommendation is another tracked plugin's command (e.g.
+   `/loom:learn`); that work has no mentor plan of record, so this repo's plan gate doesn't apply to
+   it — skip straight to running the listed command. `mentor:planning`'s own unarmed-gate check cannot save you here, because skipping the
    command means the skill never loads to run it. This is exactly the case a note resuming
    **planning** (its plan still `draft`) will usually hit.
 
@@ -359,8 +361,10 @@ reading and that report is exactly the shape `context-gate.sh`'s own WARN tier c
    step the writing session left open, an external check to wait on — not a command itself and not
    something to skip because it carries no `/mentor:` token. Do it first, before touching any listed
    command. **Bound "act":** invoke the
-   listed mentor command(s) **exactly as the note states** — do not infer extra steps or expand beyond
-   what the note recommends. If the note recommends `/mentor:plan <focus>`, run that. If it recommends
+   listed command(s) **exactly as the note states** — do not infer extra steps or expand beyond
+   what the note recommends, whether it names a `/mentor:` command or another tracked plugin's
+   (`/loom:harvest`, `/loom:learn <plugin> <session-id>`) — a listed command is a listed command
+   regardless of prefix. If the note recommends `/mentor:plan <focus>`, run that. If it recommends
    resuming implementation of an **approved plan**, run **`/mentor:track <slug>`** with the plan slug
    the note names. Track is not an extra step you inferred — it is how that recommendation is honored:
    it re-enters at the first unticked step instead of rebuilding from step 1, runs the context check
@@ -384,6 +388,11 @@ reading and that report is exactly the shape `context-gate.sh`'s own WARN tier c
       mentor surface has a slash command, so a note naming `mentor:dispatch-agents` (the shape
       `mentor:handoff-note` writes for a fan-out with no plan of record) is recommending it just as
       surely, and a sweep that only knows slashes drops it and falls through to `/mentor:track`.
+      **Match `/loom:<command>` tokens too** — notes route follow-on work there
+      (`mentor:handoff-note`'s mapping emits `/loom:harvest`/`/loom:learn`) — but always confirm a
+      `/loom:` hit with the user before invoking it, never run it on a single-token sweep match
+      alone; a swept token can be prose *about* the pattern, not a real recommendation, and some
+      loom commands (`/loom:publish-plugin`) push to the default branch.
    2. **None anywhere → `/mentor:track <topic>`**, using the note's own topic slug (the
       `plans/<topic>/` dir it lives in — `/mentor:handoff` writes notes there, so you already hold
       the key). Track reads plan state and already triages an approved plan, a `draft`, a deferred
@@ -463,9 +472,10 @@ Do **not** copy or duplicate the note into the repo source tree — it lives in 
   ambiguous/no match.
 - The chosen note was loaded, scanned for secrets, its focus + current state + open questions
   surfaced as their own turn before acting, and the work continued via the note's recommended
-  mentor command(s) — and nothing beyond them. The session
-  still **ended through a mentor command** — `/mentor:ship` → `/mentor:merge`, `/mentor:handoff`, or
-  `/mentor:defer` — never through raw `git`/`gh` or a hand-written file; the bound is on the work,
+  command(s) — mentor's own or another tracked plugin's, exactly as listed — and nothing beyond them.
+  The session still **ended through a listed command** — a mentor command (`/mentor:ship` →
+  `/mentor:merge`, `/mentor:handoff`, or `/mentor:defer`) or a cross-plugin command the note
+  explicitly named — never through raw `git`/`gh` or a hand-written file; the bound is on the work,
   not on how it is executed or delivered.
 - The note was **stamped resolved** if its work finished this session (all plan-file tasks done) or
   it was superseded by a nested `/mentor:handoff` — and left **live** otherwise.

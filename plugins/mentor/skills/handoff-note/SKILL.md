@@ -282,6 +282,13 @@ press count) and mark the walk-through as confirmation only, not the primary evi
   routes a later session into the merge tail"); name `/mentor:merge` here so the note and the
   resume path agree.
 - **Repeated manual work worth capturing** → `/loom:harvest`.
+- **This session edited another tracked plugin's own source** (`git diff --name-only` shows
+  `plugins/<name>/**` for a plugin whose work this wasn't) → `/loom:learn <plugin> <session-id>`, run
+  from **that plugin's marketplace repo** (the repo whose `.claude-plugin/marketplace.json` lists it
+  — may not be this one), with the id from `echo "$CLAUDE_CODE_SESSION_ID"` written literally, never
+  a placeholder. Bare plugin-discovery indexes sessions by that plugin's own command usage, so work
+  done here via direct `Bash`/`Edit` calls is invisible to it — naming the session explicitly is what
+  makes it findable.
 - **Heavy multi-area work with no plan of record** (a research sweep, a gap audit, a multi-repo
   survey) → write the instruction the next agent can execute verbatim: *"Load
   `Skill(skill=\"mentor:dispatch-agents\")` before the first `Agent()` call — its 'Deliver before

@@ -8,7 +8,7 @@ description: >
   "poke holes in this". Walks the decision tree one branch at a time, recommends an
   answer for every question, and explores the codebase (via a dispatched subagent)
   rather than asking what the code can answer. This is a conversation, not an
-  implementation — it makes no repo edits. For an automated agent audit of a
+  implementation. For an automated agent audit of a
   finished plan, use /plan-review instead.
 ---
 
@@ -16,7 +16,7 @@ description: >
 
 This skill interrogates **you** (the user) to pressure-test a plan or design and resolve its open decisions *before* a plan is locked or any code is written. It walks down each branch of the design tree one decision at a time, recommending an answer for every question, until you reach a shared understanding.
 
-It is a **conversation**, not an implementation. It makes **no repo edits** and does not draft or rewrite the plan — when it surfaces a changed decision, the plan flow re-renders it.
+It is a **conversation**, not an implementation. It makes **no repo edits** during the interview and does not draft or rewrite the plan — when it surfaces a changed decision, the plan flow re-renders it.
 
 **How this differs from `/plan-review`** (so you always know which to reach for):
 
@@ -59,8 +59,6 @@ Figure out *what* you are grilling, in this order:
    the wrong slice wastes the whole interview.
 3. **The conversation.** If there is no argument and no plan, grill the design described in the conversation so far.
 
-If there is genuinely nothing to grill, say so in one line and stop.
-
 **Check for related plans before interrogating**, whichever branch above resolved the
 subject — branches 1 and 3 in particular never touch plan state on their own:
 
@@ -74,6 +72,8 @@ decisions already made, or why an earlier attempt stalled or was rejected. If on
 looks related, read its `.mentor/plans/<slug>/.state.json` `note` field directly
 (`jq -r .note`) rather than reconstructing its history from the plan body and old
 handoffs by hand — the note already holds the reviewer's own summary.
+
+If there is genuinely nothing to grill, say so in one line and stop.
 
 ---
 
@@ -103,7 +103,12 @@ When you reach shared understanding:
    [ -n "$CLAUDE_PLUGIN_ROOT" ] && [ -d "$CLAUDE_PLUGIN_ROOT/hooks" ] || { echo "ERROR: CLAUDE_PLUGIN_ROOT unresolved or stale — do not search the plugin cache or hardcode a version path; ask the user to /reload-plugins or restart" >&2; exit 1; }
    [ "$(bash "${CLAUDE_PLUGIN_ROOT}/hooks/plan-state.sh" gate)" = "ARMED" ] && echo "GATE: ARMED — trivial-implement branch does not apply"
    ```
-   and you state plainly that plan ceremony was skipped and why. `ARMED_ELSEWHERE` (only a sibling worktree's marker is live) does **not** count as armed here — this worktree's own edits are unblocked, so the trivial-implement branch still applies. If the gate reads `ARMED` for THIS worktree, this branch does not apply — `plan-gate.sh` blocks repo edits, so surface the deltas per item 2 and let the plan flow re-render them.
+   and you state plainly that plan ceremony was skipped, why, and the command you ran (with its
+   output) to confirm the change works — a re-read of the file alone doesn't count; if nothing
+   runnable exists, dispatch one verifier agent under Step 2's dispatch rules rather than skip
+   verification. `ARMED_ELSEWHERE` (only a sibling worktree's marker is live) does **not** count as armed here — this worktree's own edits are unblocked, so the trivial-implement branch still applies. If the gate reads `ARMED` for THIS worktree, this branch does not apply — `plan-gate.sh` blocks repo edits, so surface the deltas per item 2 and let the plan flow re-render them. Once the edit is
+   verified, route the same way any other close would: `/mentor:ship` if it's ready to go out,
+   `/mentor:defer` for anything surfaced but not done, or `/mentor:handoff` if the session ends here.
 
 ## Done when
 
@@ -112,10 +117,11 @@ When you reach shared understanding:
 - Questions were asked **one at a time**, each with a recommended answer.
 - Codebase-answerable questions were answered by a dispatched `Explore` agent, not by asking the user or by bulk-reading.
 - A declined question or an interview cut short still left resolved decisions recoverable — recapped and pointed at `/mentor:handoff`, not silently lost.
+- Step 1's related-plans check (`plan-state.sh list`) ran before the interview started, whichever branch resolved the subject.
 
 ### Do NOT
 
-- Do **not** implement anything or edit the repo — grilling is conversation + read-only exploration.
+- Do **not** implement anything or edit the repo mid-grill — grilling is conversation + read-only exploration; the sole carve-out is Step 3's trivial-implement branch, on the two conditions stated there.
 - Do **not** edit or rewrite the plan file mid-grill; surface deltas and let the plan flow re-render.
 - Do **not** ask multiple questions in one turn.
 - Do **not** run a `/plan-review`-style agent audit here — if the user wants that, point them to `/plan-review`.

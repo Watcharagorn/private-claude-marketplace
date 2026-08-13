@@ -1,7 +1,7 @@
 ---
 description: Stress-test and sharpen a plan or design by relentless one-question-at-a-time interview before building
 argument-hint: [plan or design to grill — defaults to the current mentor plan / conversation]
-allowed-tools: [Bash, Read, Grep, Glob, Skill, Task, AskUserQuestion]
+allowed-tools: [Bash, Read, Grep, Glob, Skill, Task, AskUserQuestion, Edit]
 ---
 
 # mentor — grill the design
@@ -14,7 +14,8 @@ open choices until you reach a shared understanding — exploring the codebase v
 subagent rather than asking what the code can answer.
 
 This is the inverse of `/plan-review`: grill **sharpens the decisions** before a plan is locked;
-`/plan-review` **audits the finished plan** at the approve gate. Grilling makes no repo edits.
+`/plan-review` **audits the finished plan** at the approve gate. Grilling makes no repo edits,
+beyond a settled trivial one-file change (the skill's Step 3 trivial-implement branch).
 
 The subject is **optional**:
 
