@@ -204,6 +204,15 @@ external-state rule does — conditional on a named, mandatory verification comm
 the fact stated as unverified rather than asserted. A step with no captured pre-change
 state has no rollback anchor either way.
 
+**A fast-moving vendor/product/SDK topic goes to the reference skill before it goes to
+memory.** When a research topic names an external platform, SDK, or cloud service that a
+skill already available this session covers — the session's skill list, not a filesystem
+hunt — name that skill in the dispatched agent's prompt and tell it to load the skill
+before answering; the agent inherits no context of yours, and recall from training data
+is where such topics go stale first. Whenever the name could mean more than one product
+or API from the same vendor, require FINDINGS to say which one it describes — a silent
+pick surfaces only downstream, after it has already shaped a user question.
+
 **Research return contract — put this in every research agent's prompt.** Each
 agent returns, and nothing more:
 
@@ -553,6 +562,17 @@ Required sections, in order:
    declares a judgment-heavy topic at authoring time, so the model upgrade is
    a reviewable decision rather than an execution-time guess; without it,
    execution defaults to `sonnet · medium`.
+
+**Confirm every matched domain's deliverable actually landed.** If Step 3 matched one
+or more domains, check before finishing this revision that each one's *Extra plan
+deliverable* — the routing table's rightmost column, with the domain skill's own
+deliverable section as the authority on where it goes — is visibly in the body, its own
+`##` section or nested under the owning `## Approach` topic per that skill, and not
+merely implied by the research that fed it. Where it legitimately degrades to nothing on
+this surface, write the degrade line that skill sanctions (frontend's one-line "no visual
+change" note): silence is not a degrade path. A domain that fired and left nothing
+visible is a silent gap — `plan-review`'s reviewers never learn which domains matched,
+so nothing downstream can catch it.
 
 **Visualization decision rule (pick exactly ONE idiom per artifact):**
 
