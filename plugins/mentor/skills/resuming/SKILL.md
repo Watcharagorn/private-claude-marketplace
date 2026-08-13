@@ -89,6 +89,10 @@ would group by topic instead). For each file:
   format) and take its first non-blank line. If that section is absent or empty, fall back to the
   first non-blank paragraph of the note and label the preview `(no focus section)`.
 - Parse the timestamp from the filename (`YYYYMMDD-HHMMSS`) for a human-readable date in the listing.
+- Flag **plan-less topics**: for topic-folder notes (never `(legacy)`, which predates the topic-folder
+  structure), when `plans/<topic>/plan.md` doesn't exist, append `(no plan.md — consider /mentor:plan
+  <topic>)` after the focus preview — real work has accumulated under this topic with no plan of
+  record to give it the edit gate, verification topics, or `/mentor:track`'s hierarchy.
 
 A snippet that lists conforming notes newest-first with their topic and focus preview. It is
 deliberately `find`-based, not glob-based — an unmatched glob aborts the whole command under zsh
@@ -113,7 +117,11 @@ while IFS= read -r f; do
   i=$((i+1))
   focus="$(awk '/^#+[[:space:]].*[Gg]oal.*next-session focus/{f=1;next} f&&/^#+[[:space:]]/{exit} f&&NF{print;exit}' "$f")"
   [ -z "$focus" ] && focus="$(awk 'NF{print;exit}' "$f")"   # (no focus section) — first non-blank line
-  printf '%d. [%s] %s — %s\n' "$i" "$topic" "$base" "$focus"
+  plan_note=""
+  if [ "$topic" != "(legacy)" ] && [ ! -f "$mentor_dir/plans/$topic/plan.md" ]; then
+    plan_note="  (no plan.md — consider /mentor:plan $topic)"
+  fi
+  printf '%d. [%s] %s — %s%s\n' "$i" "$topic" "$base" "$focus" "$plan_note"
 done < <(find "$mentor_dir/plans" "$mentor_dir/handoffs" \
               -type f -name '*.md' -path '*/handoffs/*' -not -path '*/handoffs/resolved/*' 2>/dev/null \
          | awk -F/ '{print $NF "\t" $0}' | sort -r | cut -f2-)   # newest first by basename timestamp

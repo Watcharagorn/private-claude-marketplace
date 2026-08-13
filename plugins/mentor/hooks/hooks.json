@@ -40,6 +40,17 @@
           }
         ]
       }
+    ],
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash \"${CLAUDE_PLUGIN_ROOT}/hooks/handoff-check.sh\"",
+            "timeout": 5
+          }
+        ]
+      }
     ]
   }
 }

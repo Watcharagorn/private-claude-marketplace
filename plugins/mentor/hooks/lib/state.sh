@@ -1091,24 +1091,40 @@ mentor_context_gate_state() {
   return 0
 }
 
-# mentor_latest_handoff <repo_root> — echo the mtime-newest conforming handoff note
+# mentor_list_handoffs <repo_root> — echo every conforming handoff note
 # (<YYYYMMDD-HHMMSS>-<slug>.md under plans/*/handoffs/ or the legacy flat handoffs/ —
-# the exact locations /mentor:resume lists), or empty when none exist. Non-conforming
+# the exact locations /mentor:resume lists), newest first, one per line. Non-conforming
 # names are skipped; notes stamped resolved (moved into a handoffs/resolved/ subdir on
 # completion or supersession) never match the globs, so solved notes stop counting as fresh.
 # With no repo_root, falls back to ~/.claude/mentor/_no-repo — the dir the handoff skill
-# writes to outside a git repo — so no-repo sessions get the same freshness handling.
-mentor_latest_handoff() {
+# writes to outside a git repo — so no-repo sessions get the same freshness handling. The
+# one place the name-shape/location contract lives — mentor_latest_handoff and
+# mentor_live_handoff_count both derive from it instead of re-globbing independently.
+mentor_list_handoffs() {
   local state_dir f
   state_dir="$(mentor_state_dir "${1:-}")"
   if [ -z "$state_dir" ]; then state_dir="${HOME}/.claude/mentor/_no-repo"; fi
   while IFS= read -r f; do
     case "${f##*/}" in
       [0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9]-[0-9][0-9][0-9][0-9][0-9][0-9]-*.md)
-        echo "$f"; return 0 ;;
+        printf '%s\n' "$f" ;;
     esac
   done < <(ls -t "${state_dir}"/plans/*/handoffs/*.md "${state_dir}/handoffs"/*.md 2>/dev/null || true)
-  echo ""
+  return 0
+}
+
+# mentor_latest_handoff <repo_root> — echo the mtime-newest conforming handoff note, or
+# empty when none exist. See mentor_list_handoffs for the location/name-shape contract.
+mentor_latest_handoff() {
+  mentor_list_handoffs "${1:-}" | head -1
+  return 0
+}
+
+# mentor_live_handoff_count <repo_root> — echo the number of conforming, unresolved
+# handoff notes across every topic in this repo (the same set mentor_latest_handoff
+# picks its newest from), or 0 when none exist.
+mentor_live_handoff_count() {
+  mentor_list_handoffs "${1:-}" | wc -l | tr -d ' '
   return 0
 }
 

@@ -292,6 +292,12 @@ press count) and mark the walk-through as confirmation only, not the primary evi
   slash command, so spell out the `Skill(...)` call: `mentor:resuming`'s fallback sweep looks for
   `/mentor:<command>` tokens and will not match a bare skill name.
 - If `.mentor/config.json` exists (a persisted mode — `/mentor:mode status` shows it), cite the repo's approval-gate default so the next agent knows whether "Proceed" or "Deliver plan only" is listed first at plan approval.
+- If this topic's `handoffs/resolved/` dir already holds one or more prior notes (this is not the
+  topic's first handoff — `ls .../handoffs/resolved/*.md 2>/dev/null | wc -l`, filenames only, never
+  opened as a template, per Step 2's rule above) and the topic still has no `plan.md`, add a
+  supplementary line naming `/mentor:plan <topic>` to formalize the accumulated work, citing the
+  resolved-note count as the reason. Skip this when the branch picked above already points at
+  `/mentor:plan` or `/mentor:defer`.
 
 ### Courtesy note for a related topic
 
