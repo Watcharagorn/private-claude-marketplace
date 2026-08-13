@@ -461,12 +461,23 @@ and a miss usually means it already moved. An `Edit` whose anchor lands
 mid-table or mid-fence can also splice a row or split a fenced block without
 erroring — nothing else in this skill catches it, and a revision built from
 many small edits (a fold pass, a decision resolution, a split) is exactly
-when this happens. After such a revision, re-read the changed region and
-confirm every GFM table's rows still share one pipe-count and every fence
-still opens and closes in pairs before moving on — a broken table has no
-guaranteed downstream reader (a reviewer pass may not run before the next
-approval question). Prefer replacing a whole table/fenced block in one edit
-over splicing a single row into it.
+when this happens. After such a revision, run:
+
+```bash
+bash "${CLAUDE_PLUGIN_ROOT}/hooks/plan-state.sh" verify <slug>
+```
+
+before moving on — one call for fence balance and table pipe-count
+uniformity (a session was observed hand-rebuilding a different grep/awk
+one-liner for this on 5 consecutive revisions, never the same check twice,
+and the one revision that dropped the table half is exactly where a
+table-adjacent defect landed). A non-zero exit means a fence or a table
+broke — fix it before moving on. Its `CHECK: Rev-note order` and
+`CHECK: context` lines are informational only and never fail the call; the
+latter is the same reading "Re-check context" below asks for, so if nothing
+else ran between this call and the approval ask, that reading already
+satisfies it — no second `context` call needed. Prefer replacing a whole
+table/fenced block in one edit over splicing a single row into it.
 
 ### Content spec
 
@@ -717,7 +728,10 @@ Decide this **before** asking too. Step 0's `CONTEXT:` line is a snapshot from
 before research, domain routing, and decision-resolution ran — precisely the
 steps that grow a session — so a plan that armed clean can still reach this
 question well past the WARN/HANDOFF thresholds with nothing in this skill
-having said so. Re-run the same check now:
+having said so. If "Verify the write" above just ran and nothing happened
+between it and this ask, its `CHECK: context` line already **is** this
+re-check — use that reading. Otherwise (no revision preceded this ask, or
+other steps ran since `verify` was last called), re-run the same check now:
 
 ```bash
 bash "${CLAUDE_PLUGIN_ROOT}/hooks/plan-state.sh" context
@@ -725,8 +739,8 @@ bash "${CLAUDE_PLUGIN_ROOT}/hooks/plan-state.sh" context
 
 Neither Step 0's line nor an earlier `context-gate.sh` WARN notice from
 mid-session substitutes for this — both are readings from an earlier, smaller
-context, and the row you pick below is decided by *this command's* output,
-run right now.
+context, and the row you pick below is decided by *the freshest command
+output*, run right before this ask.
 
 - **`CONTEXT: ASK`** — do not ask the approval question yet. Ask via
   `AskUserQuestion` (header "Context", two options) exactly as the command

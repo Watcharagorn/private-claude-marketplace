@@ -266,9 +266,13 @@ Then resolve a selection:
    because the marker file still exists on disk, and do not fall through to `/mentor:dispatch-agents`
    or a hand-rolled ship either — `plan-gate.sh` will deny the first write regardless, so dispatching
    burns the whole batch on a wall it was always going to hit. Tell the user what's armed and let them
-   decide (wait, or explicitly authorize continuing past it). `/mentor:track` is the one route that
-   already handles this itself (it stops on any live marker, "whatever the state") — nothing extra to
-   do there.
+   decide: wait, or explicitly authorize continuing past it — if the latter, re-run the SAME
+   `begin-plan.sh` command with `--override-foreign-marker` appended (the refusal message itself
+   names this); that re-arms and prints who it overrode, the supported route for a confirm that
+   already happened. **Never delete the marker file by hand** to route around the refusal — that skips
+   the guard's own stranding check entirely, worse than the wait it exists to enforce. `/mentor:track`
+   is the one route that already handles this itself (it stops on any live marker, "whatever the
+   state") — nothing extra to do there.
 
    **`STALE` is not still-armed, but it is not plain `RELEASED` either — treat it as its own
    determination.** The marker can still be sitting on disk — nothing you do here removes it, and it

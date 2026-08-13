@@ -48,8 +48,11 @@ Do these in order:
      worktree now arms its own independent marker; this refusal is scoped to a
      collision within one worktree, not across worktrees). Do not re-run
      `begin-plan.sh` to force it. Surface the printed owner/age to the user and ask
-     before proceeding — either wait for that session, or have the user explicitly
-     authorize overriding it.
+     before proceeding — either wait for that session, or, once the user explicitly
+     authorizes overriding it, re-run the exact same command with
+     `--override-foreign-marker` appended (the refusal message itself names this).
+     Never delete the marker file by hand instead — that skips this guard's own
+     stranding check entirely.
    - If stdout contains **`[mentor] Plan gate NOT armed — a legacy repo-wide plan
      gate marker is still active.`** (the distinct first line), this is NOT "another
      session's plan gate" in the sense above — it is a pre-upgrade, repo-wide marker

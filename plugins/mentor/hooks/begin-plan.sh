@@ -15,10 +15,22 @@
 # file NEWER than the marker, so a stale plan from a prior session can never
 # release the gate.
 #
-# Optional $1: the slug this session is about to plan/resume (e.g. the slug
-# named in `/mentor:plan <slug>`). Purely informational — used only to warn in
-# the ARMED banner when that slug is already owned by a worktree with a live
-# sibling marker; never required, never affects whether arming succeeds.
+# Optional slug arg (any position): the slug this session is about to
+# plan/resume (e.g. the slug named in `/mentor:plan <slug>`). Purely
+# informational — used only to warn in the ARMED banner when that slug is
+# already owned by a worktree with a live sibling marker; never required,
+# never affects whether arming succeeds.
+#
+# Optional --override-foreign-marker: re-arms past the foreign-marker guard
+# below. NOT a way to skip the human confirm that guard demands — it is the
+# supported command for acting on a confirm that already happened, so a
+# session with an authorized "yes, override" has something safer to run than
+# hand-deleting the marker file. A session was observed doing exactly that
+# (`rm .planning.<wt-id> && begin-plan.sh`) after finding no supported route —
+# a freelance delete skips this guard's own stranding check entirely, and is
+# strictly worse than a flag that still prints it. Callers must obtain the
+# confirm FIRST (same AskUserQuestion the guard's refusal message asks for),
+# then re-run with this flag — never set it pre-emptively "just in case".
 #
 # Fail-soft: if we cannot resolve a git repo, print a notice and exit 0 — the
 # skill still runs; the gate simply isn't armed outside a repo.
@@ -27,7 +39,14 @@ set -euo pipefail
 
 . "$(dirname "${BASH_SOURCE[0]}")/lib/state.sh"
 
-target_slug="${1:-}"
+target_slug=""
+override_foreign=0
+for arg in "$@"; do
+  case "$arg" in
+    --override-foreign-marker) override_foreign=1 ;;
+    *) target_slug="$arg" ;;
+  esac
+done
 
 repo_root="$(mentor_repo_root "$(pwd)")"
 if [ -z "$repo_root" ]; then
@@ -144,7 +163,20 @@ if [ -f "$marker" ] && ! mentor_marker_stale "$marker"; then
   if [ -n "$other_session" ] && [ "$other_session" != "$this_session" ]; then
     other_cwd="$(mentor_marker_field "$marker" cwd)"
     other_age="$(mentor_marker_age_min "$marker")"
-    cat <<EOF
+    if [ "$override_foreign" -eq 1 ]; then
+      cat <<EOF
+[mentor] Plan gate re-armed PAST a foreign marker via --override-foreign-marker.
+  was armed by: session ${other_session} at ${other_cwd:-<unknown cwd>}
+  age:          ~${other_age:-unknown}m ago (not yet stale)
+  marker:       ${marker}
+
+If that session's plan.md was not yet approved, its work may now be
+stranded (approve-plan.sh will refuse it as "predates this planning
+session"). This flag exists for a confirm the user already gave — never set
+it pre-emptively. Proceeding.
+EOF
+    else
+      cat <<EOF
 [mentor] Plan gate NOT armed — another session's plan gate is already active.
   armed by: session ${other_session} at ${other_cwd:-<unknown cwd>}
   age:      ~${other_age:-unknown}m ago (not yet stale)
@@ -158,9 +190,12 @@ blocked by this one; this collision means another session shares THIS SAME
 worktree (or no worktree id could be derived here at all).
 
 Ask the user to confirm before proceeding — either wait for that session to
-finish/approve, or have them explicitly authorize overriding it.
+finish/approve, or, once they explicitly authorize overriding it, re-run this
+exact command with --override-foreign-marker appended. Do not delete the
+marker file by hand — that skips this stranding check entirely.
 EOF
-    exit 0
+      exit 0
+    fi
   fi
 fi
 

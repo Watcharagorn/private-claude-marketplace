@@ -229,6 +229,10 @@ Usage: plan-state.sh <subcommand>
   claim <slug>                          clear origin (a deferred stub enters real planning);
                                          keeps category/priority/deferred_from
   tick <slug> <N>                       append ✅ to step N in plan.md (idempotent, fails loud)
+  verify <slug>                         plan.md structural checks (fence balance, table pipe-count,
+                                         Rev-note order) + a folded CONTEXT read, as CHECK: lines;
+                                         exit 1 iff a structural check fails (context/Rev-order are
+                                         informational only)
   list [--group G] [--owners]           every plan with its effective state (--owners adds OWNER)
   current [--any]                       the current plan, owned-by-this-worktree scoped (group-aware);
                                          --any for a deliberate repo-wide read
@@ -589,7 +593,7 @@ if [ "$sub" = "gate" ]; then
 fi
 
 case "$sub" in
-  init|set|set-deps|set-priority|set-category|claim|tick|list|current|overview) ;;
+  init|set|set-deps|set-priority|set-category|claim|tick|verify|list|current|overview) ;;
   ""|-h|--help|help)
     usage
     [ -n "$sub" ] && exit 0
@@ -1171,6 +1175,103 @@ case "$sub" in
       echo "[mentor plan-state] tick: ${slug} has no step ${step} (plan.md has ${tick_total:-0} step(s) in '## Implementation steps'). No write." >&2
       exit 1
     fi
+    ;;
+
+  # --- verify <slug>: the ONE call planning's "Verify the write" (SKILL.md, Step 4)
+  # needs before every approval ask. Replaces a fresh awk/grep one-liner the agent
+  # was observed hand-rebuilding differently on 5 consecutive asks in one session —
+  # never the same check twice, and the one ask that dropped the table check is
+  # exactly where a table-adjacent defect landed. Same rationale as handoff-selfcheck
+  # above: a script call cannot exhibit a partial-copy failure the way a
+  # freshly-typed one-liner can.
+  #
+  # Two DETERMINISTIC checks gate the exit code (fence balance, table pipe-count
+  # uniformity) — both already mandated in SKILL.md:447-460 prose, backed by nothing
+  # until now. Two more print as informational CHECK: lines and never fail verify:
+  # Rev-note order (the plugin's content spec does not mandate a Rev-note changelog
+  # at all, so flagging its ABSENCE would be a false-positive machine; when Rev
+  # lines DO exist this only reports a non-monotonic sequence, it never blocks) and
+  # the CONTEXT verdict (folds planning/SKILL.md's separately-mandated pre-ask
+  # context re-check into the one command the agent already calls reliably, rather
+  # than a second command observed skipped before half this session's asks; the
+  # calling skill still decides how to act on ASK/HANDOFF/WARN via `context` itself).
+  verify)
+    slug="${1:-}"; [ "$#" -gt 0 ] && shift
+    if [ "$#" -gt 0 ]; then
+      echo "[mentor plan-state] verify: unexpected argument ${1}" >&2
+      usage >&2
+      exit 1
+    fi
+    require_slug "$slug"
+    plan_md="${plans_dir}/${slug}/plan.md"
+    if [ ! -f "$plan_md" ]; then
+      echo "[mentor plan-state] verify: no plan.md at ${plan_md}." >&2
+      exit 1
+    fi
+    v_fail=0
+
+    # `|| true` on every substitution below: under this file's `set -euo pipefail`,
+    # grep/a pipeline legitimately finding ZERO matches (no fences, no tables, no Rev
+    # lines — the common case for the last of those, since Rev headers aren't part of
+    # the content spec) exits non-zero and would otherwise abort verify entirely
+    # before it prints a single CHECK: line.
+    v_fences=$(grep -c '^```' "$plan_md" || true)
+    if [ $((v_fences % 2)) -eq 0 ]; then
+      echo "CHECK: fences balanced (${v_fences} markers)"
+    else
+      echo "CHECK: fences UNBALANCED (${v_fences} markers — an odd count means one never closed)"
+      v_fail=1
+    fi
+
+    # Every contiguous block of '|'-led lines must share one pipe count — a splice
+    # that drops/adds a column mid-table doesn't error on write, it just breaks here.
+    v_bad_tables="$(awk '
+      /^\|/ {
+        n = gsub(/\|/, "|", $0)
+        if (block == 0) { block = 1; first = n; start = NR }
+        else if (n != first) { bad = 1 }
+        next
+      }
+      block == 1 {
+        if (bad == 1) print "line " start ": pipe-count mismatch"
+        block = 0; bad = 0
+      }
+      END { if (block == 1 && bad == 1) print "line " start ": pipe-count mismatch" }
+    ' "$plan_md" || true)"
+    if [ -z "$v_bad_tables" ]; then
+      echo "CHECK: tables uniform (one pipe-count per block)"
+    else
+      echo "CHECK: table pipe-count MISMATCH:"
+      printf '%s\n' "$v_bad_tables" | sed 's/^/  /'
+      v_fail=1
+    fi
+
+    v_revseq="$(sed '/^##/q' "$plan_md" | grep -oE '^Rev [0-9]+' | grep -oE '[0-9]+' || true)"
+    if [ -n "$v_revseq" ]; then
+      v_mono="$(printf '%s\n' "$v_revseq" | awk '
+        NR == 1 { prev = $1; next }
+        { if ($1 > prev) asc = 1; if ($1 < prev) desc = 1; prev = $1 }
+        END { print (asc && desc) ? "no" : "yes" }
+      ')"
+      v_seq_str="$(printf '%s' "$v_revseq" | paste -sd, -)"
+      if [ "$v_mono" = "yes" ]; then
+        echo "CHECK: Rev-note order monotonic (${v_seq_str})"
+      else
+        echo "CHECK: Rev-note order NOT monotonic (${v_seq_str}) — changelog may be hard to scan (informational only)"
+      fi
+    fi
+
+    v_ctx_repo="$(mentor_repo_root "$(pwd)")"
+    v_verdict="$(mentor_context_verdict "$v_ctx_repo" "$(pwd)")"
+    if [ -n "$v_verdict" ]; then
+      read -r v_ctx_level v_ctx_tokens v_ctx_rest <<<"$v_verdict"
+      echo "CHECK: context ${v_ctx_level} (~${v_ctx_tokens} tokens)"
+    else
+      echo "CHECK: context UNKNOWN (not measurable — gate off, or no transcript/jq)"
+    fi
+
+    [ "$v_fail" -eq 0 ] && exit 0
+    exit 1
     ;;
 
   list)

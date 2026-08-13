@@ -865,6 +865,56 @@ chk "the Verification section's own 'Step 1 —' line is never touched" \
 ps tick tk 2 >/dev/null; ps tick tk 4 >/dev/null
 chk "all 4 steps ticked → derived state reaches implemented" test "$(state_of tk)" = "implemented"
 
+echo "== L3. verify <slug>: plan.md structural checks + folded CONTEXT read =="
+rm -rf "$PLANS"; mkdir -p "$PLANS"
+plan vf '# Verify test' '' 'Rev 1: initial draft' 'Rev 2: added scope' '' \
+  '## Decisions' '' '| A | B |' '|---|---|' '| 1 | 2 |' '' \
+  '```bash' 'echo hi' '```'
+out="$(ps verify vf)"; rc=$?
+chk "verify (clean plan) → exit 0"                 test "$rc" = "0"
+chk "..reports fences balanced"                     has "CHECK: fences balanced (2 markers)" "$out"
+chk "..reports tables uniform"                      has "CHECK: tables uniform" "$out"
+chk "..reports Rev-note order monotonic"            has "CHECK: Rev-note order monotonic (1,2)" "$out"
+chk "..reports a context line (informational)"      has "CHECK: context" "$out"
+
+plan vf-fence '# t' '```bash' 'echo hi' '```' '```python' 'never closed'
+out="$(ps verify vf-fence)"; rc=$?
+chk "verify (unbalanced fence) → exit 1"            test "$rc" = "1"
+chk "..names the odd marker count"                  has "CHECK: fences UNBALANCED (3 markers" "$out"
+
+plan vf-table '# t' '| A | B |' '|---|---|' '| 1 | 2 | 3 |'
+out="$(ps verify vf-table)"; rc=$?
+chk "verify (mismatched table) → exit 1"            test "$rc" = "1"
+chk "..names the mismatched line"                   has "CHECK: table pipe-count MISMATCH:" "$out"
+chk "..points at the block's start line"            has "line 2: pipe-count mismatch" "$out"
+
+plan vf-revs '# t' '' 'Rev 3: third' 'Rev 1: first' 'Rev 2: second' '' '## Section'
+out="$(ps verify vf-revs)"; rc=$?
+chk "verify (non-monotonic Rev order) → still exit 0 (informational only)" test "$rc" = "0"
+chk "..reports the non-monotonic sequence"          has "CHECK: Rev-note order NOT monotonic (3,1,2)" "$out"
+
+plan vf-norevs '# t' 'No Rev headers here at all — the content spec never mandates one.'
+out="$(ps verify vf-norevs)"; rc=$?
+chk "verify (no Rev lines at all) → exit 0"         test "$rc" = "0"
+chk "..prints no Rev-note CHECK line (never a false positive on an unspec'd format)" \
+  hasnt "Rev-note order" "$out"
+
+out="$(ps verify)"; rc=$?
+chk "verify with no slug → exit 1"                  test "$rc" = "1"
+chk "..names the required argument"                 has "a <slug> is required" "$out"
+
+out="$(ps verify nope)"; rc=$?
+chk "verify unknown slug → exit 1"                  test "$rc" = "1"
+chk "..points at list"                              has "plan-state.sh list" "$out"
+
+mkdir -p "$PLANS/vf-noplanmd"
+out="$(ps verify vf-noplanmd)"; rc=$?
+chk "verify a plan dir with no plan.md → exit 1"    test "$rc" = "1"
+chk "..names the missing file"                      has "no plan.md at" "$out"
+
+out="$(ps verify vf extra)"; rc=$?
+chk "verify with a stray extra argument → exit 1"   test "$rc" = "1"
+
 echo "== M. overview --json: repo-wide hierarchy (v2.17.0) — the new surface =="
 rm -rf "$PLANS" "$REPO/.mentor/handoffs"; mkdir -p "$PLANS"
 out="$(psout overview --json)"; rc=$?
