@@ -1,6 +1,6 @@
 ---
 description: Browse this repo's saved mentor handoff notes and continue one in a fresh session
-argument-hint: [slug substring or list number of the note to resume]
+argument-hint: [note slug, plan topic, or list number of the note to resume]
 allowed-tools: [Bash, Read, Skill, Task, AskUserQuestion]
 ---
 
@@ -17,8 +17,8 @@ it — unfinished work stays resumable. It is the consume side of `/mentor:hando
 notes).
 
 
-The argument below is **optional** and pre-selects a note — a list number (1-based, newest first) or a
-case-insensitive slug substring. If it is empty or matches nothing unambiguously, the skill lists the
-notes and asks:
+The argument below is **optional** and pre-selects a note — a list number (1-based, newest first), a
+plan-topic name (e.g. `console-remove-animation`), or a case-insensitive slug substring. If it is
+empty or matches nothing unambiguously, the skill lists the notes and asks:
 
 $ARGUMENTS

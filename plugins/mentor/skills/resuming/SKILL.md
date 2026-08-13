@@ -166,8 +166,16 @@ Then resolve a selection:
   - A **bare integer** → a **1-based ordinal** into the printed list (1 = newest).
   - The **keywords `latest` / `newest` / `last`** (any casing, alone or with filler like
     "latest handoff") → **ordinal 1** (the newest note).
-  - **Otherwise** → a **case-insensitive substring match against the slug** (the filename part after
-    the timestamp).
+  - A **plan-topic name** (case-insensitive exact match against the `[<topic>]` shown before each
+    note in the printed listing — the same handle `/mentor:plan <topic>` and `/mentor:track <topic>`
+    use, and how a note is actually asked for from outside this skill) → filter **the printed list**
+    to that topic's notes; never re-derive them from disk. **Exactly one** live note under that
+    topic — the normal case, since `/mentor:handoff`'s supersede sweep keeps one live note per topic
+    dir — → select it directly, mirroring the single-note case below. **More than one** → re-print
+    just that topic's notes, still newest first, and ask which. **No note** under that topic → fall
+    through to the slug-substring rule below.
+  - **Otherwise** (including a topic name that matched no note) → a **case-insensitive substring
+    match against the slug** (the filename part after the timestamp).
   - A **note path or plan slug embedded in a longer phrase** → select from what is embedded. This
     plugin produces that shape itself: `/mentor:handoff` Step 5 prints a plugin-free resume prompt
     that is an absolute note path wrapped in prose, and users paste task briefs ("implement the
@@ -179,10 +187,11 @@ Then resolve a selection:
     better evidence than the listing) and offer the rename recovery above.
   - A **unique** match is selected directly. If the input is **ambiguous** (matches >1 note) or
     **matches nothing**, **never auto-pick** — re-print the list and re-ask. **Mechanical
-    self-check before proceeding:** the selection must have resolved through one of the three
-    literal rules above (ordinal, keyword alias, slug substring). "It obviously meant the latest
-    one" is not a rule — a typo or free phrase that matches nothing (e.g. "lastest hand-off"
-    against slugs it doesn't substring-match) is a NO-match: re-print and re-ask.
+    self-check before proceeding:** the selection must have resolved through one of the literal
+    rules above (ordinal, keyword alias, plan-topic name, slug substring, or an embedded note
+    path/plan slug). "It obviously meant the latest one" is not a rule — a typo or free phrase that
+    matches nothing (e.g. "lastest hand-off" against slugs it doesn't substring-match) is a NO-match:
+    re-print and re-ask.
 - **With no argument**, call `AskUserQuestion` (single-select) with the **4 newest** notes as quick
   options — `label` = the slug, `description` = the human date + focus preview. Older notes are
   reachable through the always-present **"Other"** free-text (resolved by the rule above). This
