@@ -135,8 +135,20 @@ full main-thread round trip per agent. This keeps the main conversation lean. Th
 platform (an integration, SDK, or cloud service this session has not already
 researched) **together with** 2+ pre-existing areas of the repo: each half alone
 looks manageable inline, and the pair is what actually exhausts a context
-window. For small, well-scoped tasks, read the files and draft directly in the
-main thread. Nothing enforces delegation; use judgment.
+window. A second, standalone signal: **2+ separate git roots** touched by the
+same plan — unlike areas within one repo, a second root doesn't need pairing
+with an unfamiliar platform to earn its own dispatch, since each root carries
+a full orientation cost (build system, conventions, entry points) the other
+root's research does nothing to amortize. Dispatch one agent per root, still
+inside the 1–3 cap, and resolve each root's real path first (`git rev-parse
+--show-toplevel`) before dispatching — a stale duplicate checkout otherwise
+burns a whole dispatch researching the wrong copy. The edit gate only
+protects the repo the session's CWD sits in, so a step whose work lands in a
+second root isn't read-only-gated the way this repo's own edits are, until
+that root has its own plan and gate (`plan-state.sh relocate`'s README note
+spells out the same limit for a moved plan). For small, well-scoped tasks,
+read the files and draft directly in the main thread. Nothing enforces
+delegation; use judgment.
 **Load the dispatch contract before the first `Agent()` call, not after.** Research
 dispatches follow `dispatch-agents`' "Async runtime & lifecycle" rules, and this step
 fires before that skill's own first load point (Step 4) — so invoke
@@ -163,6 +175,16 @@ job, a form handler, or a skill/rule that doesn't validate before writing are
 all candidates. Search for that producer before drafting, and carry what you
 find into Step 3.5 as a scope decision, the same way a sibling instance is
 above.
+
+**A page/feature joining an existing repeated pattern may have its membership
+tracked in more than one place.** Wiring a new entry into a nav list, a
+routing table, a tab registry, or any other structure that already has
+several siblings sometimes means updating a second, independently-maintained
+list that mirrors the first without either side pointing at the other — a
+route table beside a nav list, a hardcoded switch beside a registry. Check
+for a second list before drafting, the same way a sibling instance is above;
+a hand-paired list found at the approval gate rewrites the plan, the same
+list found here costs one question.
 
 **A same-session restart — or an earlier grill — is not a blank page.** When
 the user interrupts mid-research to broaden or redirect the request and
@@ -808,6 +830,17 @@ don't reconstruct it from memory this late in a long session, where a drifted
 list can silently drop the one button (a `Pause`, a `Split`) the situation
 actually calls for. Under `CONTEXT: HANDOFF`, also note in the question text
 that the session is critically large.
+
+**Re-read this table immediately before calling `AskUserQuestion`, not from a
+reading of it done earlier in the session.** Run `grep -n -A 8 '^### The
+option set' "${CLAUDE_PLUGIN_ROOT}/skills/planning/SKILL.md"` (or `Read` this
+section) right before composing the call — the option-row has already been
+reconstructed incorrectly from memory once, late in a session where reading
+it early wasn't enough to keep the shape accurate by the time it mattered. A
+fresh read right before use costs one call and removes the chance of it
+happening the same way again. Keep the table itself in exactly this one
+file: a copy pasted into `plan-state.sh` or any other script becomes a
+second place for it to drift out of sync with this one.
 
 **`/mentor:handoff` stays reachable in every row, including the ones that list no
 handoff option.** It is a command, not an option: it writes a handoff note and never
