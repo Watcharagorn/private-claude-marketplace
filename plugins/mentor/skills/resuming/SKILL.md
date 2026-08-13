@@ -181,6 +181,32 @@ Then resolve a selection:
 
 ## Step 5 — Load & continue
 
+Before the numbered flow below, check whether this session has room for the note's work —
+nothing upstream of this step has measured context yet, and a resumed note can lead into
+substantial work (an implementation via `/mentor:track`, a dispatch fan-out via
+`mentor:dispatch-agents`, or open-ended research/analysis with no command of its own — Step 6's
+"research or analysis fan-out" case runs entirely without `/mentor:track`'s or
+`mentor:dispatch-agents`'s own context checks, so this is the only gate it gets):
+
+```bash
+bash "${CLAUDE_PLUGIN_ROOT}/hooks/plan-state.sh" context
+```
+
+The tiers match the rest of the plugin — `mentor:plan-track`'s own Step 0 runs this identical call:
+
+- **`CONTEXT: ASK`** — do not act on the note yet; ask the user the two-option question the
+  script prints (hand off, or bypass for this session) before continuing below.
+- **`CONTEXT: HANDOFF`** — they already chose to continue; proceed, but plan to hand off again
+  before this note's work is done.
+- **`CONTEXT: WARN`** — surface it, then continue.
+- **`CONTEXT: OK` / `UNKNOWN`** — continue.
+
+For work with no further mentor-command checkpoint of its own (the research/analysis case
+above), re-run this same check immediately before delivering the final report or summary,
+mirroring `mentor:dispatch-agents`'s close-out re-check — a long autonomous stretch between this
+reading and that report is exactly the shape `context-gate.sh`'s own WARN tier cannot catch
+(`UserPromptSubmit`-only; nothing re-invokes it between prompts).
+
 1. `Read` the chosen note in full.
 2. **Scan for secrets first.** Before surfacing any section, scan the content for secret patterns —
    API keys, passwords, tokens, connection strings, private-key blocks (`-----BEGIN`),

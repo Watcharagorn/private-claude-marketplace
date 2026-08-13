@@ -657,7 +657,17 @@ the contract does not apply to them, which is exactly how a fan-out goes out raw
   nested spawns included. Stop only what traces to that tree with
   `TaskStop`; note anything else in the one-line report rather than
   stopping it, since it may belong to a sibling session or the user's own
-  background work.
+  background work. **The same checkpoints are also the right moment to
+  re-check context** — run `bash "${CLAUDE_PLUGIN_ROOT}/hooks/plan-state.sh"
+  context` here too, not only on the failure loop's remediation path
+  ("Verifying the plan" above). A verification round runs mostly on
+  harness-synthetic prompts, which `context-gate.sh`'s own WARN tier
+  deliberately skips, and an all-PASS round never enters the failure loop at
+  all — so a clean round can walk straight into the final report with
+  whatever context reading it last took, if any, the same silent gap the
+  gate has for any long autonomous stretch between prompts. `CONTEXT: WARN`
+  or higher belongs in the final report itself (a line naming
+  `/mentor:handoff`), not silently absorbed.
 - **A live `Monitor` watch is not a dispatch — it has no stop tool.** A CI run, a
   deploy, or a long build tracked via `Monitor` should usually keep running
   (killing it is rarely what you want, unlike a stray dispatched agent). At the
