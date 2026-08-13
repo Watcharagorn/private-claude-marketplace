@@ -100,6 +100,18 @@ plan-state.sh is the only writer of .state.json — it validates the state, keep
 note, and writes atomically. Use it instead:
 
   plan-state.sh set ${slug} <draft|approved|in_progress|implemented|failed|superseded> --note "…"
+
+Trying to re-own this plan (owner/owner_session only — e.g. after a worktree move,
+or resuming it in a different worktree)? "set" cannot do that. Run this from the
+worktree that should own it instead:
+
+  plan-state.sh init ${slug}
+
+Relocating this plan's FILES into a DIFFERENT repo entirely? Run this from the
+destination repo instead of hand-copying — it creates the plan there and re-owns
+it to the destination worktree in one step:
+
+  plan-state.sh relocate <this-plan-dir>
 EOF
     exit 2
     ;;

@@ -10,7 +10,8 @@
 # linked worktree, legacy bare `.planning` reserved repo-global — see `gate` below
 # and lib/state.sh's state-layout header); plans stay SHARED across every worktree,
 # tracked by an `owner`/`owner_session` pair on the sidecar (stamped by ensure-dir/
-# init/claim — see `current --any`, `list --owners`, and `overview`'s `owner` field).
+# init/claim/relocate — see `current --any`, `list --owners`, and `overview`'s
+# `owner` field).
 #
 # v2.24.0: the sidecar carries a `priority` — the plan's IMPACT tier, one of
 # critical|high|medium|low|noise or null — so /mentor:track's hierarchy can say which
@@ -244,6 +245,10 @@ Usage: plan-state.sh <subcommand>
                                          status for THIS worktree (--verbose adds per-token fields;
                                          see the gate doc comment above for the exact contract)
   ensure-dir <path>                     mkdir it + chmod 700 the whole path; echoes it
+  relocate <src-plan-dir>                copy a plan from a DIFFERENT repo's
+                                         .mentor/plans/<slug> into THIS repo (run
+                                         from the destination repo) and re-own it
+                                         here; never deletes the source
   handoff-path <topic> <slug>           resolve/create <topic>'s private handoffs/ dir + gitignore,
                                          echo the timestamped note path (handoff-note Step 2)
   handoff-selfcheck <note-path>         supersede <topic>'s older notes into resolved/, print
@@ -342,9 +347,9 @@ if [ "$sub" = "ensure-dir" ]; then
       exit 1
       ;;
   esac
-  # A direct child of plans/ is a plan TOPIC dir — the first of the three owner-
-  # stamping sites (ensure-dir/init/claim — see the state-layout header comment and
-  # this file's top-of-file v2.23.0 note), because the normal flow writes plan.md
+  # A direct child of plans/ is a plan TOPIC dir — the first of the four owner-
+  # stamping sites (ensure-dir/init/claim/relocate — see the state-layout header
+  # comment and this file's top-of-file v2.23.0 note), because the normal flow writes plan.md
   # before Step 4's `init`, which is routinely skipped (approve-plan.sh) — leaving
   # the plan unowned in between is exactly the window this closes. The collision
   # check runs BEFORE the stamp below, so it still sees whatever owner (if any) was
@@ -360,6 +365,101 @@ if [ "$sub" = "ensure-dir" ]; then
     mentor_plan_state_write "$ed_canon" --owner "$ed_wt_id" --owner-session "${CLAUDE_CODE_SESSION_ID:-}"
   fi
   echo "$ed_canon"
+  exit 0
+fi
+
+# --- relocate <src-plan-dir>: copy a plan from a DIFFERENT repo into this one and
+# re-own it here. Run from the DESTINATION repo. Sits here (before the plans_dir
+# gate below, alongside ensure-dir) rather than in the main case block precisely
+# BECAUSE it must work in a destination repo that has no plans dir yet — the
+# whole point of relocating a plan into a repo mentor has never tracked before —
+# and the main case block's `[ ! -d "$plans_dir" ]` guard would fail-soft-exit
+# before ever reaching a case arm placed there. Deliberately narrow: every write
+# this makes stays inside THIS repo's own already-confined mentor dir (the source
+# is only ever READ, via `cp -R`), so it needs none of ensure-dir's path-
+# confinement guard against the source — that guard exists to stop a model-chosen
+# path from escaping THIS repo's .mentor tree, which cannot happen here since
+# nothing is ever written under the source path. The source plan is never deleted
+# (a two-repo `mv` has no atomic rollback if the copy side fails partway), so the
+# caller removes it by hand once they've confirmed the copy landed.
+if [ "$sub" = "relocate" ]; then
+  rl_src="${1:-}"
+  if [ "$#" -gt 1 ]; then
+    echo "[mentor plan-state] relocate: unexpected argument ${2}" >&2
+    exit 1
+  fi
+  if [ -z "$rl_src" ]; then
+    echo "[mentor plan-state] relocate needs <src-plan-dir> — the OTHER repo's <slug> plan directory (…/.mentor/plans/<slug>). Run this from the DESTINATION repo." >&2
+    exit 1
+  fi
+  # No require_jq here (unlike the main-case-block subcommands) — this block runs
+  # BEFORE require_jq's own definition is reached in the file, same constraint
+  # ensure-dir/handoff-path already live with. mentor_plan_state_write/_stored/
+  # _field all fail-soft on a missing jq internally, same as ensure-dir's stamp.
+  rl_repo="$(mentor_repo_root "$(pwd)")"
+  if [ -n "$rl_repo" ]; then
+    rl_mdir="$(mentor_state_dir "$rl_repo")"
+  else
+    rl_mdir="$HOME/.claude/mentor/_no-repo"
+  fi
+  rl_src_canon="$(python3 -c 'import os,sys; print(os.path.realpath(sys.argv[1]))' "$rl_src" 2>/dev/null || echo "$rl_src")"
+  rl_src_parent="$(dirname "$rl_src_canon")"
+  if [ ! -d "$rl_src_canon" ] || [ "$(basename "$rl_src_parent")" != "plans" ] \
+     || [ "$(basename "$(dirname "$rl_src_parent")")" != ".mentor" ]; then
+    echo "[mentor plan-state] relocate refuses a source that isn't an existing <repo>/.mentor/plans/<slug> directory: ${rl_src}" >&2
+    exit 1
+  fi
+  if [ ! -f "${rl_src_canon}/plan.md" ] || [ ! -f "${rl_src_canon}/.state.json" ]; then
+    echo "[mentor plan-state] relocate refuses ${rl_src_canon} — missing plan.md or .state.json (not a real plan dir)." >&2
+    exit 1
+  fi
+  rl_slug="$(basename "$rl_src_canon")"
+  rl_dst="${rl_mdir}/plans/${rl_slug}"
+  rl_dst_canon="$(python3 -c 'import os,sys; print(os.path.realpath(sys.argv[1]))' "$rl_dst" 2>/dev/null || echo "$rl_dst")"
+  if [ "$rl_dst_canon" = "$rl_src_canon" ]; then
+    echo "[mentor plan-state] relocate: source and destination are the same directory — nothing to do." >&2
+    exit 1
+  fi
+  if [ -e "$rl_dst" ]; then
+    echo "[mentor plan-state] relocate refuses — ${rl_dst} already exists. Pick a different slug in the destination, or remove/merge it by hand first." >&2
+    exit 1
+  fi
+  rl_wt_id="$(mentor_worktree_id "$(pwd)")"
+  # Collision check reads whatever owner is on record for the (not-yet-created)
+  # destination slug — a no-op today (it always returns 0 before $rl_dst exists),
+  # kept for the same TOCTOU-race defense ensure-dir/init keep it for.
+  warn_same_slug_collision "$rl_dst" "$rl_wt_id" "${rl_mdir}/plans"
+  # Ensure the PARENT (plans/) exists + is 700 — but NOT $rl_dst itself: `cp -R src
+  # dst` copies src's CONTENTS into dst only when dst does not yet exist; if dst is
+  # already a directory, cp nests src one level deeper instead (dst/$(basename src)),
+  # which would silently land plan.md/.state.json a level too deep and desync every
+  # path this subcommand computes below it.
+  mentor_ensure_private_dir "$rl_mdir" "${rl_mdir}/plans"
+  if ! cp -R "$rl_src_canon" "$rl_dst" 2>/dev/null; then
+    echo "[mentor plan-state] relocate: copy from ${rl_src_canon} to ${rl_dst} failed — nothing was moved; check permissions/disk space." >&2
+    rm -rf "$rl_dst" 2>/dev/null || true
+    exit 1
+  fi
+  chmod 700 "$rl_dst" 2>/dev/null || true
+  # Fourth of the four owner-stamping sites (see this file's top-of-file v2.23.0
+  # note): re-owns the copied sidecar to THIS worktree, same last-init-wins shape
+  # as `init` — preserves whatever state/category/priority/deps/deferred_from the
+  # copy carried over, only overwriting owner/owner_session.
+  rl_existing="$(mentor_plan_state_stored "$rl_dst")"
+  rl_write_args=(--state "${rl_existing:-draft}" --note "$(mentor_plan_state_field "$rl_dst" note)")
+  if [ -n "$rl_wt_id" ]; then
+    rl_write_args+=(--owner "$rl_wt_id" --owner-session "${CLAUDE_CODE_SESSION_ID:-}")
+  fi
+  mentor_plan_state_write "$rl_dst" "${rl_write_args[@]}"
+  echo "[mentor plan-state] ${rl_slug}: relocated from ${rl_src_canon} → ${rl_dst}; re-owned to this worktree ($(mentor_plan_effective_state "$rl_dst"))."
+  echo "[mentor plan-state] source NOT deleted — remove ${rl_src_canon} yourself once you've confirmed the copy."
+  rl_stale_hits="$(awk '/^## Suggested first steps/{f=1;next} /^## /{f=0} f' "${rl_dst}/plan.md" 2>/dev/null \
+    | grep -noE '[[:alnum:]_.-]+/[[:alnum:]/_.-]+' | head -20)"
+  if [ -n "$rl_stale_hits" ]; then
+    echo "[mentor plan-state] WARNING: plan.md's Suggested first steps still names repo-relative paths that may be stale after this move:" >&2
+    printf '%s\n' "$rl_stale_hits" | sed 's/^/  /' >&2
+  fi
+  echo "[mentor plan-state] WARNING: if the source repo's plan-gate marker is still armed for this plan, its gate will not protect edits made back there — check with 'plan-state.sh gate --verbose' in the source repo." >&2
   exit 0
 fi
 
@@ -934,7 +1034,7 @@ case "$sub" in
     [ -n "$priority" ] && write_args+=(--priority "$priority")
     [ -n "$category" ] && write_args+=(--category "$category")
     [ -n "$from_slug" ] && write_args+=(--deferred-from "$from_slug")
-    # Second of the three owner-stamping sites (see this file's top-of-file v2.23.0
+    # Second of the four owner-stamping sites (see this file's top-of-file v2.23.0
     # note): last-init-wins re-owning — this is also how `/mentor:plan <slug>` re-owns
     # a plan resumed in a different worktree. Skipped entirely when wt-id is empty
     # (no git / bare repo / etc.) — same fail-soft convention as everywhere else here.
@@ -1123,7 +1223,7 @@ case "$sub" in
     require_jq
     plan_dir="${plans_dir}/${slug}"
     was_deferred="$(mentor_plan_origin "$plan_dir")"
-    # Third of the three owner-stamping sites (see this file's top-of-file v2.23.0
+    # Third of the four owner-stamping sites (see this file's top-of-file v2.23.0
     # note): re-stamps on deferred-stub resurrection, same skip-when-empty rule as
     # `init`. No same-slug WARN here — a deferred stub's own worktree claiming it is
     # the normal path, not a collision signal.
