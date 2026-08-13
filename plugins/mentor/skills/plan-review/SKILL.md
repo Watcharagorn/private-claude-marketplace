@@ -475,9 +475,10 @@ must contain:
      a glance; an
      undercount usually means missing steps, not just a stale numeral, which is why
      `coverage-gap` stays DECISION-REQUIRED rather than auto-folding a new number in;
-     an `## Implementation steps` section carrying neither `[role:` dispatch
-     annotations nor a `Dispatch: skipped —` opening line (plans are
-     dispatch-annotated by default — a plan with neither made no explicit choice);
+     an `## Implementation steps` section carrying none of `[role:` dispatch
+     annotations, `[delegated:` annotations, or a `Dispatch: skipped —`
+     opening line (plans are dispatch-annotated by default — a plan with none
+     of the three made no explicit choice);
      a `Dispatch: skipped —` line whose stated reason matches neither of
      `dispatch-agents`' two sanctioned escape-hatch branches (**Trivial**: roughly
      ≤ ~20 changed lines with nothing new to read; **Interactive**: needs tight

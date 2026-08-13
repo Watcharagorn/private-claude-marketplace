@@ -82,6 +82,11 @@ Skip dispatch annotation ONLY when one of these branches holds:
 - **Interactive:** the work needs tight mid-implementation back-and-forth with
   the user.
 
+**Delegating a step to another plugin's own multi-agent skill is not a third
+branch.** That step is still annotated, just not as an `Agent` dispatch
+("Per-step output shape" below), and the plan stays on the dispatch path — it
+keeps its ticks, its closing checklist, and its verification fan-out.
+
 A skipping plan MUST open its `## Implementation steps` section with one line —
 `Dispatch: skipped — <one-line reason>` — so the skip is visible and reviewable
 at approval. No line, no skip. If a skipped implementation turns out
@@ -123,6 +128,26 @@ The point of SDD: quality through narrow focus, and a lean main thread.
   that happened to land identical bytes. Reading the file to diff it by hand pulls
   into the main thread the exact contents — often the exact credential — the step
   was keeping out of it.
+- **A tool call the step must NOT make** — a mutating MCP call during a
+  dry-run sweep, a deploy, a write against a live API — is disproved by
+  census, not by grep. Each dispatched agent writes its own transcript under
+  this session's directory, so list what the whole fan-out actually called and
+  read the absence off a complete list:
+  ```bash
+  d="$(find "${CLAUDE_CONFIG_DIR:-$HOME/.claude}/projects" -maxdepth 2 -type d \
+       -name "$CLAUDE_CODE_SESSION_ID" | head -1)"
+  jq -r 'select(.type=="assistant") | .message.content[]?
+         | select(.type=="tool_use") | .name' "$d"/subagents/*.jsonl | sort | uniq -c
+  ```
+  Run it once the last agent has delivered; nested spawns land in the same
+  directory, and the sibling `.meta.json` names which agent a file belongs to
+  when a hit needs attributing. Grepping those transcripts for the tool's name
+  instead inverts the evidence — the brief that forbade the call contains the
+  name too, and a zero-hit grep is exactly the not-evidence "Verifying the
+  plan (execution-time)" below warns about (a check must be confirmed working
+  before its silence is trusted). An agent's own "I never called it" is a
+  self-report, not proof; if the census cannot be produced, report the claim
+  as unproven rather than passing the self-report off as verification.
 - **A live secret can arrive by paste.** A step the owner performs by hand exists
   precisely so a credential never passes through the model — nothing stops the user
   pasting it into chat anyway, so when you hand such a step over, say where the
@@ -228,6 +253,16 @@ the `✅` from the tracking rule above is appended to that step's `Step N —` l
 the top line of the block, never one of the indented fields under it.
 
 Group steps that have no dependencies under a **"Run in parallel:"** header so they dispatch in a single message. Dependent steps go under **"Sequential:"**.
+
+**A step delegated to another plugin's own multi-agent skill** carries
+`[delegated: <plugin>:<skill>]` in place of the `[role: … ]` bracket and drops
+`Prompt sketch:` — that skill writes its own briefs. `Goal:`, `Inputs:`, and
+`Done when:` are unchanged, and the orchestrator still verifies `Done when:`
+itself. It cannot be pushed down into a dispatched agent instead: that agent
+would have to spawn the skill's own agents, which is the nested fan-out banned
+below. It is therefore always `Sequential:` — the main thread runs the skill
+itself, so there is no `Agent()` call to ride in a parallel group's single
+message.
 
 ## Choosing `role`
 
@@ -446,6 +481,15 @@ section). **Keep this roster current when a surface starts dispatching** —
 a reader who checks it and does not find their surface concludes
 the contract does not apply to them, which is exactly how a fan-out goes out raw:
 
+- **A delegated step's fan-out is still yours.** When a plan step hands its
+  work to another plugin's own multi-agent skill, the main thread runs that
+  skill — its agents are dispatched from this session and land in this
+  session's dispatch tree, so **No busy-wait** applies while they run (end the
+  turn; the harness re-invokes you) and close-out enumerates them like any
+  other. What does not reach them is the standing contract block below: you
+  never wrote their prompts, so they may return by plain final text and may
+  spawn further agents. Enumerate at close-out rather than trusting that the
+  delegated skill closed its own out.
 - **Standing no-subagents policy.** Before this session's first dispatch, check for a
   *standing* instruction against subagent use recorded somewhere durable — CLAUDE.md, a
   project rule file, an earlier session's handoff note — as distinct from the user saying
