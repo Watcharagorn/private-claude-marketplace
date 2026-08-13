@@ -401,6 +401,17 @@ reading and that report is exactly the shape `context-gate.sh`'s own WARN tier c
    analysis fan-out, which has no plan steps to re-enter or tick — a fan-out that *implements* plan
    steps still routes through `/mentor:track` per the bound above. Loading the skill honors the
    note's instruction; it does not expand its scope.
+
+   A bare "let's commit" is not that signal. Commit normally — the bound is on how the session
+   ends, not on any commit along the way, and `mentor:shipping` Step 2 aborts on a dirty tree
+   precisely because it expects you to have committed first. What it does bind is the turn after:
+   when the note's work is done but unshipped, do not let that commit be the last thing this
+   session does. Ask whether to ship now, or run `/mentor:handoff` — which supersedes the note you
+   resumed and leaves one live resume point in its place, so the remaining ship step survives the
+   session instead of dying with it. Committing finished work and then stopping — no
+   `/mentor:ship`, `/mentor:merge`, `/mentor:handoff`, or `/mentor:defer` anywhere in the session —
+   is the same raw ending the "Done when" bound rules out; it just arrives one step later than the
+   push/PR case.
 7. **Stamp the note resolved when — and only when — its work is done.** Track the note's path for the
    rest of the session; the stamp fires on the first of these:
    - **All the note's tasks completed per the plan file** — every recommended command ran to
