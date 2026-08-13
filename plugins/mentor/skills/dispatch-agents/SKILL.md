@@ -116,6 +116,21 @@ The point of SDD: quality through narrow focus, and a lean main thread.
   `mktemp -d` copy outside the repo instead, diff/compare, then discard. When the check
   can't run detached (needs live git context, a database, or a running service),
   snapshot state and restore it after, or point the check at a disposable instance.
+- **A file the step must NOT touch** — a gitignored config, a credentials file,
+  anything `git diff` can never see — is verified by snapshot, not by reading it
+  back. Record `shasum -a 256` (or `sha256sum`) plus the mtime before dispatch and
+  re-compare after: the hash catches a content change, the mtime catches a rewrite
+  that happened to land identical bytes. Reading the file to diff it by hand pulls
+  into the main thread the exact contents — often the exact credential — the step
+  was keeping out of it.
+- **A live secret can arrive by paste.** A step the owner performs by hand exists
+  precisely so a credential never passes through the model — nothing stops the user
+  pasting it into chat anyway, so when you hand such a step over, say where the
+  value goes and that it must not come back through the conversation. If it arrives
+  regardless: proceed with the step, write it to the one file the step names and
+  nowhere else, never echo the value back, and say **once** that it is now in this
+  session's transcript — which persists on disk and `/mentor:handoff` reads back —
+  so rotating it is the only cleanup left. Nothing un-sends a turn.
 - **On a failed `Done when:`**, re-dispatch the same role once with the failure
   evidence (diff + command output) as inputs. If it fails again, surface to the
   user — only then may the main thread read the files and take over.
@@ -483,9 +498,14 @@ the contract does not apply to them, which is exactly how a fan-out goes out raw
   Never re-run expensive verification (full builds, E2E suites) while the
   agent's own report may still be in flight. The race also resolves in the other direction:
   an idle notification arriving from an agent **already** `TaskStop`ped needs no
-  reply at all — the stop already closed it out. Dismiss it silently rather than
-  narrating it; on a dispatch-heavy plan, note the dismissed count once at close-out
-  if it's worth mentioning at all, not once per echo.
+  reply at all — the stop already closed it out.
+- **An echo from an already-stopped agent gets no reply and no narration.** Not a
+  nudge, not "Agent X already stopped, ignoring" — nothing. On a dispatch-heavy
+  plan the whole batch is worth at most one dismissed-count line at close-out, and
+  only if it earns one. An echo arriving *after* the plan was announced
+  `implemented` is the same non-event: it reopens nothing, and narrating it reads
+  to the user as new activity — which is how a finished plan collects a second
+  "mark it done" round-trip.
 - **Agent died (infra/API error).** Don't reinvent recovery glue: wait with
   escalating patience (minutes-scale, roughly doubling — this sanctioned wait
   for a *dead* agent is not the busy-polling of a healthy one forbidden
