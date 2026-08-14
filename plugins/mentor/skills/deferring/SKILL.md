@@ -1,20 +1,7 @@
 ---
 name: deferring
 description: >
-  Capture work discovered mid-flow — during planning OR implementation — as one or more
-  lightweight deferred plan stubs, without derailing the current task. Backs the
-  /mentor:defer command, but also triggers conversationally any time the user wants
-  something noted for later instead of acted on now: "stash this for later", "defer
-  this", "stash these for later: X; Y", "let's not do this now, park it", "add that to
-  the backlog", "note that and keep going", "circle back to this later". Accepts one
-  item or many in a single call. Each item becomes an ordinary plan directory under
-  .mentor/plans/, named for its own slug — same shape as a real plan, just born small
-  and marked draft + origin "deferred" — so overview, the approval sweep, and
-  /mentor:track already know
-  how to handle it. This is capture only: it never plans,
-  approves, or implements — that comes later via /mentor:plan (which claims the stub)
-  or /mentor:track (which surveys and routes it). Refuses check-shaped items — only
-  isolated work to build is captured.
+  Capture work discovered mid-flow — planning or implementation — as one or more deferred plan stubs, without derailing the task. Backs /mentor:defer; triggers conversationally any time the user wants something noted for later: "stash this for later", "park it", "note that and keep going", "circle back to this later" — or anything with that shape. When the item would block the active plan's own completion — a fix a verifier demands, a gap that would leave a `Done when:` bullet unmet — it parks as a child plan under that active plan (parent-aware capture): "park this, it blocks the plan". Accepts one or many per call. Each becomes an ordinary plan directory under .mentor/plans/, its own slug, marked draft + origin deferred, optionally carrying a parent — recognized by overview, approval sweep, and /mentor:track. Capture only: never plans, approves, or implements — that's /mentor:plan (claims the stub) or /mentor:track (surveys, routes it). Refuses check-shaped items; only isolated work is captured.
 ---
 
 # Defer — Stash Work for Later
@@ -33,6 +20,9 @@ back.
   or anything with that shape, however phrased.
 - One item, or several named in the same breath ("stash these for later: fix the gate message
   typo; also an OAuth refactor").
+- The item blocks the active plan's own completion (a verifier-demanded fix, a gap that would
+  leave a `Done when:` unmet) — it still gets captured here, just parked under that plan
+  instead of standalone (Step 1's blocking-vs-backlog judgment, Step 2's `--parent` write).
 
 ## When NOT to use
 
@@ -91,6 +81,15 @@ planning):
 - **source plan** — the slug of the plan flow being interrupted, when there is one, so the stub
   records where it came from. Leave it out entirely for a conversational capture that isn't
   interrupting any plan flow.
+- **blocking vs backlog** — when there IS a source plan above, is this item blocking or backlog?
+  `dispatch-agents` owns the blocking-vs-backlog decision rule and applies it at its three
+  fix-generation points; when this skill is reached some other way (a direct conversational
+  "park this, it blocks the plan"), the same call has already been made by whoever said that.
+  This skill's job is just to record the answer and act on it: blocking → the stub parks as a
+  child of the source plan (Step 2 writes `parent` = the source plan's slug). Genuinely
+  ambiguous → ask the user one self-contained question right now — name the item and the two
+  outcomes, nothing to look up — rather than guess. No source plan → never blocking; capture as
+  an ordinary standalone stub.
 
 **Scope check, one line, then keep moving:** is this item work to build, or a check to run? Only
 work to build is deferrable — see "When NOT to use" below for the full rule, the fix-vs-check
@@ -141,7 +140,7 @@ same batch — the stub exists on disk by the time you get there):
 4. **Register it:**
 
    ```bash
-   bash "${CLAUDE_PLUGIN_ROOT}/hooks/plan-state.sh" init "$slug" --deferred${deps:+ --deps "$deps"}${priority:+ --priority "$priority"}${category:+ --category "$category"}${from_plan:+ --from "$from_plan"}
+   bash "${CLAUDE_PLUGIN_ROOT}/hooks/plan-state.sh" init "$slug" --deferred${parent:+ --parent "$parent"}${deps:+ --deps "$deps"}${priority:+ --priority "$priority"}${category:+ --category "$category"}${from_plan:+ --from "$from_plan"}
    ```
 
    `--deferred` sets the sidecar's `origin: "deferred"` — the marker that (a) shields this stub
@@ -153,6 +152,19 @@ same batch — the stub exists on disk by the time you get there):
    `--priority`, `--category`, and `--from` carry Step 1's judgment onto the sidecar — each flag is
    passed only when that field was actually judged or known; an unjudged field is simply omitted
    from the command, never sent as an empty or invented value.
+
+   `--parent` writes the sidecar's `parent` field — the plan this stub must complete before —
+   validated by `plan-state.sh` for existence and cycles (fail-soft: a bad parent warns to stderr
+   and leaves `parent` unset, every other field still applies). Pass it only when Step 1 judged the
+   item blocking, and always the same slug as `--from`: the source plan IS the plan being blocked.
+   This is the mechanism the whole branch exists for — without it, a parked fix is just another
+   flat stub indistinguishable from backlog, so the root plan can read `implemented` while the fix
+   it actually depends on still dangles. Worked example: mid-implementation of `root-plan`, a
+   verifier demands a retry-loop fix → `init fix-retry-loop --deferred --parent root-plan --from
+   root-plan`. Nesting is automatic, not a special case: if the source plan is itself a parked fix
+   (it already carries its own `parent`), the new stub's `parent` is still just that source plan's
+   slug, so the chain grows one level deeper — `/mentor:track` renders the resulting tree and rolls
+   up open descendants from this field; that's its concern, not this skill's.
 
 This runs exactly the same whether the edit gate is armed or open: `.mentor/` is gate-exempt, so
 `plan-gate.sh` never blocks these writes. Deferring mid-`/mentor:plan` (gate armed, read-only
@@ -167,13 +179,15 @@ One line per stub created, in the order they were made, carrying whatever Step 1
 deferred → fix-flaky-auth-test [med · fix]  (.mentor/plans/fix-flaky-auth-test/) — from: merge-oauth-refactor
 deferred → oauth-refactor      [feat]       (.mentor/plans/oauth-refactor/) — deps: fix-gate-msg-typo
 deferred → fix-gate-msg-typo                (.mentor/plans/fix-gate-msg-typo/)
+deferred → fix-retry-loop      [fix]        (.mentor/plans/fix-retry-loop/) — parent: root-plan
 ```
 
-The `[<tier> · <cat>]` tag, the `from: <plan>` clause, and the `deps: <a>` clause each render **only
-when that field was actually judged or given** — an unjudged field is dropped from the line
-entirely, never shown as an invented placeholder. When only one of tier/category was judged, show
-that one word alone in brackets (as `oauth-refactor` does above); the bracket never renders both
-sides blank, e.g. `[– · –]` must never appear.
+The `[<tier> · <cat>]` tag, and the `from:` / `deps:` / `parent:` clauses each render **only when
+that field was actually judged or given** — an unjudged field is dropped from the line entirely,
+never shown as an invented placeholder. When only one of tier/category was judged, show that one
+word alone in brackets (as `oauth-refactor` does above); the bracket never renders both sides
+blank, e.g. `[– · –]` must never appear. `parent:` appears only on a blocking item — it is the same
+slug Step 2 passed to `--parent`, never a different one.
 
 Then **continue exactly where the interrupted flow left off.** Deferring is a side note in the
 middle of the current task, not a reason to end the turn, ask a follow-up question, or wait for
@@ -183,11 +197,14 @@ acknowledgement — the whole point is that the current task never stalls for th
 
 - Every item became its own plan dir with a stub `plan.md` and a sidecar carrying
   `origin: "deferred"`, plus whatever `priority` / `category` / `deferred_from` Step 1 judged.
+- Every blocking item's sidecar carries `parent` = the source plan's slug; every backlog item's
+  sidecar has no `parent` — never invented for a non-blocking item, never a different slug than
+  `--from`.
 - No stub's `plan.md` contains a "Relations" section — deps live only in the sidecar.
 - Every item passed the scope check — no stub was created for a check on the current plan's own
   work; a refused item was pointed back at that plan's own Verification record instead.
 - The user saw one line per stub, with its path, its judged tag(s) (when any), `from:` (when
-  known), and `deps:` (when set) — never an invented placeholder.
+  known), `deps:` (when set), and `parent:` (when blocking) — never an invented placeholder.
 - The interrupted flow continued in the same response.
 
 ### Do NOT
@@ -200,6 +217,8 @@ acknowledgement — the whole point is that the current task never stalls for th
 - Do NOT hand-edit `.state.json` — `plan-state.sh init` is the only writer.
 - Do NOT invent a priority or category when the conversation gives no signal — leave the field
   unset rather than guess.
+- Do NOT pass `--parent` on a backlog item, or guess when blocking-vs-backlog is genuinely
+  ambiguous — ask the user the one self-contained question instead (Step 1).
 - Do NOT create a stub for testing or verification of the current plan's own work — that names work
   to build, never a check to run; route it to the plan's own Verification record
   (`plan-state.sh set <slug> failed --note "<why>"`) instead.

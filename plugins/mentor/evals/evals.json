@@ -124,7 +124,7 @@
     {
       "id": 18,
       "expected": "plan-track",
-      "tests": "post-split continuation, the flow plan-split hands into",
+      "tests": "NEAR-MISS vs resuming: post-split continuation phrasing but no NAMED split-group argument — generic 'work through them one at a time, start with whichever is first' stays plan-track's unnamed 'what's next' survey; only a named root or split-group name plus continue/drain intent routes to resuming (see row 51)",
       "query": "we split that thing into 5 plans last week. lets work through them one at a time — start with whichever is first"
     },
     {
@@ -282,6 +282,48 @@
       "expected": "zooming",
       "tests": "NEAR-MISS vs plan-touring: one static diagram, no paging or plan walkthrough",
       "query": "just show me a diagram of the current auth flow, one page is fine"
+    },
+    {
+      "id": 45,
+      "expected": "resuming",
+      "tests": "core trigger, drain root's parked fix children in order — NOT plan-track (targeted drain request, not a status survey), NOT deferring (nothing new to park)",
+      "query": "continue the fixes parked under my payments-migration root plan, pick up wherever we left off"
+    },
+    {
+      "id": 46,
+      "expected": "plan-track",
+      "tests": "core trigger, repo-wide remaining-work inventory phrasing",
+      "query": "whats left across the repo right now? just give me the full remaining-work picture"
+    },
+    {
+      "id": 47,
+      "expected": "plan-track",
+      "tests": "core trigger, 'any task left for <plan>' phrasing — status query, not a drain request",
+      "query": "is there any task left for the payments-migration plan or is that whole tree closed out now"
+    },
+    {
+      "id": 48,
+      "expected": "deferring",
+      "tests": "core trigger, blocking fix parks as child under active plan — NOT resuming (nothing parked yet to drain), NOT plan-track (not a status check)",
+      "query": "the verifier flagged we also need to backfill the missing index before this ships — park this, it blocks the plan, ill circle back after"
+    },
+    {
+      "id": 49,
+      "expected": "resuming",
+      "tests": "NEAR-MISS vs plan-track: named root + explicit continue/drain intent routes to resuming, not a status-only inventory query",
+      "query": "whats still open under the checkout-refactor root — dont just list them, go ahead and pick up the next one"
+    },
+    {
+      "id": 50,
+      "expected": "plan-track",
+      "tests": "NEAR-MISS vs resuming: no named note/root/split-group argument — generic 'build the next unbuilt plan' is plan-track's job, not a targeted drain",
+      "query": "can we continue working through the plans we havent built yet? just start wherever makes sense"
+    },
+    {
+      "id": 51,
+      "expected": "resuming",
+      "tests": "NEAR-MISS vs plan-track: NAMED split-group + explicit continue/pick-up intent routes to resuming, not a generic post-split survey — the naming is what flips row 18's unnamed phrasing to this skill",
+      "query": "we've got that notifications-revamp split group from last week — go ahead and pick up the next sibling in the group"
     }
   ]
 }

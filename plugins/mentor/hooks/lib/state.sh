@@ -16,14 +16,17 @@
 #   │                     #   marker — blocks every worktree until released/stale.
 #   │   └── <slug>/       #   plan.md (+ hidden .plan.md.opened sidecar)
 #   │       ├── .state.json  # {"state","group","order","note","deps","origin","owner",
-#   │       │                #   "owner_session","priority","category","deferred_from"} —
-#   │       │                #   written ONLY via plan-state.sh (deps/origin added
-#   │       │                #   v2.17.0; owner/owner_session — the minting/re-owning
+#   │       │                #   "owner_session","priority","category","deferred_from",
+#   │       │                #   "parent"} — written ONLY via plan-state.sh (deps/origin
+#   │       │                #   added v2.17.0; owner/owner_session — the minting/re-owning
 #   │       │                #   worktree, v2.23.0; priority — the impact tier, v2.24.0;
 #   │       │                #   category — the work kind, and deferred_from — the plan
-#   │       │                #   slug a stub was captured out of, both v2.25.0 — added
-#   │       │                #   below; older or mixed-version sidecars read back with
-#   │       │                #   any missing key jq-defaulted to []/null/"")
+#   │       │                #   slug a stub was captured out of, both v2.25.0; parent —
+#   │       │                #   the slug of the plan this one must complete before
+#   │       │                #   (existence + cycle checked at write, unlike the looser
+#   │       │                #   deferred_from), v2.29.0 — added below; older or
+#   │       │                #   mixed-version sidecars read back with any missing key
+#   │       │                #   jq-defaulted to []/null/"")
 #   │       └── handoffs/ #   <ts>-<slug>.md; solved/superseded notes → handoffs/resolved/
 #   ├── zooms/            # mentor:zooming artifacts — <subject-slug>/<topic>-<perspective>.html
 #   │                     #   (+ hidden .*.opened sidecars; pre-v2.12 they lived in plans/<slug>/zoom/)
@@ -490,7 +493,7 @@ mentor_plan_state_file() {
 
 # mentor_plan_state_field <plan_dir> <key> — echo the stored value of <key>
 # (state|group|order|note|origin|owner|owner_session|priority|category|
-# deferred_from), or empty when no sidecar / no jq / corrupt / unset / null.
+# deferred_from|parent), or empty when no sidecar / no jq / corrupt / unset / null.
 # SCALAR fields only — it `tostring`s whatever it finds, so on `deps`
 # (an array) it would return a JSON-stringified array rather than a real list; use
 # mentor_plan_deps for that field instead.
@@ -614,6 +617,21 @@ mentor_plan_deferred_from() {
   mentor_plan_state_field "${1:-}" deferred_from
 }
 
+# mentor_plan_parent <plan_dir> — echo the sidecar's `parent` (the slug of the plan
+# this one must complete before) or empty (null / unset / no sidecar / no jq / an
+# ordinary, non-child plan). Thin wrapper over the generic scalar reader, matching
+# mentor_plan_origin/mentor_plan_priority/mentor_plan_deferred_from. UNLIKE
+# deferred_from (informational only, never validated), `parent` IS validated for
+# existence + cycle at write time — by plan-state.sh's `init --parent`/`set-parent`,
+# via mentor_plan_would_cycle_parent below — but this reader itself stays exactly as
+# unvalidated as every other thin wrapper here: the plan a `parent` points at can
+# still be renamed or deleted AFTER the write, and resolving that dangle is a
+# render-time concern for the consumer (plan-track's `(missing)` marker, same
+# pattern deferred_from already uses), never this reader's job.
+mentor_plan_parent() {
+  mentor_plan_state_field "${1:-}" parent
+}
+
 # mentor_plan_would_cycle <plans_dir> <slug> <tentative deps, space-separated> — echo
 # "cycle" when giving <slug> exactly this deps list would create a dependency cycle
 # (including a direct self-cycle, <slug> listed in its own deps), else echo nothing.
@@ -644,6 +662,78 @@ mentor_plan_would_cycle() {
     fi
   done
   echo ""
+  return 0
+}
+
+# mentor_plan_would_cycle_parent <plans_dir> <slug> <tentative_parent> — echo "cycle"
+# when giving <slug> exactly this parent would create a cycle in the parent-chain
+# graph (a direct self-parent, or <tentative_parent> already sitting somewhere in
+# <slug>'s own current descendant subtree — walking UP from <tentative_parent> via
+# mentor_plan_parent eventually reaching <slug> again means <tentative_parent> is
+# already a descendant of <slug>, so the edge would close a loop), else echo
+# nothing. Same SHAPE as mentor_plan_would_cycle above (visited-set walk, dead ends
+# on an unknown node are not errors), simplified from a BFS-over-a-queue to a
+# straight walk because `parent` is single-valued — each node has AT MOST one
+# outgoing edge, so there is only ever one path to follow, never a fan-out to queue.
+# Fail-soft: no plans_dir / no slug / no tentative_parent → echoes "" (nothing to
+# cycle through — an empty/clearing parent can never be a cycle).
+mentor_plan_would_cycle_parent() {
+  local plans_dir="${1:-}" slug="${2:-}" parent="${3:-}" node seen
+  [ -n "$plans_dir" ] && [ -n "$slug" ] && [ -n "$parent" ] || { echo ""; return 0; }
+  if [ "$parent" = "$slug" ]; then echo "cycle"; return 0; fi
+  node="$parent"
+  seen=" "
+  while [ -n "$node" ]; do
+    case "$seen" in *" ${node} "*) break ;; esac   # already-visited: a pre-existing
+      # torn/circular sidecar graph elsewhere — not a cycle THIS edge would create,
+      # so stop rather than spin forever.
+    seen="${seen}${node} "
+    if [ "$node" = "$slug" ]; then echo "cycle"; return 0; fi
+    node="$(mentor_plan_parent "${plans_dir}/${node}")"
+  done
+  echo ""
+  return 0
+}
+
+# mentor_plan_descendants <plans_dir> <slug> — echo one TRANSITIVE descendant slug
+# per output line (children, grandchildren, …) — every OTHER plan dir under
+# <plans_dir> whose `parent` chain (mentor_plan_parent, followed repeatedly) leads
+# back to <slug>. BFS over the inverse of the stored parent pointer: there is no
+# child-list sidecar field to read directly (only each child's own `parent`), so
+# each level requires one pass over every not-yet-seen sibling — same asymptotic
+# shape mentor_plan_would_cycle already accepts for a plan set this size. Output
+# order is BREADTH-FIRST (a plan before its own children) — NOT the leaf-first
+# post-order `/mentor:resume`'s drain needs; that ordering is a consumer-side
+# concern layered on top of this bare transitive-closure primitive, same as the
+# open/closed verdict `subtree` decorates it with. A visited-set guards against a
+# torn/circular sidecar graph that already exists (should never happen given the
+# write-time cycle refusal above, but a hand-edited .state.json is still possible),
+# so this always terminates in at most one pass per depth level. Fail-soft: no
+# plans_dir / no slug → no output.
+mentor_plan_descendants() {
+  local plans_dir="${1:-}" slug="${2:-}" frontier next d child_slug p seen
+  [ -n "$plans_dir" ] && [ -n "$slug" ] || return 0
+  frontier="$slug"
+  seen=" ${slug} "
+  while [ -n "$frontier" ]; do
+    next=""
+    for d in "${plans_dir}"/*/; do
+      [ -d "$d" ] || continue
+      d="${d%/}"
+      child_slug="$(basename "$d")"
+      case "$seen" in *" ${child_slug} "*) continue ;; esac
+      p="$(mentor_plan_parent "$d")"
+      [ -n "$p" ] || continue
+      case " ${frontier} " in
+        *" ${p} "*)
+          echo "$child_slug"
+          next="${next} ${child_slug}"
+          seen="${seen}${child_slug} "
+          ;;
+      esac
+    done
+    frontier="${next# }"
+  done
   return 0
 }
 
@@ -903,24 +993,26 @@ mentor_plan_effective_state() {
 
 # mentor_plan_state_write <plan_dir> [--state S] [--group G] [--order N] [--note "…"]
 #   [--deps a,b] [--origin deferred|""] [--owner W] [--owner-session S]
-#   [--priority P|""] [--category C|""] [--deferred-from S] — upsert the sidecar
-#   (create-then-set: most plans have no sidecar yet).
+#   [--priority P|""] [--category C|""] [--deferred-from S] [--parent S|""] —
+#   upsert the sidecar (create-then-set: most plans have no sidecar yet).
 #
 # Flag-style since v2.17.0 (was fixed positional <state> <group> <order> <note>) so a
 # write that only touches one or two fields — set-deps, claim, approve-plan's
 # promotion — doesn't have to thread every other field through by hand.
 #
 # AN OMITTED FLAG PRESERVES THE EXISTING STORED VALUE for --state/--group/--order/
-# --deps/--origin/--owner/--owner-session/--priority/--category/--deferred-from.
-# This is what lets `deps`/`origin`/`owner`/`priority`/`category`/`deferred_from`
-# survive every state transition: approve-plan's promotion write passes only
-# `--state approved` and every one of those fields rides through untouched, instead
-# of getting clobbered back to defaults the way a mandatory-positional write would.
-# In particular, `set` never passes --owner, --priority, --category, or
-# --deferred-from, so it never touches ownership, the impact tier, the work kind, or
-# the source plan — only ensure-dir/init/claim stamp ownership, only init/
-# set-priority write the tier, only init/set-category write the category, and only
-# init writes deferred_from (no set-deferred-from subcommand exists — see plan-state.sh).
+# --deps/--origin/--owner/--owner-session/--priority/--category/--deferred-from/
+# --parent. This is what lets `deps`/`origin`/`owner`/`priority`/`category`/
+# `deferred_from`/`parent` survive every state transition: approve-plan's promotion
+# write passes only `--state approved` and every one of those fields rides through
+# untouched, instead of getting clobbered back to defaults the way a
+# mandatory-positional write would.
+# In particular, `set` never passes --owner, --priority, --category,
+# --deferred-from, or --parent, so it never touches ownership, the impact tier, the
+# work kind, the source plan, or the containing plan — only ensure-dir/init/claim
+# stamp ownership, only init/set-priority write the tier, only init/set-category
+# write the category, only init writes deferred_from (no set-deferred-from
+# subcommand exists), and only init/set-parent write parent — see plan-state.sh.
 #
 # --note is the ONE exception to "omitted preserves": it is ALWAYS replaced with
 # whatever was passed (empty when the flag is omitted) — unchanged from before the
@@ -929,18 +1021,23 @@ mentor_plan_effective_state() {
 # must re-pass it, the same way `init` already reads it back before writing.
 #
 # Passing a flag with an EXPLICIT EMPTY VALUE clears that field (group/order/origin/
-# owner/owner_session/priority/category/deferred_from → null, deps → []) rather than
-# preserving it — this is how `claim` clears origin (`--origin ""`) without touching
-# anything else, how a caller can deliberately release ownership (`--owner ""`), and
-# how `set-priority <slug> ""` un-tiers a plan (`set-category <slug> ""` mirrors it
-# for category). --state cannot be cleared this way: an empty/invalid --state is
+# owner/owner_session/priority/category/deferred_from/parent → null, deps → [])
+# rather than preserving it — this is how `claim` clears origin (`--origin ""`)
+# without touching anything else, how a caller can deliberately release ownership
+# (`--owner ""`), how `set-priority <slug> ""` un-tiers a plan (`set-category <slug>
+# ""` mirrors it for category), and how `set-parent <slug> ""` detaches a plan from
+# its parent. --state cannot be cleared this way: an empty/invalid --state is
 # rejected outright (fail-soft: no write), same as before. --origin only accepts
 # "deferred" or "" (clear), --priority only a MENTOR_PLAN_PRIORITIES value or ""
 # (clear), and --category only a MENTOR_PLAN_CATEGORIES value or "" (clear); anything
 # else is also rejected, whole write and all — a rejected --priority/--category must
-# not leave a half-applied write behind that looks like it worked. --deferred-from is
-# UNVALIDATED (like `deps` targets — the source plan may not exist, or may be deleted
-# later; that dangle is resolved at render time, not here).
+# not leave a half-applied write behind that looks like it worked. --deferred-from
+# and --parent are BOTH UNVALIDATED AT THIS LAYER (like `deps` targets) — the source/
+# parent plan may not exist, or may be deleted later; that dangle is resolved at
+# render time, not here. --parent's existence + cycle validation happens one layer
+# up, in plan-state.sh's `init --parent`/`set-parent`, via mentor_plan_would_cycle_parent
+# — it needs the WHOLE plans_dir to walk the graph, which this single-plan-dir
+# function never has.
 #
 # jq has no in-place edit, so this is tmp-file + mv. A torn write leaves the sidecar
 # unreadable, which reads back as "unknown" — recoverable, because a split child's
@@ -963,6 +1060,7 @@ mentor_plan_state_write() {
   local priority="" priority_set=0
   local category="" category_set=0
   local deferred_from="" deferred_from_set=0
+  local parent="" parent_set=0
   local f tmp deps_json
   while [ "$#" -gt 0 ]; do
     case "$1" in
@@ -981,6 +1079,7 @@ mentor_plan_state_write() {
                 category="${2:-}"; category_set=1; shift; if [ "$#" -gt 0 ]; then shift; fi ;;
       --deferred-from)
                 deferred_from="${2:-}"; deferred_from_set=1; shift; if [ "$#" -gt 0 ]; then shift; fi ;;
+      --parent) parent="${2:-}"; parent_set=1; shift; if [ "$#" -gt 0 ]; then shift; fi ;;
       *) shift ;;   # fail-soft: an unrecognized flag is ignored, never aborts a caller
     esac
   done
@@ -1011,7 +1110,8 @@ mentor_plan_state_write() {
         --arg owner_session "$owner_session" --argjson owner_session_set "$owner_session_set" \
         --arg priority "$priority" --argjson priority_set "$priority_set" \
         --arg category "$category" --argjson category_set "$category_set" \
-        --arg deferred_from "$deferred_from" --argjson deferred_from_set "$deferred_from_set" '
+        --arg deferred_from "$deferred_from" --argjson deferred_from_set "$deferred_from_set" \
+        --arg parent "$parent" --argjson parent_set "$parent_set" '
         {
           state: (if $state_set == 1 then $state else (.state // null) end),
           group: (if $group_set == 1 then (if $group == "" then null else $group end) else (.group // null) end),
@@ -1023,7 +1123,8 @@ mentor_plan_state_write() {
           owner_session: (if $owner_session_set == 1 then (if $owner_session == "" then null else $owner_session end) else (.owner_session // null) end),
           priority: (if $priority_set == 1 then (if $priority == "" then null else $priority end) else (.priority // null) end),
           category: (if $category_set == 1 then (if $category == "" then null else $category end) else (.category // null) end),
-          deferred_from: (if $deferred_from_set == 1 then (if $deferred_from == "" then null else $deferred_from end) else (.deferred_from // null) end)
+          deferred_from: (if $deferred_from_set == 1 then (if $deferred_from == "" then null else $deferred_from end) else (.deferred_from // null) end),
+          parent: (if $parent_set == 1 then (if $parent == "" then null else $parent end) else (.parent // null) end)
         }' "$f" > "$tmp" 2>/dev/null; then
     mv -f "$tmp" "$f" 2>/dev/null || rm -f "$tmp" 2>/dev/null || true
   else

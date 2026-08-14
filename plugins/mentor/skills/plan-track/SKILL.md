@@ -1,18 +1,7 @@
 ---
 name: plan-track
 description: |
-  Show the repo-wide remaining-work hierarchy — every mentor plan's lifecycle state,
-  its step progress, cross-plan deps, deferred /mentor:defer stubs, and live handoffs —
-  then build the next unbuilt plan. Backs /mentor:track. Use whenever the user asks
-  what plans exist, what's remaining, what's left to build, remaining tasks, which plan
-  is next, whether a plan is already implemented, or asks to implement / pick up /
-  retry a plan by name or number — especially after /plan-split, or after
-  /mentor:defer has stashed stubs to survey. Reads each plan's lifecycle state, refuses
-  to start when context is too large, warns (never blocks) on unmet deps, routes a
-  deferred stub to /mentor:plan for claiming instead of building it directly, and
-  executes via mentor:dispatch-agents.
-  About build status, not authoring a new request (/mentor:plan), capturing mid-flow
-  work (/mentor:defer), or judging plan quality (/plan-review).
+  Show the repo-wide remaining-work hierarchy — plan lifecycle states, step progress, deps, fix children rolled up under their root with open-descendant counts, deferred stubs, live handoffs — then build the next unbuilt plan. Backs /mentor:track. Use when asked what plans exist, what's left, which plan is next, whether a plan is already implemented or REALLY done (open fixes), "any task left for <plan>", or to implement/pick up/retry a plan generically — an unnamed "what's next" survey, /plan-split with no group named, or /mentor:defer stubs to survey. Reads lifecycle state, refuses when context is too large, warns (never blocks) on unmet deps and a root done with open descendants, routes a deferred stub to /mentor:plan, executes via mentor:dispatch-agents. Inventory and roll-up only — not authoring a request (/mentor:plan), capturing mid-flow work (/mentor:defer), draining a named root's fixes or a named split group's siblings in order (/mentor:resume), or judging plan quality (/plan-review).
 ---
 
 # Plan Track — What's Built, What's Next, Build It
@@ -30,6 +19,7 @@ honest on their own.
 
 - "What plans do I have?" / "what's left?" / "which one is next?" / "did we finish X?"
 - "Implement the next plan" / "pick up plan 2" / "retry the one that failed."
+- "Is X really done?" / "any fixes still open under X?" / "any task left for X?"
 - Any fresh session continuing a `/plan-split` group.
 
 ## When NOT to use
@@ -43,7 +33,8 @@ honest on their own.
 - **Resuming a *session* from a handoff note** — that is `/mentor:resume`. Handoff
   notes carry conversation context; this skill carries plan state. If the user wants
   "where were we", they want `/mentor:resume`; if they want "what's built", they want
-  this.
+  this. Draining a root's open fix children in order is also `/mentor:resume <root>`'s
+  job, not this skill's — here you only ever see the count and the warn.
 - **Adopting a plan authored outside mentor** — native plan mode, a colleague's doc.
   It has no state record and no dispatch annotations, so there is nothing here to
   list or execute. Re-run `/mentor:plan` with that plan pasted as the task statement;
@@ -135,9 +126,9 @@ what Step 2's ordinal selection resolves against:
      └ goal: `claim_order()` in `plugins/loom/scripts/automate/daily-run.sh` orders…
 ```
 
-Per plan entry: `<glyph> [<tier>] [<cat>] <slug>   <state>[ (deferred[, from: <slug>[ (missing)]])]
-[(<ticked>/<total> steps)][ — deps: <a>[, <b> (missing)]]`, with an optional `     └ goal: <text>`
-subline beneath a deferred entry.
+Per plan entry: `<glyph> [<tier>] [<cat>] <slug>   <state>[ (fix child)][ (deferred[, from: <slug>[ (missing)]])]
+[(<ticked>/<total> steps)][ — deps: <a>[, <b> (missing)]][ — N open descendant(s)]`, with an optional
+`     └ goal: <text>` subline beneath a deferred entry.
 
 - the **tier tag** carries the entry's `priority` — one of `critical`, `high`, `medium`, `low`,
   `noise`, abbreviated to fit one padded column (`crit`/`high`/`med`/`low`/`noise`). An entry whose
@@ -162,6 +153,11 @@ subline beneath a deferred entry.
   index into by ordinal.
 - `(deferred)` only when `origin == "deferred"` — the tag that marks an unclaimed `/mentor:defer`
   stub, so it is never mistaken for a plan someone drafted by hand and left in `draft`.
+- `(fix child)` only when `parent` is set — a structural fact read straight from `parent`, never
+  to be confused with the bracketed `[fix]` *category* tag above (a manual judgment on what kind
+  of work this is, set by `set-category`). Comma-joins the parenthetical when `(deferred)` also
+  applies — `(fix child, deferred)` is an unclaimed parked stub; `(fix child)` alone is a claimed
+  fix already being built in its own right.
 - `from: <slug>` joins that parenthetical on a deferred entry whose `deferred_from` is set — e.g.
   `(deferred, from: loom-automation)` — resolved against the same `overview --json` array already
   in hand (never a filesystem probe). When the slug matches **no entry in that same output**, render
@@ -170,6 +166,13 @@ subline beneath a deferred entry.
 - step counts only when `steps.total > 0`.
 - the `deps` clause only when `deps` is non-empty; a dep entry with `missing: true` gets
   ` (missing)` appended — named as a dependency, but no such plan dir exists yet.
+- the `— N open descendant(s)` clause only on a **true root** — an entry with no `parent` of its
+  own — and only when N > 0; an internal fix's own count would just repeat what the next line
+  down already shows. Get N (and the list, when asked) from `plan-state.sh subtree <root-slug>`,
+  never a hand-rolled walk — "open" is that command's own definition (effective state ∉
+  `implemented`/`superseded`), not one to re-derive here. A dangling `parent` (matches no entry in
+  this same `overview --json` output) falls the entry back to the top level with `(parent: <slug>
+  missing)` appended — parity with the `deps` and `from:` missing markers above.
 - ` [worktree: <id>]` appended when the entry's `owner` (an additive field on every `overview
   --json` plan entry, v2.23.0) is set AND differs from the worktree you're running in. Derive
   your own id once, before rendering, by reusing the same helper the hooks use rather than
@@ -193,6 +196,42 @@ subline beneath a deferred entry.
 Split-group siblings (`group` set) stay contiguous, ordered by `order`; on the group's first
 sibling, print a one-line header `▸ group: <group-slug>` and indent the members two spaces under
 it — same grouping `list` sorted by, just rendered instead of tabulated.
+
+### Fix children nest under their parent, not the top level
+
+Walk `overview --json`'s `parent` field exactly as the paragraph above walks `group`: an entry
+with `parent` set never renders at the top level, but directly beneath its parent's line, indented
+two spaces deeper than it — recursively, so a fix parked under a fix (a grandchild of the root)
+sits two spaces deeper again, however far the chain runs. This composes with the group block: a
+split sibling with its own parked fix nests the fix one level deeper under the sibling's own line,
+inside the `▸ group:` block.
+
+A worked example, three levels deep — `fix-retry-loop`'s `parent` is `fix-auth-timeout`, whose own
+`parent` is `root-plan`; the chain, never physical nesting on disk, produces the indent:
+
+```
+1. ⚠ ● root-plan              implemented — not really done, 2 open descendant(s)
+  2. ○   fix-auth-timeout       draft (fix child, deferred)
+    3. ○   fix-retry-loop         draft (fix child, deferred)
+4. ○ [noise] other-stub        draft (deferred)
+```
+
+`root-plan` carries the roll-up because it has no `parent` of its own; neither fix line repeats
+it. A root whose own effective state already reads `implemented` while `subtree` still reports
+open descendants — the CLI's warn on `set … implemented` fired once at write time, but nothing
+re-checks it later — surfaces the same warning here: prefix the line `⚠ ` and swap the tail to
+`— not really done, N open descendant(s)`, exactly as `root-plan` does above.
+
+Numbering stays depth-first and still actionable-entries-only, exactly like the group block: a
+root's fixes number immediately after it and before the next top-level entry, so Step 2's ordinal
+selection resolves against fix children exactly as it does everything else in this render.
+
+`deps`, `group`/`order`, and `parent` are three separate axes and this render never blurs them:
+`deps` means "should happen before, elsewhere" (the `— deps:` clause); `group`/`order` means
+"sibling of a split, same rank" (the `▸ group:` header); `parent` means "must close before its
+container reads done" (tree position, the root's count, and the warn). Draining a root's open
+descendants in order is `/mentor:resume <root>`'s job, not this skill's — it walks the same
+subtree; here you only ever see the count and the warn.
 
 `kind: "no_plan_topic"` entries use `▷` and the literal state text `no plan yet`, followed by their
 `handoff:` line(s) — a topic that only has conversation history, never a plan.
@@ -304,9 +343,12 @@ and `mentor:resuming` Step 4 owns that recovery on the user's explicit ask. Neve
 "deferred"` (same `overview --json`), it is an unclaimed `/mentor:defer` stub — a
 Goal/Context/Why-deferred skeleton, not a plan ready to build. Say so, then point the user at
 `/mentor:plan <the stub's slug or its Goal>` to flesh it out — that skill runs `claim` on the stub
-when it does, clearing `origin` so the normal approval sweep can pick it up afterward. Do not act
-on the table below for a deferred stub, and do not offer to build it directly — that is exactly
-the shortcut the `origin` shield exists to prevent.
+when it does, clearing `origin` so the normal approval sweep can pick it up afterward. The same
+path covers a fix child (`parent` set) picked here while still unclaimed — nothing new to route:
+`claim` preserves `parent` alongside `origin`, so the fix stays linked to its root through its own
+plan → approve → build cycle once `/mentor:plan` claims it. Do not act on the table below for a
+deferred stub, and do not offer to build it directly — that is exactly the shortcut the `origin`
+shield exists to prevent.
 
 **A live planning session short-circuits it too, whatever the state — but which token comes back
 changes what's actually blocked.** Check the gate before acting on the table:
@@ -496,6 +538,8 @@ implementation pass has left little room for another.
   check, whichever path the user reached it by.
 - Unmet deps on the selected plan were surfaced with a recommended order — and never used to
   block the user who chose to proceed anyway.
+- A root marked `implemented` with open descendants still surfaced the warn here, not just at
+  write time.
 - The plan that ran ended at `implemented` or at `failed` with a note.
 
 ### Do NOT

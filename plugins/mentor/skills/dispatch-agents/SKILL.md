@@ -57,7 +57,8 @@ Annotate that framework's phase with the grammar below and execute — every `pl
 mechanic here (approved-plan read, ✅ ticks, `plan-state.sh`, the gate, `## Verification`
 dispatch) has no counterpart and is skipped, and `/mentor:defer` redirects: a follow-up
 belonging to that framework's backlog goes there, not into a mentor stub (repo work
-outside its scope still defers normally). Three rules hold on this path:
+outside its scope still defers normally, routed by the blocking test below). Three
+rules hold on this path:
 
 - Copy `Goal:`/`Done when:` **verbatim from the task's own text** and verify the
   delivery against that text — your brief is a lossy transcription of it. You self-grade
@@ -230,12 +231,18 @@ The point of SDD: quality through narrow focus, and a lean main thread.
   in the runtime stops them, and a chain they spawn is invisible to you and
   outlives your close-out. Size each step so one agent completes it alone; the
   contract block below is what actually holds the line.
-- **Work discovered mid-flight is captured, not lost.** If the orchestrator or a
-  dispatched agent notices real work outside the current step's scope, capture it with
-  `/mentor:defer` (one item or several) and keep going — never leave it as an aside in
-  a chat message that disappears at session end. Eligibility follows the scope rule —
-  work to build, never a check to run: a check on the current plan's own work is never
-  a stub, only a confirmed defect's fix is.
+- **Work discovered mid-flight is captured, not lost — route it by the blocking test.**
+  If the orchestrator or a dispatched agent notices real work outside the current step's
+  scope, ask: **would the root plan's Verification fail, or a `Done when:` stay unmet, if
+  this work is left undone?** Yes (blocking) → `/mentor:defer`'s parent-aware branch: the
+  stub's sidecar gets `parent` = the active plan's slug, nesting for free when that plan
+  is itself a fix child. No (backlog) → plain `/mentor:defer`, unchanged. Ambiguous → one
+  self-contained question to the user at capture time. A blocking fix parked without its
+  parent link lets the root read `implemented` while its fixes dangle — the failure this
+  routing prevents. Capture either way and keep going — never leave it as an aside in a
+  chat message that disappears at session end. Eligibility still follows the scope rule —
+  work to build, never a check to run: a check on the current plan's own work is never a
+  stub, only a confirmed defect's fix is.
 
 ## Per-step output shape
 
@@ -382,7 +389,7 @@ before issuing `Agent` calls. Then:
      before *nudging* on idle — that path has no id-rejection safety net at all).
    - **Offer `/mentor:tour`** — one line: a hands-on acceptance pass building an editable guided-tour review artifact (pass/not-pass scenarios) of what shipped. Do not auto-run it.
    - **Sweep the report you're about to write** — every follow-up, gap, or known-broken
-     item in it goes through `/mentor:defer` first (orchestrator contract above), scoped
+     item in it goes through `/mentor:defer`, routed by the blocking test above, scoped
      to work to build, never a check to run: an unresolved verification topic or an
      unverified claim is never a stub — it's `set <slug> failed --note` on the plan;
      only a confirmed defect's fix still defers.
@@ -454,14 +461,18 @@ Step 1 instead. A verification round moves the plan with `set`.
   runs when the session is often largest). **Remediate**: one dispatch by the file's
   implementation role; a skipped plan assigned none, so pick one the normal way
   ("Choosing `role`" above) — the skip covered the original edits, not their repair.
-  Then a **fresh** verifier for that topic; a second failure escalates to the user and
-  sets `failed` (the one-retry contract above). **Hand off**: set `failed` with the
-  unresolved topics as its note, then `mentor:handoff-note` with the verifier reports,
-  then stop — `handoff-note` writes no plan state, so an all-ticked plan would read
-  `implemented` to the next session. A deferred/accepted gap exits the loop — "deferred"
-  here can only mean the confirmed gap's **fix**, never the verification topic itself,
-  which instead exits via `failed --note`; concurrent remediations run **sequentially,
-  never in parallel** — parallel fixes on shared files race.
+  Then a **fresh** verifier for that topic; a second failure escalates to the user —
+  offer **park as a fix child under this plan** per the blocking test above, alongside
+  `Hand off` below — and sets `failed` (the one-retry contract above). **Hand off**: set
+  `failed` with the unresolved topics as its note, then `mentor:handoff-note` with the
+  verifier reports, then stop — `handoff-note` writes no plan state, so an all-ticked
+  plan would read `implemented` to the next session. A deferred/accepted gap exits the
+  loop — "deferred" here can only mean the confirmed gap's **fix**, captured via the
+  blocking branch above (`parent` = the active plan's slug, nesting when that plan is
+  itself a fix child) since a verification gap by definition leaves a `Done when:`
+  unmet — never the verification topic itself, which instead exits via `failed --note`;
+  concurrent remediations run **sequentially, never in parallel** — parallel fixes on
+  shared files race.
 - **No escape hatch.** Runs even when the plan opened `Dispatch: skipped`. One allowance
   (**lite verify**): a skipped plan with ≤2 topics may dispatch **one combined fresh
   verifier** carrying both — independence holds, only the fan-out relaxes. `implemented`

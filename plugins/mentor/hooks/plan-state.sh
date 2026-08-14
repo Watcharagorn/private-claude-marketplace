@@ -37,8 +37,32 @@
 #                    computed ONLY for entries whose `origin` is "deferred", so an
 #                    ordinary plan never pays the extra file read.
 #
+# v2.29.0: one more sidecar field for PARKING blocking work under the plan that must
+# finish first, plus a derived `overview` roll-up query — recursively, so a fix
+# discovered while building a fix nests arbitrarily deep:
+#   `parent`         the slug of the plan THIS one must complete before, or null —
+#                     UNLIKE `deferred_from` (informational only), existence AND
+#                     cycle are validated AT WRITE TIME (a nonexistent parent slug is
+#                     a usage error; a cycle — self-parent or transitive, mirroring
+#                     the existing `deps[]` cycle refusal — is refused fail-soft, no
+#                     write). Written by `init --parent` and `set-parent`; read back
+#                     on every `overview --json` plan entry and as a new PARENT
+#                     column in `list --parent`. A dangling parent (the target dir
+#                     later renamed/removed) is a render-time concern for the
+#                     consumer, same pattern `deferred_from` already uses — this
+#                     script never re-validates a parent that was valid when set.
+#   `subtree <slug>` (new subcommand, not a stored field) every TRANSITIVE
+#                     descendant of <slug> via `parent` chains, indented by depth,
+#                     each with its effective state and an open/closed verdict
+#                     ("open" = effective state NOT in {implemented, superseded}),
+#                     plus a trailing open-descendant count. Powers the soft warn
+#                     below and the roll-up `/mentor:track`/`/mentor:resume` read.
+#   `set <slug> implemented` now prints `WARN: N open descendant(s)` (plus the list,
+#                     to stderr) when `<slug>` has open descendants — SOFT only, the
+#                     write still succeeds; there is no hard completion gate.
+#
 #   init <slug> [--group G] [--order N] [--deps a,b] [--deferred] [--priority P]
-#        [--category C] [--from S]
+#        [--category C] [--from S] [--parent S]
 #       Create the sidecar as `draft`. Idempotent and never LOWERS an existing
 #       state — re-running it on an approved plan keeps it approved. --deps sets the
 #       initial dependency slugs (cycle-checked, same as set-deps); --deferred marks
@@ -47,7 +71,10 @@
 #       impact tier (same closed vocabulary as set-deps' sibling `set-priority`);
 #       --category sets the initial work kind (closed vocabulary, sibling
 #       `set-category`); --from stamps `deferred_from` — the plan slug this stub was
-#       captured out of (unvalidated pass-through, like a `deps` target).
+#       captured out of (unvalidated pass-through, like a `deps` target); --parent
+#       stamps the containing plan (existence + cycle validated — see set-parent
+#       below; on a validation failure the parent is silently NOT set and every
+#       other flag still applies, same as a rejected --deps).
 #
 #   set <slug> <state> [--note "…"]
 #       Upsert (create-then-set): most plans predate the sidecar. <state> is one of
@@ -81,11 +108,23 @@
 #       note above. An invalid value is a usage error (exit 1, no write). Its own
 #       subcommand for the same reason set-priority is one.
 #
+#   set-parent <slug> <parent-slug|"">
+#       Set <slug>'s `parent` — the plan <slug> must complete before; an EMPTY string
+#       clears it back to unset (null), detaching <slug> from its container. UNLIKE
+#       set-priority/set-category (closed-vocabulary, hard usage error on a bad
+#       value), parent validation is a GRAPH condition the caller could not have
+#       known locally — so it mirrors set-deps exactly: existence (<parent-slug> must
+#       already be a real plan dir) and cycle (self-parent, or <parent-slug> already
+#       a descendant of <slug> — the two-node/N-node case) are BOTH fail-soft,
+#       stderr warning, no write. Its own subcommand for the same reason
+#       set-priority/set-category are one.
+#
 #   claim <slug>
 #       Clear `origin` — used when a deferred stub (born via /mentor:defer) enters
 #       real planning, so approve-plan's promotion sweep can promote it like any plan.
-#       Keeps `category`/`priority`/`deferred_from` — a claimed stub's triage history
-#       stays readable.
+#       Keeps `category`/`priority`/`deferred_from`/`parent` — a claimed stub's
+#       triage history AND its containing plan stay intact; a claimed fix must never
+#       silently detach from its root.
 #
 #   tick <slug> <N>
 #       Append ✅ to the Nth step line in plan.md's `## Implementation steps` section
@@ -95,14 +134,28 @@
 #       fails loud, no write. Needs no jq: unlike every other subcommand here this
 #       edits plan.md directly, not the JSON sidecar.
 #
-#   list [--group G] [--owners]
+#   subtree <slug>
+#       Every TRANSITIVE descendant of <slug> via `parent` chains (children,
+#       grandchildren, …), indented by depth, each with its EFFECTIVE state and an
+#       open/closed verdict (open = effective state NOT in {implemented,
+#       superseded}), plus a trailing open-descendant count. Read-only — the ONE
+#       query `/mentor:track`'s roll-up, `/mentor:resume`'s drain, and `set …
+#       implemented`'s soft warn (below) all build on.
+#
+#   list [--group G] [--owners] [--parent]
 #       One row per plan: ordinal, EFFECTIVE state, slug, group, order — and, with
-#       --owners, a 6th OWNER column (the wt-id from the sidecar, "-" when unowned).
+#       --owners, a 6th OWNER column (the wt-id from the sidecar, "-" when unowned);
+#       --parent adds its own column (the sidecar `parent` slug, "-" when absent) —
+#       the two flags compose (both columns appear together when both are passed).
 #       Grouped, ordered within a group, `superseded` and `unknown` last. The default
-#       (no --owners) 5-column shape is byte-compatible with pre-2.23.0 output.
-#       Deliberately carries NO priority column, in either shape: `overview --json` is
-#       what every rendering skill reads, and a third column layout here would buy a
-#       table nothing consumes at the cost of the byte-compatibility promise above.
+#       (no --owners, no --parent) 5-column shape is byte-compatible with pre-2.23.0
+#       output — both extra columns are opt-in for exactly that reason. Deliberately
+#       carries NO priority column, in any shape: `overview --json` is what every
+#       rendering skill reads, and a column here would buy a table nothing consumes
+#       at the cost of the byte-compatibility promise above. `--parent` earns its own
+#       flag anyway (unlike priority) because the tree it exposes is this
+#       plan-state.sh's OWN new completion-tracking concern (`subtree`, the soft
+#       warn), not something only a rendering skill cares about.
 #
 #   current [--any]
 #       The plan a bare "review the plan" means, scoped to plans OWNED by THIS
@@ -115,17 +168,19 @@
 #   overview --json
 #       Repo-wide JSON array (--json is required — there is no human-table mode): one
 #       object per plan dir with a plan.md (slug, effective state, group, order,
-#       priority, category, deferred_from, deps — each marked missing when no such
-#       plan dir exists, origin, live handoffs, ticked/total step counts, goal), plus
-#       topic dirs that hold live handoffs but no plan.md yet (state "no plan yet")
-#       and the legacy flat handoffs/ dir (topic-less). `priority`/`category`/
-#       `deferred_from`/`goal` are null on every entry that has none, including both
-#       non-plan kinds, so a consumer never has to branch on kind to read them. `goal`
-#       is the ONLY one of these NOT stored in the sidecar — it is derived, per call,
-#       from the `## Goal` section of a `origin: "deferred"` entry's own plan.md (see
-#       lib/state.sh's mentor_plan_goal_line), reflowed to one line and
-#       word-boundary-truncated; null for every non-deferred entry. Computed fresh
-#       every call — nothing is cached.
+#       priority, category, deferred_from, parent, deps — each marked missing when no
+#       such plan dir exists, origin, live handoffs, ticked/total step counts, goal),
+#       plus topic dirs that hold live handoffs but no plan.md yet (state "no plan
+#       yet") and the legacy flat handoffs/ dir (topic-less). `priority`/`category`/
+#       `deferred_from`/`parent`/`goal` are null on every entry that has none,
+#       including both non-plan kinds, so a consumer never has to branch on kind to
+#       read them. `goal` is the ONLY one of these NOT stored in the sidecar — it is
+#       derived, per call, from the `## Goal` section of a `origin: "deferred"`
+#       entry's own plan.md (see lib/state.sh's mentor_plan_goal_line), reflowed to
+#       one line and word-boundary-truncated; null for every non-deferred entry.
+#       Computed fresh every call — nothing is cached. Consumers build the parent
+#       TREE from this array's `parent` field exactly as they already build `group`
+#       blocks from `group`/`order` — same pattern, no new machinery.
 #
 #   context
 #       CONTEXT: ASK|HANDOFF|WARN|OK|UNKNOWN (~N tokens), plus the handoff/compact
@@ -222,22 +277,32 @@ usage() {
   cat <<'EOF'
 Usage: plan-state.sh <subcommand>
   init <slug> [--group G] [--order N] [--deps a,b] [--deferred] [--priority P]
-       [--category C] [--from S]        create the sidecar as draft (idempotent)
-  set <slug> <state> [--note "…"]       state: draft|approved|in_progress|implemented|failed|superseded
+       [--category C] [--from S] [--parent S]
+                                         create the sidecar as draft (idempotent)
+  set <slug> <state> [--note "…"]       state: draft|approved|in_progress|implemented|failed|superseded;
+                                         `implemented` with open descendants prints a soft
+                                         WARN (the write still succeeds — see subtree)
   set-deps <slug> a,b                   replace deps wholesale (cycle-checked, fail-soft)
   set-priority <slug> <P>               impact tier: critical|high|medium|low|noise ("" clears)
   set-category <slug> <C>               work kind: feature|fix|refactor|docs|tooling ("" clears)
+  set-parent <slug> <P>                 set the containing plan (existence + cycle checked,
+                                         fail-soft — mirrors set-deps; "" clears)
   claim <slug>                          clear origin (a deferred stub enters real planning);
-                                         keeps category/priority/deferred_from
+                                         keeps category/priority/deferred_from/parent
   tick <slug> <N>                       append ✅ to step N in plan.md (idempotent, fails loud)
   verify <slug>                         plan.md structural checks (fence balance, table pipe-count,
                                          Rev-note order) + a folded CONTEXT read, as CHECK: lines;
                                          exit 1 iff a structural check fails (context/Rev-order are
                                          informational only)
-  list [--group G] [--owners]           every plan with its effective state (--owners adds OWNER)
+  subtree <slug>                        every transitive descendant via parent chains, indented
+                                         by depth, with effective state + open/closed verdict,
+                                         plus a trailing open-descendant count
+  list [--group G] [--owners] [--parent]
+                                         every plan with its effective state (--owners adds OWNER,
+                                         --parent adds PARENT; both compose)
   current [--any]                       the current plan, owned-by-this-worktree scoped (group-aware);
                                          --any for a deliberate repo-wide read
-  overview --json                       repo-wide JSON: plans + priority/category/deferred_from +
+  overview --json                       repo-wide JSON: plans + priority/category/deferred_from/parent +
                                          deps + live handoffs + step counts + goal (deferred entries)
   context                               CONTEXT: ASK|HANDOFF|WARN|OK|UNKNOWN (~N tokens)
   dir [--plans]                         the repo-scoped mentor dir (or its plans dir)
@@ -248,7 +313,8 @@ Usage: plan-state.sh <subcommand>
   relocate <src-plan-dir>                copy a plan from a DIFFERENT repo's
                                          .mentor/plans/<slug> into THIS repo (run
                                          from the destination repo) and re-own it
-                                         here; never deletes the source
+                                         here; never deletes the source; warns (does
+                                         NOT copy) any children left in the source repo
   handoff-path <topic> <slug>           resolve/create <topic>'s private handoffs/ dir + gitignore,
                                          echo the timestamped note path (handoff-note Step 2)
   handoff-selfcheck <note-path>         supersede <topic>'s older notes into resolved/, print
@@ -443,8 +509,9 @@ if [ "$sub" = "relocate" ]; then
   chmod 700 "$rl_dst" 2>/dev/null || true
   # Fourth of the four owner-stamping sites (see this file's top-of-file v2.23.0
   # note): re-owns the copied sidecar to THIS worktree, same last-init-wins shape
-  # as `init` — preserves whatever state/category/priority/deps/deferred_from the
-  # copy carried over, only overwriting owner/owner_session.
+  # as `init` — preserves whatever state/category/priority/deps/deferred_from/parent
+  # the copy carried over (the `cp -R` above already copied `.state.json` byte for
+  # byte), only overwriting owner/owner_session.
   rl_existing="$(mentor_plan_state_stored "$rl_dst")"
   rl_write_args=(--state "${rl_existing:-draft}" --note "$(mentor_plan_state_field "$rl_dst" note)")
   if [ -n "$rl_wt_id" ]; then
@@ -453,13 +520,45 @@ if [ "$sub" = "relocate" ]; then
   mentor_plan_state_write "$rl_dst" "${rl_write_args[@]}"
   echo "[mentor plan-state] ${rl_slug}: relocated from ${rl_src_canon} → ${rl_dst}; re-owned to this worktree ($(mentor_plan_effective_state "$rl_dst"))."
   echo "[mentor plan-state] source NOT deleted — remove ${rl_src_canon} yourself once you've confirmed the copy."
+  # Pre-existing bug fixed in passing (discovered while verifying the v2.29.0
+  # children-warning added right below this): under this file's `set -euo pipefail`,
+  # `grep` finding ZERO matches — the COMMON case, whenever plan.md has no
+  # "Suggested first steps" section or none of its lines look like a path — exits
+  # 1, and `pipefail` propagates that through `head` to this bare assignment, which
+  # aborts the whole `relocate` under `set -e` before ever reaching the two
+  # WARNINGs (or the children check) below. Same class of pitfall the `verify`
+  # subcommand's own comment already documents and guards with `|| true` — applying
+  # the identical guard here, since this dead-ended `relocate` in exactly the case
+  # this line exists to warn about being ABSENT (a plan with nothing stale to flag).
   rl_stale_hits="$(awk '/^## Suggested first steps/{f=1;next} /^## /{f=0} f' "${rl_dst}/plan.md" 2>/dev/null \
-    | grep -noE '[[:alnum:]_.-]+/[[:alnum:]/_.-]+' | head -20)"
+    | grep -noE '[[:alnum:]_.-]+/[[:alnum:]/_.-]+' | head -20 || true)"
   if [ -n "$rl_stale_hits" ]; then
     echo "[mentor plan-state] WARNING: plan.md's Suggested first steps still names repo-relative paths that may be stale after this move:" >&2
     printf '%s\n' "$rl_stale_hits" | sed 's/^/  /' >&2
   fi
   echo "[mentor plan-state] WARNING: if the source repo's plan-gate marker is still armed for this plan, its gate will not protect edits made back there — check with 'plan-state.sh gate --verbose' in the source repo." >&2
+  # v2.29.0: `relocate` copies exactly ONE plan dir — it never walks the source
+  # repo's `parent` chains, so a fix parked under the slug being moved (parent ==
+  # rl_slug) is left behind at rl_src_parent, not brought along. Silently leaving
+  # that unsaid would read as "the whole subtree moved" when only the one plan did
+  # — surface it the same way the stale-paths check above does (informational,
+  # never fails the relocate). rl_src_parent is the SOURCE plans dir (set above,
+  # dirname of rl_src_canon) — not this plan's own `parent` field.
+  rl_children="$(for rl_sib in "${rl_src_parent}"/*/; do
+    [ -d "$rl_sib" ] || continue
+    rl_sib="${rl_sib%/}"
+    [ "$(basename "$rl_sib")" = "$rl_slug" ] && continue
+    if [ "$(mentor_plan_parent "$rl_sib")" = "$rl_slug" ]; then basename "$rl_sib"; fi
+  done; true)"   # trailing `true`: under `set -e` a bare assignment propagates the
+                 # substitution's exit status, and the loop's LAST iteration can
+                 # legitimately end on the false branch of the `if` above — `true`
+                 # keeps that from aborting the whole script (same class of pitfall
+                 # this file's own `tick_result="$(mentor_plan_tick_step …)"` comment
+                 # already calls out, just on a `for` loop instead of a function call).
+  if [ -n "$rl_children" ]; then
+    echo "[mentor plan-state] WARNING: ${rl_slug} has children still only in the SOURCE repo (parent = ${rl_slug}, at ${rl_src_parent}) — relocate does NOT bring a subtree, only the one plan dir. Relocate each one separately if you want the whole subtree here:" >&2
+    printf '%s\n' "$rl_children" | sed 's/^/  /' >&2
+  fi
   exit 0
 fi
 
@@ -693,7 +792,7 @@ if [ "$sub" = "gate" ]; then
 fi
 
 case "$sub" in
-  init|set|set-deps|set-priority|set-category|claim|tick|verify|list|current|overview) ;;
+  init|set|set-deps|set-priority|set-category|set-parent|claim|tick|verify|subtree|list|current|overview) ;;
   ""|-h|--help|help)
     usage
     [ -n "$sub" ] && exit 0
@@ -722,7 +821,7 @@ fi
 # _plan_walk [group-filter] — the ONE walk over plans_dir for every plan dir that has
 # a plan.md. Emits one tab-separated RAW record per line, unsorted:
 #   slug  state  group  order  owner  deps_json  origin  handoffs_json  ticked  total
-#   priority  category  deferred_from  goal
+#   priority  category  deferred_from  goal  parent
 # `owner` (v2.23.0, mentor_plan_owner) is the wt-id that minted or last re-owned the
 # plan dir, or "-" when unowned. `priority` (v2.24.0, mentor_plan_priority) is the
 # impact tier, or "-" when unset; it is APPENDED at the end rather than slotted beside
@@ -730,10 +829,11 @@ fi
 # tail into a single `_rest`, so a trailing field cannot disturb the byte-compatible
 # 5-column `list` output, while an inserted one would shift every field after it.
 # `category`/`deferred_from`/`goal` (v2.25.0, mentor_plan_category/
-# mentor_plan_deferred_from/mentor_plan_goal_line) follow the SAME append-only rule —
-# they are APPENDED LAST, after `priority`, never slotted in among the earlier
-# fields, for exactly the reason above: `list_rows`' `_rest` field-swallow only stays
-# safe when every new field lands at the tail. `category`/`deferred_from` read "-"
+# mentor_plan_deferred_from/mentor_plan_goal_line) and `parent` (v2.29.0,
+# mentor_plan_parent) all follow the SAME append-only rule — each is APPENDED LAST,
+# after whatever came before it, never slotted in among the earlier fields, for
+# exactly the reason above: `list_rows`' `_rest` field-swallow only stays safe when
+# every new field lands at the tail. `category`/`deferred_from`/`parent` read "-"
 # when unset, same convention as `priority`; `goal` is likewise "-" for every
 # non-deferred entry (see below). `deps_json`/`handoffs_json` are compact (`jq -c`)
 # single-line JSON — safe to sit in a tab field because compact jq output never
@@ -745,7 +845,7 @@ fi
 # decides what "every plan" means.
 _plan_walk() {
   local filter="${1:-}" d slug state group order owner origin deps_pairs deps_json
-  local handoffs_json ticked total dep miss priority category deferred_from goal
+  local handoffs_json ticked total dep miss priority category deferred_from goal parent
   for d in "${plans_dir}"/*/; do
     [ -d "$d" ] || continue
     d="${d%/}"
@@ -760,6 +860,7 @@ _plan_walk() {
     priority="$(mentor_plan_priority "$d")"
     category="$(mentor_plan_category "$d")"
     deferred_from="$(mentor_plan_deferred_from "$d")"
+    parent="$(mentor_plan_parent "$d")"
     goal=""
     # Gate: mentor_plan_goal_line re-reads plan.md, so it runs ONLY for entries
     # whose origin is "deferred" — every ordinary plan skips this file read
@@ -784,36 +885,48 @@ _plan_walk() {
     # IFS-whitespace read pitfall: a lone tab in IFS is still "IFS whitespace" to
     # bash's `read` — consecutive tabs COLLAPSE instead of producing an empty field,
     # so a genuinely-empty group/order/owner/origin/priority/category/deferred_from/
-    # goal would silently shift every field after it for whoever reads this line.
-    # Emit "-" for empty (matching print_table's own existing display convention) and
-    # never a raw empty string here; consumers translate "-" back to "" on read. This
-    # applies to the LAST field as much as the middle ones: `read` assigns an absent
-    # trailing field as empty anyway, so a bare "" there would be indistinguishable
-    # from a short record. `goal` can never itself carry a tab (mentor_plan_goal_line
-    # strips them), so it is safe to sit as a plain field here too.
-    printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' \
-      "$slug" "$state" "${group:--}" "${order:--}" "${owner:--}" "$deps_json" "${origin:--}" "$handoffs_json" "$ticked" "$total" "${priority:--}" "${category:--}" "${deferred_from:--}" "${goal:--}"
+    # goal/parent would silently shift every field after it for whoever reads this
+    # line. Emit "-" for empty (matching print_table's own existing display
+    # convention) and never a raw empty string here; consumers translate "-" back to
+    # "" on read. This applies to the LAST field as much as the middle ones: `read`
+    # assigns an absent trailing field as empty anyway, so a bare "" there would be
+    # indistinguishable from a short record. `goal` can never itself carry a tab
+    # (mentor_plan_goal_line strips them), so it is safe to sit as a plain field
+    # here too; `parent` is a plain slug (same shape as every other slug-typed
+    # sidecar field here), never containing a tab either.
+    printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' \
+      "$slug" "$state" "${group:--}" "${order:--}" "${owner:--}" "$deps_json" "${origin:--}" "$handoffs_json" "$ticked" "$total" "${priority:--}" "${category:--}" "${deferred_from:--}" "${goal:--}" "${parent:--}"
   done
 }
 
-# list_rows [group-filter] [with-owner] — the pre-v2.17.0 5-field row format,
-# byte-compatible: <sortkey> <slug> <effective state> <group> <order>, tab-separated
-# and sorted. Sort key: bucket (0 active / 1 superseded+unknown) | group (ungrouped
-# sorts on its own slug, so it neither splits a group nor clumps with one) |
-# zero-padded order | slug. Derived from _plan_walk's raw records — see that
-# function's comment for why this is no longer its own directory walk.
-# with-owner=1 appends a 6th tab field (owner wt-id, "-" when unowned) for `list
-# --owners` — the default (with-owner omitted/0) 5-field shape used by bare `list`
-# stays byte-identical either way, since the extra field is only ever emitted, never
-# read, unless a caller explicitly asks for it.
+# list_rows [group-filter] [with-owner] [with-parent] — the pre-v2.17.0 5-field row
+# format, byte-compatible: <sortkey> <slug> <effective state> <group> <order>,
+# tab-separated and sorted. Sort key: bucket (0 active / 1 superseded+unknown) |
+# group (ungrouped sorts on its own slug, so it neither splits a group nor clumps
+# with one) | zero-padded order | slug. Derived from _plan_walk's raw records — see
+# that function's comment for why this is no longer its own directory walk.
+# with-owner=1 appends a tab field (owner wt-id, "-" when unowned) for `list
+# --owners`; with-parent=1 (v2.29.0) appends a tab field (parent slug, "-" when
+# absent) for `list --parent` — the two compose (both flags together append BOTH,
+# owner then parent, in that fixed order) by building the line up with plain string
+# concatenation rather than a combinatorial printf per flag pair. The default (both
+# omitted/0) 5-field shape used by bare `list` stays byte-identical either way,
+# since an extra field is only ever emitted, never read, unless a caller explicitly
+# asks for it. `_rest`'s trailing field is `parent` (see _plan_walk's append-only
+# comment) — pulled out with a trailing-field parameter expansion rather than
+# widening this read to name every one of _plan_walk's tail fields, since this
+# function has never needed deps/handoffs/step-counts/priority/category/
+# deferred_from/goal and still doesn't.
 list_rows() {
-  local filter="${1:-}" with_owner="${2:-0}"
-  local slug state group order owner _rest bucket gkey okey
+  local filter="${1:-}" with_owner="${2:-0}" with_parent="${3:-0}"
+  local slug state group order owner _rest bucket gkey okey parent line
   while IFS="$(printf '\t')" read -r slug state group order owner _rest; do
     [ -n "$slug" ] || continue
     [ "$group" = "-" ] && group=""   # un-placeholder — see _plan_walk's comment
     [ "$order" = "-" ] && order=""
     [ "$owner" = "-" ] && owner=""
+    parent="${_rest##*$'\t'}"        # _plan_walk's LAST field — see comment above
+    [ "$parent" = "-" ] && parent=""
     case "$state" in
       superseded|unknown) bucket=1 ;;
       *)                  bucket=0 ;;
@@ -823,21 +936,28 @@ list_rows() {
       ''|*[!0-9]*) okey="999" ;;
       *)           okey="$(printf '%03d' "$order")" ;;
     esac
-    if [ "$with_owner" = "1" ]; then
-      printf '%s|%s|%s|%s\t%s\t%s\t%s\t%s\t%s\n' \
-        "$bucket" "$gkey" "$okey" "$slug" "$slug" "$state" "${group:--}" "${order:--}" "${owner:--}"
-    else
-      printf '%s|%s|%s|%s\t%s\t%s\t%s\t%s\n' \
-        "$bucket" "$gkey" "$okey" "$slug" "$slug" "$state" "${group:--}" "${order:--}"
-    fi
+    line="$(printf '%s|%s|%s|%s\t%s\t%s\t%s\t%s' "$bucket" "$gkey" "$okey" "$slug" "$slug" "$state" "${group:--}" "${order:--}")"
+    [ "$with_owner" = "1" ]  && line="$(printf '%s\t%s' "$line" "${owner:--}")"
+    [ "$with_parent" = "1" ] && line="$(printf '%s\t%s' "$line" "${parent:--}")"
+    printf '%s\n' "$line"
   done <<<"$(_plan_walk "$filter")" | LC_ALL=C sort -t"$(printf '\t')" -k1,1
 }
 
 print_table() {
-  local filter="${1:-}" with_owner="${2:-0}" rows i=0 key slug state group order owner
-  rows="$(list_rows "$filter" "$with_owner")"
+  local filter="${1:-}" with_owner="${2:-0}" with_parent="${3:-0}"
+  local rows i=0 key slug state group order owner parent
+  rows="$(list_rows "$filter" "$with_owner" "$with_parent")"
   if [ -z "$rows" ]; then
     return 1
+  fi
+  if [ "$with_owner" = "1" ] && [ "$with_parent" = "1" ]; then
+    printf '%-3s %-13s %-38s %-24s %-6s %-20s %s\n' "#" "STATE" "PLAN" "GROUP" "ORDER" "OWNER" "PARENT"
+    while IFS="$(printf '\t')" read -r key slug state group order owner parent; do
+      [ -n "$slug" ] || continue
+      i=$((i + 1))
+      printf '%-3s %-13s %-38s %-24s %-6s %-20s %s\n' "$i" "$state" "$slug" "$group" "$order" "$owner" "$parent"
+    done <<<"$rows"
+    return 0
   fi
   if [ "$with_owner" = "1" ]; then
     printf '%-3s %-13s %-38s %-24s %-6s %s\n' "#" "STATE" "PLAN" "GROUP" "ORDER" "OWNER"
@@ -845,6 +965,15 @@ print_table() {
       [ -n "$slug" ] || continue
       i=$((i + 1))
       printf '%-3s %-13s %-38s %-24s %-6s %s\n' "$i" "$state" "$slug" "$group" "$order" "$owner"
+    done <<<"$rows"
+    return 0
+  fi
+  if [ "$with_parent" = "1" ]; then
+    printf '%-3s %-13s %-38s %-24s %-6s %s\n' "#" "STATE" "PLAN" "GROUP" "ORDER" "PARENT"
+    while IFS="$(printf '\t')" read -r key slug state group order parent; do
+      [ -n "$slug" ] || continue
+      i=$((i + 1))
+      printf '%-3s %-13s %-38s %-24s %-6s %s\n' "$i" "$state" "$slug" "$group" "$order" "$parent"
     done <<<"$rows"
     return 0
   fi
@@ -979,10 +1108,46 @@ tick_reconciliation_reminder() {
   return 0
 }
 
+# _descendant_lines <slug> — one TAB-separated line per TRANSITIVE descendant of
+# <slug> (mentor_plan_descendants, lib/state.sh): <depth>\t<child-slug>\t<effective
+# state>\t<open|closed>. "open" = effective state NOT in {implemented, superseded}
+# — the plan's ONE definition of "open descendant"; `subtree`'s tree render and
+# `set … implemented`'s soft warn both draw from this SAME classification below so
+# the two can never drift apart. <depth> is 0 for a direct child of <slug>, 1 for a
+# grandchild, etc. — computed by walking each descendant's own parent chain back up
+# to <slug> (mentor_plan_parent, repeatedly); mentor_plan_descendants' own output
+# order is breadth-first but doesn't expose depth itself, so this is a second,
+# per-descendant walk on top of it. A visited-set guards that upward walk against a
+# torn/circular sidecar graph that already exists (should never happen given the
+# write-time cycle refusal), so this always terminates. No output for a <slug> with
+# no descendants.
+_descendant_lines() {
+  local for_slug="${1:-}" d state depth walk seen
+  [ -n "$for_slug" ] || return 0
+  while IFS= read -r d; do
+    [ -n "$d" ] || continue
+    state="$(mentor_plan_effective_state "${plans_dir}/${d}")"
+    depth=0
+    seen=" ${d} "
+    walk="$(mentor_plan_parent "${plans_dir}/${d}")"
+    while [ -n "$walk" ] && [ "$walk" != "$for_slug" ]; do
+      case "$seen" in *" ${walk} "*) break ;; esac
+      seen="${seen}${walk} "
+      depth=$((depth + 1))
+      walk="$(mentor_plan_parent "${plans_dir}/${walk}")"
+    done
+    case "$state" in
+      implemented|superseded) printf '%s\t%s\t%s\tclosed\n' "$depth" "$d" "$state" ;;
+      *)                      printf '%s\t%s\t%s\topen\n'   "$depth" "$d" "$state" ;;
+    esac
+  done <<<"$(mentor_plan_descendants "$plans_dir" "$for_slug")"
+  return 0
+}
+
 case "$sub" in
 
   init)
-    slug=""; group=""; order=""; deps=""; deferred=0; priority=""; category=""; from_slug=""
+    slug=""; group=""; order=""; deps=""; deferred=0; priority=""; category=""; from_slug=""; parent=""
     while [ "$#" -gt 0 ]; do
       case "$1" in
         # shift 1 then conditionally 1 more: a bare trailing `--group` must not
@@ -994,6 +1159,7 @@ case "$sub" in
         --priority) priority="${2:-}"; shift; if [ "$#" -gt 0 ]; then shift; fi ;;
         --category) category="${2:-}"; shift; if [ "$#" -gt 0 ]; then shift; fi ;;
         --from) from_slug="${2:-}"; shift; if [ "$#" -gt 0 ]; then shift; fi ;;
+        --parent) parent="${2:-}"; shift; if [ "$#" -gt 0 ]; then shift; fi ;;
         -*) echo "[mentor plan-state] init: unknown flag ${1}" >&2; usage >&2; exit 1 ;;
         *)  [ -z "$slug" ] && slug="$1" || { echo "[mentor plan-state] init: unexpected argument ${1}" >&2; exit 1; }; shift ;;
       esac
@@ -1003,13 +1169,14 @@ case "$sub" in
     # a usage error, not a fail-soft skip, so `init` can never report success having
     # quietly dropped the one field the caller passed it. (A `--deps` cycle stays
     # fail-soft by contrast: that is a graph condition the caller could not have known
-    # locally, not a misspelling. `--from` stays UNVALIDATED for the same reason
-    # `--deps` targets are — the source plan slug it names may not exist yet, or may
-    # be deleted later; that dangle is resolved at render time, not here.) An EMPTY
-    # --priority/--category is not an error and not a clear — init never clears
-    # anything; every other flag here preserves on empty the same way, and
-    # `set-priority`/`set-category <slug> ""` are the one paths that un-tier/
-    # un-categorize a plan.
+    # locally, not a misspelling — `--parent` mirrors deps for the same reason, see
+    # the existence+cycle block below, near --deps'. `--from` stays UNVALIDATED for
+    # the same reason `--deps` targets are — the source plan slug it names may not
+    # exist yet, or may be deleted later; that dangle is resolved at render time, not
+    # here.) An EMPTY --priority/--category is not an error and not a clear — init
+    # never clears anything; every other flag here preserves on empty the same way,
+    # and `set-priority`/`set-category <slug> ""` are the one paths that un-tier/
+    # un-categorize a plan (`set-parent <slug> ""` mirrors them for parent).
     if [ -n "$priority" ] && ! mentor_plan_priority_valid "$priority"; then
       echo "[mentor plan-state] init: invalid priority '${priority}'." >&2
       echo "Valid priorities: ${MENTOR_PLAN_PRIORITIES}  (or \"\" to leave unset)" >&2
@@ -1059,8 +1226,19 @@ case "$sub" in
       fi
     fi
     [ "$deferred" -eq 1 ] && write_args+=(--origin deferred)
+    parent_summary=""
+    if [ -n "$parent" ]; then
+      if [ ! -d "${plans_dir}/${parent}" ]; then
+        echo "[mentor plan-state] init: --parent '${parent}' does not exist — parent NOT set; other fields still applied. Run 'plan-state.sh list' to see the slugs that exist." >&2
+      elif [ -n "$(mentor_plan_would_cycle_parent "$plans_dir" "$slug" "$parent")" ]; then
+        echo "[mentor plan-state] init: --parent would create a parent cycle (${slug} → … → ${slug} through ${parent}) — parent NOT set; other fields still applied." >&2
+      else
+        parent_summary="$parent"
+        write_args+=(--parent "$parent_summary")
+      fi
+    fi
     mentor_plan_state_write "$plan_dir" "${write_args[@]}"
-    echo "[mentor plan-state] ${slug}: $(mentor_plan_effective_state "$plan_dir")${group:+  group=${group}}${order:+  order=${order}}${priority:+  priority=${priority}}${category:+  category=${category}}${deps_summary:+  deps=${deps_summary}}$([ "$deferred" -eq 1 ] && printf '  origin=deferred')${from_slug:+  from=${from_slug}}"
+    echo "[mentor plan-state] ${slug}: $(mentor_plan_effective_state "$plan_dir")${group:+  group=${group}}${order:+  order=${order}}${priority:+  priority=${priority}}${category:+  category=${category}}${deps_summary:+  deps=${deps_summary}}$([ "$deferred" -eq 1 ] && printf '  origin=deferred')${from_slug:+  from=${from_slug}}${parent_summary:+  parent=${parent_summary}}"
     ;;
 
   set)
@@ -1100,6 +1278,22 @@ case "$sub" in
     # caller believe the sidecar is the last word.
     if [ "$after" != "$state" ]; then
       echo "[mentor plan-state] note: '${state}' stored, but the plan's ✅ step ticks report '${after}'."
+    fi
+    # v2.29.0 soft warn (NOT gated on before_stored, unlike the reminders below): a
+    # plan set implemented while its own subtree still has open work should say so
+    # EVERY time, fresh transition or idempotent re-close alike, because whether a
+    # descendant is open is a live fact that can change between calls (a new fix can
+    # get parked under an already-implemented root) — this must never go stale the
+    # way a one-time "you just closed this" reminder can. SOFT only: the write above
+    # already happened and always succeeds regardless of what this finds — see the
+    # plan's decision table ("consistent with the deps precedent").
+    if [ "$state" = "implemented" ]; then
+      open_lines="$(_descendant_lines "$slug" | awk -F'\t' '$4=="open"')"
+      if [ -n "$open_lines" ]; then
+        open_n="$(printf '%s\n' "$open_lines" | grep -c .)"
+        echo "[mentor plan-state] WARN: ${open_n} open descendant(s) — ${slug} is not really done until these close too:" >&2
+        printf '%s\n' "$open_lines" | awk -F'\t' '{printf "  - %s (%s)\n", $2, $3}' >&2
+      fi
     fi
     case "$state" in
       implemented|failed)
@@ -1212,6 +1406,47 @@ case "$sub" in
     echo "[mentor plan-state] ${slug}: category = ${cat_val:-(unset)}"
     ;;
 
+  set-parent)
+    # The VALUE is required as a positional even when it is the empty string, so
+    # `set-parent <slug>` with nothing after it is a usage error rather than a
+    # silent clear — detaching from a parent must be something the caller typed on
+    # purpose (`set-parent <slug> ""`), not what a dropped shell argument decays
+    # into. UNLIKE set-priority/set-category, a non-empty value here is NOT a
+    # closed-vocabulary usage error on a bad value — existence and cycle are graph
+    # conditions the caller could not have known locally, so both are fail-soft
+    # (stderr warning, no write), mirroring set-deps exactly.
+    slug="${1:-}"; if [ "$#" -gt 0 ]; then shift; fi
+    require_slug "$slug"
+    if [ "$#" -eq 0 ]; then
+      echo "[mentor plan-state] set-parent: a <parent-slug> is required (use \"\" to clear)." >&2
+      usage >&2
+      exit 1
+    fi
+    parent_val="$1"; shift
+    if [ "$#" -gt 0 ]; then
+      echo "[mentor plan-state] set-parent: unexpected argument ${1}" >&2
+      usage >&2
+      exit 1
+    fi
+    require_jq
+    plan_dir="${plans_dir}/${slug}"
+    if [ -n "$parent_val" ]; then
+      if [ ! -d "${plans_dir}/${parent_val}" ]; then
+        echo "[mentor plan-state] set-parent: refused — no such plan '${parent_val}' (run 'plan-state.sh list' to see the slugs that exist). No write." >&2
+        exit 0
+      fi
+      if [ -n "$(mentor_plan_would_cycle_parent "$plans_dir" "$slug" "$parent_val")" ]; then
+        echo "[mentor plan-state] set-parent: refused — ${slug} → … → ${slug} would be a parent cycle through ${parent_val}. No write." >&2
+        exit 0
+      fi
+    fi
+    # Re-read and re-pass the note for the same reason set-priority/set-category do:
+    # mentor_plan_state_write always REPLACES --note (even when omitted, which would
+    # clear it), so a parent-only write must round-trip the current note.
+    mentor_plan_state_write "$plan_dir" --parent "$parent_val" --note "$(mentor_plan_state_field "$plan_dir" note)"
+    echo "[mentor plan-state] ${slug}: parent = ${parent_val:-(unset)}"
+    ;;
+
   claim)
     slug="${1:-}"; [ "$#" -gt 0 ] && shift
     if [ "$#" -gt 0 ]; then
@@ -1275,6 +1510,33 @@ case "$sub" in
       echo "[mentor plan-state] tick: ${slug} has no step ${step} (plan.md has ${tick_total:-0} step(s) in '## Implementation steps'). No write." >&2
       exit 1
     fi
+    ;;
+
+  subtree)
+    slug="${1:-}"; [ "$#" -gt 0 ] && shift
+    if [ "$#" -gt 0 ]; then
+      echo "[mentor plan-state] subtree: unexpected argument ${1}" >&2
+      usage >&2
+      exit 1
+    fi
+    require_slug "$slug"
+    require_jq_read
+    st_lines="$(_descendant_lines "$slug")"
+    if [ -z "$st_lines" ]; then
+      echo "[mentor plan-state] ${slug}: no descendants."
+      exit 0
+    fi
+    st_open=0
+    while IFS="$(printf '\t')" read -r st_depth st_d st_state st_verdict; do
+      [ -n "$st_d" ] || continue
+      [ "$st_verdict" = "open" ] && st_open=$((st_open + 1))
+      st_indent=""
+      st_i=0
+      while [ "$st_i" -lt "$st_depth" ]; do st_indent="${st_indent}  "; st_i=$((st_i + 1)); done
+      printf '%-40s %-13s %s\n' "${st_indent}${st_d}" "$st_state" "$st_verdict"
+    done <<<"$st_lines"
+    echo
+    echo "${st_open} open descendant(s)."
     ;;
 
   # --- verify <slug>: the ONE call planning's "Verify the write" (SKILL.md, Step 4)
@@ -1375,17 +1637,18 @@ case "$sub" in
     ;;
 
   list)
-    filter=""; list_owners=0
+    filter=""; list_owners=0; list_parent=0
     while [ "$#" -gt 0 ]; do
       case "$1" in
         --group) filter="${2:-}"; shift; if [ "$#" -gt 0 ]; then shift; fi ;;
         --owners) list_owners=1; shift ;;
+        --parent) list_parent=1; shift ;;
         *) echo "[mentor plan-state] list: unexpected argument ${1}" >&2; usage >&2; exit 1 ;;
       esac
     done
     echo "PLANS_DIR: ${plans_dir}"
     echo
-    if ! print_table "$filter" "$list_owners"; then
+    if ! print_table "$filter" "$list_owners" "$list_parent"; then
       echo "[mentor plan-state] No plans${filter:+ in group ${filter}} in ${plans_dir}." >&2
       echo "[mentor plan-state] Topics holding only handoffs (no plan.md yet) never appear here — use 'overview --json' for the full picture." >&2
       exit 0
@@ -1471,7 +1734,7 @@ case "$sub" in
     ov_entries=""
 
     # 1) every plan dir with a plan.md — the shared per-plan iterator (_plan_walk).
-    while IFS="$(printf '\t')" read -r ov_slug ov_state ov_group ov_order ov_owner ov_deps ov_origin ov_handoffs ov_ticked ov_total ov_priority ov_category ov_deferred_from ov_goal; do
+    while IFS="$(printf '\t')" read -r ov_slug ov_state ov_group ov_order ov_owner ov_deps ov_origin ov_handoffs ov_ticked ov_total ov_priority ov_category ov_deferred_from ov_goal ov_parent; do
       [ -n "$ov_slug" ] || continue
       [ "$ov_group" = "-" ] && ov_group=""    # un-placeholder — see _plan_walk's comment
       [ "$ov_order" = "-" ] && ov_order=""
@@ -1481,10 +1744,12 @@ case "$sub" in
       [ "$ov_category" = "-" ] && ov_category=""
       [ "$ov_deferred_from" = "-" ] && ov_deferred_from=""
       [ "$ov_goal" = "-" ] && ov_goal=""
+      [ "$ov_parent" = "-" ] && ov_parent=""
       entry="$(jq -n \
         --arg slug "$ov_slug" --arg state "$ov_state" --arg group "$ov_group" --arg order "$ov_order" \
         --arg owner "$ov_owner" --arg priority "$ov_priority" \
         --arg category "$ov_category" --arg deferred_from "$ov_deferred_from" --arg goal "$ov_goal" \
+        --arg parent "$ov_parent" \
         --argjson deps "$ov_deps" --arg origin "$ov_origin" --argjson handoffs "$ov_handoffs" \
         --argjson ticked "$ov_ticked" --argjson total "$ov_total" '
         {kind: "plan", slug: $slug, state: $state,
@@ -1494,6 +1759,7 @@ case "$sub" in
          priority: (if $priority == "" then null else $priority end),
          category: (if $category == "" then null else $category end),
          deferred_from: (if $deferred_from == "" then null else $deferred_from end),
+         parent: (if $parent == "" then null else $parent end),
          deps: $deps, origin: (if $origin == "" then null else $origin end),
          handoffs: $handoffs, steps: {ticked: $ticked, total: $total},
          goal: (if $goal == "" then null else $goal end)}')"
@@ -1514,6 +1780,7 @@ case "$sub" in
       entry="$(jq -n --arg slug "$ov_slug" --argjson handoffs "$ov_handoffs" '
         {kind: "no_plan_topic", slug: $slug, state: "no plan yet",
          group: null, order: null, owner: null, priority: null, category: null, deferred_from: null,
+         parent: null,
          deps: [], origin: null,
          handoffs: $handoffs, steps: {ticked: 0, total: 0}, goal: null}')"
       ov_entries="${ov_entries}${entry}
@@ -1531,6 +1798,7 @@ case "$sub" in
         entry="$(jq -n --argjson handoffs "$ov_legacy_json" '
           {kind: "legacy_handoffs", slug: null, state: null,
            group: null, order: null, owner: null, priority: null, category: null, deferred_from: null,
+           parent: null,
            deps: [], origin: null,
            handoffs: $handoffs, steps: null, goal: null}')"
         ov_entries="${ov_entries}${entry}

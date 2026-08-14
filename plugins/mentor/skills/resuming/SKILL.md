@@ -1,47 +1,55 @@
 ---
 name: resuming
 description: >
-  Browse and continue this repo's mentor handoff notes. User-invoked via /mentor:resume.
-  Lists ONLY the current repo's live (unresolved) handoff notes (newest first) from every
-  plan-topic folder, lets the user pick one — from a slug/number argument or interactively —
-  then loads the chosen note and resumes the work per its recommended mentor commands. A note
-  is stamped resolved (moved into a resolved/ subdir, never re-listed) only when its work
-  completes per the plan file or a nested /mentor:handoff supersedes it — never merely on
-  load — so finished work is never re-read but unfinished work stays resumable. The consume
-  side of /mentor:handoff (which writes the notes). Strictly repo-scoped: the notes live
-  under this repo's .mentor/ tree, so notes from other repos never appear. Scans the note
-  for secrets before surfacing it.
+  Browse/continue mentor handoff notes; drain fix children parked under a NAMED root or remaining siblings of a NAMED split group. Invoked via /mentor:resume. With no argument: lists live handoff notes (newest first), roots with open descendants, split groups with unbuilt siblings. An argument (slug, number, plan-topic name, root slug, or split-group name) resolves a note, a named root to drain leaf-first (nested fix first), or a named split group to drain its siblings in order (fix subtree first) — never auto-picked on ambiguous match. Each drained item re-enters /mentor:plan's arm/claim/approve cycle; consent per item, re-surveyed after each. A note resolves (moved to resolved/) only when its work completes AND its topic has no open descendants, or a newer /mentor:handoff supersedes it. Consume side of /mentor:handoff; repo-scoped to .mentor/; scans notes for secrets. Not a generic/unnamed "what's next" survey or building the next unbuilt plan (/mentor:track) — needs a named note, root, or split group.
 ---
 
-# Resume — Browse & Continue a Handoff Note
+# Resume — Continue a Handoff Note, a Parked Fix, or a Split Group
 
-This skill is the **consume** side of `/mentor:handoff`. `/mentor:handoff` compacts a session into a
-self-contained handoff document saved inside its plan-topic folder — the repo's gitignored
-`.mentor/plans/<topic>/handoffs/` dir; `/mentor:resume` lists those documents **for this repo only**,
-lets the user pick one, and continues the work from it in a fresh session.
+This skill is the **consume** side of `/mentor:handoff`, and the **continuation** side of a fix
+parked mid-flow (`mentor:deferring`'s parent-aware capture) or a plan-split left half-built
+(`mentor:plan-split`). `/mentor:handoff` compacts a session into a self-contained handoff document
+saved inside its plan-topic folder — the repo's gitignored `.mentor/plans/<topic>/handoffs/` dir;
+`/mentor:resume` lists those documents **for this repo only**, lets the user pick one, and continues
+the work from it in a fresh session. Alongside notes, it also lists — and can drain — roots whose
+fix children never got their own note (Step 2), continuing them through the same plan → approve →
+build cycle the writer of a note would have gone through by hand (the "Draining Parked Fixes and
+Split Groups" section below).
 
 A note stays **live** (listed) until its work is actually finished: it is stamped **resolved** (moved
-into a `resolved/` subdir, never re-listed) only when all its tasks are done per the plan file
-(Step 5's final rule) or when a nested `/mentor:handoff` supersedes it with a fresher note. Loading a
-note does NOT resolve it — a session that reads a note and stalls leaves the work resumable.
+into a `resolved/` subdir, never re-listed) only when all its tasks are done per the plan file AND
+its topic has no open descendants left (Step 5's final rule), or when a nested `/mentor:handoff`
+supersedes it with a fresher note. Loading a note does NOT resolve it — a session that reads a note
+and stalls leaves the work resumable.
 
 It reads notes and stamps the consumed one only on completion; it never authors them. It is strictly
-**repo-scoped** — the notes live under this repo's `.mentor/` tree (the same place `/mentor:handoff`
-writes), so notes saved for other repositories cannot appear here.
+**repo-scoped** — the notes and plans live under this repo's `.mentor/` tree (the same place
+`/mentor:handoff` and `/mentor:plan` write), so notes and plans from other repositories cannot
+appear here.
 
 ## When to use
 
 - Starting a fresh session and you want to pick up where a prior session (or another agent) left off.
 - You have one or more handoff notes for this repo and want to continue one of them.
+- A fix got parked mid-implementation or mid-verification (blocking work under an active plan), and
+  you want to build it — and any deeper nested fixes parked under it — without hunting for the stub.
+- A `/mentor:plan-split` left one or more siblings unbuilt, or one sibling's own parked fix still
+  open, and you want to finish the group in order.
 
 ## When NOT to use
 
 - You want to **create** a handoff note for the next agent — that is `/mentor:handoff`, not this skill.
 - You want to pick the next **plan** to build, or see which plans are already built — that is
-  `/mentor:track`. This skill resumes a *session* from a note someone wrote; plan state is a
-  different question with a different answer.
-- This repo has no handoff notes — there is nothing to resume (Step 3 handles this and points you at
-  `/mentor:handoff`).
+  `/mentor:track`. This skill resumes a *session* from a note someone wrote, or drains one specific
+  root's or group's remaining pieces; plan state is a different question with a different answer.
+- You want the repo-wide picture of everything left across every plan, not just one root's or one
+  split group's remaining descendants — that is `/mentor:track`, which renders the whole tree and
+  rolls every branch up.
+- You just discovered blocking work and want to park it — that is `mentor:deferring`
+  (`/mentor:defer`), which captures it with a `parent`; this skill only continues what capture
+  already parked.
+- This repo has no handoff notes and no open descendants or unbuilt split groups — there is nothing
+  to resume (Step 3 handles this and points you at `/mentor:handoff` or `/mentor:plan`).
 
 ---
 
@@ -132,17 +140,69 @@ done < <(find "$mentor_dir/plans" "$mentor_dir/handoffs" \
               -type f -name '*.md' -path '*/handoffs/*' -not -path '*/handoffs/resolved/*' 2>/dev/null \
          | awk -F/ '{print $NF "\t" $0}' | sort -r | cut -f2-)   # newest first by basename timestamp
 if [ -n "$skipped" ]; then echo "skipped non-conforming: $skipped"; fi   # `if`, not `&&`: as the block's last command a false `&&` exits 1 and the whole listing renders as an error
+
+# Also list: roots with open descendants, and split groups with unbuilt siblings — printed
+# AFTER every note, in the SAME numbering (`i` continues from above, same shell), so Step 4's
+# ordinal rule extends unchanged and `latest`/`newest`/`last` still mean the newest NOTE, never
+# a drain entry. Every open/closed call goes through `subtree` — never re-derived here. `overview
+# --json`'s `parent`/`group` fields (not a hand-rolled walk) pick the candidates to ask it about.
+# `-` is the empty-group placeholder (same convention `overview`'s own `_plan_walk` uses
+# internally) — NOT a bare empty field: tab is "IFS whitespace" to `read`, so consecutive tabs
+# collapse and silently eat a column, exactly the corruption a real empty field would cause here.
+ov="$(bash "${CLAUDE_PLUGIN_ROOT}/hooks/plan-state.sh" overview --json)"
+drain_rows=()
+while IFS="$(printf '\t')" read -r rslug rgroup rstate; do
+  [ -n "$rslug" ] || continue
+  n="$(bash "${CLAUDE_PLUGIN_ROOT}/hooks/plan-state.sh" subtree "$rslug" | tail -1 | grep -o '^[0-9]\+' || true)"   # `|| true`: "no descendants." has no digit, grep's non-match must not abort the loop
+  drain_rows+=("${rslug}$(printf '\t')${rgroup}$(printf '\t')${rstate}$(printf '\t')${n:-0}")
+done < <(printf '%s' "$ov" | jq -r '.[] | select(.kind=="plan" and .parent==null) | [.slug, (.group // "-"), .state] | @tsv')
+for row in "${drain_rows[@]}"; do   # ungrouped roots with open descendants
+  IFS="$(printf '\t')" read -r rslug rgroup rstate n <<<"$row"
+  [ "$rgroup" = "-" ] && rgroup=""
+  [ -z "$rgroup" ] || continue
+  [ "${n:-0}" -gt 0 ] || continue
+  i=$((i+1))
+  printf '%d. [drain: root] %s — %s open fix(es) parked\n' "$i" "$rslug" "$n"
+done
+groups_seen=" "   # leading+trailing space so `*" x "*` matches the FIRST entry too, not just later ones
+for row in "${drain_rows[@]}"; do   # split groups: unbuilt when any sibling is open, or has open descendants
+  IFS="$(printf '\t')" read -r rslug rgroup rstate n <<<"$row"
+  [ "$rgroup" = "-" ] && rgroup=""
+  [ -n "$rgroup" ] || continue
+  case "$groups_seen" in *" ${rgroup} "*) continue ;; esac
+  groups_seen="${groups_seen}${rgroup} "
+  unbuilt=0
+  for row2 in "${drain_rows[@]}"; do
+    IFS="$(printf '\t')" read -r gslug ggroup gstate gn <<<"$row2"
+    [ "$ggroup" = "$rgroup" ] || continue
+    case "$gstate" in implemented|superseded) : ;; *) unbuilt=1 ;; esac
+    [ "${gn:-0}" -gt 0 ] && unbuilt=1
+  done
+  [ "$unbuilt" -eq 1 ] || continue
+  i=$((i+1))
+  printf '%d. [drain: group] %s — split group with unbuilt sibling(s)\n' "$i" "$rgroup"
+done
 ```
 
 The exclusion is anchored to `*/handoffs/resolved/*` on purpose — a bare `*/resolved/*` would also
 match a **repo whose own path** contains a `resolved/` segment (or a topic slug named `resolved`)
 and silently hide every note while the hooks still see them.
 
+A root or group printed here may share its slug with a note printed above — a fix parked under a
+topic that also wrote a note, or a plan-split sibling whose own note is still live. That is expected,
+not a bug in the listing: Step 4 resolves the overlap deterministically (note first, drain offered
+after), not by asking which one was meant.
+
 ## Step 3 — Empty case
 
-If no conforming notes are found **and Step 2 skipped nothing**, tell the user **this repo has no
-handoff notes yet** and suggest running `/mentor:handoff` (in a session with work to hand off) to
-create one. Then **stop** — there is nothing to resume.
+If no conforming notes are found **and Step 2 skipped nothing**, check whether Step 2's drain
+listing found anything before declaring defeat — a repo can easily have zero notes and one or more
+open roots or unbuilt split groups (a fix parked mid-session that never got written up). When the
+drain listing is non-empty, there IS something to resume: skip straight to Step 4 with that list.
+Only when **both** lists are empty tell the user **this repo has nothing to resume** — no live
+handoff notes, no open descendants, no unbuilt split groups — and suggest `/mentor:handoff` (in a
+session with work to hand off) to create a note, or `/mentor:plan <topic>` if they know of specific
+work not yet captured at all. Then **stop**.
 
 If the listing is empty **only because every candidate was skipped as non-conforming**, do NOT
 report "no handoff notes" — that is false, and it sends the user off to write a second note while a
@@ -150,10 +210,11 @@ real one sits unreadable on disk. The skip warnings land in bash output, which t
 so this step is the only place the miss can surface. Name each skipped file to the user, then
 continue to **Step 4's recovery path** instead of stopping here.
 
-## Step 4 — Select a note
+## Step 4 — Select a note, root, or split group
 
-Print the full numbered list (newest first) so the user can see every note — **including the
-"skipped non-conforming" line when Step 2 skipped anything**. A warning that only lands in
+Print the full numbered list from Step 2 — notes newest first, then any `[drain: root]` and
+`[drain: group]` entries — so the user can see every note **and** everything with open descendants,
+including the "skipped non-conforming" line when Step 2 skipped anything. A warning that only lands in
 bash output is invisible to the user, and a misnamed-but-real handoff note silently vanishing
 is exactly how unfinished work gets lost. If the user then asks to recover a skipped file,
 rename it into the canonical pattern using the file's **mtime** for the timestamp
@@ -174,8 +235,16 @@ Then resolve a selection:
     dir — → select it directly, mirroring the single-note case below. **More than one** → re-print
     just that topic's notes, still newest first, and ask which. **No note** under that topic → fall
     through to the slug-substring rule below.
+  - **A root's own slug** (case-insensitive exact match against a `[drain: root]` entry printed by
+    Step 2) → that root's parent-subtree drain ("Draining Parked Fixes and Split Groups" below) —
+    unless the same slug is also a live note's topic, in which case the note+fixes rule right below
+    this list decides, not this bullet.
+  - **A split group's name** (case-insensitive exact match against a `[drain: group]` entry's name —
+    the superseded parent's slug — printed by Step 2) → that group's split-group drain (same section
+    below).
   - **Otherwise** (including a topic name that matched no note) → a **case-insensitive substring
-    match against the slug** (the filename part after the timestamp).
+    match against the slug** — the note's filename slug, a `[drain: root]` entry's slug, or a
+    `[drain: group]` entry's name, whichever the printed list actually shows it against.
   - A **note path or plan slug embedded in a longer phrase** → select from what is embedded. This
     plugin produces that shape itself: `/mentor:handoff` Step 5 prints a plugin-free resume prompt
     that is an absolute note path wrapped in prose, and users paste task briefs ("implement the
@@ -185,24 +254,46 @@ Then resolve a selection:
     riding along are **context for the work**, never a replacement for Step 6's routing. An embedded
     path may name a file Step 2 skipped as non-conforming — load it anyway (an explicit path is
     better evidence than the listing) and offer the rename recovery above.
-  - A **unique** match is selected directly. If the input is **ambiguous** (matches >1 note) or
-    **matches nothing**, **never auto-pick** — re-print the list and re-ask. **Mechanical
-    self-check before proceeding:** the selection must have resolved through one of the literal
-    rules above (ordinal, keyword alias, plan-topic name, slug substring, or an embedded note
-    path/plan slug). "It obviously meant the latest one" is not a rule — a typo or free phrase that
-    matches nothing (e.g. "lastest hand-off" against slugs it doesn't substring-match) is a NO-match:
-    re-print and re-ask.
+  - A **unique** match is selected directly. If the input is **ambiguous** (matches >1 entry, of any
+    kind — two notes, a note and a differently-named root, two split groups, etc.) or **matches
+    nothing**, **never auto-pick** — re-print the list and re-ask. **Mechanical self-check before
+    proceeding:** the selection must have resolved through one of the literal rules above (ordinal,
+    keyword alias, plan-topic name, root slug, split-group name, slug/name substring, or an embedded
+    note path/plan slug). "It obviously meant the latest one" is not a rule — a typo or free phrase
+    that matches nothing (e.g. "lastest hand-off" against slugs it doesn't substring-match) is a
+    NO-match: re-print and re-ask.
+
+**Note+fixes topics resolve to the note, not the drain, when both match the same topic — this is
+not the ambiguous case above.** A note under topic `T` and `T`'s own `[drain: root]` (or
+`[drain: group]`) entry both matching the same argument is one topic with two facets, not two
+different things the user might have meant: whether the argument was `T`'s slug, an ordinal that
+happened to land on the note row, or a substring — resolve it to **the note** and proceed to Step 5.
+Step 5's closing rule offers `T`'s drain as its own next step once the note's flow concludes; never
+skip the note to jump straight into the drain, and never ask the user to disambiguate something that
+isn't actually ambiguous. The ambiguous-match rule above still applies whenever the match spans
+genuinely different topics or slugs — this carve-out is only for the same-topic overlap.
 - **With no argument**, call `AskUserQuestion` (single-select) with the **4 newest** notes as quick
-  options — `label` = the slug, `description` = the human date + focus preview. Older notes are
-  reachable through the always-present **"Other"** free-text (resolved by the rule above). This
-  respects `AskUserQuestion`'s 4-option cap. **Every question stands on its own:** the user answers
+  options — `label` = the slug, `description` = the human date + focus preview. Older notes, and
+  every `[drain: root]`/`[drain: group]` entry, are reachable through the always-present **"Other"**
+  free-text (resolved by the rules above — a root slug or group name typed there resolves exactly as
+  it would from `$ARGUMENTS`). Quick options stay note-first on purpose: a note carries the richer
+  "what happened and what's next" context, so it is the better default guess when nothing narrows the
+  choice; a drain entry is one exact name away regardless. This respects `AskUserQuestion`'s 4-option
+  cap. **Every question stands on its own:** the user answers
   from the question screen alone — never sent to a file, a plan section, a coined id or code, or an
   earlier turn to learn what the question means. A slug is a filename, not a description, so the
   preview must say what that note is actually about ("finish the Thanos SSA reprojection, 3 steps
   left") rather than restating the slug in prose.
-- If there is **exactly one** note, skip the picker and ask a simple **Continue / Cancel**.
+- If there is **exactly one** note, skip the picker and ask a simple **Continue / Cancel**. If there
+  are **zero** notes but **exactly one** drain entry (a root or a group) total, the same shortcut
+  applies to it — skip the picker and ask Continue / Cancel for that one entry instead.
 
 ## Step 5 — Load & continue
+
+This step continues a **handoff note**. When Step 4 resolved to a `[drain: root]` or `[drain:
+group]` entry instead, skip to "Draining Parked Fixes and Split Groups" below — the two are separate
+continuation modes and this step's numbered flow (secrets scan, gate check, "Recommended mentor
+commands") applies only to notes.
 
 Before the numbered flow below, check whether this session has room for the note's work —
 nothing upstream of this step has measured context yet, and a resumed note can lead into
@@ -462,6 +553,14 @@ reading and that report is exactly the shape `context-gate.sh`'s own WARN tier c
      note in this same `handoffs/` dir. If the note you resumed lives in a different topic dir or the
      legacy flat dir, handoff's sweep cannot see it: hand its absolute path to the handoff step
      explicitly, or stamp it here with the snippet above.
+   - **Never while the topic still has open descendants — check before either bullet above fires.**
+     Run `bash "${CLAUDE_PLUGIN_ROOT}/hooks/plan-state.sh" subtree <topic-slug>` (the note's topic —
+     the `plans/<topic>/` dir it lives in) and read its trailing count. A non-zero count means the
+     topic is NOT actually done, however cleanly the note's own tasks wrapped up: every recommended
+     command can have run, every step in the plan file can be ticked, and there can still be a fix
+     parked underneath that nobody has built. Ticks measure the plan's own steps, not its descendants
+     — that gap is exactly what `parent` exists to close. Leave the note live in this case even if the
+     bullet above would otherwise have fired; go to the closing paragraph below instead of stamping.
 
    If the session ends with the work unfinished and no nested handoff, **leave the note live** —
    unfinished work must stay resumable; that is not a failure. A stamp is reversible by moving the
@@ -469,25 +568,134 @@ reading and that report is exactly the shape `context-gate.sh`'s own WARN tier c
    (an explicitly-browsed `[resolved]` note): it is already retired, and the snippet would nest a
    useless `resolved/resolved/` — skip this step for those.
 
+**When this note's topic also has open descendants**, whether or not the note itself just got
+stamped resolved, offer the drain as the turn's own next step rather than ending silently: "This
+topic still has N open fix(es) parked under it — continue draining them now?" (the count from item
+7's `subtree` check above). A **yes** proceeds into "Draining Parked Fixes and Split Groups" below,
+treating the topic slug as the root. A **no** leaves them exactly where Step 2 will find them on a
+later `/mentor:resume <topic>` call — nothing forces the drain in the same session. Never start it
+unprompted, and never let it replace loading the note first: the note can carry Standing directives
+or Open questions the drain needs, and this step's own flow already ran before this offer.
+
 Do **not** copy or duplicate the note into the repo source tree — it lives in the gitignored
 `.mentor/` tree by design.
+
+## Draining Parked Fixes and Split Groups
+
+Step 4 routes here when the resolved selection is a `[drain: root]` or `[drain: group]` entry, not a
+handoff note. This is the other half of "continue" — for work that a fix `parent` (parked via
+`mentor:deferring`) or a plan-split left behind and nobody wrote a note about.
+
+**Resume stays the door, not a second surveyor here either.** Every open/closed call below goes
+through `subtree`/`overview --json` — this skill never reads `.state.json` or a plan's ✅ ticks
+itself to decide what's open. "Open" has exactly one definition (effective state ∉ {`implemented`,
+`superseded`}), owned by `plan-state.sh`, and reused unchanged everywhere it matters
+(`mentor:plan-track`'s tree render, the `set … implemented` soft warn, and here).
+
+### Ordering: leaf-first, post-order
+
+**Why leaf-first:** a nested fix blocks the fix it was parked under. You cannot honestly call
+`fix-auth-timeout` complete while its own child `fix-retry-loop` is still open — whatever
+`fix-retry-loop` addresses is presumably still broken underneath it. Post-order (every child before
+its parent) is the only ordering where each item is actually ready when its turn comes: everything
+it structurally depends on has already closed.
+
+To compute the drain order for a root `R`:
+
+1. `bash "${CLAUDE_PLUGIN_ROOT}/hooks/plan-state.sh" subtree R` — the descendant set, each with its
+   effective state and open/closed verdict, plus the trailing open count. This is the only source of
+   truth for which descendants are open; never re-derive it.
+2. `overview --json`'s `parent` field on those same descendant slugs gives the immediate-parent edges
+   needed to arrange them into a tree — `subtree`'s own text is breadth-first with depth, not grouped
+   by branch; reconstructing the branch shape is a consumer-side concern layered on top of it by
+   design (`hooks/lib/state.sh`'s `mentor_plan_descendants` says so explicitly in its own comment).
+3. Walk that tree post-order. At each sibling group, break ties by `order` ascending (present when
+   the siblings came from a plan-split, or were parked with an explicit order); when `order` is
+   absent or tied, break by ascending directory mtime — `stat -c %Y "$dir" 2>/dev/null || stat -f %m
+   "$dir" 2>/dev/null` (earlier-parked first).
+4. Drop closed nodes from the queue itself — nothing to build there — but keep walking through them
+   structurally: a closed fix can still have an open child parked under it later.
+
+The queue for `R` is that post-order list, filtered to open nodes, with `R` itself joining last —
+only if `R`'s own effective state is open. This also covers a fix that is itself split (per
+"Composition with plan-split"): its split children inherit its `parent`, so they are just deeper
+nodes in the same tree, and `order` breaks ties among them exactly as it would among top-level split
+siblings — no separate handling needed.
+
+### Split-group drain
+
+A split-group name resolves to draining its **remaining siblings by `order`**, and — reusing the
+rule above rather than restating it — **each sibling's own fix subtree drains before the sibling
+itself is considered done**: treat every sibling exactly like a root `R` above, with its own
+post-order queue and itself last, then concatenate those per-sibling queues in `order` sequence
+across the group. A sibling already `implemented` with no open descendants contributes nothing; the
+group is done when every sibling's queue is empty.
+
+### Re-survey after each item
+
+Do not compute the queue once and burn through it. **Re-run the survey — `subtree` for a root, the
+same per-sibling walk for a group — after every completed item**, before picking the next one. An
+item's own build can park a brand-new child under it (nesting, discovered mid-fix) that must drain
+before whatever was going to run next; recomputing fresh each time is what lets a child parked
+*during* the drain join the queue immediately, instead of waiting for a second `/mentor:resume` call
+to notice it exists.
+
+Stop when `subtree R`'s trailing line reads `0 open descendant(s)` (root drain), or — for a group —
+when every sibling's own queue is empty.
+
+### Per-item gate flow
+
+Each queued item is built exactly the way `/mentor:plan` would build it standalone. This mode
+re-enters that command's own body per item — it is not a shortcut around it:
+
+1. `bash "${CLAUDE_PLUGIN_ROOT}/hooks/begin-plan.sh" <item-slug>` — the same arm, every one of its
+   context/foreign-marker gates intact (`plugins/mentor/commands/plan.md` Step 1). A `CONTEXT: ASK`
+   here stops the drain exactly like it would stop a standalone `/mentor:plan`.
+2. `Skill({"skill": "mentor:planning"})` — it claims the stub (its own `claim`, since a parked
+   child's `origin` is `"deferred"` — `mentor:deferring` owns what that capture wrote and why),
+   fleshes it out with the user, and asks its own approval question (`{#approve}`).
+3. Only on that item's approval does resume proceed to build it, via the same `mentor:dispatch-agents`
+   implementation flow any freshly approved plan gets.
+
+**Consent stays per item.** One approval never covers the rest of the queue — a 4-item subtree is 4
+separate approval questions, not one "approve everything" ask up front: each item is its own plan
+with its own risk, and a user who wants the next three built without asking says so at that item's
+own question, not once for all of them.
+
+```
+$ /mentor:resume fix-auth-timeout        (resolves to a root with open descendants)
+subtree fix-auth-timeout → fix-retry-loop   draft   open        (1 open descendant)
+queue (post-order): fix-retry-loop, fix-auth-timeout
+  → begin-plan fix-retry-loop → claim → flesh out → approve → build
+  → re-survey: 0 open under fix-retry-loop; fix-auth-timeout itself still open (draft)
+  → begin-plan fix-auth-timeout → claim → flesh out → approve → build
+  → re-survey: 0 open descendant(s). Done.
+```
 
 ## Done when
 
 - Only **this repo's** conforming, live handoff notes were listed (newest first, with their
-  topic), or the empty case was reported with the `/mentor:handoff` hint. Any skipped
-  non-conforming files were named in the user-facing list, not just in bash output.
-- The user's selection was resolved unambiguously (argument or interactive), never auto-picked on an
-  ambiguous/no match.
-- The chosen note was loaded, scanned for secrets, its focus + current state + open questions
-  surfaced as their own turn before acting, and the work continued via the note's recommended
-  command(s) — mentor's own or another tracked plugin's, exactly as listed — and nothing beyond them.
-  The session still **ended through a listed command** — a mentor command (`/mentor:ship` →
-  `/mentor:merge`, `/mentor:handoff`, or `/mentor:defer`) or a cross-plugin command the note
-  explicitly named — never through raw `git`/`gh` or a hand-written file; the bound is on the work,
-  not on how it is executed or delivered.
-- The note was **stamped resolved** if its work finished this session (all plan-file tasks done) or
-  it was superseded by a nested `/mentor:handoff` — and left **live** otherwise.
+  topic), **plus** every root with open descendants and split group with unbuilt siblings from
+  Step 2's drain listing — or the empty case was reported only once BOTH lists came up empty. Any
+  skipped non-conforming files were named in the user-facing list, not just in bash output.
+- The user's selection was resolved unambiguously (argument or interactive) across both axes —
+  note, root, or split group — never auto-picked on an ambiguous/no match, except the deterministic
+  note-first resolution for a topic that matches on both axes at once.
+- **If the selection was a note:** it was loaded, scanned for secrets, its focus + current state +
+  open questions surfaced as their own turn before acting, and the work continued via the note's
+  recommended command(s) — mentor's own or another tracked plugin's, exactly as listed — and nothing
+  beyond them. The session still **ended through a listed command** — a mentor command
+  (`/mentor:ship` → `/mentor:merge`, `/mentor:handoff`, or `/mentor:defer`) or a cross-plugin command
+  the note explicitly named — never through raw `git`/`gh` or a hand-written file; the bound is on
+  the work, not on how it is executed or delivered. It was **stamped resolved** only if its work
+  finished this session (all plan-file tasks done AND its topic has no open descendants left) or it
+  was superseded by a nested `/mentor:handoff` — and left **live** otherwise; a topic with both a
+  note and open descendants had the note load first, with the drain only offered after.
+- **If the selection was a root or split group:** the drain ran leaf-first post-order (or by `order`
+  per sibling for a group, each sibling's own fix subtree first), re-surveying after every completed
+  item so a fix parked mid-drain joined the queue, with each item going through its own
+  `begin-plan.sh` → `mentor:planning` (claim → flesh out → approve) → build — never one approval
+  covering more than one item.
 
 ### Do NOT
 
@@ -499,8 +707,9 @@ Do **not** copy or duplicate the note into the repo source tree — it lives in 
   code edit) without first stating `Resuming: <focus>` and surfacing Current state / Open
   questions as this session's own output — a later summary that happens to cover the same ground
   does not count.
-- Do **not** stamp a note merely because it was loaded — only completion (per the plan file) or a
-  superseding handoff resolves it; an unfinished note must stay listed.
+- Do **not** stamp a note merely because it was loaded — only completion (per the plan file, with no
+  open descendants left) or a superseding handoff resolves it; an unfinished note, or one whose
+  topic still has open descendants, must stay listed.
 - Do **not** skip the stamp when the work DID finish — an unstamped solved note WILL be re-listed
   and re-worked by a later session.
 - Do **not** hand-write a note into `.mentor/` — `/mentor:handoff` owns a resume point for
@@ -512,3 +721,11 @@ Do **not** copy or duplicate the note into the repo source tree — it lives in 
 - Do **not** rename a skipped non-conforming file unasked — surface it and wait for the user.
 - Do **not** echo a live secret found in a note — warn and redact.
 - Do **not** copy the note into the repo working tree.
+- Do **not** auto-start a topic's drain right after loading its note — always offer, never assume;
+  and never skip the note to jump straight to the drain when both match.
+- Do **not** compute a drain queue once and reuse it across the whole subtree or group — re-survey
+  after every item, or a fix parked mid-drain never gets picked up.
+- Do **not** let one approval cover more than one queued item — each drained item gets its own
+  `begin-plan.sh` → `mentor:planning` approval question.
+- Do **not** re-derive "open"/"closed" from a plan's own ticks or `.state.json` — always go through
+  `subtree`/`overview --json`; that classification has one owner.

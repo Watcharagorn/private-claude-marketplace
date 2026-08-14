@@ -790,6 +790,78 @@ chk "upgrading write adds deferred_from"              test "$(libsh "mentor_plan
 chk "upgrading write preserves origin"                test "$(libsh "mentor_plan_origin '$PLANS/dfold'")" = "deferred"
 rm -rf "$PLANS"
 
+echo "== P. mentor_plan_would_cycle_parent — self/2-node/3-node parent-cycle detection (v2.29.0) =="
+mkdir -p "$PLANS/p-a" "$PLANS/p-b" "$PLANS/p-c"
+chk "no cycle: giving p-a a parent p-b when neither has a parent chain" \
+  test -z "$(libsh "mentor_plan_would_cycle_parent '$PLANS' p-a p-b")"
+chk "direct self-parent detected"       test "$(libsh "mentor_plan_would_cycle_parent '$PLANS' p-a p-a")" = "cycle"
+# p-b's parent is p-a (stored). Giving p-a a parent of p-b would close p-a→p-b→p-a.
+libsh "mentor_plan_state_write '$PLANS/p-b' --parent p-a"
+chk "2-node cycle detected (p-b's parent already p-a)" \
+  test "$(libsh "mentor_plan_would_cycle_parent '$PLANS' p-a p-b")" = "cycle"
+# 3-node: p-c's parent is p-b, p-b's parent is p-a. Giving p-a a parent of p-c closes
+# p-a → p-c → p-b → p-a.
+libsh "mentor_plan_state_write '$PLANS/p-c' --parent p-b"
+chk "3-node transitive cycle detected"  test "$(libsh "mentor_plan_would_cycle_parent '$PLANS' p-a p-c")" = "cycle"
+chk "unknown tentative parent is a dead end, not an error" \
+  test -z "$(libsh "mentor_plan_would_cycle_parent '$PLANS' p-a does-not-exist")"
+chk "fail-soft: no plans_dir → empty"        test -z "$(libsh "mentor_plan_would_cycle_parent '' p-a p-b")"
+chk "fail-soft: no slug → empty"             test -z "$(libsh "mentor_plan_would_cycle_parent '$PLANS' '' p-b")"
+chk "fail-soft: no tentative parent → empty" test -z "$(libsh "mentor_plan_would_cycle_parent '$PLANS' p-a ''")"
+rm -rf "$PLANS"
+
+echo "== Q. mentor_plan_descendants — transitive descendants via parent chains, breadth-first (v2.29.0) =="
+mkdir -p "$PLANS/root" "$PLANS/child1" "$PLANS/child2" "$PLANS/grandchild"
+chk "no descendants → empty"  test -z "$(libsh "mentor_plan_descendants '$PLANS' root")"
+libsh "mentor_plan_state_write '$PLANS/child1' --parent root"
+libsh "mentor_plan_state_write '$PLANS/child2' --parent root"
+libsh "mentor_plan_state_write '$PLANS/grandchild' --parent child1"
+got="$(libsh "mentor_plan_descendants '$PLANS' root" | sort)"
+chk "descendants: children + grandchild, one per line" \
+  test "$got" = "$(printf '%s\n' child1 child2 grandchild | sort)"
+chk "a leaf slug (grandchild) has no descendants of its own" \
+  test -z "$(libsh "mentor_plan_descendants '$PLANS' grandchild")"
+chk "fail-soft: no plans_dir → empty" test -z "$(libsh "mentor_plan_descendants '' root")"
+chk "fail-soft: no slug → empty"      test -z "$(libsh "mentor_plan_descendants '$PLANS' ''")"
+rm -rf "$PLANS"
+
+echo "== R. mentor_plan_state_write --parent / mentor_plan_parent — set / preserve-on-omit / clear-on-explicit-empty, UNVALIDATED at this layer (v2.29.0) =="
+mkdir -p "$PLANS/pt1"
+chk "unset parent reads empty" test -z "$(libsh "mentor_plan_parent '$PLANS/pt1'")"
+libsh "mentor_plan_state_write '$PLANS/pt1' --state draft --parent some-root --note 'n'"
+chk "parent stored" test "$(libsh "mentor_plan_parent '$PLANS/pt1'")" = "some-root"
+# UNVALIDATED at this layer, like deps/deferred_from targets — existence+cycle
+# validation lives one layer up, in plan-state.sh's init/set-parent.
+libsh "mentor_plan_state_write '$PLANS/pt1' --parent no-such-plan-at-all"
+chk "parent accepts a dangling slug (unvalidated at this layer)" \
+  test "$(libsh "mentor_plan_parent '$PLANS/pt1'")" = "no-such-plan-at-all"
+# Omitted --parent on a plain write PRESERVES — the same omit=preserve contract
+# --group/--order/--deps/--origin/--owner/--priority/--category/--deferred-from
+# already carry.
+libsh "mentor_plan_state_write '$PLANS/pt1' --state approved"
+chk "parent preserved across a write that omits it" \
+  test "$(libsh "mentor_plan_parent '$PLANS/pt1'")" = "no-such-plan-at-all"
+chk "the state still moved" test "$(libsh "mentor_plan_state_field '$PLANS/pt1' state")" = "approved"
+# Explicit empty CLEARS — the deliberate detach-from-parent path.
+libsh "mentor_plan_state_write '$PLANS/pt1' --parent ''"
+chk "explicit empty --parent clears it" test -z "$(libsh "mentor_plan_parent '$PLANS/pt1'")"
+chk "clearing --parent leaves the state untouched" test "$(libsh "mentor_plan_state_field '$PLANS/pt1' state")" = "approved"
+
+# Readback of an OLD sidecar (pre-2.29.0, no parent key at all) reads empty, same as
+# every other jq-defaulted field; a later write upgrades it in place.
+mkdir -p "$PLANS/ptold"
+cat > "$PLANS/ptold/.state.json" <<'JSON'
+{"state":"implemented","group":null,"order":null,"note":"","deps":[],"origin":null,"priority":"high"}
+JSON
+chk "old sidecar (no parent key): reads empty"       test -z "$(libsh "mentor_plan_parent '$PLANS/ptold'")"
+chk "old sidecar (no parent key): state reads back"  test "$(libsh "mentor_plan_state_field '$PLANS/ptold' state")" = "implemented"
+libsh "mentor_plan_state_write '$PLANS/ptold' --parent root-plan"
+chk "upgrading write adds the parent"        test "$(libsh "mentor_plan_parent '$PLANS/ptold'")" = "root-plan"
+chk "upgrading write preserves the state"    test "$(libsh "mentor_plan_state_field '$PLANS/ptold' state")" = "implemented"
+chk "upgrading write preserves the (unrelated) priority field too" \
+  test "$(libsh "mentor_plan_priority '$PLANS/ptold'")" = "high"
+rm -rf "$PLANS"
+
 echo
 echo "RESULT: PASS=$PASS FAIL=$FAIL"
 [ "$FAIL" = "0" ]

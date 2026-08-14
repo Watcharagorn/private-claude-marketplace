@@ -284,6 +284,28 @@ chk "group survives an ordinary promotion"          test "$(sidecar survive-fiel
 chk "order survives an ordinary promotion"          test "$(sidecar survive-fields '.order')" = "7"
 chk "origin stays null (never was deferred)"        test "$(sidecar survive-fields '.origin')" = "null"
 
+# A PARKED child — origin deferred AND parent set (v2.29.0 nesting) — must survive the
+# sweep unpromoted exactly like an ordinary deferred stub; parent rides through the
+# skip the same way group/order/deps already do above.
+arm; newplan parked-root; newplan parked-child
+psq init parked-child --deferred --parent parked-root >/dev/null
+out="$(ap)"; rc=$?
+chk "approve with a parked (deferred+parent) child present → exit 0" test "$rc" = "0"
+chk "parked root promoted"                             test "$(st parked-root)" = "approved"
+chk "parked child stays draft"                         test "$(st parked-child)" = "draft"
+chk "parked child keeps origin through the skip"       test "$(sidecar parked-child '.origin')" = "deferred"
+chk "parked child keeps parent through the skip"       test "$(sidecar parked-child '.parent')" = "parked-root"
+chk "approve reports the deferred skip for the parked child" \
+  sh -c "printf '%s' \"\$0\" | grep -q 'deferred stub' && printf '%s' \"\$0\" | grep -q 'parked-child'" "$out"
+
+# Claim it — origin clears, parent stays (it's a claimed fix, still parented under root).
+psq claim parked-child >/dev/null
+arm; newplan parked-child   # re-touch, newer than the fresh marker; init is idempotent
+out="$(ap)"; rc=$?
+chk "claimed parked child → exit 0"                    test "$rc" = "0"
+chk "claimed parked child promotes"                    test "$(st parked-child)" = "approved"
+chk "claimed parked child's parent survives promotion" test "$(sidecar parked-child '.parent')" = "parked-root"
+
 echo "== L. Ownership matrix: A owns plan-a, B owns plan-b — A's approve promotes plan-a ONLY (v2.23.0) =="
 clear_plans; rm -f "$MARKER" "$MARKER_B" "$LEGACY_MARKER"
 arm; arm_b
