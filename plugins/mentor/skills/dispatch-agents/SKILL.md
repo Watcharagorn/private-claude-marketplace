@@ -149,6 +149,21 @@ The point of SDD: quality through narrow focus, and a lean main thread.
   before its silence is trusted). An agent's own "I never called it" is a
   self-report, not proof; if the census cannot be produced, report the claim
   as unproven rather than passing the self-report off as verification.
+- **A fan-out of countable per-agent artifacts** (a batch fetch, a multi-repo survey) is
+  verified as a set, once, after the last agent delivers — never as one ad hoc
+  want/got comparison per report as it arrives, which just repeats the same check N
+  times. Derive `want` from the dispatch input (the batch you handed out), never from
+  the agent's own report — a self-reported count checked against itself proves
+  nothing, the same trust-but-verify gap item 4 below exists to close. One pass,
+  one row per unit:
+  ```bash
+  for unit in "${units[@]}"; do
+    want=$(wc -l < "batch-$unit.txt"); got=$(wc -l < "records-$unit.jsonl" 2>/dev/null || echo 0)
+    printf '%s\twant=%s\tgot=%s\t%s\n' "$unit" "$want" "$got" "$([ "$want" = "$got" ] && echo PASS || echo FAIL)"
+  done
+  ```
+  A zero `got` is the same not-evidence case as the census above — confirm the check
+  itself works (right path, no unquoted glob eaten by `nomatch`) before trusting it.
 - **A live secret can arrive by paste.** A step the owner performs by hand exists
   precisely so a credential never passes through the model — nothing stops the user
   pasting it into chat anyway, so when you hand such a step over, say where the
