@@ -532,6 +532,15 @@ the contract does not apply to them, which is exactly how a fan-out goes out raw
   committing to it, rather than starting the poll unasked. The block below carries an
   agent-shaped copy of this rule — deliberately without "end the turn", which a
   dispatched agent must never do undelivered.
+- **A batch dispatched together is joined together.** When one message dispatches N
+  agents as one fan-out (a `zoom` combo set, `plan-review`'s reviewer round, any
+  parallel batch), the batch isn't done until its **last** agent's signal arrives —
+  don't act on or narrate the batch after its first, third, or ninth idle/report
+  while others are still outstanding. This is the same single **end the turn** from
+  **No busy-wait** above, just applied to N outstanding signals instead of one: each
+  wake-up in between gets silently absorbed (per "An echo from an already-stopped
+  agent gets no reply and no narration" below) rather than re-entering the
+  orchestrator's attention, so a 12-agent round costs one wait, not twelve.
 - **Deliver before idling — the standing prompt contract.** Every dispatched
   prompt, on every surface, ends with this block pasted verbatim. The other
   surfaces cite this section by name rather than copying the block, so a skill

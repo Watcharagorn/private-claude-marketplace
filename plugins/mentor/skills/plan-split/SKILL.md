@@ -280,9 +280,13 @@ the gate's original subject no longer exists, so leaving the user here strands t
 
 Surface each child's **isolation header only** (not the full bodies — that is what the
 files are for), then **re-ask `mentor:planning`'s approval question**, exactly as the
-"Review the plan (light)" option does when it returns. Note in the question that
+"Review the plan (staged)" option does when it returns. Note in the question that
 **Proceed now approves the whole set** and routes building to `/mentor:track`, so the
-user is not left wondering which child "Proceed" means.
+user is not left wondering which child "Proceed" means. The split doesn't close the
+door on `planning`'s Step 5 zoom/tour opt-in either — a child is still fair game for
+`Skill(skill="mentor:zooming")` or `mentor:plan-touring` before the user answers, the
+same as it would have been pre-split; mention it's still available rather than making
+the user rediscover it by asking.
 
 ## Done when
 
