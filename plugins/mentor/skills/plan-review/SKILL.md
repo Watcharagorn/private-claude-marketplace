@@ -10,11 +10,12 @@ description: |
   Reads the current mentor plan (.md) and, with the edit gate closed, runs a
   staged review: Stage 1 judgment reviewers (practicality,
   comprehensiveness), then a fold gate that walks their recommended edits
-  ONE AT A TIME — each edit its own question carrying the reviewer's case,
-  verdicted fold/skip; then Stage 2 mechanical reviewers (cleanliness + a
+  ONE AT A TIME — each edit its own question, verdicted fold/skip; then
+  Stage 2 mechanical reviewers (cleanliness + a
   spec-kit-analyze-style consistency check over related artifacts) against
   the updated plan, whose safe fixes auto-fold while decision-level findings
-  are asked the same one-at-a-time way. Stage 2 is also invocable on its own.
+  surface as a one-line digest — only CRITICAL ones get their own question,
+  the rest resolve in one batch. Stage 2 is also invocable on its own.
 ---
 
 # Plan Review — Judgment, Fold, then Mechanical Auto-Fold
@@ -29,8 +30,9 @@ would, self-contained and in plain language, key words bolded — and the
 accepted edits are folded by re-writing the plan in place. Only then do the **mechanical reviewers** (cleanliness,
 consistency) dispatch — against the UPDATED plan, so they also catch anything
 the fold introduced. Their `MECHANICAL`-tagged fixes are auto-folded;
-`DECISION-REQUIRED` findings are walked the same one-question-per-finding
-way — applied only on the user's verdict, never automatically. Reviewers stay
+`DECISION-REQUIRED` findings surface as a one-line digest, CRITICAL ones
+walked one question at a time and the rest resolved in a single batched
+verdict — applied only on the user's verdict, never automatically. Reviewers stay
 read-only and this worktree's plan gate (`.planning.<wt-id>`, or a live legacy
 `.planning`) stays closed throughout, but this skill
 itself writes ONE file — the plan `.md`, at Step 5 (fold) and Step 7
@@ -162,9 +164,9 @@ question:
 ```
 Question — header "Plan review", single-select, 3 options:
   1. "Run staged review"   (Recommended)
-     description: "Stage 1 judgment review (practicality, comprehensiveness) whose recommended edits you verdict one question at a time, then Stage 2 mechanical review (cleanliness, consistency) on the updated plan — safe fixes auto-folded, decision-level findings asked one by one."
+     description: "Stage 1 judgment review (practicality, comprehensiveness) whose recommended edits you verdict one question at a time, then Stage 2 mechanical review (cleanliness, consistency) on the updated plan — safe fixes auto-folded, CRITICAL decision-level findings asked one at a time, the rest resolved in one batched question."
   2. "Stage 2 only"
-     description: "Skip the judgment stage; run just the mechanical pass — cleanliness + the spec-kit-analyze-style consistency check — and auto-fold its safe fixes. Decision-level findings are asked one by one, applied only on your verdict."
+     description: "Skip the judgment stage; run just the mechanical pass — cleanliness + the spec-kit-analyze-style consistency check — and auto-fold its safe fixes. CRITICAL decision-level findings are asked one at a time, the rest resolved in one batched question, applied only on your verdict."
   3. "Pass (skip)"
      description: "Return to planning without dispatching."
 ```
@@ -286,7 +288,9 @@ position ("as the second practicality edit noted") — restate the point in
 place:
 
 ```
-question: "(<k> of <n>) <the reviewer's case in 2–4 sentences — what the plan
+question: "(<k> of <n>) <ONE plain sentence naming the decision being asked —
+           the eye lands on the ask before the evidence — then the reviewer's
+           case in 2–4 sentences: what the plan
            currently says (quoted or described by content, never by label),
            why it matters (the concrete **risk**, **gap**, or **cost** of
            leaving it), and what the edit changes — with the key
@@ -373,7 +377,8 @@ then end each prompt with its **"Deliver before idling"** block pasted verbatim,
 with this stage's own durable-copy filenames —
 `.mentor/plans/<slug>/cleanliness-review.md` and
 `.mentor/plans/<slug>/consistency-review.md`. Close both reviewers out once their
-findings are consumed, BEFORE Step 7's verdict walk blocks on the user — an
+findings are consumed, BEFORE Step 7's first verdict question — walk or
+batch — blocks on the user; an
 idle agent must not interrupt the questions with stray notifications. If one
 dies, note it and run Step 7 on the survivor's findings.
 
@@ -430,8 +435,13 @@ constitution, gitignore caveat) with these lane specifics:
   edits` block, where every `Recommended plan edits` item MUST open with
   `[MECHANICAL]` or `[DECISION-REQUIRED]` per the tagging contract, and a
   MECHANICAL item carries its exact edit (location + replacement text).
-  `Risks:`/`Gaps:` items are decision-level context — they are never
-  auto-folded.
+  A `[DECISION-REQUIRED]` item also carries its severity inline right after
+  the tag — `[CRITICAL]`/`[HIGH]`/`[MEDIUM]`/`[LOW]`, the consistency
+  reviewer's scale, where CRITICAL in this lane means the plan is unbuildable
+  or its acceptance unverifiable as written — because Step 7 uses severity to
+  decide which findings earn their own question. `Risks:`/`Gaps:` items are
+  decision-level context — they are never auto-folded and never verdicted;
+  they surface with the report, not in Step 7's digest or batch.
 - Word cap: `Cap your reply at 600 words; the exact location + replacement
   text of MECHANICAL fixes does not count toward the cap.` (A tighter cap
   truncates the fixes, which demotes them at Step 7 and hollows out the
@@ -525,8 +535,8 @@ must contain:
    ```
    For a DECISION-REQUIRED finding, the `Fix` column carries the recommended
    resolution and its one-line why — or, on a declared toss-up, says so and
-   names why no side is preferred — the same content Step 7's verdict walk
-   surfaces as `(Recommended)`.
+   names why no side is preferred — the same content Step 7's digest, walk,
+   and batch question surface as the recommended resolution.
 9. Read-only + anti-recursion: `Do not edit any file. Do not invoke /plan-review or any planning skill.`
 10. **Constitution (conditional):** if the resolved constitution `$const_path`
     exists (Step 1), read it —
@@ -534,9 +544,12 @@ must contain:
     plan's `## Constitution Check` table is internally consistent (every principle
     has a row; every ⚠️ verdict has a resolving or explicitly-justified note).
 
-## Step 7 — Auto-fold, per-finding verdicts, and report
+## Step 7 — Auto-fold, severity-gated verdicts, and report
 
-Partition the Stage 2 findings by tag.
+Partition the Stage 2 findings by tag — tagged findings only; the cleanliness
+`Risks:`/`Gaps:` prose is context for the report, never a finding to verdict.
+If no DECISION-REQUIRED finding survives the partition, skip the digest and
+every verdict question and go straight from the MECHANICAL pass to the report.
 
 **Apply** every MECHANICAL fix in ONE revision pass, re-writing the plan file
 in place (`plan` Step 4). Guards:
@@ -548,18 +561,48 @@ in place (`plan` Step 4). Guards:
   terminology, cleanliness wins structure and wording; if still ambiguous,
   demote both to DECISION-REQUIRED.
 - Never apply a DECISION-REQUIRED finding in this pass — those choices go to
-  the verdict walk below.
+  the verdict questions below.
 
-**Ask** the DECISION-REQUIRED findings (including demotions) one at a time,
-CRITICAL → LOW, under Step 4's per-question contract — self-containment
-included: one `AskUserQuestion` call per finding, exactly one single-select
-question, a ≤12-char plain-language handle for the finding as header (never
-the reviewer's table ID — the user hasn't memorized the table), and the
-question text carrying the reviewer's case in 2–4 sentences with the **key
-words bolded** — what disagrees or is missing, **where** (quote or describe
-the plan text in place; a bare `Location(s)` cell like "§Verification" or
-"Step 3" must be translated into what that part of the plan says), and what
-each resolution costs. The options come from the finding itself:
+**Surface the digest.** Before asking anything, list every DECISION-REQUIRED
+finding (demotions included) as one line each, CRITICAL → LOW: a 2–4 word
+plain-language **handle** per Step 4's handle contract (compressed to
+≤12 chars only when used as a question header; never the reviewer's table
+ID — the user hasn't
+memorized the table), the severity, a half-sentence of what it is, and the
+recommended resolution in a few words (or "toss-up" when the reviewer
+declared no recommendation). This is the map the walk used to lack — questions arrived
+cold, one dense case at a time, with no way to see how many were coming or
+which ones mattered. A severity the reviewer stamped stands — never re-grade
+a stamped finding. Only a finding that arrived without one (demotions
+usually do) needs a grade: MEDIUM, unless its content meets a CRITICAL
+definition — blocks the core requirement, cross-artifact contradiction,
+constitution MUST violation, or (cleanliness lane) plan unbuildable /
+acceptance unverifiable as written — which makes it CRITICAL.
+
+**Walk the CRITICAL findings**, one at a time — and ONLY the CRITICAL ones,
+unless the batch question below routes its findings back here — under
+Step 4's per-question *writing* contract — self-containment included: one
+`AskUserQuestion` call
+per finding, exactly one single-select question, the finding's handle as
+header, a `(<k> of <n>)` prefix where `n` counts only the findings being
+individually walked (never the whole DECISION-REQUIRED set — a 2-question
+walk must not read as a 14-question one), and the question text opening with
+one plain sentence naming the
+decision being asked, then the reviewer's case in 2–4 sentences with the
+**key words bolded** — what disagrees or is missing, **where** (quote or
+describe the plan text in place; a bare `Location(s)` cell like
+"§Verification" or "Step 3" must be translated into what that part of the
+plan says), and what each resolution costs. Step 4's exact-4/exact-2
+option-shape check stays in Step 4 — this walk's option count varies with
+the alternatives each finding carries, so a 3-option question here is
+well-formed, not malformed. The gate is narrowed to CRITICAL
+deliberately: a CRITICAL finding blocks the core requirement, contradicts a
+sibling artifact, or violates a constitution MUST — each one is worth its own
+question. Below that, a per-question walk taxes the user more than the
+decisions are worth (a 21-step plan once produced twelve dense questions and
+half an hour of answering), and the digest plus the batch question below keep
+every choice the user's at a fraction of the cost. The options come from the
+finding itself:
 
 - One option per substantive alternative the reviewer stated, ordered with
   the reviewer's recommended resolution **first** — per the Step 6 tagging
@@ -575,36 +618,68 @@ each resolution costs. The options come from the finding itself:
   reviewer — and when more exist, say in the question text that the rest are
   reachable via "Other" by name.
 - `"Leave open"` — keep the plan as-is; the finding is recorded in the report.
-- `"Skip the rest"` — leave this and every remaining finding open and go to
-  the report. (Offer only while more than one finding remains.)
+- `"Skip the rest"` — leave this and every remaining finding open — the rest
+  of the walk AND the batched findings below — and go to the report. (Offer
+  only while more findings remain beyond this one, batched ones included.)
 
-Before building each question, count the findings still ahead: `"Skip the
-rest"` belongs in the option list only while more than one remains — the
+Before building each question, re-count what actually remains — the
 same drift a long walk invites in Step 4's fold gate reaches this walk too,
 so check the count rather than carrying the last question's shape forward.
 
-**Free-text bulk-accept.** If the user declines the question and free-types a
-bulk instruction instead ("accept the rest", "take all the recommendations"),
-map it onto the **recommended** resolution of every remaining finding that has
-one. Unlike Step 4, these questions do not share one binary — each finding has
-its own alternatives — so "accept" is well-defined here only as *take each
-one's recommendation*, which is why a remaining toss-up finding that declared
-no recommendation (the carve-out above) is not covered: it still gets its own
-question afterwards. Before applying, state by handle **both** sets — the
-findings you read the instruction as covering, and the toss-ups still to come
-— and get confirmation; check the span the way Step 4 does, since findings
-already left open are behind you and "all" may mean the remainder or the whole
-set. There is no formal button for this: with two alternatives Step 7's
-question can already reach the 4-option cap ("Leave open" and "Skip the rest"
-take the other two slots), unlike Step 4's plain fold/skip binary, and a fifth
-option that could only appear on single-alternative findings would flicker in
-and out across the walk.
+**Batch the rest.** After the walk — or immediately, when nothing is
+CRITICAL — resolve every remaining finding in ONE single-select question
+rather than one each. The question text restates each remaining finding as
+its own line, HIGH → LOW: `**handle** (severity) — half-line summary → its
+recommended resolution in a few words` (or `toss-up`). The list IS the
+question's substance — the user verdicts from the question screen alone, and
+the digest may have scrolled away, so the lines live here, never as a pointer
+back to it. Header `"Remaining <N>"`, options:
+
+  1. "Apply all recommendations (Recommended)" — description: applies each
+     listed finding's recommended resolution in one pass; if any listed
+     finding is a toss-up, or a demoted MECHANICAL with no exact edit to
+     apply, name it here as staying open — there is no recommendation to
+     apply and guessing one is forbidden; it lands in the report's
+     left-open group.
+  2. "Leave all open" — description: change nothing; every listed finding is
+     recorded in the report as an open finding.
+  3. "Walk them one by one" — description: the full per-question walk over
+     these findings, severity order, for when the list shows calls the user
+     wants to weigh individually.
+
+On "Walk them one by one", run the walk above over the batched findings —
+same writing contract, same `Leave open` / `Skip the rest` options on the
+same count rule, `n` now counting these findings, and the free-text
+bulk-accept applies here too. That walk ends at the report; it never
+re-batches. An "Other" answer carries mixed verdicts ("apply the first two,
+leave the
+rest") — map it by handle and confirm the span before applying. Marking the
+bulk option `(Recommended)` here is deliberate, and deliberately different
+from Step 4's never-recommend-bulk rule: there, one-edit-at-a-time IS the
+gate's design, so nudging toward bulk would hollow it out; here the batch is
+the design below CRITICAL, and every listed recommendation is one the
+reviewer already named as the most practical and clean resolution. Two edge
+cases collapse the batch: exactly one remaining finding gets a normal
+per-finding question instead of a one-line list, and a remainder that is all
+toss-ups skips straight to the walk — the lead option would cover nothing,
+and a declared toss-up is precisely the finding that needs individual
+judgment.
+
+**Free-text bulk-accept.** If the user free-types a bulk instruction during
+the CRITICAL walk ("accept the rest", "take all the recommendations"), map it
+onto the remaining walk findings' recommendations plus the batch's
+"Apply all recommendations". Before applying, state by handle what that
+covers — toss-ups excluded: they stay open, exactly as the batch's "Apply
+all recommendations" would leave them — and confirm
+the span, since answered findings are behind you and "all" may mean the
+remainder or the whole set.
 
 The recommendation only shapes how the options are **presented** — ordered,
 labeled — never whether one is **applied**: nothing here is folded until the
 user verdicts it, the same guarantee that holds for every DECISION-REQUIRED
-finding. Apply the accepted resolutions in ONE second revision pass after the
-walk — these are user verdicts, not auto-folds.
+finding, batched ones included. Apply the accepted resolutions — walked and
+batched — in ONE second revision pass once every verdict is in — these are
+user verdicts, not auto-folds.
 
 **Report** three groups, naming every entry by its handle plus a one-line
 summary — never a bare code: **applied** (MECHANICAL fixes and
@@ -648,8 +723,9 @@ previously read-only, so when this mode is entered by trigger phrase (not the
 Step 2 gate choice, whose description already announces the auto-fold), ask
 one single-select question before Step 7 writes anything — header
 "Auto-fold", options "Apply safe fixes (Recommended)" / "Surface only". On
-"Surface only", run Step 7's partition + report but skip both writes AND the
-per-finding verdict walk — the user asked to see, not to change.
+"Surface only", run Step 7's partition + digest + report but skip both writes
+AND every verdict question — walk and batch alike — the user asked to see,
+not to change.
 
 **Only this session's live gate choice is exempt.** The carve-out above is for
 the Step 2 gate choice specifically — a choice made *now*, by *this* session's
@@ -664,5 +740,5 @@ resuming's "invoke the command exactly as the note states" bound limits
 ### Do NOT
 
 - Do **not** run `approve-plan.sh` from inside this skill — review never releases the gate.
-- Plan-file writes from inside this skill are limited to exactly two moments — Step 5 (the user's per-edit fold verdicts) and Step 7 (the MECHANICAL auto-fold pass plus the user's per-finding verdicts). Never apply an edit or resolution the user did not explicitly accept, never touch zoom artifacts or repo source files, and always follow `plan` Step 4's re-write-in-place rule.
+- Plan-file writes from inside this skill are limited to exactly two moments — Step 5 (the user's per-edit fold verdicts) and Step 7 (the MECHANICAL auto-fold pass plus the user's verdicts, walked and batched). Never apply an edit or resolution the user did not explicitly accept, never touch zoom artifacts or repo source files, and always follow `plan` Step 4's re-write-in-place rule.
 - Do **not** detect domains or ask the user to select topics — the review topics are fixed (see the dimension table above).

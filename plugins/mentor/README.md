@@ -78,7 +78,7 @@ implementation, handoff, and review.
 | `/mentor:defer <item(s)>` | `git stash`-like capture: park one or many mid-flow discoveries (mid-planning or mid-implementation) as draft plan stubs at the normal plans location (`origin: "deferred"` in the sidecar, no separate stash area), then return to the interrupted flow. Picked up later via `/mentor:track`, which routes it to `/mentor:plan` to be claimed before it can build. An item that **blocks the active plan's own completion** parks as a fix child instead (`--parent` = that plan's slug, nesting when the active plan is itself a fix), so the root can't read done while its fixes dangle. |
 | `/mentor:track [slug\|number\|status]` | Repo-wide remaining-work hierarchy — every plan's state, step progress, cross-plan `deps`, deferred stubs, and live handoffs — with fix children nested under their root and per-root open-descendant counts — then build the one you pick. The way back into a `/plan-split` group. |
 | `plan-split`* | Split an oversized plan into independently buildable sibling plans, each with explicit scope isolation; also offered as **Split into multiple plans** at the approval gate when a plan is oversized. |
-| `plan-review`* | Staged review of the current plan: a judgment pass (practicality, comprehensiveness) with a **fold gate** that walks the recommended edits **one question at a time** — each question carries the reviewer's case with the key words bolded — then — against the updated plan — a mechanical pass (cleanliness + spec-kit-`analyze`-style **consistency** across related artifacts) whose safe fixes **auto-fold**; decision-level findings are asked the same one-by-one way, applied only on your verdict. The mechanical stage is invocable alone ("check plan consistency"). Also offered as **Review the plan (staged)** at the proceed gate. |
+| `plan-review`* | Staged review of the current plan: a judgment pass (practicality, comprehensiveness) with a **fold gate** that walks the recommended edits **one question at a time** — each question carries the reviewer's case with the key words bolded — then — against the updated plan — a mechanical pass (cleanliness + spec-kit-`analyze`-style **consistency** across related artifacts) whose safe fixes **auto-fold**; decision-level findings surface as a one-line **digest**, only **CRITICAL** ones asked one at a time and the rest resolved in **one batched question**, applied only on your verdict. The mechanical stage is invocable alone ("check plan consistency"). Also offered as **Review the plan (staged)** at the proceed gate. |
 | `dispatch-agents`* | The **default implementation path** (subagents-driven development): every plan's steps are dispatch-annotated unless the plan states a `Dispatch: skipped` reason, executed as subagent dispatches after approval, then verified by one fresh verifier agent per Verification topic — implementation dispatch may skip, verification dispatch never does on a mentor plan. |
 
 \* skill trigger phrases, not registered slash commands — there is no `/plan-split`,
@@ -544,6 +544,25 @@ extra deliverable. Instruction-only — no hooks.
 | `plan-domain-backend-api` | API/endpoint/route/handler/schema/DTO/contract — or the data model behind it: migration, table, column, index, constraint, enum, RLS policy | Before/after contract diff tables, schema diffs, Mermaid sequence flows; on a DDL change also a per-column delta table + a Mermaid ER diff of the changed entities. |
 | `plan-domain-architecture` | Structural change — services, containers, datastores, queues, integrations, data flows (not pure content/config/doc/style/refactor) | Diff-highlighted C4-style Mermaid flowcharts, only the levels that change; a provenance list for any changed datastore field. |
 | `plan-domain-dynamic` | No registered domain matched, and no already-available project/plugin skill names the technology (fallback) | A dispatched domain-definer names the domain and returns a best-practices brief; the plan gains a practice→step mapping. A substituted available skill can supply the brief instead. |
+
+## Changes in v2.30.0
+
+**`/plan-review` Stage 2 verdicts are severity-gated.** Measured on a real 21-step
+plan, the mechanical stage's decision-level findings produced twelve dense
+one-at-a-time questions (~34 minutes of answering) with no map of what was coming
+and no visible bulk path. Step 7 now surfaces every DECISION-REQUIRED finding as a
+one-line **digest** (handle · severity · summary · recommendation) before anything
+is asked, walks **only CRITICAL findings** individually — each question opening
+with one plain sentence naming the decision before the evidence — and resolves the
+rest in **one batched question** ("Apply all recommendations (Recommended)" /
+"Leave all open" / "Walk them one by one", mixed verdicts via "Other"). The
+cleanliness reviewer now tags severity inline (`[DECISION-REQUIRED][HIGH]`) so the
+gate has something to gate on; a reviewer-stamped severity always stands, and only
+unstamped findings default (MEDIUM, promoted only when content meets a CRITICAL
+definition). The guarantees are unchanged: nothing decision-level is ever
+auto-applied, toss-ups and demotions with no exact edit stay open rather than
+guessed — identically on the button and the free-text path — and an empty
+decision-level set skips straight to the report. Stage 1's fold gate is untouched.
 
 ## Changes in v2.27.0
 
