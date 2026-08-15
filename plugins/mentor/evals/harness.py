@@ -2,9 +2,9 @@
 """Multi-skill trigger eval for the mentor plugin.
 
 The stock skill-creator harness exposes ONE skill and asks "did it fire?".
-For mentor that misses the real risk: ten sibling skills competing, where the
-defect is the WRONG one firing. So this stages all ten at once in an isolated
-scratch project and records which one Claude actually reaches for.
+For mentor that misses the real risk: fifteen sibling skills competing, where
+the defect is the WRONG one firing. So this stages all fifteen at once in an
+isolated scratch project and records which one Claude actually reaches for.
 """
 import json, os, re, subprocess, sys, tempfile, time, uuid
 from concurrent.futures import ThreadPoolExecutor
@@ -14,7 +14,8 @@ HERE = Path(__file__).parent.resolve()
 REPO_SKILLS = (HERE / ".." / "skills").resolve()
 SKILLS = ["planning", "plan-split", "plan-track", "plan-review",
           "grilling", "dispatch-agents", "resuming", "handoff-note",
-          "touring", "zooming", "merging", "shipping"]
+          "touring", "zooming", "merging", "shipping",
+          "deferring", "constitution-authoring", "plan-touring"]
 
 
 def fm_field(fm, key):

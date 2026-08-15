@@ -492,7 +492,9 @@ Step 1 instead. A verification round moves the plan with `set`.
   (**lite verify**): a skipped plan with ≤2 topics may dispatch **one combined fresh
   verifier** carrying both — independence holds, only the fan-out relaxes. `implemented`
   needs every topic PASS with every gap fixed, deferred, or accepted; zero topics clears
-  that vacuously, so a topicless plan gets there only on the acceptance above.
+  that vacuously, so a topicless plan gets there only on the acceptance above. That
+  combined verifier is itself a substitution — carry it into the report the same way
+  the disclosure rule below asks of every other one, not just into a passing tick.
 
 ## Async runtime & lifecycle
 
@@ -527,6 +529,19 @@ the contract does not apply to them, which is exactly how a fan-out goes out raw
   instead" first and Recommended** (a standing policy outranks the default path): keep it
   in the main thread / dispatch as designed anyway / skip the affected step. That tension is
   the user's to resolve, not yours to resolve silently.
+- **A substitution is disclosed as a substitution.** Any of the shapes above — a
+  fan-out that ran with fewer agents than the contract called for, a delegated skill's
+  own agents declining or being unavailable, a step the standing policy just above kept
+  in the main thread, `lite verify`'s one combined verifier standing in for two
+  independent ones — changes what actually backed a result, and the report has to say
+  so next to that result, not leave it implied. `mentor:shipping` Step 3 is the worked
+  case: a solo diff review is reported **as** a solo diff review, because reporting the
+  substitute as though the full step ran is what turns a judgment call into a false
+  green. **This is not a license** — it does not cover the surfaces on this roster that
+  forbid running solo at all (`zoom` and `plan-tour` never hand-render in the main
+  thread, `plan-split` never hand-authors a child, and verification's "No escape hatch"
+  above has no fallback beyond the one named allowance): there, a solo attempt is a
+  contract violation to stop and flag, never a substitution to disclose.
 - **No busy-wait.** Waiting is not work: never chain `sleep`s, fire no-op Bash
   calls, or reach for `ScheduleWakeup` (that tool is for `/loop` mode, not a
   dispatch wait — it can fire successfully and still be wrong here: a timer has
