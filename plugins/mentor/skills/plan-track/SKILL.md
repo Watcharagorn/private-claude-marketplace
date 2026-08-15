@@ -95,8 +95,18 @@ hierarchy — say it in one line and stop. Say what the emptiness means and no m
 only its own plans, so "no mentor plans in this repo" is never a claim that the repo has no work
 in flight — planning may simply live somewhere else.
 
-If `$ARGUMENTS` is `status`, render the hierarchy below and stop — the user asked to look, not to
-build.
+If `$ARGUMENTS` is `status` (case-insensitive) or contains any whitespace — a full sentence or
+multi-word survey ask, rather than a single ordinal/slug token — render the hierarchy below and
+stop; the user asked to look, not to build. This is a mechanical check, not a judgment call: a bare
+ordinal and a bare slug never contain whitespace, so only a genuinely single-token argument (or no
+argument at all, which Step 2's own no-argument branch already handles safely via
+`AskUserQuestion`) reaches Step 2's resolution below. Without it, a survey sentence that happens to
+contain one plan's slug as a unique substring would fall through to Step 2's "a unique match is
+selected directly" rule and silently proceed toward Step 3 — this deliberately diverges from
+`mentor:resuming` Step 4's rule, which resolves a slug embedded anywhere in a longer phrase: here
+any surrounding prose stops at Step 1 instead, on purpose, because a survey-shaped ask must never
+silently resolve into a build. Name the plan directly — by ordinal or bare slug alone — to act on
+it.
 
 ### Render it as a hierarchy, not a flat dump
 
@@ -242,6 +252,29 @@ subtree; here you only ever see the count and the warn.
 Sort `kind: "plan"` entries the same way the old `list` table did: active states first
 (`superseded`/`unknown` last), then by group (an ungrouped plan sorts on its own slug), then
 `order`, then slug — so a reader who knew the old table still recognizes the order.
+
+### On a broader ask than the hierarchy (a scope/goal digest)
+
+The hierarchy above is deliberately just state + progress — `overview --json`'s `goal` field is
+populated **only** for `origin: "deferred"` entries, by design (`plan-state.sh`'s `_plan_walk` skips
+the `plan.md` re-read for every ordinary plan so `overview` stays fast on a big plan set; see that
+function's own comment). When a survey-shaped ask (the gate above) wants more than the bare
+hierarchy — a one-line synopsis of what each plan actually covers — do **not** hand-roll ad hoc
+`grep`/heading patterns against `plan.md`: plans don't share one heading convention (one `plan-
+split` child may use `### N. Title`, another may not), so an improvised pattern will silently miss
+some. Instead, call the shared extractor per plan you're summarizing, same recipe as the worktree-id
+lookup above:
+
+```bash
+[ -n "$CLAUDE_PLUGIN_ROOT" ] && [ -d "$CLAUDE_PLUGIN_ROOT/hooks" ] || { echo "ERROR: CLAUDE_PLUGIN_ROOT unresolved or stale — do not search the plugin cache or hardcode a version path; ask the user to /reload-plugins or restart" >&2; exit 1; }
+synopsis="$(. "${CLAUDE_PLUGIN_ROOT}/hooks/lib/state.sh"; plans_dir="$(mentor_plans_dir "$(git rev-parse --show-toplevel)")"; mentor_plan_goal_line "${plans_dir}/<slug>/plan.md" context)"
+```
+
+Pass `context` explicitly: the function defaults to `goal` (matching its one existing caller,
+`_plan_walk`'s deferred-only gate above), and an ordinary plan authored by `mentor:planning`'s
+content spec carries a `## Context` section, never a `## Goal` one — passing the wrong (default)
+section silently returns empty for every ordinary plan. It already reflows and truncates
+consistently (see its own comment in `hooks/lib/state.sh`) — never re-derive that logic inline.
 
 **Setting a tier or category** is one call each, and both are the natural follow-up when the user
 reacts to the hierarchy with a judgment ("that one's noise", "these three are critical", "that's

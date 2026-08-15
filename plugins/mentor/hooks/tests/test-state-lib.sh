@@ -333,6 +333,30 @@ chk "no ## Goal section → empty" test -z "$(libsh "mentor_plan_goal_line '$PLA
 
 chk "missing plan_md → empty, no crash" test -z "$(libsh "mentor_plan_goal_line '/nope.md'")"
 chk "empty arg → empty, no crash"       test -z "$(libsh "mentor_plan_goal_line ''")"
+
+# B11b. The `section` parameter — a plan-track "broader ask" digest reads an
+# ordinary plan's `## Context` instead of the `## Goal` no ordinary plan has.
+mkdir -p "$PLANS/ctxonly"
+printf '# recommended-first-clean\n\n## Context\nRe-baselines the spec doc after the 4-phase split, adds a checklist.\n\n## Use case scenarios\nirrelevant here\n' > "$PLANS/ctxonly/plan.md"
+chk "no arg (default 'goal') on a plan with only ## Context → empty, unchanged from before this parameter existed" \
+  test -z "$(libsh "mentor_plan_goal_line '$PLANS/ctxonly/plan.md'")"
+chk "explicit 'goal' behaves identically to the default (backward-compat)" \
+  test "$(libsh "mentor_plan_goal_line '$PLANS/ctxonly/plan.md' goal")" = "$(libsh "mentor_plan_goal_line '$PLANS/ctxonly/plan.md'")"
+chk "'context' pulls the ## Context section's first paragraph on a plan with no ## Goal" \
+  test "$(libsh "mentor_plan_goal_line '$PLANS/ctxonly/plan.md' context")" = "Re-baselines the spec doc after the 4-phase split, adds a checklist."
+
+# A plan carrying BOTH sections (the deferred-stub shape) must still pick only the
+# requested one — proves the section gate actually scopes the paragraph scan rather
+# than just grabbing "the first paragraph found anywhere".
+mkdir -p "$PLANS/both"
+printf '# t\n\n## Goal\n\nGoal text only.\n\n## Context\n\nContext text only.\n' > "$PLANS/both/plan.md"
+chk "default/'goal' on a plan with both sections → the Goal paragraph, not Context" \
+  test "$(libsh "mentor_plan_goal_line '$PLANS/both/plan.md'")" = "Goal text only."
+chk "'context' on the same plan → the Context paragraph, not Goal" \
+  test "$(libsh "mentor_plan_goal_line '$PLANS/both/plan.md' context")" = "Context text only."
+chk "section name is case-insensitive ('GOAL' matches '## Goal')" \
+  test "$(libsh "mentor_plan_goal_line '$PLANS/both/plan.md' GOAL")" = "Goal text only."
+
 rm -rf "$PLANS"
 
 echo "== D. mentor_get_mode / mentor_config_get =="

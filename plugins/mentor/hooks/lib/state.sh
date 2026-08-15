@@ -804,25 +804,36 @@ mentor_plan_tick_counts() {
 # Word-boundary truncation length for mentor_plan_goal_line — see its own comment.
 MENTOR_GOAL_LINE_MAX=85
 
-# mentor_plan_goal_line <plan_md> — echo the plan's `## Goal` section's FIRST
-# paragraph, reflowed to ONE line (Markdown wraps at ~90 cols, so a raw line ends
-# mid-sentence), tabs replaced by spaces (so it can never corrupt a tab-separated
-# row downstream), and truncated at a word boundary at MENTOR_GOAL_LINE_MAX chars
-# with a trailing `…` — added only when truncation actually happens. Empty when no
-# plan.md, no `## Goal` section, or the section has no first paragraph.
+# mentor_plan_goal_line <plan_md> [section=goal] — echo the plan's `## <section>`
+# section's FIRST paragraph, reflowed to ONE line (Markdown wraps at ~90 cols, so a
+# raw line ends mid-sentence), tabs replaced by spaces (so it can never corrupt a
+# tab-separated row downstream), and truncated at a word boundary at
+# MENTOR_GOAL_LINE_MAX chars with a trailing `…` — added only when truncation
+# actually happens. Empty when no plan.md, no matching section, or the section has
+# no first paragraph.
+#
+# `section` generalizes what began as a Goal-only extractor: `mentor:deferring`'s
+# stub template writes `## Goal`; an ordinary plan authored by `mentor:planning`'s
+# content spec never does — it has `## Context` instead. The default stays `goal`
+# so the ONE existing call site (`_plan_walk` in plan-state.sh, gated to
+# `origin == "deferred"`) is byte-identical in behavior; a caller that wants an
+# ordinary plan's synopsis passes `context` explicitly (see `mentor:plan-track`'s
+# Step 1 "broader ask" note) and gets `## Context`'s first paragraph instead. This
+# function is still deliberately NOT called for every plan from `_plan_walk`'s
+# default walk — see that call site's comment for the hot-path gate this preserves;
+# a caller wanting every plan's synopsis pays the extra `plan.md` read itself, on
+# only the plans it actually needs to summarize.
 #
 # The plugin's only other plan.md text-parser besides mentor_plan_tick_counts, and
-# built the same way (an awk pass gated on the current `##` section). Deliberately
-# NOT called for every plan: its ONE call site (`_plan_walk` in plan-state.sh) gates
-# it on the entry's `origin` being "deferred", so an ordinary plan never pays this
-# file read — see that call site's comment for the gate itself.
+# built the same way (an awk pass gated on the current `##` section).
 mentor_plan_goal_line() {
-  local md="${1:-}" para w out candidate
+  local md="${1:-}" section="${2:-goal}" sec_lc para w out candidate
   if [ -z "$md" ] || [ ! -f "$md" ]; then echo ""; return 0; fi
-  para="$(awk '
+  sec_lc="$(printf '%s' "$section" | tr '[:upper:]' '[:lower:]')"
+  para="$(awk -v want="$sec_lc" '
     /^##[[:space:]]/ {
       h = tolower($0)
-      insec = (h ~ /^##[[:space:]]+goal([[:space:]]|$)/) ? 1 : 0
+      insec = (h ~ ("^##[[:space:]]+" want "([[:space:]]|$)")) ? 1 : 0
       next
     }
     !insec { next }
