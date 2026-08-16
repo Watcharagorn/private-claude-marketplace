@@ -324,6 +324,18 @@
       "expected": "resuming",
       "tests": "NEAR-MISS vs plan-track: NAMED split-group + explicit continue/pick-up intent routes to resuming, not a generic post-split survey — the naming is what flips row 18's unnamed phrasing to this skill",
       "query": "we've got that notifications-revamp split group from last week — go ahead and pick up the next sibling in the group"
+    },
+    {
+      "id": 52,
+      "expected": "plan-split",
+      "tests": "core trigger, retiring-a-superseded-plan use case, no split language in the ask at all",
+      "query": "the thanos-argo-p2-manifests-actions plan got split into 4 child plans a while back and it's marked superseded now. can you delete that old parent plan directory? just want to clean it up"
+    },
+    {
+      "id": 53,
+      "expected": "none",
+      "tests": "NEAR-MISS vs plan-split's retiring case: deleting a FILE the user names directly, no plan/state vocabulary at all — this is a plain filesystem ask, not mentor's plan lifecycle",
+      "query": "theres an old draft.md sitting in the repo root nobody uses anymore, can you just rm it"
     }
   ]
 }

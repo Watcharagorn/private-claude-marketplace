@@ -168,8 +168,10 @@
 #   overview --json
 #       Repo-wide JSON array (--json is required — there is no human-table mode): one
 #       object per plan dir with a plan.md (slug, effective state, group, order,
-#       priority, category, deferred_from, parent, deps — each marked missing when no
-#       such plan dir exists, origin, live handoffs, ticked/total step counts, goal),
+#       priority, category, deferred_from, parent, deps (`[{slug, missing}]` — missing
+#       true when no such plan dir exists; only deps carries this per-entry flag, the
+#       other fields below are plain values), origin, live handoffs, ticked/total step
+#       counts, goal),
 #       plus topic dirs that hold live handoffs but no plan.md yet (state "no plan
 #       yet") and the legacy flat handoffs/ dir (topic-less). `priority`/`category`/
 #       `deferred_from`/`parent`/`goal` are null on every entry that has none,
@@ -303,7 +305,7 @@ Usage: plan-state.sh <subcommand>
   current [--any]                       the current plan, owned-by-this-worktree scoped (group-aware);
                                          --any for a deliberate repo-wide read
   overview --json                       repo-wide JSON: plans + priority/category/deferred_from/parent +
-                                         deps + live handoffs +
+                                         deps (`[{slug, missing}]`) + live handoffs +
                                          step counts (`steps.ticked`/`steps.total`) +
                                          goal (deferred entries)
   context                               CONTEXT: ASK|HANDOFF|WARN|OK|UNKNOWN (~N tokens)
