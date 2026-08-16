@@ -562,6 +562,12 @@ in place (`plan` Step 4). Guards:
   demote both to DECISION-REQUIRED.
 - Never apply a DECISION-REQUIRED finding in this pass — those choices go to
   the verdict questions below.
+- **Apply the whole batch from one read** — never chain `Edit`s whose `old_string`
+  another fix in the same pass just rewrote: that call fails on a string no longer
+  in the file. Write the plan back once from the in-memory copy, or, for fixes that
+  fall in disjoint blocks, use `plan` Step 4's whole-table/whole-fence replacement.
+  Text no finding names comes back unchanged — this pass carries the findings' fixes,
+  it does not re-draft. Same rule for Step 5's fold and the second pass below.
 
 **Surface the digest.** Before asking anything, list every DECISION-REQUIRED
 finding (demotions included) as one line each, CRITICAL → LOW: a 2–4 word

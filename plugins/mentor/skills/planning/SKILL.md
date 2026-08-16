@@ -149,7 +149,15 @@ second root isn't read-only-gated the way this repo's own edits are, until
 that root has its own plan and gate (`plan-state.sh relocate`'s README note
 spells out the same limit for a moved plan). For small, well-scoped tasks,
 read the files and draft directly in the main thread. Nothing enforces
-delegation; use judgment.
+delegation; use judgment — with one backstop for when that judgment already
+said "inline" and the reading kept going: once main-thread research reading
+passes roughly 5 files or ~500 cumulative lines, the task is no longer small,
+so dispatch an `Explore` for what is left rather than bulk-reading on. The one
+artifact a decision actually turns on is still read here (Step 3.5's evidence
+rule) — it is the survey reading around it that belongs in an agent. Context
+spent on raw research reads doesn't come back for the rest of the plan —
+grilling, drafting, and Step 3.5's decision loop still have to fit in what's
+left.
 **Load the dispatch contract before the first `Agent()` call, not after.** Research
 dispatches follow `dispatch-agents`' "Async runtime & lifecycle" rules, and this step
 fires before that skill's own first load point (Step 4) — so invoke
@@ -337,6 +345,21 @@ Resolve the queued user decisions via `AskUserQuestion` — **one call, one
 question, one decision at a time**. Batching decisions into one call produces
 rushed, lower-quality answers. Order by dependency: resolve the decision other
 decisions hang off first, and let each answer narrow the next question.
+
+**Free-typed bulk-accept.** If the user free-types an instruction to take your
+recommendations rather than answering item by item — often by interrupting the open
+question ("go with your recommendation", "pick the defaults") — map it onto the queue:
+accept the recommended option for every decision still unanswered; every question here
+carries one by construction (below), so this path leaves nothing unresolved. Before
+drafting, name what you are accepting on — each decision by its plain-language name,
+one line each — since "your recommendation" after four answered questions usually
+means the remainder but can mean the whole set, and the user can only correct a span
+you showed them. An instruction that also changes what the plan covers is a scope
+change first: resolve it under the rule above, then resume. This does not change the
+default — still one at a time, and never offer bulk acceptance as an *option* on a
+question: these decisions share no common binary the way `plan-review`'s fold gate
+does, so a bulk button here would be ill-defined and would nudge toward the batching
+this step exists to prevent.
 
 **Every question ships with decision support, and stands on its own** — the
 user answers from the question screen alone, never sent to a file, a plan
