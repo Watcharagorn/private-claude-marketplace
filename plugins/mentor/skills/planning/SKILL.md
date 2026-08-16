@@ -128,7 +128,9 @@ designing anything. Skip this for well-specified tasks.
 ## Step 2 — Research (delegation suggested, not enforced) {#research}
 
 For multi-area or unfamiliar tasks, prefer dispatching **1–3 read-only `Explore`
-agents** over disjoint areas — issue every `Agent()` call for the batch in a
+agents** (`model: sonnet` — this is locate-and-map work, not design; leaving it
+unpinned defaults to the session's own model, a needless cost multiplied by every
+agent in the batch) over disjoint areas — issue every `Agent()` call for the batch in a
 **single message** (N `tool_use` blocks side by side), not one call per message
 waiting for each dispatch's tool_result before writing the next. Serializing the
 dispatch buys nothing — the agents run async once out either way — and spends a
@@ -848,7 +850,13 @@ moment:
 | oversized **and** `CONTEXT: HANDOFF` | **Hand off to next agent (Recommended)** · Pause — still drafting · Deliver plan only · Proceed | Review, Keep planning, Split |
 
 In the first row only, `MODE: plan-only` swaps the leading two so "Deliver plan only"
-comes first. Anything yielded to "Other" stays reachable — the user can just say it.
+comes first. Anything yielded to "Other" stays reachable — the user can just say it —
+but only if they know to: a listed option is a button the user recognizes on sight,
+while a yielded one is invisible unless the question text names it. Every row that
+yields **Review** or **Keep planning** should say so plainly ("still want to revise,
+or run the consistency check first? just say so"), the same way `CONTEXT: HANDOFF`
+rows already name the critically-large note below — otherwise the user re-types an
+intent that was reachable the whole time.
 Copy the matched row's option list into the `AskUserQuestion` call verbatim —
 don't reconstruct it from memory this late in a long session, where a drifted
 list can silently drop the one button (a `Pause`, a `Split`) the situation
@@ -1064,6 +1072,15 @@ DECISION-REQUIRED findings one verdict question at a time and resolves the
 rest in one batched question (applying only accepted resolutions),
 then returns to this same question — this option never releases the gate by
 itself.
+
+**An "Other" answer expressing further-interview intent** ("grill me more", "walk
+through more use-cases/scenarios", or similar) has no button in any row — grilling is
+framed elsewhere in this skill as a pre-research step, so nothing here routes a
+post-draft ask for it, and the user is left re-typing the request past a menu that
+doesn't offer it. Route it: invoke `Skill(skill="mentor:grilling")` scoped to the
+**drafted plan** (not the original request) — interview against what's already
+written, not from scratch — then return to this same question when the interview
+closes. Like Review, this option never releases the gate by itself.
 
 On **Split into multiple plans**, invoke `Skill(skill="mentor:plan-split")`. It writes
 only under `.mentor/plans/`, so the gate stays closed: it confirms a slice map,

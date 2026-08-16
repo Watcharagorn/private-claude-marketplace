@@ -77,6 +77,13 @@ L4 is never rendered. Pick levels by **where the delta lives** (a plan may rende
   components**. Pair it with a minimal **L2 locator** (one box) so the reviewer knows which container
   it zooms into.
 - **Greenfield** (no meaningful "before"): render the target state with every element tagged **NEW**.
+- **Deployment (supplementary, pairs with L2)** — render when the change adds, moves, or duplicates a
+  **physical deployment target**: a cluster, VPC/network boundary, region/account, or a
+  per-environment duplication of an existing unit (e.g. a container now runs against two clusters
+  instead of one). This is C4's supplementary deployment view, not a fifth level — it maps the L2
+  containers onto physical nodes rather than describing new containers, so it never fires alone.
+  Skip it when the deployment target is unchanged: a plan that only changes what a container *does*,
+  not *where* it runs, has nothing here to draw.
 
 Do not render a level whose elements are all UNCHANGED — that is noise, not comprehension.
 
@@ -92,6 +99,9 @@ architecture-relevant research agents' prompts; when researching directly, cover
   **sync vs async**, from `file:line` EVIDENCE.
 - For **L1**: identify the **system boundary** (what is "us" vs external), the **actors/personas**, and
   the **external systems**.
+- For **Deployment**: map physical placement from real source (IaC/k8s manifests, account/project
+  config) — which cluster/VPC/account each L2 container runs in, per-environment duplication, and the
+  network path between them (subnet/peering/gateway, protocol).
 - Classify each in-scope element and edge **NEW / CHANGED / REMOVED / UNCHANGED** so FINDINGS can drive
   the status + diff styling.
 
@@ -143,8 +153,11 @@ Realize each rendered level **inline in the `.md`** as a Mermaid **`flowchart TB
   is mandatory. (Do not hand-set a global Mermaid `theme`/`themeVariables` — platforms override it;
   `classDef` per node is fine.)
 - **One diagram per rendered level**, each preceded by a heading `C4 L1 — System Context` /
-  `C4 L2 — Container` / `C4 L3 — Component: <container>`. Render only the levels that moved; keep each
-  small (split if dense — large flowcharts shrink to unreadable text on GitHub).
+  `C4 L2 — Container` / `C4 L3 — Component: <container>` / `C4 Deployment — <target>`. Render only the
+  levels that moved; keep each small (split if dense — large flowcharts shrink to unreadable text on
+  GitHub). For **Deployment**: boxes are physical nodes (clusters/VPCs/environments) as nested
+  `subgraph`s with the L2 containers placed inside them, edges are the network path labeled by
+  protocol — same `classDef` diff-highlight and mandatory legend as every other level.
 - **ASCII fallback:** when a flowchart can't cleanly carry the layout, an ASCII box diagram in a code
   fence is an acceptable substitute (`plan` Step 4's ASCII carve-out).
 
