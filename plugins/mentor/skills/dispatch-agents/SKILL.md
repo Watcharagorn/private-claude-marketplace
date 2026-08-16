@@ -249,9 +249,10 @@ The point of SDD: quality through narrow focus, and a lean main thread.
 - **Work discovered mid-flight is captured, not lost — route it by the blocking test.**
   If the orchestrator or a dispatched agent notices real work outside the current step's
   scope, ask: **would the root plan's Verification fail, or a `Done when:` stay unmet, if
-  this work is left undone?** Yes (blocking) → `/mentor:defer`'s parent-aware branch: the
-  stub's sidecar gets `parent` = the active plan's slug, nesting for free when that plan
-  is itself a fix child. No (backlog) → plain `/mentor:defer`, unchanged. Ambiguous → one
+  this work is left undone?** Yes (blocking) → invoke `Skill(skill="mentor:deferring")`
+  (`/mentor:defer`)'s parent-aware branch: the stub's sidecar gets `parent` = the active
+  plan's slug, nesting for free when that plan is itself a fix child. No (backlog) → plain
+  `Skill(skill="mentor:deferring")` (`/mentor:defer`), unchanged. Ambiguous → one
   self-contained question to the user at capture time. A blocking fix parked without its
   parent link lets the root read `implemented` while its fixes dangle — the failure this
   routing prevents. Capture either way and keep going — never leave it as an aside in a
@@ -404,8 +405,8 @@ before issuing `Agent` calls. Then:
      before *nudging* on idle — that path has no id-rejection safety net at all).
    - **Offer `/mentor:tour`** — one line: a hands-on acceptance pass building an editable guided-tour review artifact (pass/not-pass scenarios) of what shipped. Do not auto-run it.
    - **Sweep the report you're about to write** — every follow-up, gap, or known-broken
-     item in it goes through `/mentor:defer`, routed by the blocking test above, scoped
-     to work to build, never a check to run: an unresolved verification topic or an
+     item in it goes through **`Skill(skill="mentor:deferring")`** (`/mentor:defer`), routed by
+     the blocking test above, scoped to work to build, never a check to run: an unresolved verification topic or an
      unverified claim is never a stub — it's `set <slug> failed --note` on the plan;
      only a confirmed defect's fix still defers.
    - **Commit this session's implementation work.** `git status --porcelain`: if

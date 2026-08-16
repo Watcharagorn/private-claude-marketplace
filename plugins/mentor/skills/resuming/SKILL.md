@@ -464,9 +464,16 @@ reading and that report is exactly the shape `context-gate.sh`'s own WARN tier c
    listed command(s) **exactly as the note states** — do not infer extra steps or expand beyond
    what the note recommends, whether it names a `/mentor:` command or another tracked plugin's
    (`/loom:harvest`, `/loom:learn <plugin> <session-id>`) — a listed command is a listed command
-   regardless of prefix. If the note recommends `/mentor:plan <focus>`, run that. If it recommends
-   resuming implementation of an **approved plan**, run **`/mentor:track <slug>`** with the plan slug
-   the note names. Track is not an extra step you inferred — it is how that recommendation is honored:
+   regardless of prefix. A note listing `/mentor:ship` or `/mentor:merge` as ready is still bound
+   by those skills' own consent gates — `mentor:dispatch-agents`' CLOSING CHECKLIST offers ship,
+   it never auto-runs it, and a satisfied trigger condition in the note doesn't override that.
+   If the note recommends `/mentor:plan <focus>`, run that. If it recommends resuming
+   implementation of an **approved plan**, invoke
+   **`Skill(skill="mentor:plan-track", args="<slug>")`** (the skill behind `/mentor:track <slug>`)
+   with the plan slug the note names — the bound is on which work and its scope, not on
+   mirroring the note's slash token into `Skill()`, which only re-enters through the command
+   wrapper for a second hop. Track is not an extra step you inferred — it is how that
+   recommendation is honored:
    it re-enters at the first unticked step instead of rebuilding from step 1, runs the context check
    that decides whether this session is big enough to finish, and then executes through
    `mentor:dispatch-agents` anyway. `mentor:dispatch-agents` says the same thing from its side ("When
@@ -493,7 +500,8 @@ reading and that report is exactly the shape `context-gate.sh`'s own WARN tier c
       `/loom:` hit with the user before invoking it, never run it on a single-token sweep match
       alone; a swept token can be prose *about* the pattern, not a real recommendation, and some
       loom commands (`/loom:publish-plugin`) push to the default branch.
-   2. **None anywhere → `/mentor:track <topic>`**, using the note's own topic slug (the
+   2. **None anywhere → `Skill(skill="mentor:plan-track", args="<topic>")`** (`/mentor:track
+      <topic>`), using the note's own topic slug (the
       `plans/<topic>/` dir it lives in — `/mentor:handoff` writes notes there, so you already hold
       the key). Track reads plan state and already triages an approved plan, a `draft`, a deferred
       stub, and a topic with no plan record; re-deriving that here would fork a decision tree that
