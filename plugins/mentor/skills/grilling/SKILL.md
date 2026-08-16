@@ -79,6 +79,21 @@ If there is genuinely nothing to grill, say so in one line and stop.
 
 ## Step 2 — The interview protocol
 
+**Check the context before committing to the interview.** A grill runs mostly on `AskUserQuestion` round-trips, not fresh prompts, and those supply nothing for `context-gate.sh`'s WARN tier to re-fire on (`UserPromptSubmit`-only); the one prompt shape an interview does generate on its own — a dispatched `Explore` agent's inbound report, from the codebase-research bullet below — is `SYNTHETIC=1`, which `context-gate.sh`'s own WARN tier deliberately skips. So a long grill gets at most the one nudge that landed before it started, then silence for the rest of the interview:
+
+```bash
+bash "${CLAUDE_PLUGIN_ROOT}/hooks/plan-state.sh" context
+```
+
+Same tiers as `mentor:resuming` Step 5 / `mentor:plan-track` Step 0:
+
+- **`CONTEXT: ASK`** — ask the user the two-option question the script prints (hand off, or bypass for this session) before starting the interview.
+- **`CONTEXT: HANDOFF`** — they already chose to continue; proceed, but plan to hand off before this interview's work is done.
+- **`CONTEXT: WARN`** — surface it, then continue.
+- **`CONTEXT: OK` / `UNKNOWN`** — continue.
+
+Re-run the same check at Step 3's Close, before the recap — the interview itself supplies no further checkpoint.
+
 Interview the user relentlessly about every aspect of this plan until you reach a shared understanding. Walk down each branch of the design tree, resolving dependencies between decisions one-by-one. For each question, provide your **recommended answer** — the most practical and clean solution, never trade maintainability or reliability for implementation speed.
 
 - **Ask the questions one at a time**, waiting for feedback on each question before continuing. Asking multiple questions at once is bewildering — favor `AskUserQuestion` with a single focused question (your recommended option first).
@@ -95,10 +110,20 @@ Interview the user relentlessly about every aspect of this plan until you reach 
 
 When you reach shared understanding:
 
-1. Summarize the **resolved decisions** and any **deferred / open items** in a short recap.
-2. If a mentor plan was the subject, **surface the deltas** between the plan and what you just resolved, and tell the user to fold them in by re-running the plan flow (`/mentor:plan`) or, if mid-plan, re-asking the proceed gate. **Do not edit the plan file yourself** if this worktree's gate is armed — surface the changes and let the plan flow re-render them. A second hazard the gate does **not** cover: a plan whose sidecar `owner` is a *different* worktree (check `.mentor/plans/<slug>/.state.json`'s `owner` field the same way you already read its `note` above) — no gate blocks editing that file, since the plan-gate deny is scoped to the owning worktree's writes, not to the file itself, and this worktree may be wide open while that plan is someone else's live draft. Treat a foreign-owned plan the same as an armed gate: surface the deltas, don't edit.
-3. Point to the natural next step: `/mentor:plan` (to author/refresh the plan) or, if a locked plan now looks solid, `/plan-review` then approve.
-4. **If the grill settled it and the work turns out trivial** — one file, nothing material left to decide — say so and offer to implement it directly rather than routing a two-line change through the plan flow. Two conditions, both required: this worktree's gate reads **not armed** — check it fresh, `current` (Step 1) never reports the marker at all:
+1. Re-run the context check before the recap:
+   ```bash
+   bash "${CLAUDE_PLUGIN_ROOT}/hooks/plan-state.sh" context
+   ```
+   `CONTEXT: WARN`/`ASK` surfaces the same way Step 2's pre-interview check does — but the
+   reading **arms** the close, it never preempts it: deliver the recap below first (a few
+   hundred tokens; the handoff note it feeds costs far more), then route to
+   `/mentor:handoff`. A WARN/ASK reading also steers item 4's next-step pointer below —
+   recommend `/mentor:handoff` first and `/mentor:plan` in a fresh session, rather than
+   launching a full plan flow out of a session already this deep.
+2. Summarize the **resolved decisions** and any **deferred / open items** in a short recap.
+3. If a mentor plan was the subject, **surface the deltas** between the plan and what you just resolved, and tell the user to fold them in by re-running the plan flow (`/mentor:plan`) or, if mid-plan, re-asking the proceed gate. **Do not edit the plan file yourself** if this worktree's gate is armed — surface the changes and let the plan flow re-render them. A second hazard the gate does **not** cover: a plan whose sidecar `owner` is a *different* worktree (check `.mentor/plans/<slug>/.state.json`'s `owner` field the same way you already read its `note` above) — no gate blocks editing that file, since the plan-gate deny is scoped to the owning worktree's writes, not to the file itself, and this worktree may be wide open while that plan is someone else's live draft. Treat a foreign-owned plan the same as an armed gate: surface the deltas, don't edit.
+4. Point to the natural next step: `/mentor:plan` (to author/refresh the plan) or, if a locked plan now looks solid, `/plan-review` then approve.
+5. **If the grill settled it and the work turns out trivial** — one file, nothing material left to decide — say so and offer to implement it directly rather than routing a two-line change through the plan flow. Two conditions, both required: this worktree's gate reads **not armed** — check it fresh, `current` (Step 1) never reports the marker at all:
    ```bash
    [ -n "$CLAUDE_PLUGIN_ROOT" ] && [ -d "$CLAUDE_PLUGIN_ROOT/hooks" ] || { echo "ERROR: CLAUDE_PLUGIN_ROOT unresolved or stale — do not search the plugin cache or hardcode a version path; ask the user to /reload-plugins or restart" >&2; exit 1; }
    [ "$(bash "${CLAUDE_PLUGIN_ROOT}/hooks/plan-state.sh" gate)" = "ARMED" ] && echo "GATE: ARMED — trivial-implement branch does not apply"
@@ -117,7 +142,7 @@ When you reach shared understanding:
    mid-interview with the user: ask them to do the real thing and report back before you call it
    confirmed. If they've gone, close with the gap named — "scrolls under `tmux send-keys`;
    unverified with a real keypress" — never as confirmed. `ARMED_ELSEWHERE` (only a sibling
-   worktree's marker is live) does **not** count as armed here — this worktree's own edits are unblocked, so the trivial-implement branch still applies. If the gate reads `ARMED` for THIS worktree, this branch does not apply — `plan-gate.sh` blocks repo edits, so surface the deltas per item 2 and let the plan flow re-render them. Once the edit is
+   worktree's marker is live) does **not** count as armed here — this worktree's own edits are unblocked, so the trivial-implement branch still applies. If the gate reads `ARMED` for THIS worktree, this branch does not apply — `plan-gate.sh` blocks repo edits, so surface the deltas per item 3 and let the plan flow re-render them. Once the edit is
    verified, route the same way any other close would: `/mentor:ship` if it's ready to go out,
    `/mentor:defer` for anything surfaced but not done, or `/mentor:handoff` if the session ends here.
 
@@ -129,6 +154,7 @@ When you reach shared understanding:
 - Codebase-answerable questions were answered by a dispatched `Explore` agent, not by asking the user or by bulk-reading.
 - A declined question or an interview cut short still left resolved decisions recoverable — recapped and pointed at `/mentor:handoff`, not silently lost.
 - Step 1's related-plans check (`plan-state.sh list`) ran before the interview started, whichever branch resolved the subject.
+- The context check (`plan-state.sh context`) ran before the interview started and again before the Close recap.
 - A trivial-implement close named its verification honestly — a runnable command with output, a dispatched verifier when nothing runnable existed, or, for a criterion only a real keypress/mouse/human action settles, the user's own confirmation or an explicit "unverified with real input" line.
 
 ### Do NOT
