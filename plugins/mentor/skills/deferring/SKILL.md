@@ -1,7 +1,7 @@
 ---
 name: deferring
 description: >
-  Capture work discovered mid-flow — planning or implementation — as one or more deferred plan stubs, without derailing the task. Backs /mentor:defer; triggers conversationally any time the user wants something noted for later: "stash this for later", "park it", "note that and keep going", "circle back to this later" — or anything with that shape. When the item would block the active plan's own completion — a fix a verifier demands, a gap that would leave a `Done when:` bullet unmet — it parks as a child plan under that active plan (parent-aware capture): "park this, it blocks the plan". Accepts one or many per call. Each becomes an ordinary plan directory under .mentor/plans/, its own slug, marked draft + origin deferred, optionally carrying a parent — recognized by overview, approval sweep, and /mentor:track. Capture only: never plans, approves, or implements — that's /mentor:plan (claims the stub) or /mentor:track (surveys, routes it). Refuses check-shaped items; only isolated work is captured.
+  Capture work discovered mid-flow — planning or implementation — as one or more deferred plan stubs, without derailing the task. Backs /mentor:defer; triggers conversationally any time the user wants something noted for later: "stash this for later", "park it", "note that and keep going" — or anything with that shape. When the item blocks a plan's "really done" — a fix a verifier demands, a gap that would leave a `Done when:` bullet unmet, or a confirmed defect in an already-implemented plan's shipped work — it parks as a child plan under the plan that owns it (parent-aware capture): "park this, it blocks the plan". Accepts one or many per call. Each becomes a plan dir under .mentor/plans/ (own slug, draft, origin deferred, optionally a parent) recognized by overview, approval sweep, and /mentor:track. Capture only: never plans, approves, or implements — that's /mentor:plan (claims the stub) or /mentor:track (surveys, routes it). Refuses check-shaped items; only isolated work is captured.
 ---
 
 # Defer — Stash Work for Later
@@ -20,8 +20,9 @@ back.
   or anything with that shape, however phrased.
 - One item, or several named in the same breath ("stash these for later: fix the gate message
   typo; also an OAuth refactor").
-- The item blocks the active plan's own completion (a verifier-demanded fix, a gap that would
-  leave a `Done when:` unmet) — it still gets captured here, just parked under that plan
+- The item blocks a plan's "really done" — a verifier-demanded fix on the active plan, a gap
+  that would leave its `Done when:` unmet, or a confirmed defect in an already-implemented
+  plan's shipped work — it still gets captured here, just parked under the plan that owns it
   instead of standalone (Step 1's blocking-vs-backlog judgment, Step 2's `--parent` write).
 
 ## When NOT to use
@@ -81,15 +82,21 @@ planning):
 - **source plan** — the slug of the plan flow being interrupted, when there is one, so the stub
   records where it came from. Leave it out entirely for a conversational capture that isn't
   interrupting any plan flow.
-- **blocking vs backlog** — when there IS a source plan above, is this item blocking or backlog?
-  `dispatch-agents` owns the blocking-vs-backlog decision rule and applies it at its three
+- **blocking vs backlog** — is some plan's "really done" blocked by this item?
+  `dispatch-agents` owns the routing rule (its blocking test) and applies it at its three
   fix-generation points; when this skill is reached some other way (a direct conversational
   "park this, it blocks the plan"), the same call has already been made by whoever said that.
   This skill's job is just to record the answer and act on it: blocking → the stub parks as a
-  child of the source plan (Step 2 writes `parent` = the source plan's slug). Genuinely
+  child of the plan it blocks (Step 2 writes `parent` = that owning plan's slug — usually the
+  source plan, but a confirmed defect in an already-implemented plan's shipped work parks under
+  THAT plan even when a different plan's flow surfaced it, and a defect in an unbuilt plan's
+  future scope takes `deps` on that plan instead of a parent). Genuinely
   ambiguous → ask the user one self-contained question right now — name the item and the two
-  outcomes, nothing to look up — rather than guess. No source plan → never blocking; capture as
-  an ordinary standalone stub.
+  outcomes, nothing to look up — rather than guess. No plan owns it → capture as an ordinary
+  standalone stub. A blocking capture is always a confirmed defect, so Step 2 also passes
+  `--category fix` on it as a matter of course — never left unset there: the lineage-visibility
+  nets in `plan-track` and `resuming` key on that field, and an uncategorized defect stub would
+  dodge every one of them.
 
 **Scope check, one line, then keep moving:** is this item work to build, or a check to run? Only
 work to build is deferrable — see "When NOT to use" below for the full rule, the fix-vs-check
@@ -156,15 +163,22 @@ same batch — the stub exists on disk by the time you get there):
    `--parent` writes the sidecar's `parent` field — the plan this stub must complete before —
    validated by `plan-state.sh` for existence and cycles (fail-soft: a bad parent warns to stderr
    and leaves `parent` unset, every other field still applies). Pass it only when Step 1 judged the
-   item blocking, and always the same slug as `--from`: the source plan IS the plan being blocked.
+   item blocking, and always the owning plan's slug. Usually that is the same slug as `--from` —
+   the source plan is the plan being blocked — but the two legitimately diverge when a plan's flow
+   surfaces a confirmed defect in a DIFFERENT, already-implemented plan's shipped work: `--from`
+   still records the discovering plan (lineage), `--parent` the owning plan (containment).
    This is the mechanism the whole branch exists for — without it, a parked fix is just another
-   flat stub indistinguishable from backlog, so the root plan can read `implemented` while the fix
-   it actually depends on still dangles. Worked example: mid-implementation of `root-plan`, a
-   verifier demands a retry-loop fix → `init fix-retry-loop --deferred --parent root-plan --from
-   root-plan`. Nesting is automatic, not a special case: if the source plan is itself a parked fix
-   (it already carries its own `parent`), the new stub's `parent` is still just that source plan's
-   slug, so the chain grows one level deeper — `/mentor:track` renders the resulting tree and rolls
-   up open descendants from this field; that's its concern, not this skill's.
+   flat stub indistinguishable from backlog, so the owning plan can read `implemented` while the
+   fix it actually depends on still dangles, invisible to every `parent`-walking surface
+   (`subtree`, `/mentor:track`'s roll-up, `/mentor:resume`'s drain). Worked examples:
+   mid-implementation of `root-plan`, a verifier demands a retry-loop fix → `init fix-retry-loop
+   --deferred --parent root-plan --from root-plan`; the same session confirms a defect in
+   already-shipped `auth-plan`'s token refresh → `init fix-token-refresh --deferred --parent
+   auth-plan --from root-plan`. Nesting is automatic, not a special case: if the owning plan is
+   itself a parked fix (it already carries its own `parent`), the new stub's `parent` is still
+   just that plan's slug, so the chain grows one level deeper — `/mentor:track` renders the
+   resulting tree and rolls up open descendants from this field; that's its concern, not this
+   skill's.
 
 This runs exactly the same whether the edit gate is armed or open: `.mentor/` is gate-exempt, so
 `plan-gate.sh` never blocks these writes. Deferring mid-`/mentor:plan` (gate armed, read-only
@@ -187,7 +201,10 @@ that field was actually judged or given** — an unjudged field is dropped from 
 never shown as an invented placeholder. When only one of tier/category was judged, show that one
 word alone in brackets (as `oauth-refactor` does above); the bracket never renders both sides
 blank, e.g. `[– · –]` must never appear. `parent:` appears only on a blocking item — it is the same
-slug Step 2 passed to `--parent`, never a different one.
+slug Step 2 passed to `--parent`, never a different one. When `parent` and `deferred_from` are the
+same slug, suppress the `from:` clause — `parent:` already implies the lineage (the
+`fix-retry-loop` line above does this); when they diverge, render both:
+`— parent: auth-plan — from: root-plan`.
 
 Then **continue exactly where the interrupted flow left off.** Deferring is a side note in the
 middle of the current task, not a reason to end the turn, ask a follow-up question, or wait for
@@ -197,9 +214,10 @@ acknowledgement — the whole point is that the current task never stalls for th
 
 - Every item became its own plan dir with a stub `plan.md` and a sidecar carrying
   `origin: "deferred"`, plus whatever `priority` / `category` / `deferred_from` Step 1 judged.
-- Every blocking item's sidecar carries `parent` = the source plan's slug; every backlog item's
-  sidecar has no `parent` — never invented for a non-blocking item, never a different slug than
-  `--from`.
+- Every blocking item's sidecar carries `parent` = the owning plan's slug (usually `--from`'s
+  slug; when they diverge, the discovering plan stays recorded in `deferred_from`) **and
+  `category: fix`** (Step 1's mandate); every backlog item's sidecar has no `parent` — never
+  invented for a non-blocking item.
 - No stub's `plan.md` contains a "Relations" section — deps live only in the sidecar.
 - Every item passed the scope check — no stub was created for a check on the current plan's own
   work; a refused item was pointed back at that plan's own Verification record instead.
@@ -216,7 +234,8 @@ acknowledgement — the whole point is that the current task never stalls for th
 - Do NOT stop and wait after creating the stubs — return to the interrupted work.
 - Do NOT hand-edit `.state.json` — `plan-state.sh init` is the only writer.
 - Do NOT invent a priority or category when the conversation gives no signal — leave the field
-  unset rather than guess.
+  unset rather than guess. The one exception is category on a blocking item: a confirmed defect
+  is always `--category fix` (Step 1); the signal is inherent in the branch.
 - Do NOT pass `--parent` on a backlog item, or guess when blocking-vs-backlog is genuinely
   ambiguous — ask the user the one self-contained question instead (Step 1).
 - Do NOT create a stub for testing or verification of the current plan's own work — that names work

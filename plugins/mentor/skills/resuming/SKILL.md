@@ -141,7 +141,8 @@ done < <(find "$mentor_dir/plans" "$mentor_dir/handoffs" \
          | awk -F/ '{print $NF "\t" $0}' | sort -r | cut -f2-)   # newest first by basename timestamp
 if [ -n "$skipped" ]; then echo "skipped non-conforming: $skipped"; fi   # `if`, not `&&`: as the block's last command a false `&&` exits 1 and the whole listing renders as an error
 
-# Also list: roots with open descendants, and split groups with unbuilt siblings — printed
+# Also list: roots with open descendants, split groups with unbuilt siblings, and by-lineage
+# roots for unparented fixes — printed
 # AFTER every note, in the SAME numbering (`i` continues from above, same shell), so Step 4's
 # ordinal rule extends unchanged and `latest`/`newest`/`last` still mean the newest NOTE, never
 # a drain entry. Every open/closed call goes through `subtree` — never re-derived here. `overview
@@ -156,12 +157,14 @@ while IFS="$(printf '\t')" read -r rslug rgroup rstate; do
   n="$(bash "${CLAUDE_PLUGIN_ROOT}/hooks/plan-state.sh" subtree "$rslug" | tail -1 | grep -o '^[0-9]\+' || true)"   # `|| true`: "no descendants." has no digit, grep's non-match must not abort the loop
   drain_rows+=("${rslug}$(printf '\t')${rgroup}$(printf '\t')${rstate}$(printf '\t')${n:-0}")
 done < <(printf '%s' "$ov" | jq -r '.[] | select(.kind=="plan" and .parent==null) | [.slug, (.group // "-"), .state] | @tsv')
+printed_roots=" "   # slugs already given a [drain: root] row — the lineage pass below dedupes on it
 for row in "${drain_rows[@]}"; do   # ungrouped roots with open descendants
   IFS="$(printf '\t')" read -r rslug rgroup rstate n <<<"$row"
   [ "$rgroup" = "-" ] && rgroup=""
   [ -z "$rgroup" ] || continue
   [ "${n:-0}" -gt 0 ] || continue
   i=$((i+1))
+  printed_roots="${printed_roots}${rslug} "
   printf '%d. [drain: root] %s — %s open fix(es) parked\n' "$i" "$rslug" "$n"
 done
 groups_seen=" "   # leading+trailing space so `*" x "*` matches the FIRST entry too, not just later ones
@@ -182,6 +185,23 @@ for row in "${drain_rows[@]}"; do   # split groups: unbuilt when any sibling is 
   i=$((i+1))
   printf '%d. [drain: group] %s — split group with unbuilt sibling(s)\n' "$i" "$rgroup"
 done
+# Lineage-only fixes: open `category: "fix"` stubs with `deferred_from` set but no `parent`.
+# `subtree` is structurally blind to them, so their source plan may have printed NOTHING above
+# (0 parented descendants, or it sits inside a group whose row names only the group) — and Step 4
+# resolves ONLY printed entries, so without these rows "adopt & drain" would dead-end on exactly
+# the plan the user wants to name. Targets are filtered to real plan entries: a dangling
+# `deferred_from` has nothing to adopt into.
+while IFS="$(printf '\t')" read -r lslug lcount; do
+  [ -n "$lslug" ] || continue
+  case "$printed_roots" in *" ${lslug} "*) continue ;; esac   # already selectable via its own root row
+  i=$((i+1))
+  printf '%d. [drain: root] %s — %s unparented open fix(es) by lineage\n' "$i" "$lslug" "$lcount"
+done < <(printf '%s' "$ov" | jq -r '
+  [.[] | select(.kind=="plan")] as $all | ($all | map(.slug)) as $slugs
+  | [ $all[] | select(.category=="fix" and .parent==null and .deferred_from!=null
+        and ((.state=="implemented" or .state=="superseded")|not)
+        and (.deferred_from as $t | $slugs | index($t))) ]
+  | group_by(.deferred_from)[] | [.[0].deferred_from, (length|tostring)] | @tsv')
 ```
 
 The exclusion is anchored to `*/handoffs/resolved/*` on purpose — a bare `*/resolved/*` would also
@@ -192,6 +212,15 @@ A root or group printed here may share its slug with a note printed above — a 
 topic that also wrote a note, or a plan-split sibling whose own note is still live. That is expected,
 not a bug in the listing: Step 4 resolves the overlap deterministically (note first, drain offered
 after), not by asking which one was meant.
+
+A `by lineage` root row marks a plan whose only open fixes are lineage-linked (`deferred_from`
+without `parent` — typically captured before the owning-plan routing rule, or judged backlog).
+Picking it routes through the adoption gate in "Draining Parked Fixes and Split Groups" below,
+which asks consent to `set-parent` each stub before anything drains — never silently treat lineage
+as containment. A legacy defect stub captured with no `category` at all won't be counted by these
+rows (the filter keys on `category: "fix"` for precision); when the user names one anyway (via
+free text after Step 4's re-ask — a flat stub's slug matches no printed entry), adopt it through
+the same gate — `set-category <slug> fix` first, then `set-parent`.
 
 ## Step 3 — Empty case
 
@@ -569,6 +598,10 @@ reading and that report is exactly the shape `context-gate.sh`'s own WARN tier c
      parked underneath that nobody has built. Ticks measure the plan's own steps, not its descendants
      — that gap is exactly what `parent` exists to close. Leave the note live in this case even if the
      bullet above would otherwise have fired; go to the closing paragraph below instead of stamping.
+     While there, also check `overview --json` for open `category: "fix"` entries whose
+     `deferred_from` is the topic (or a slug in its subtree) with no `parent` — lineage-only fixes.
+     These do **not** block the stamp (`subtree` stays the sole open/closed authority), but report
+     them and fold them into the drain offer below rather than letting them vanish with the note.
 
    If the session ends with the work unfinished and no nested handoff, **leave the note live** —
    unfinished work must stay resumable; that is not a failure. A stamp is reversible by moving the
@@ -576,11 +609,12 @@ reading and that report is exactly the shape `context-gate.sh`'s own WARN tier c
    (an explicitly-browsed `[resolved]` note): it is already retired, and the snippet would nest a
    useless `resolved/resolved/` — skip this step for those.
 
-**When this note's topic also has open descendants**, whether or not the note itself just got
-stamped resolved, offer the drain as the turn's own next step rather than ending silently: "This
-topic still has N open fix(es) parked under it — continue draining them now?" (the count from item
-7's `subtree` check above). A **yes** proceeds into "Draining Parked Fixes and Split Groups" below,
-treating the topic slug as the root. A **no** leaves them exactly where Step 2 will find them on a
+**When this note's topic also has open descendants** — or lineage-only fixes from item 7's check —
+whether or not the note itself just got stamped resolved, offer the drain as the turn's own next
+step rather than ending silently: "This topic still has N open fix(es) parked under it — continue
+draining them now?" (the count from item 7's `subtree` check above, plus any lineage-only fixes,
+counted separately). A **yes** proceeds into "Draining Parked Fixes and Split Groups" below,
+treating the topic slug as the root — its adoption gate handles the unparented ones. A **no** leaves them exactly where Step 2 will find them on a
 later `/mentor:resume <topic>` call — nothing forces the drain in the same session. Never start it
 unprompted, and never let it replace loading the note first: the note can carry Standing directives
 or Open questions the drain needs, and this step's own flow already ran before this offer.
@@ -630,6 +664,22 @@ only if `R`'s own effective state is open. This also covers a fix that is itself
 nodes in the same tree, and `order` breaks ties among them exactly as it would among top-level split
 siblings — no separate handling needed.
 
+### Unparented lineage fixes: adopt before draining
+
+Before computing `R`'s queue (and again on every re-survey), check `overview --json` for open
+`category: "fix"` entries whose `deferred_from` is `R` or any slug in `R`'s subtree but whose
+`parent` is null — fixes linked by lineage only (captured before the owning-plan routing rule, or
+judged backlog at capture time), which `subtree` is structurally blind to, so the drain would
+finish "clean" while they still dangle. When any exist, present them and ask the user **one**
+consented question: adopt each into the drain (run
+`bash "${CLAUDE_PLUGIN_ROOT}/hooks/plan-state.sh" set-parent <stub-slug> <owning-plan>` — default
+owning plan is the stub's `deferred_from` target; the user can redirect a stub to a different
+owner or leave it flat). An adopted stub is then just an ordinary descendant — the next survey
+picks it up with no special handling. Never put an unparented stub in the queue directly:
+open/closed classification stays `subtree`'s alone, and adoption is what brings the stub into its
+jurisdiction. A stub the user leaves flat is reported once and not re-asked on later re-surveys
+of the same drain.
+
 ### Split-group drain
 
 A split-group name resolves to draining its **remaining siblings by `order`**, and — reusing the
@@ -649,7 +699,9 @@ before whatever was going to run next; recomputing fresh each time is what lets 
 to notice it exists.
 
 Stop when `subtree R`'s trailing line reads `0 open descendant(s)` (root drain), or — for a group —
-when every sibling's own queue is empty.
+when every sibling's own queue is empty. The stop test only counts after that same survey's
+adoption check ("Unparented lineage fixes" above) found nothing or was declined — a lineage-only
+fix captured mid-drain would otherwise slip past on the very survey that declares the drain clean.
 
 ### Per-item gate flow
 
@@ -683,7 +735,8 @@ queue (post-order): fix-retry-loop, fix-auth-timeout
 ## Done when
 
 - Only **this repo's** conforming, live handoff notes were listed (newest first, with their
-  topic), **plus** every root with open descendants and split group with unbuilt siblings from
+  topic), **plus** every root with open descendants, split group with unbuilt siblings, and
+  by-lineage root row per plan that lineage-only open fixes trace to, from
   Step 2's drain listing — or the empty case was reported only once BOTH lists came up empty. Any
   skipped non-conforming files were named in the user-facing list, not just in bash output.
 - The user's selection was resolved unambiguously (argument or interactive) across both axes —

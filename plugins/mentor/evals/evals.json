@@ -336,6 +336,12 @@
       "expected": "none",
       "tests": "NEAR-MISS vs plan-split's retiring case: deleting a FILE the user names directly, no plan/state vocabulary at all — this is a plain filesystem ask, not mentor's plan lifecycle",
       "query": "theres an old draft.md sitting in the repo root nobody uses anymore, can you just rm it"
+    },
+    {
+      "id": 54,
+      "expected": "deferring",
+      "tests": "owning-plan branch of the blocking test: confirmed defect in an ALREADY-IMPLEMENTED plan's shipped work parks under THAT plan (parent = owning plan, diverging from the discovering flow) — NOT plan-track (not a status query), NOT resuming (nothing parked yet to drain)",
+      "query": "while testing the exporter we confirmed a real bug in the auth-hardening plan we already shipped — token refresh drops the session on retry. park it under that plan so it stops reading as done"
     }
   ]
 }

@@ -183,6 +183,20 @@ Per plan entry: `<glyph> [<tier>] [<cat>] <slug>   <state>[ (fix child)][ (defer
   `implemented`/`superseded`), not one to re-derive here. A dangling `parent` (matches no entry in
   this same `overview --json` output) falls the entry back to the top level with `(parent: <slug>
   missing)` appended — parity with the `deps` and `from:` missing markers above.
+- a `— ⚠ N unparented open fix(es) trace here` clause when N > 0 open (effective state ∉
+  `implemented`/`superseded`) `category: "fix"` entries in this same `overview --json` output
+  carry `deferred_from` = this entry's slug but no `parent` of their own — lineage without
+  containment, which `subtree` and the descendant roll-up above are structurally blind to
+  (typically fixes captured before the owning-plan routing rule existed, or judged backlog at
+  capture). The stubs themselves still render flat at the top level — structure stays
+  `parent`-only — but without this clause an `implemented` plan whose confirmed defects were
+  all captured lineage-only reads completely clean, which is exactly the wrong answer to "any
+  fixes left under this plan?". The filter keys on `category: "fix"` for precision, so a legacy
+  defect stub captured with no category stays uncounted — `set-category <slug> fix` repairs
+  that first. Whenever at least one such clause rendered, close the hierarchy with a single
+  repair hint line — unnumbered, never consuming an ordinal (Step 2's selection resolves
+  against this render):
+  `unparented fixes exist — adopt with: bash "${CLAUDE_PLUGIN_ROOT}/hooks/plan-state.sh" set-parent <stub-slug> <owning-plan>`.
 - ` [worktree: <id>]` appended when the entry's `owner` (an additive field on every `overview
   --json` plan entry, v2.23.0) is set AND differs from the worktree you're running in. Derive
   your own id once, before rendering, by reusing the same helper the hooks use rather than

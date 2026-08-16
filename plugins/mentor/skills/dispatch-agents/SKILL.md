@@ -248,17 +248,31 @@ The point of SDD: quality through narrow focus, and a lean main thread.
   contract block below is what actually holds the line.
 - **Work discovered mid-flight is captured, not lost — route it by the blocking test.**
   If the orchestrator or a dispatched agent notices real work outside the current step's
-  scope, ask: **would the root plan's Verification fail, or a `Done when:` stay unmet, if
-  this work is left undone?** Yes (blocking) → invoke `Skill(skill="mentor:deferring")`
-  (`/mentor:defer`)'s parent-aware branch: the stub's sidecar gets `parent` = the active
-  plan's slug, nesting for free when that plan is itself a fix child. No (backlog) → plain
-  `Skill(skill="mentor:deferring")` (`/mentor:defer`), unchanged. Ambiguous → one
-  self-contained question to the user at capture time. A blocking fix parked without its
-  parent link lets the root read `implemented` while its fixes dangle — the failure this
-  routing prevents. Capture either way and keep going — never leave it as an aside in a
-  chat message that disappears at session end. Eligibility still follows the scope rule —
-  work to build, never a check to run: a check on the current plan's own work is never a
-  stub, only a confirmed defect's fix is.
+  scope, ask: **which plan's work does this item block from being *really* done?** For a
+  confirmed defect, that is the plan whose work carries it — not merely whichever plan
+  happened to be active when it surfaced:
+  - **The active plan's own work** (a verifier-demanded fix, a gap that would leave a
+    `Done when:` unmet) → invoke `Skill(skill="mentor:deferring")` (`/mentor:defer`)'s
+    parent-aware branch: the stub's sidecar gets `parent` = the active plan's slug,
+    nesting for free when that plan is itself a fix child.
+  - **An already-implemented plan's work** — including the active plan after its own
+    verification passed → the same parent-aware branch, `parent` = the owning plan's
+    slug. A post-completion defect answers "no" to "does it block the *active* plan?",
+    but parking it flat on that answer makes it invisible to every `parent`-walking
+    surface (`subtree`, `/mentor:track`'s roll-up, `/mentor:resume`'s drain) while the
+    owning plan reads cleanly `implemented`. Parented, that plan honestly shows "done
+    with open fixes" instead.
+  - **An unbuilt plan's future scope** → no `parent` (nothing done exists to block);
+    record the ordering as `deps` on that plan instead.
+  - **Nobody's in particular** (backlog — a refactor idea, tooling, a feature aside) →
+    plain `Skill(skill="mentor:deferring")` (`/mentor:defer`), flat, unchanged.
+
+  Ambiguous → one self-contained question to the user at capture time. A blocking fix
+  parked without its parent link lets its owner read `implemented` while its fixes
+  dangle — the failure this routing prevents. Capture either way and keep going — never
+  leave it as an aside in a chat message that disappears at session end. Eligibility
+  still follows the scope rule — work to build, never a check to run: a check on the
+  current plan's own work is never a stub, only a confirmed defect's fix is.
 
 ## Per-step output shape
 
@@ -484,9 +498,9 @@ Step 1 instead. A verification round moves the plan with `set`.
   verifier reports, then stop — `handoff-note` writes no plan state, so an all-ticked
   plan would read `implemented` to the next session. A deferred/accepted gap exits the
   loop — "deferred" here can only mean the confirmed gap's **fix**, captured via the
-  blocking branch above (`parent` = the active plan's slug, nesting when that plan is
-  itself a fix child) since a verification gap by definition leaves a `Done when:`
-  unmet — never the verification topic itself, which instead exits via `failed --note`;
+  active-plan branch of the blocking test above (`parent` = the active plan's slug,
+  nesting when that plan is itself a fix child) since a verification gap by definition
+  leaves a `Done when:` unmet — never the verification topic itself, which instead exits via `failed --note`;
   concurrent remediations run **sequentially, never in parallel** — parallel fixes on
   shared files race.
 - **No escape hatch.** Runs even when the plan opened `Dispatch: skipped`. One allowance
