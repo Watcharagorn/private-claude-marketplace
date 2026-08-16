@@ -510,6 +510,12 @@ section). **Keep this roster current when a surface starts dispatching** —
 a reader who checks it and does not find their surface concludes
 the contract does not apply to them, which is exactly how a fan-out goes out raw:
 
+- **Being on this roster is not the same as having loaded it.** A surface can be
+  listed here and still dispatch raw prompts if its own step never calls
+  `Skill(skill="mentor:dispatch-agents")` and pastes "Deliver before idling" verbatim
+  before its first `Agent` call — citing this section for close-out only (as `plan-tour`
+  did before that gap was fixed) does not reach the dispatched agent. When adding a
+  surface to this roster, confirm it also carries its own load point, not just a citation.
 - **A delegated step's fan-out is still yours.** When a plan step hands its
   work to another plugin's own multi-agent skill, the main thread runs that
   skill — its agents are dispatched from this session and land in this

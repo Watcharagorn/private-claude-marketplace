@@ -142,6 +142,14 @@ one decision this reader makes after the tour, then make every page serve it.
 | QA / tester | What can break, what is observable, what proves a step landed | Verification commands, expected states, edge cases, failure paths | Verification surfaces and the route a failure takes; unexercised areas stay dim |
 | Anything else | Derive from the role: what does this reader own, and what would make them say "no"? | The artifacts that role actually reads | The parts of the system that role is accountable for |
 
+**A perspective changes the reader, never the subject.** Every lens — architect
+included — pages through *this plan's* steps; the system appears only where the plan
+moves it, which is what the current-state → target-state diagram is for. Carry that into
+the Perspective question text in one clause ("…as a reader of this plan's steps"), and
+when the ask itself sounds like a request to see the system as it stands today ("tour the
+system architecture", "review the data flow"), name the choice in one line before
+dispatching: this tours the plan; `/mentor:zoom` renders the system itself.
+
 ## Step 2 — The page contract (the spec every combo agent must honor)
 
 This is the payload, not a checklist for the main thread — copy it into each combo
@@ -269,6 +277,19 @@ tour_dir="$(bash "${CLAUDE_PLUGIN_ROOT}/hooks/plan-state.sh" ensure-dir "$state_
 ```
 
 `ensure-dir` also locks the path to 700, which is what a local-only artifact wants.
+
+**Load the dispatch contract before the first `Agent` call, not after.** Invoke
+`Skill(skill="mentor:dispatch-agents")` here if it is not already loaded — a
+`/plan-tour` reached directly rather than through `plan` Step 5 has loaded nothing —
+then end every combo prompt with its **"Deliver before idling"** block pasted verbatim,
+as the prompt's final lines after the template below. Step 4's citation of that same
+section covers close-out only; this is the load point. Without it a combo can finish its
+file and still end its turn on a plain final-text reply, indistinguishable from a hang
+until someone notices and sends a manual nudge. The block governs *delivery*, not
+contents: "Return ONLY the file path plus one line" below still says what to deliver, and
+the block's durable-copy clause is for verdict-producing agents — a combo's durable
+artifact is the HTML file it already writes, so it still writes nothing outside
+`<tour_dir>`.
 
 Then issue one `Agent` call per combo (`subagent_type: general-purpose`,
 `model: sonnet`, `effort: high`), **ALL combos in one message** — a single combo is
