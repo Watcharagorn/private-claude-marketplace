@@ -267,6 +267,18 @@ printf '# t\n## Implementation steps\n### 1. One ✅\nbody\n### 2. Two\nbody\n##
 chk "H3 headings counted like bare steps" test "$(libsh "mentor_plan_tick_counts '$PLANS/tch/plan.md'")" = "1 2"
 rm -rf "$PLANS"
 
+echo "== B9c. mentor_plan_tick_counts — wrapped-prose false positives excluded, dotted sub-steps kept =="
+mkdir -p "$PLANS/fp"
+printf '# t\n## Implementation steps\n1. Real step one\nInputs: the roadmap and\nStep 4.1'"'"'s design output is ready\n2. Real step two\nLatency of 3.5 seconds is acceptable here\n3. Real step three\n' > "$PLANS/fp/plan.md"
+chk "wrapped 'Step N.M'\\''s ...' and decimal prose don't count as steps" \
+  test "$(libsh "mentor_plan_tick_counts '$PLANS/fp/plan.md'")" = "0 3"
+rm -rf "$PLANS"
+mkdir -p "$PLANS/dotted"
+printf '# t\n## Implementation steps\n1. Parent step\nStep 4.1 — Sub-step title\n4.1. Sub-step title bare form\n2. Another parent step\n' > "$PLANS/dotted/plan.md"
+chk "real 'Step N.M —' and 'N.M.' sub-step headings still count" \
+  test "$(libsh "mentor_plan_tick_counts '$PLANS/dotted/plan.md'")" = "0 4"
+rm -rf "$PLANS"
+
 echo "== B10. mentor_plan_tick_step — the write-side counterpart, sharing B9's pattern =="
 mkdir -p "$PLANS/ts"
 printf '# t\n## Implementation steps\n1. one\n2. two\n## Verification\n1. not a step\n' > "$PLANS/ts/plan.md"
@@ -284,6 +296,14 @@ out="$(libsh "mentor_plan_tick_step '$PLANS/ts/plan.md' abc" 2>/dev/null)"; rc=$
 chk "non-numeric step → rejected, rc 1" test "$rc" = "1"
 out="$(libsh "mentor_plan_tick_step '/nope.md' 1" 2>/dev/null)"; rc=$?
 chk "missing plan_md → rc 1, no crash"  test "$rc" = "1"
+rm -rf "$PLANS"
+
+echo "== B10c. mentor_plan_tick_step — a wrapped-prose false positive above a step must not shift its ordinal =="
+mkdir -p "$PLANS/ord"
+printf '# t\n## Implementation steps\n1. one\nStep 4.1'"'"'s design output is ready\n2. two\n' > "$PLANS/ord/plan.md"
+chk "tick step 2 → status line" test "$(libsh "mentor_plan_tick_step '$PLANS/ord/plan.md' 2")" = "ticked 2 2"
+chk "tick step 2 → the ✅ landed on the real '2. two' line" \
+  bash -c "sed -n '5p' '$PLANS/ord/plan.md' | grep -qF '2. two ✅'"
 rm -rf "$PLANS"
 
 echo "== B10b. mentor_plan_tick_step — H3-heading step format, sharing B9b's pattern =="

@@ -772,8 +772,18 @@ mentor_plan_live_handoffs() {
 # silently report 0 ticked/total instead of erroring. `###`/`####` never collide
 # with the separate `/^##[[:space:]]/` section-boundary check both functions use
 # (exactly two hashes) since a third/fourth `#` sits where that check needs
-# whitespace.
-MENTOR_STEP_LINE_PATTERN='^[[:space:]]*(-[[:space:]]+)?([*][*])?(#{3,4}[[:space:]]+)?([0-9]+\.|[Ss]tep[[:space:]]+[0-9]+)'
+# whitespace. A trailing delimiter — whitespace, `:`, `*` (a bold label's closing
+# marker), or end of line — is required after the number on both branches (and
+# after an optional `.N` sub-step suffix, so a real `Step 4.1 — …` / `4.1. …`
+# sub-step heading still matches): without it, a hand-wrapped prose line that
+# merely starts with a number reads as its own step — a decimal ("3.5 seconds is
+# acceptable here"), a multi-part version ("1.2.3 is the release we target"), or a
+# possessive reference to another step ("Step 4.1's design output is ready") —
+# inflating the denominator `overview` reports and shifting which physical line
+# `tick`'s positional write lands ✅ on. Every existing heading form mentor itself
+# writes (`1. Title`, `### 1. Title`, `**1.** Title`, `Step 3 — Title`) already
+# carries this delimiter naturally, so nothing legitimate loses coverage.
+MENTOR_STEP_LINE_PATTERN='^[[:space:]]*(-[[:space:]]+)?([*][*])?(#{3,4}[[:space:]]+)?([0-9]+([.][0-9]+)*\.([[:space:]]|[*]|$)|[Ss]tep[[:space:]]+[0-9]+([.][0-9]+)*([[:space:]]|:|[*]|[.][[:space:]]|[.]$|$))'
 
 # mentor_plan_tick_counts <plan_md> — echo "<ticked> <total>" step-line counts from
 # the `## Implementation steps` section, ticked when a step line contains ✅.

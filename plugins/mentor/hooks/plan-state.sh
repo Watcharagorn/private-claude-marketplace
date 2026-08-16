@@ -303,7 +303,9 @@ Usage: plan-state.sh <subcommand>
   current [--any]                       the current plan, owned-by-this-worktree scoped (group-aware);
                                          --any for a deliberate repo-wide read
   overview --json                       repo-wide JSON: plans + priority/category/deferred_from/parent +
-                                         deps + live handoffs + step counts + goal (deferred entries)
+                                         deps + live handoffs +
+                                         step counts (`steps.ticked`/`steps.total`) +
+                                         goal (deferred entries)
   context                               CONTEXT: ASK|HANDOFF|WARN|OK|UNKNOWN (~N tokens)
   dir [--plans]                         the repo-scoped mentor dir (or its plans dir)
   gate [--verbose]                      ARMED|STALE|ARMED_ELSEWHERE|RELEASED — read-only marker
