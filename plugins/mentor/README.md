@@ -985,7 +985,8 @@ line: recommend the most practical and clean solution, never trading maintainabi
 or reliability for implementation speed. It governs the edits reviewers propose,
 planning's recommended option and `## Approach` design, grilling's recommended
 answers, and every implementation brief a dispatch writes (read-only roles like
-`Explore` are exempt — the line governs how something is built, not how it's found).
+`Explore` were exempt — the line governs how something is built, not how it's found —
+superseded in v2.31.0, which injects the line on every dispatch regardless of role).
 It never widens a reviewer's lane: naming a recommendation is a choice among that
 reviewer's own proposed fixes, not license to critique outside its lens.
 

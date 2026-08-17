@@ -17,7 +17,10 @@
 # this suite (or a stray `rm -rf` on $ROOT) never trips over it. The "no jq"
 # case reuses the house pattern from test-context-gate.sh: feed stdin from a FILE
 # (not a pipe) under a PATH with no jq, since the hook exits at the `command -v jq`
-# guard before ever reading stdin.
+# guard before ever reading stdin. Also asserts that the quality line is
+# role-independent: it is injected for every subagent_type — including
+# read-only roles like Explore and Plan — and when no subagent_type is given
+# at all, since the hook has no role branch.
 set -uo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
@@ -74,6 +77,8 @@ prompt_contains() { case "$(prompt_of "$1")" in *"$2"*) return 0;; *) return 1;;
 first_line_is() { [ "$(prompt_of "$1" | head -n1)" = "$2" ]; }
 
 mkinput() { jq -cn --arg tn "$1" --arg prompt "$2" '{tool_name: $tn, tool_input: {prompt: $prompt}}'; }
+mkinput_role() { jq -cn --arg tn "$1" --arg prompt "$2" --arg role "$3" \
+  '{tool_name: $tn, tool_input: {prompt: $prompt, subagent_type: $role}}'; }
 run() {  # <json-stdin> → sets RC / OUT / ERR
   RC=0
   OUT="$(printf '%s' "$1" | "$BASH_BIN" "$HOOK" 2>"$ERRFILE")" || RC=$?
@@ -172,6 +177,21 @@ chk "sibling keys → foo preserved"          field_eq "$OUT" '.hookSpecificOutp
 chk "sibling keys → nested object preserved" field_eq "$OUT" '.hookSpecificOutput.updatedInput.nested | tostring' '{"a":1,"b":[1,2,3]}'
 chk "sibling keys → key set is exactly the 5 input keys" \
     field_eq "$OUT" '.hookSpecificOutput.updatedInput | keys | sort | tostring' '["description","foo","nested","prompt","subagent_type"]'
+
+echo "== M. Quality line is role-independent =="
+# An earlier design exempted read-only roles (e.g. Explore) from the
+# solution-quality line, on the reasoning that it governs how something is
+# built, not how it's found. That exemption was deliberately removed: the
+# hook injects the line unconditionally, with no subagent_type branch. These
+# assertions lock that decision so a future edit cannot quietly reintroduce
+# a role carve-out.
+run "$(mkinput_role Task "map the callers" Explore)"
+chk "Explore → quality line present"  prompt_contains "$OUT" "Implement the most practical and clean solution"
+chk "Explore → sentinel present"      prompt_contains "$OUT" "$SENTINEL"
+run "$(mkinput_role Task "design the approach" Plan)"
+chk "Plan → quality line present"     prompt_contains "$OUT" "Implement the most practical and clean solution"
+run "$(mkinput Task "no role specified")"
+chk "no subagent_type key → quality line present" prompt_contains "$OUT" "Implement the most practical and clean solution"
 
 echo
 echo "RESULT: PASS=$PASS FAIL=$FAIL"
