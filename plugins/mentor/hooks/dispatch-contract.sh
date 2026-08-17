@@ -20,7 +20,8 @@
 #   • injected     — stdout is the hookSpecificOutput JSON below, exit 0
 #   • passthrough  — wrong tool, or block already present: exit 0, no stdout
 #   • fail-soft    — no jq, no/empty/unreadable contract file, malformed
-#                    stdin, or any jq failure: exit 0, no stdout
+#                    stdin, an unresolvable script directory, a failed
+#                    final write, or any jq failure: exit 0, no stdout
 # No degraded path may ever emit non-JSON stdout or a partially-built
 # updatedInput — the JSON is assembled in one jq pass and only printed once
 # complete, never streamed piecemeal.
@@ -28,7 +29,7 @@
 set -euo pipefail
 
 command -v jq >/dev/null 2>&1 || exit 0
-HOOK_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+HOOK_DIR="$(CDPATH= cd "$(dirname "${BASH_SOURCE[0]}")" 2>/dev/null && pwd)" || exit 0
 CONTRACT_FILE="${HOOK_DIR}/dispatch-contract.txt"
 [ -s "$CONTRACT_FILE" ] || exit 0
 
@@ -71,4 +72,4 @@ OUTPUT="$(printf '%s' "$INPUT" | jq -c \
   ' 2>/dev/null)" || exit 0
 [ -n "$OUTPUT" ] || exit 0
 
-printf '%s\n' "$OUTPUT"
+printf '%s\n' "$OUTPUT" || exit 0

@@ -193,6 +193,48 @@ chk "Plan → quality line present"     prompt_contains "$OUT" "Implement the mo
 run "$(mkinput Task "no role specified")"
 chk "no subagent_type key → quality line present" prompt_contains "$OUT" "Implement the most practical and clean solution"
 
+echo "== N. Guarded errexit paths: closed stdout, and CDPATH-hostile relative invocation =="
+# Two defects were found in dispatch-contract.sh's errexit path, both silent
+# under `set -euo pipefail` because nothing downstream ever read the hook's
+# exit code: (1) the final `printf '%s\n' "$OUTPUT"` was unguarded, so a
+# consumer that closes stdout before reading it (e.g. a hook runner that
+# times out or hangs up) made the whole script exit 1 instead of the
+# documented "every terminal outcome exits 0". (2) the HOOK_DIR assignment's
+# `cd "$(dirname ...)"` let `cd` consult CDPATH: a hostile CDPATH pointed the
+# resolved directory at a *decoy* CDPATH member instead of the invoked
+# script's own directory, silently breaking contract-file lookup — fixed by
+# prefixing the cd with `CDPATH=`. Finding (2) is latent rather than live in
+# production: hooks.json invokes this hook by an absolute path, and bash
+# never consults CDPATH to resolve an absolute target — only a relative one
+# triggers it, which is what this case stages deliberately.
+#
+# Assertion coverage for defect (2) is asymmetric: `→ still injects` is
+# the assertion that locks the `CDPATH=` scrub — removing the scrub
+# flips it to FAIL, confirmed by mutation testing (deleting `CDPATH=`
+# from the HOOK_DIR assignment and rerunning this suite yields
+# PASS=49 FAIL=1, with this the sole failure). `→ exit 0` does not
+# independently cover the scrub: with the scrub removed, `cd` still
+# succeeds — it just resolves into the decoy directory — so the new
+# `|| exit 0` guard never fires. But the resulting garbled HOOK_DIR
+# makes CONTRACT_FILE unresolvable, which trips the pre-existing,
+# unrelated `[ -s "$CONTRACT_FILE" ] || exit 0` guard, so the hook
+# exits 0 anyway. It remains in the suite as a general no-crash smoke
+# check for this scenario — it would still catch a genuine abort
+# regression here — not as CDPATH=-specific coverage.
+
+RC=0; printf '%s' "$(mkinput Agent hi)" | "$BASH_BIN" "$HOOK" >&- 2>/dev/null || RC=$?
+chk "closed stdout → exit 0" test "$RC" = "0"
+
+CDPATH_REAL="$ROOT/cdpath-real/hooks"; mkdir -p "$CDPATH_REAL"
+cp "$HOOK" "$CDPATH_REAL/"
+cp "$CONTRACT" "$CDPATH_REAL/"
+CDPATH_DECOY="$ROOT/cdpath-decoy/hooks"; mkdir -p "$CDPATH_DECOY"
+
+RC=0
+CDPATH_OUT="$(cd "$ROOT/cdpath-real" && CDPATH="$ROOT/cdpath-decoy" "$BASH_BIN" hooks/dispatch-contract.sh <<<"$(mkinput Agent hi)" 2>"$ERRFILE")" || RC=$?
+chk "hostile CDPATH, relative invocation → exit 0" test "$RC" = "0"
+chk "hostile CDPATH, relative invocation → still injects" prompt_contains "$CDPATH_OUT" "$SENTINEL"
+
 echo
 echo "RESULT: PASS=$PASS FAIL=$FAIL"
 [ "$FAIL" = "0" ]
