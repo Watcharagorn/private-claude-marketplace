@@ -545,6 +545,34 @@ extra deliverable. Instruction-only — no hooks.
 | `plan-domain-architecture` | Structural change — services, containers, datastores, queues, integrations, data flows (not pure content/config/doc/style/refactor) | Diff-highlighted C4-style Mermaid flowcharts, only the levels that change; a provenance list for any changed datastore field. |
 | `plan-domain-dynamic` | No registered domain matched, and no already-available project/plugin skill names the technology (fallback) | A dispatched domain-definer names the domain and returns a best-practices brief; the plan gains a practice→step mapping. A substituted available skill can supply the brief instead. |
 
+## Changes in v2.32.0
+
+**The standing dispatch contract is injected structurally, not by remembering to paste
+it.** A new `PreToolUse:Task|Agent` hook, `dispatch-contract.sh`, appends the
+solution-quality line and the "Deliver before idling" block to every Task/Agent prompt,
+sourced byte-identically from the sibling `dispatch-contract.txt`. A typical plan run
+makes 9–15 dispatches; delivery no longer depends on the orchestrator pasting ~2.3KB of
+directives into each one. It is idempotent — a prompt already carrying the block's first
+line is left alone, so a skill that still pastes by hand never double-delivers — and
+fail-soft in every degraded case (no `jq`, missing/empty/unreadable contract file,
+malformed stdin, an unresolvable script directory, a failed write): silent, exit 0, never
+partial JSON on stdout. `plan-state.sh` also gains a `brief` subcommand.
+
+**The solution-quality line is role-independent, with no exemption.** An earlier design
+exempted read-only roles such as `Explore`, on the reasoning that the line governs how
+something is built rather than how it is found. That carve-out is deliberately gone: the
+hook has no `subagent_type` branch, and four assertions now lock it so a future edit
+cannot quietly reintroduce one.
+
+**Every terminal path in the hook exits 0.** Two lines ran unguarded under
+`set -euo pipefail` and would abort non-zero instead of failing soft — the `HOOK_DIR`
+resolution and the final write of the output JSON. Both now carry the same `|| exit 0`
+guard the rest of the file already used. The `HOOK_DIR` line additionally let `cd`
+consult `CDPATH`, which on a relative invocation resolved the wrong directory and
+silently killed injection; it is now scrubbed with `CDPATH= cd`. The suite covers the two
+reachable cases (closed stdout, hostile `CDPATH`); the `cd`-failure path is documented as
+untestable rather than given an assertion that would only check the guard's presence.
+
 ## Changes in v2.30.0
 
 **`/plan-review` Stage 2 verdicts are severity-gated.** Measured on a real 21-step
