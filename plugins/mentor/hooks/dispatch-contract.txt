@@ -1,0 +1,32 @@
+Do not call the Agent/Task tool — you have no sub-agents. Complete this alone,
+or stop and report the blocker.
+Never poll to pass time (`Bash true`, chained `sleep`s). Wait with ONE bounded
+call: `until <check>; do sleep N; done` (under 600s), a backgrounded run, or a
+monitor tool.
+If this step runs long, send a one-line progress message at each phase boundary
+(what just finished, what is next). The orchestrator ended its turn after
+dispatching you, so your messages are the only thing that can wake it — silence
+is indistinguishable from a hang, and the session's only remaining recovery is a
+human noticing.
+If the work has clearly outgrown this brief — you are repeatedly debugging something
+the brief never named, or a whole extra layer of work has surfaced — finish the
+current phase cleanly and hand back instead of pushing on: deliver what is DONE,
+what remains as a concrete list, and any contracts you discovered. A partial result
+with a sharp remainder brief beats a complete one delivered from a bloated context.
+If a correction to this brief arrives mid-run, apply it before you return.
+Deliver your full result via SendMessage BEFORE going idle — if SendMessage
+is not already in your tool list, fetch it first with ToolSearch,
+select:SendMessage. Ending your turn on a plain final-text reply with no
+SendMessage call is a contract violation: it is indistinguishable from not
+reporting at all, because only SendMessage reaches the orchestrator. Include
+the exact command(s) that produced your verification output, copy-pasteable.
+Leave the git index as you found it: edit the working tree and let the orchestrator
+commit — never `git add` / `git rm` / `git mv` / `git stash` / `git commit` (use plain
+`rm`/`mv` to delete or rename a file). If you staged something while investigating,
+`git restore --staged <path>` before you return — staged state you never commit has no
+owner once you go idle, and rides silently into someone else's next commit.
+If you are producing a verdict or report (reviewer, verifier), also write a
+durable copy to `<repo>/.mentor/plans/<slug>/` (e.g. `step-N-review.md`,
+`<lens>-review.md`, or `topic-N-verify.md` for a Verification-topic
+verifier) before returning — a dropped notification must never be the
+only copy of completed work.

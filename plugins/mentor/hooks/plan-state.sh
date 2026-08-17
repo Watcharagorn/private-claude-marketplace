@@ -308,6 +308,11 @@ Usage: plan-state.sh <subcommand>
                                          deps (`[{slug, missing}]`) + live handoffs +
                                          step counts (`steps.ticked`/`steps.total`) +
                                          goal (deferred entries)
+  brief <slug> [--step N]               scope-complete envelope for one plan: title, CONTEXT
+                                         goal line, whole Out of scope section, every step's
+                                         title line with tick state, the verbatim body of step
+                                         N (when given), and the Verification topic titles;
+                                         read-only, never ticks — see `tick`
   context                               CONTEXT: ASK|HANDOFF|WARN|OK|UNKNOWN (~N tokens)
   dir [--plans]                         the repo-scoped mentor dir (or its plans dir)
   gate [--verbose]                      ARMED|STALE|ARMED_ELSEWHERE|RELEASED — read-only marker
@@ -796,7 +801,7 @@ if [ "$sub" = "gate" ]; then
 fi
 
 case "$sub" in
-  init|set|set-deps|set-priority|set-category|set-parent|claim|tick|verify|subtree|list|current|overview) ;;
+  init|set|set-deps|set-priority|set-category|set-parent|claim|tick|verify|subtree|list|current|overview|brief) ;;
   ""|-h|--help|help)
     usage
     [ -n "$sub" ] && exit 0
@@ -1815,6 +1820,132 @@ case "$sub" in
     else
       printf '%s' "$ov_entries" | jq -s '.'
     fi
+    ;;
+
+  # --- brief <slug> [--step N]: a scoped envelope for dispatching one step, instead of
+  # handing an implementer the whole plan.md (22.8 KB median, 48.5 KB max — see this
+  # plan's own Context). Read-only: never writes, never ticks (that stays `tick`'s job).
+  # Reuses MENTOR_STEP_LINE_PATTERN — the SAME pattern mentor_plan_tick_counts/
+  # mentor_plan_tick_step (lib/state.sh) already match step lines against — for every
+  # step-line decision below, so `brief` and `tick` can never disagree about what counts
+  # as a step. `br_body_awk` (the --step body extractor) mirrors mentor_plan_tick_step's
+  # own boundary logic (a step's body runs from its own step line through, but not
+  # including, the next step line or the next `##` section heading) but only ever
+  # PRINTS — it is not a copy of tick_step's write path, just the same walk.
+  brief)
+    slug="${1:-}"; [ "$#" -gt 0 ] && shift
+    brief_step_set=0; brief_step=""
+    while [ "$#" -gt 0 ]; do
+      case "$1" in
+        --step) brief_step_set=1; brief_step="${2:-}"; shift; if [ "$#" -gt 0 ]; then shift; fi ;;
+        *) echo "[mentor plan-state] brief: unexpected argument ${1}" >&2; usage >&2; exit 1 ;;
+      esac
+    done
+    require_slug "$slug"
+    plan_md="${plans_dir}/${slug}/plan.md"
+    if [ ! -f "$plan_md" ]; then
+      echo "[mentor plan-state] brief: no plan.md at ${plan_md}." >&2
+      exit 1
+    fi
+    if [ "$brief_step_set" -eq 1 ]; then
+      case "$brief_step" in
+        ''|*[!0-9]*|0)
+          echo "[mentor plan-state] brief: --step must be a positive integer, got '${brief_step}'." >&2
+          usage >&2
+          exit 1
+          ;;
+      esac
+    fi
+    read -r br_ticked br_total <<<"$(mentor_plan_tick_counts "$plan_md")"
+    if [ "$brief_step_set" -eq 1 ] && [ "$brief_step" -gt "$br_total" ]; then
+      echo "[mentor plan-state] brief: ${slug} has no step ${brief_step} (plan.md has ${br_total} step(s) in '## Implementation steps')." >&2
+      exit 1
+    fi
+
+    # Plan title: the first `# ` (single-hash) heading — the content spec's own opening line.
+    br_title="$(awk '/^#[[:space:]]/ { sub(/^#[[:space:]]*/, ""); print; exit }' "$plan_md")"
+    # `## Context`, never `## Goal` — an ordinary mentor-authored plan carries the former;
+    # the latter is `mentor:deferring`'s stub-only heading (mentor_plan_goal_line's default).
+    br_context="$(mentor_plan_goal_line "$plan_md" context)"
+
+    # Whole `## Out of scope` section body (heading excluded, printed separately below) —
+    # same "##-heading-gated awk pass" technique mentor_plan_goal_line itself uses, just
+    # keeping every line of the section instead of only its first paragraph.
+    br_oos="$(awk '
+      /^##[[:space:]]/ {
+        h = tolower($0)
+        if (insec) exit
+        insec = (h ~ /^##[[:space:]]+out[[:space:]]+of[[:space:]]+scope/) ? 1 : 0
+        next
+      }
+      insec { print }
+    ' "$plan_md")"
+
+    # One line per step, trimmed of leading indent, in document order — every step's own
+    # line already carries its title AND its ✅ tick state, so this is the whole list.
+    br_steps="$(awk -v pat="$MENTOR_STEP_LINE_PATTERN" '
+      /^##[[:space:]]/ {
+        h = tolower($0)
+        insec = (h ~ /^##[[:space:]]+implementation[[:space:]]+steps/) ? 1 : 0
+        next
+      }
+      !insec { next }
+      $0 ~ pat {
+        line = $0
+        sub(/^[[:space:]]+/, "", line)
+        print line
+      }
+    ' "$plan_md")"
+
+    # `## Verification` topic TITLE lines only (not the whole section) — the canonical
+    # `Topic N — …` grammar (mentor:plan-review's own wording); a hyphen is accepted too,
+    # but a bare digit-led prose line ("Topic 3 greps for …", seen in real plans outside
+    # `## Verification`) is not, since it carries neither delimiter after the number.
+    br_topics="$(awk '
+      /^##[[:space:]]/ {
+        h = tolower($0)
+        if (insec) exit
+        insec = (h ~ /^##[[:space:]]+verification/) ? 1 : 0
+        next
+      }
+      insec && ($0 ~ /^Topic[[:space:]]+[0-9]+[[:space:]]+—/ || $0 ~ /^Topic[[:space:]]+[0-9]+[[:space:]]+-[[:space:]]/) { print }
+    ' "$plan_md")"
+
+    echo "PLAN: ${slug}"
+    echo "TITLE: ${br_title:-(untitled)}"
+    echo "CONTEXT: ${br_context:-(none)}"
+    echo
+    echo "## Out of scope"
+    if [ -n "$br_oos" ]; then printf '%s\n' "$br_oos"; else echo "(none)"; fi
+    echo
+    echo "## Steps (${br_ticked}/${br_total} ticked)"
+    if [ -n "$br_steps" ]; then
+      printf '%s\n' "$br_steps" | awk '{ printf "  %d: %s\n", NR, $0 }'
+    else
+      echo "(no steps found)"
+    fi
+    if [ "$brief_step_set" -eq 1 ]; then
+      echo
+      echo "## Step ${brief_step} — verbatim body"
+      awk -v pat="$MENTOR_STEP_LINE_PATTERN" -v target="$brief_step" '
+        /^##[[:space:]]/ {
+          if (in_target) exit
+          h = tolower($0)
+          insec = (h ~ /^##[[:space:]]+implementation[[:space:]]+steps/) ? 1 : 0
+          next
+        }
+        !insec { next }
+        $0 ~ pat {
+          if (in_target) exit
+          count++
+          if (count == target) in_target = 1
+        }
+        in_target { print }
+      ' "$plan_md"
+    fi
+    echo
+    echo "## Verification topics"
+    if [ -n "$br_topics" ]; then printf '%s\n' "$br_topics"; else echo "(none)"; fi
     ;;
 
 esac

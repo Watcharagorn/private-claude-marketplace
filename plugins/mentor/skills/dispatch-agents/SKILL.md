@@ -223,13 +223,10 @@ The point of SDD: quality through narrow focus, and a lean main thread.
   conversation **and no inherited project context — assume it never read CLAUDE.md or
   your repo's conventions**: give exact file paths, the approved plan path, the
   distilled facts it needs from research or prior steps (paste result lines, not files),
-  and its `Done when:` verbatim. Every **implementation** brief additionally carries the
-  solution-quality line: `Implement the most practical and clean solution — never trade
-  maintainability or reliability for implementation speed.` (read-only roles like
-  `Explore` are exempt — the line governs how something is built, not how it's found.)
-  That line and the standing contract block ("Deliver before idling" below) are appended
-  verbatim at dispatch time — a `Prompt sketch:` is the *middle* of a prompt, never the
-  whole of it.
+  and its `Done when:` verbatim. Do not author the solution-quality line or the standing
+  contract block ("Deliver before idling" below) yourself — `hooks/dispatch-contract.sh`
+  appends both to every `Task`/`Agent` prompt automatically. A `Prompt sketch:` is the
+  *middle* of a prompt, never the whole of it: it ends where the hook's injection begins.
 - **Return contract:** agents return a short summary, file paths touched, and
   verification output — never full file bodies. Verification output must include the
   exact command(s) that produced it, copy-pasteable — otherwise re-verifying against an
@@ -401,8 +398,8 @@ Dispatch implementation/editing agents **only after the plan is approved**
 mentor session routes through this skill — callers load it (once per session)
 before issuing `Agent` calls. Then:
 
-1. **Read the approved plan file** (`<repo>/.mentor/plans/<slug>/plan.md`) — do not work from memory.
-2. **Dispatch "Run in parallel:" groups** — issue ALL `Agent()` calls for each parallel group in a **single message** so they run concurrently. Every prompt ends with the solution-quality line plus the full standing contract block ("Deliver before idling," "Async runtime & lifecycle" below) **pasted verbatim** — compressing it to a paraphrase (even a well-intentioned one-liner) silently drops directives a dispatched agent has no other way to learn, including the no-nested-fan-out ban this exact block is what enforces. After dispatching, apply **No busy-wait**: stop and let the harness re-invoke you when agents complete.
+1. **Pull each step's brief, not the whole plan** — `bash "${CLAUDE_PLUGIN_ROOT}/hooks/plan-state.sh" brief <slug> --step N` returns the plan title, its `## Context` goal, the whole `## Out of scope` section, one line per step with tick state, the verbatim body of step N, and the `## Verification` topic titles — everything a dispatch needs, at a fraction of `plan.md`'s size. Do not read the whole plan file from memory or by hand; run one `brief` call per step (or per step in a parallel group) instead.
+2. **Dispatch "Run in parallel:" groups** — issue ALL `Agent()` calls for each parallel group in a **single message** so they run concurrently. The solution-quality line and the standing contract block ("Deliver before idling," "Async runtime & lifecycle" below) reach every prompt automatically via the dispatch hook, so there is nothing to paste by hand — but the block's directives, including the no-nested-fan-out ban, are non-negotiable regardless of how the prompt sketch itself reads. After dispatching, apply **No busy-wait**: stop and let the harness re-invoke you when agents complete.
 3. **Dispatch "Sequential:" steps one at a time** — wait for the prior step's result before issuing the next call.
 4. **Verify each `Done when:` criterion** before moving to the next step — agents describe what they intended; trust but verify. On a concurrency- or timing-sensitive criterion, one clean run is not evidence — re-run it yourself 5+ times before accepting a PASS; an agent's self-reported `PASS=N/FAIL=0` from a single run proves nothing about a race. A zero-hit or empty result from your own check is likewise not evidence the criterion failed until you've confirmed the check itself works — a single-line `grep` can miss a claim that wraps across lines, an unquoted glob aborts outright under zsh's `nomatch`, and ERE alternation is `|`, not `\|`; when a check comes back empty, narrow it to one line or run it against a known-positive before trusting the negative. A step that hands back partial work plus a remainder brief has not failed its criterion — verify what it actually claims, then continue it per the hand-back addendum under "On a failed `Done when:`" above.
 5. **Execute the plan's Verification section** — dispatch one fresh verifier per `Topic N —` block, all in a single message, even when the plan opened `Dispatch: skipped`. Full contract in "Verifying the plan (execution-time)" below. A plan's own implementation step titled "Verification pass" or similar is not this step; it's ordinary self-graded work covered by item 4 above, never a substitute for this dispatch.
@@ -593,45 +590,18 @@ the contract does not apply to them, which is exactly how a fan-out goes out raw
   agent gets no reply and no narration" below) rather than re-entering the
   orchestrator's attention, so a 12-agent round costs one wait, not twelve.
 - **Deliver before idling — the standing prompt contract.** Every dispatched
-  prompt, on every surface, ends with this block pasted verbatim. The other
-  surfaces cite this section by name rather than copying the block, so a skill
-  that dispatches without loading this one must `Read` this block first —
-  otherwise the contract never reaches the agent:
-
-  ```
-  Do not call the Agent/Task tool — you have no sub-agents. Complete this alone,
-  or stop and report the blocker.
-  Never poll to pass time (`Bash true`, chained `sleep`s). Wait with ONE bounded
-  call: `until <check>; do sleep N; done` (under 600s), a backgrounded run, or a
-  monitor tool.
-  If this step runs long, send a one-line progress message at each phase boundary
-  (what just finished, what is next). The orchestrator ended its turn after
-  dispatching you, so your messages are the only thing that can wake it — silence
-  is indistinguishable from a hang, and the session's only remaining recovery is a
-  human noticing.
-  If the work has clearly outgrown this brief — you are repeatedly debugging something
-  the brief never named, or a whole extra layer of work has surfaced — finish the
-  current phase cleanly and hand back instead of pushing on: deliver what is DONE,
-  what remains as a concrete list, and any contracts you discovered. A partial result
-  with a sharp remainder brief beats a complete one delivered from a bloated context.
-  If a correction to this brief arrives mid-run, apply it before you return.
-  Deliver your full result via SendMessage BEFORE going idle — if SendMessage
-  is not already in your tool list, fetch it first with ToolSearch,
-  select:SendMessage. Ending your turn on a plain final-text reply with no
-  SendMessage call is a contract violation: it is indistinguishable from not
-  reporting at all, because only SendMessage reaches the orchestrator. Include
-  the exact command(s) that produced your verification output, copy-pasteable.
-  Leave the git index as you found it: edit the working tree and let the orchestrator
-  commit — never `git add` / `git rm` / `git mv` / `git stash` / `git commit` (use plain
-  `rm`/`mv` to delete or rename a file). If you staged something while investigating,
-  `git restore --staged <path>` before you return — staged state you never commit has no
-  owner once you go idle, and rides silently into someone else's next commit.
-  If you are producing a verdict or report (reviewer, verifier), also write a
-  durable copy to `<repo>/.mentor/plans/<slug>/` (e.g. `step-N-review.md`,
-  `<lens>-review.md`, or `topic-N-verify.md` for a Verification-topic
-  verifier) before returning — a dropped notification must never be the
-  only copy of completed work.
-  ```
+  agent needs a fixed set of runtime directives it has no other way to learn:
+  the no-nested-fan-out ban, the no-poll rule, progress-at-phase-boundary
+  reporting, the hand-back-on-overrun clause, mandatory `SendMessage` delivery
+  before going idle, git-index hygiene, and the durable-copy rule for verdicts.
+  Its single source is `hooks/dispatch-contract.txt`; `hooks/dispatch-contract.sh`
+  (`PreToolUse`, matching `Task`/`Agent`) appends it to every dispatch prompt
+  automatically — so **do not paste it by hand**. Paraphrasing it in a prompt
+  sketch is redundant at best: the hook still appends the real block after it,
+  and a hand-typed paraphrase risks silently dropping a directive the agent has
+  no other way to learn. The hook is idempotent — it checks for the block's own
+  first line before injecting — so a surface that still pastes it manually
+  costs nothing extra; the block lands exactly once either way.
 - **Idle-before-report race.** An idle notification can arrive before the
   agent's actual report — and, when the harness is running several sessions
   concurrently, a notification can name a task this session never dispatched
