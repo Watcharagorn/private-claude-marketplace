@@ -1317,3 +1317,138 @@ mentor_context_verdict() {
   fi
   return 0
 }
+
+# --- sweep: the portable, self-reporting search over mentor's own state (v2.33.0) ---
+#
+# WHY THIS EXISTS. mentor prescribes searching its own state dir in three places
+# (dispatch-agents' standing-policy check, planning's Step 2 research sweep,
+# plan-review's count-mismatch reconciliation). All three used to prescribe
+# a recursive grep plus GNU/ripgrep's no-ignore flag, which is broken twice over:
+#
+#   1. That no-ignore flag is GNU-grep/ripgrep-only. ugrep — a drop-in `grep` many
+#      developers install via Homebrew — rejects it outright: exit 2 and a usage wall,
+#      so the prescribed command cannot run at all.
+#   2. Dropping the flag is SILENTLY worse. `.mentor/.gitignore` contains `*`, so a grep
+#      that honors ignore rules during its own traversal reads nothing there and reports
+#      a clean zero — indistinguishable from "no policy is recorded".
+#
+# AND THIS IS NOT A MACHINE-SPECIFIC QUIRK, which is the part worth internalizing: the
+# ignore-aware grep is not something the developer installed. Claude Code injects a `grep`
+# shell FUNCTION into the Bash tool's shell that routes to its own bundled ugrep with
+# `--ignore-files --hidden -I` already on. Measured here: /usr/bin/grep is BSD grep
+# 2.6.0-FreeBSD and finds the gitignored note fine, while `grep` as an agent actually
+# invokes it does not. So every agent running `grep -r` over `.mentor/` in this harness
+# hits defect 2 by default, whatever greps are installed — and because the wrapper is a
+# function rather than a PATH entry, a script launched as `bash foo.sh` silently gets a
+# DIFFERENT grep than the same command typed at the Bash tool. Never conclude from "it
+# worked in my test script" that it works where the skills prescribe it.
+#
+# The escape is STRUCTURAL, not a better flag: ignore rules apply only when GREP does the
+# walking. Hand grep an explicit list of files and it reads every one of them, under GNU
+# grep, BSD grep and ugrep alike. So `find` walks and `grep` only reads.
+#
+# Measured on ugrep 7.5.0 in this repo:
+#   grep -rl 'No subagents' .mentor/        -> 0 hits   (traversal root IS the ignored dir)
+#   grep -rl 'No subagents' .mentor/plans/  -> 5 hits   (root sits BELOW the `*` rule)
+#   find .mentor -type f -exec grep -l … {} + -> 5 hits (find walks; grep never decides)
+#
+# ugrep reads .gitignore files at or BELOW the traversal root and never walks *up*, which
+# is the whole reason the second line differs from the first — and why `plan-split`'s
+# sweep at `$plans_dir` happens to work untouched. Do NOT "simplify" the code below back
+# to a recursive grep aimed one level deeper (it breaks the moment a caller re-aims it),
+# and do NOT reach for ugrep's own no-ignore-files spelling: it is ugrep-ONLY, so it moves
+# the bug to a different machine.
+#
+# Only POSIX grep flags are used here (-I -H -n -i -e --) and no -r/-R at all. `-H` is
+# mandatory, not decorative: without it a SINGLE-file file list prints a bare `15:` with
+# no path, which is useless to a caller reconciling hits against files.
+#
+# NOTE ON SPELLING: the two retired flags are named WITHOUT their leading double dash
+# throughout this comment, on purpose. A regression test asserts ZERO occurrences of the
+# dashed spellings anywhere under plugins/mentor/ — that invariant is what actually stops
+# the broken form being prescribed again, and prose describing it must not be what trips
+# it. Do not "fix" the punctuation here; see tests/test-sweep.sh section K, which records
+# both exact spellings via split string literals for the same reason.
+
+# mentor_sweep_roots <cwd> <set> — echo one EXISTING root path per line for the named
+# set, or nothing when none exist. Never errors on a missing root; an unknown set name
+# echoes nothing (callers validate the name themselves and report it as a usage error).
+#
+# CLAUDE.md and .claude/ resolve against `git rev-parse --show-toplevel` — THIS worktree's
+# own checkout — while .mentor/plans resolves via mentor_repo_root (git-common-dir, the
+# main repo every worktree shares). Using one resolution for both is wrong in a linked
+# worktree: it would read another tree's CLAUDE.md, or look for .mentor/ where there is
+# none. Every test in `if` form, never `a && b && echo`: a trailing false `&&` list is a
+# failed simple command, which would abort a `set -e` caller (see this file's CONTRACT).
+mentor_sweep_roots() {
+  local cwd="${1:-$PWD}" set_name="${2:-policy}" toplevel main_root plans
+  toplevel="$(git -C "$cwd" rev-parse --show-toplevel 2>/dev/null || true)"
+  main_root="$(mentor_repo_root "$cwd")"
+  plans="$(mentor_plans_dir "$main_root")"
+  case "$set_name" in
+    policy)
+      if [ -n "$toplevel" ] && [ -f "${toplevel}/CLAUDE.md" ]; then echo "${toplevel}/CLAUDE.md"; fi
+      if [ -n "$toplevel" ] && [ -d "${toplevel}/.claude" ]; then echo "${toplevel}/.claude"; fi
+      if [ -n "$plans" ] && [ -d "$plans" ]; then echo "$plans"; fi
+      ;;
+    plans)
+      if [ -n "$plans" ] && [ -d "$plans" ]; then echo "$plans"; fi
+      ;;
+    repo)
+      if [ -n "$toplevel" ] && [ -d "$toplevel" ]; then echo "$toplevel"; fi
+      ;;
+  esac
+  return 0
+}
+
+# mentor_sweep <cwd> <set> <pattern> [ignore_case] — search <pattern> across the named
+# root set. Echoes ONE counts line first:
+#
+#     <roots> <files> <hits>
+#
+# followed by one `path:line:text` hit per line. `files` is the denominator that makes a
+# zero trustworthy: it separates "read 185 files, none matched" from "read nothing at
+# all". A non-empty <ignore_case> adds `grep -i`.
+#
+# Callers own the exit-code policy (plan-state.sh `sweep` maps hits>0 -> 0, files>0 with
+# no hits -> 1, files==0 -> 2). This function is fail-soft and always returns 0, per the
+# CONTRACT at the top of this file.
+mentor_sweep() {
+  local cwd="${1:-$PWD}" set_name="${2:-policy}" pattern="${3:-}" icase="${4:-}"
+  local roots r root_count files out hits
+  local -a root_args grep_args
+  roots="$(mentor_sweep_roots "$cwd" "$set_name")"
+  if [ -z "$roots" ] || [ -z "$pattern" ]; then echo "0 0 0"; return 0; fi
+  root_count=0
+  root_args=()
+  while IFS= read -r r; do
+    if [ -n "$r" ]; then root_args+=("$r"); root_count=$((root_count + 1)); fi
+  done <<<"$roots"
+  if [ "$root_count" -eq 0 ]; then echo "0 0 0"; return 0; fi
+
+  # `-name .git -prune` drops git's own store from the `repo` set — as a DIR in the main
+  # worktree and as a FILE in a linked one, which this predicate covers either way.
+  # Counting NUL bytes is the only newline-safe count that holds on BSD tools: piping
+  # through `tr '\0' '\n' | wc -l` over-counts a filename containing a newline, and BSD
+  # awk silently ignores RS="\0" and reports 1 for any list.
+  files="$(find "${root_args[@]}" -name .git -prune -o -type f -print0 2>/dev/null \
+           | tr -cd '\0' | wc -c | tr -d ' ' || true)"
+  files="${files:-0}"
+  # Return before xargs when there is nothing to search: BSD and GNU xargs disagree about
+  # running the utility on empty input, and a `grep` invoked with no file operands reads
+  # STDIN — which would hang here rather than report the nothing-searched verdict.
+  if [ "$files" -eq 0 ]; then echo "${root_count} 0 0"; return 0; fi
+
+  grep_args=(-I -H -n)
+  if [ -n "$icase" ]; then grep_args+=(-i); fi
+  # `-e` guards a pattern beginning with `-`; the trailing `--` guards a FILENAME
+  # beginning with `-` (xargs appends the file operands after it).
+  out="$(find "${root_args[@]}" -name .git -prune -o -type f -print0 2>/dev/null \
+         | xargs -0 grep "${grep_args[@]}" -e "$pattern" -- 2>/dev/null || true)"
+  # The hit count comes from the OUTPUT, never from grep's exit status: a long file list
+  # is split across several xargs batches, so the status reflects only the LAST batch.
+  if [ -z "$out" ]; then hits=0; else hits="$(printf '%s\n' "$out" | grep -c . || true)"; fi
+  echo "${root_count} ${files} ${hits:-0}"
+  if [ -n "$out" ]; then printf '%s\n' "$out"; fi
+  return 0
+}

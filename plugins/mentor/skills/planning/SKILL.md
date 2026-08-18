@@ -210,20 +210,37 @@ transcript already has the answer to. Dispatch new agents only for the
 ground the broadened request — or the grill's own research — genuinely
 didn't cover.
 
-**`.mentor/` is gitignored — a plain `grep -r` can miss it, even aimed straight at the
+**`.mentor/` is gitignored — a recursive `grep` can miss it, even aimed straight at the
 dir.** `hooks/lib/state.sh` writes `.mentor/.gitignore` as `*` + negations (only
 `.gitignore`/`config.json`/`constitution.md` are un-ignored), so a gitignore-aware search
 returns a clean "no hits" for a standing instruction — a "no subagents" policy, an earlier
 decision — recorded in a prior handoff note under `.mentor/plans/*/handoffs/`, whether the
 search scans the whole repo or `.mentor/` alone. A bare relative path is also wrong in a
 linked worktree, which shares the MAIN repo's `.mentor/` (Step 0's `--git-common-dir`
-note) rather than having its own. Resolve the real path first, worktree-safe, then bypass
-gitignore:
+note) rather than having its own.
+
+The mechanism is the **traversal root**, not a missing flag — worth understanding, because
+it decides what the fix has to be. Ignore rules apply only while **grep itself** is
+walking, and a grep collects the `.gitignore` files at or below its own root without ever
+walking *up*. So a search rooted at the repo root or at `.mentor/` finds nothing, while
+one rooted at `.mentor/plans/` happens to work — which is exactly why the command that
+used to sit here *looked* fine. It is also not a quirk of one machine's toolchain: the
+Bash tool's shell carries a `grep` **function** routing to Claude Code's own bundled ugrep
+with `--ignore-files` already on, so `grep -r` over `.mentor/` returns a clean zero here
+whatever greps are installed — and since that function is not on `PATH`, a check launched
+as `bash foo.sh` gets a *different*, ignore-blind `grep` and appears to work. Never
+conclude from "it worked in my test script" that it works where this is prescribed. Reaching for a "no ignore" flag is the wrong fix twice
+over: those spellings differ per implementation (ugrep rejects the GNU one outright with
+exit 2), so a flag only moves the failure to someone else's machine. Hand grep an explicit
+file list instead — `find` walks, `grep` only reads — which is what `sweep` does, worktree
+resolution included:
 ```bash
-d="$(bash "${CLAUDE_PLUGIN_ROOT}/hooks/plan-state.sh" dir --plans)"
-[ -n "$d" ] || { echo "ERROR: mentor plans dir unresolved — is CLAUDE_PLUGIN_ROOT set? do not search the plugin cache or hardcode a version path; ask the user to /reload-plugins or restart" >&2; exit 1; }
-grep -rn --no-ignore "<pattern>" "$d"   # or: rg --no-ignore "<pattern>" "$d"
+[ -d "${CLAUDE_PLUGIN_ROOT}/hooks" ] || { echo "ERROR: CLAUDE_PLUGIN_ROOT unresolved or stale — do not search the plugin cache or hardcode a version path; ask the user to /reload-plugins or restart" >&2; exit 1; }
+bash "${CLAUDE_PLUGIN_ROOT}/hooks/plan-state.sh" sweep "<pattern>" --roots plans
 ```
+It prints `SWEEP: roots=N files=N hits=N` before any hits, so a zero is trustworthy only
+when `files=` is non-zero; exit **2** plus a `NOTHING-SEARCHED` line means it read nothing
+at all and its silence is not evidence.
 
 **Verify literal CLI commands, and claims about a live system's current state, before
 drafting them into the plan.** A deploy/release-shaped step that types an exact command

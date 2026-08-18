@@ -353,11 +353,20 @@ deleting.
    [ -d "${CLAUDE_PLUGIN_ROOT}/hooks" ] || { echo "ERROR: CLAUDE_PLUGIN_ROOT unresolved or stale — do not search the plugin cache or hardcode a version path; ask the user to /reload-plugins or restart" >&2; exit 1; }
    plans_dir="$(bash "${CLAUDE_PLUGIN_ROOT}/hooks/plan-state.sh" dir --plans)"
    [ -d "$plans_dir" ] || { echo "ERROR: plans dir unresolved — do not fall back to a relative path; the sweep would report a false clean" >&2; exit 1; }
+   # Safe ONLY because the traversal root is "$plans_dir", which sits BELOW the
+   # .mentor/.gitignore holding `*`: a grep collects ignore files at or below its own root
+   # and never walks up, so that rule is never seen from here. Re-aim this at .mentor/ or
+   # at the repo root and it silently returns zero hits. If a wider root is ever needed,
+   # use `plan-state.sh sweep <pattern> --roots plans|repo`, which lets find do the
+   # walking so no ignore rule can apply at all.
    command grep -rn '<retiring-slug>' "$plans_dir" --include='*.md' | command grep -v "^$plans_dir/<retiring-slug>/"
    ```
-   Use a literal `grep`, not a Grep-tool style search — `.mentor/` is entirely gitignored by
-   default, so a tool that honors `.gitignore` finds nothing here and reports a false-clean
-   sweep. Classify each hit:
+   Use a literal `grep`, not a Grep-tool style search, **and** keep its root at
+   `$plans_dir` — the two halves matter for different reasons, and conflating them is how
+   this command gets broken. The Grep tool honors `.gitignore` repo-wide, so it finds
+   nothing under the entirely-gitignored `.mentor/` whatever root you give it. A literal
+   `grep` is not automatically safe either — ugrep honors ignore files too — it is safe
+   *here* only because `$plans_dir` sits below the `*` rule, per the comment above. Classify each hit:
    - **Provenance** (`<slug>/plan.md:NNN`-style citations into history, "as decided in
      <slug>") — leave these alone; they're honest about the past regardless of whether the
      directory still exists.

@@ -238,10 +238,15 @@ Each `prompt` must contain:
    is absent — do not add a separate constitution reviewer; the check stays folded
    into all reviewers.
 9. Gitignore caveat: `If a claim in this plan rests on a repo-wide search finding
-   nothing, re-check with the gitignore bypassed before trusting it: .mentor/ is
-   gitignored by design, so a plain grep -r silently skips it.` A reviewer verdicting
-   a plan's own research, rather than doing fresh research itself, is exactly the
-   surface this catches.
+   nothing, re-check it before trusting it by running: bash
+   "${CLAUDE_PLUGIN_ROOT}/hooks/plan-state.sh" sweep '<pattern>' --roots repo — .mentor/
+   is gitignored by design, so a recursive grep silently skips it. That subcommand hands
+   grep an explicit file list instead of letting it walk, and its SWEEP: line reports how
+   many files were actually read, so a zero result can be told apart from a search that
+   read nothing at all (exit 2).` A reviewer verdicting a plan's own research, rather than
+   doing fresh research itself, is exactly the surface this catches — and the wording this
+   line used to carry, "re-check with the gitignore bypassed", is what sent reviewers
+   reaching for a non-portable flag instead.
 
 ## Step 4 — Fold gate: one verdict per edit, asked one at a time
 
@@ -478,10 +483,14 @@ must contain:
      step; a step tracing to no stated need; Verification not exercising a
      scenario; Critical files mismatch (listed-but-unused, or touched-but-unlisted);
      `count-mismatch` — the plan states a count of its own change surface ("five
-     call sites", "3 handlers"): `grep -rn --no-ignore` the named identifier and
-     reconcile the **whole** result set against the plan's list, since confirming
-     each listed site cannot reveal the ones nobody listed (and a gitignore-aware
-     grep would silently skip any hit under `.mentor/`). Report the command run,
+     call sites", "3 handlers"): sweep the named identifier with
+     `bash "${CLAUDE_PLUGIN_ROOT}/hooks/plan-state.sh" sweep '<identifier>' --roots repo`
+     and reconcile the **whole** result set against the plan's list, since confirming
+     each listed site cannot reveal the ones nobody listed. Use that subcommand rather
+     than composing a recursive `grep`: recursion is what makes grep apply `.gitignore`,
+     which silently drops every hit under `.mentor/`, and the `SWEEP:` line's `files=`
+     count is what lets you tell a real undercount apart from a search that read nothing
+     (exit 2). Report the command run,
      plan-count vs found-count, and the `file:line` hits, so the user verdicts at
      a glance; an
      undercount usually means missing steps, not just a stale numeral, which is why

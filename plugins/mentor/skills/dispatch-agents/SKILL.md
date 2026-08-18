@@ -541,8 +541,23 @@ the contract does not apply to them, which is exactly how a fan-out goes out raw
   *standing* instruction against subagent use recorded somewhere durable — CLAUDE.md, a
   project rule file, an earlier session's handoff note — as distinct from the user saying
   so live in this session (that case needs no check: honor it directly, per `plan-review`'s
-  "When NOT to use"). `.mentor/` is gitignored, so search it with `grep --no-ignore` — a
-  plain `grep -r` misses handoff notes (`planning` Step 2). Found one → stop before
+  "When NOT to use"). Run that search with the shared sweep, which exists because this
+  check is where the old prescription failed live — `.mentor/` is gitignored, so a
+  recursive `grep` rooted at or above it reads nothing there and reports a clean zero
+  that is indistinguishable from "no policy recorded" (`planning` Step 2 has the
+  mechanism):
+
+  ```bash
+  [ -d "${CLAUDE_PLUGIN_ROOT}/hooks" ] || { echo "ERROR: CLAUDE_PLUGIN_ROOT unresolved or stale — do not search the plugin cache or hardcode a version path; ask the user to /reload-plugins or restart" >&2; exit 1; }
+  bash "${CLAUDE_PLUGIN_ROOT}/hooks/plan-state.sh" sweep 'no subagents' --ignore-case
+  ```
+
+  Read the **exit code**, not just the output — that is the reason to use this rather than
+  any grep you compose yourself. **0** = a policy IS recorded: stop and ask. **1** = none
+  is, and the `files=` count on the `SWEEP:` line is your evidence that the search really
+  read something. **2** = the check did not run (no root existed, or a usage error), so the
+  policy question is **unresolved** — treat it as such, never as "no policy". Found one →
+  stop before
   dispatching and ask ONE `AskUserQuestion`, 3 options, **"Keep the work in the main thread
   instead" first and Recommended** (a standing policy outranks the default path): keep it
   in the main thread / dispatch as designed anyway / skip the affected step. That tension is

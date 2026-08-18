@@ -354,6 +354,17 @@ Usage: plan-state.sh <subcommand>
                                          title line with tick state, the verbatim body of step
                                          N (when given), and the Verification topic titles;
                                          read-only, never ticks — see `tick`
+  sweep <pattern> [--roots policy|plans|repo] [--ignore-case]
+                                        the ONE portable search over mentor's own state.
+                                         Prints `SWEEP: roots=N files=N hits=N` FIRST, then
+                                         one `path:line:text` per hit. Exits like grep:
+                                         0 hits found / 1 files read but no match /
+                                         2 NOTHING-SEARCHED (no root existed) or a usage
+                                         error. roots: policy = this worktree's CLAUDE.md +
+                                         .claude/ + the main repo's .mentor/plans (default);
+                                         plans = that plans dir alone; repo = the whole
+                                         worktree minus .git/. find walks so grep never
+                                         applies .gitignore — gitignored .mentor/ IS reached
   context                               CONTEXT: ASK|HANDOFF|WARN|OK|UNKNOWN (~N tokens)
   dir [--plans]                         the repo-scoped mentor dir (or its plans dir)
   gate [--verbose]                      ARMED|STALE|ARMED_ELSEWHERE|RELEASED — read-only marker
@@ -841,6 +852,81 @@ if [ "$sub" = "gate" ]; then
   exit 0
 fi
 
+# --- sweep <pattern> [--roots policy|plans|repo] [--ignore-case]: the ONE portable
+# search over mentor's own state. Deliberately an EARLY handler, alongside gate/dir/
+# context: it must run BEFORE the repo-root and plans-dir guards below, because a repo
+# with a CLAUDE.md but no .mentor/plans yet is a perfectly good `policy` sweep, and the
+# plans-dir guard would exit 0 with "nothing planned" — the exact silent-clean answer
+# this subcommand exists to make impossible. Outside a git repo it still answers, with
+# the NOTHING-SEARCHED verdict rather than a false zero.
+#
+# The mechanism (find walks, grep only reads the list it is handed), why the GNU/ripgrep
+# no-ignore flag and its ugrep-only cousin are both wrong, and the measured hit matrix live
+# `sweep` section of lib/state.sh — read it there before changing anything here.
+if [ "$sub" = "sweep" ]; then
+  sw_pattern=""; sw_set="policy"; sw_icase=""; sw_have_pattern=0; sw_endopts=0
+  while [ "$#" -gt 0 ]; do
+    if [ "$sw_endopts" -eq 0 ]; then
+      case "$1" in
+        --roots)
+          if [ "$#" -lt 2 ]; then
+            echo "[mentor plan-state] sweep --roots needs a value: policy|plans|repo" >&2
+            exit 2
+          fi
+          sw_set="$2"; shift 2; continue ;;
+        --roots=*) sw_set="${1#--roots=}"; shift; continue ;;
+        --ignore-case) sw_icase=1; shift; continue ;;
+        # `--` ends option parsing, so a PATTERN beginning with a dash is still reachable
+        # (`sweep -- -not-a-flag`) instead of being rejected as an unknown flag.
+        --) sw_endopts=1; shift; continue ;;
+        -?*)
+          echo "[mentor plan-state] sweep: unknown flag '${1}'." >&2
+          echo "  usage: sweep <pattern> [--roots policy|plans|repo] [--ignore-case]" >&2
+          exit 2 ;;
+      esac
+    fi
+    if [ "$sw_have_pattern" -eq 1 ]; then
+      echo "[mentor plan-state] sweep takes ONE pattern; got an extra argument '${1}'." >&2
+      echo "  quote a multi-word pattern: sweep 'no subagents' --ignore-case" >&2
+      exit 2
+    fi
+    sw_pattern="$1"; sw_have_pattern=1; shift
+  done
+  case "$sw_set" in
+    policy|plans|repo) ;;
+    *)
+      echo "[mentor plan-state] sweep: unknown root set '${sw_set}' — use policy|plans|repo." >&2
+      echo "  policy  this worktree's CLAUDE.md + .claude/ + the main repo's .mentor/plans" >&2
+      echo "  plans   the main repo's .mentor/plans" >&2
+      echo "  repo    the whole worktree, minus .git/ (.mentor/ included)" >&2
+      exit 2 ;;
+  esac
+  if [ "$sw_have_pattern" -eq 0 ] || [ -z "$sw_pattern" ]; then
+    echo "[mentor plan-state] sweep needs a non-empty pattern." >&2
+    echo "  usage: sweep <pattern> [--roots policy|plans|repo] [--ignore-case]" >&2
+    exit 2
+  fi
+  sw_out="$(mentor_sweep "$(pwd)" "$sw_set" "$sw_pattern" "$sw_icase")"
+  sw_roots=0; sw_files=0; sw_hits=0
+  read -r sw_roots sw_files sw_hits <<<"$(printf '%s\n' "$sw_out" | head -1)" || true
+  # The accounting line leads, always. On a broken sweep there are no hits at all, so this
+  # line IS the entire output; on a long result set it must not scroll away from the
+  # reader who has to judge whether a zero is trustworthy.
+  echo "SWEEP: roots=${sw_roots:-0} files=${sw_files:-0} hits=${sw_hits:-0}"
+  if [ "${sw_files:-0}" -eq 0 ]; then
+    echo "SWEEP: NOTHING-SEARCHED — no root existed; this result is not evidence"
+    exit 2
+  fi
+  if [ "${sw_hits:-0}" -gt 0 ]; then
+    printf '%s\n' "$sw_out" | tail -n +2
+    exit 0
+  fi
+  exit 1
+fi
+
+# Every subcommand handled by an early `if` above (context, dir, ensure-dir, relocate,
+# handoff-path, handoff-selfcheck, gate, sweep) exits before reaching here, so none of
+# them appears in this allow-list — adding one would be unreachable code, not a fix.
 case "$sub" in
   init|set|set-deps|set-priority|set-category|set-parent|claim|tick|verify|query|list|current|brief) ;;
   ""|-h|--help|help)

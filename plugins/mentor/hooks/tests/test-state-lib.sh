@@ -905,6 +905,101 @@ chk "upgrading write preserves the state"    test "$(libsh "mentor_plan_state_fi
 chk "upgrading write preserves the (unrelated) priority field too" \
   test "$(libsh "mentor_plan_priority '$PLANS/ptold'")" = "high"
 rm -rf "$PLANS"
+echo "== S. mentor_sweep_roots / mentor_sweep — the portable self-reporting search (v2.33.0) =="
+# A fixture that reproduces the actual bug: a directive parked in a note under a
+# `.mentor/` whose own .gitignore is `*`. A recursive grep rooted at or above that file
+# reads nothing there under a grep that honors ignore rules; find+grep reads it anyway.
+SW="$ROOT/sweep-repo"
+git init -q -b main "$SW" >/dev/null 2>&1
+( cd "$SW"; git config user.email t@t.co; git config user.name t; echo x > f; git add -A; git commit -q -m init ) >/dev/null 2>&1
+mkdir -p "$SW/.mentor/plans/t/handoffs" "$SW/.claude" "$SW/src"
+printf '*\n'                                      > "$SW/.mentor/.gitignore"
+printf 'a\nb\nNo subagents without the user asking.\n' > "$SW/.mentor/plans/t/handoffs/n.md"
+printf 'CLAUDEONLY-TOK and MixedCase-Tok\n'        > "$SW/CLAUDE.md"
+printf 'DOTONLY-TOK\n'                            > "$SW/.claude/r.md"
+printf 'SRCONLY-TOK\n'                            > "$SW/src/a.txt"
+printf 'GITONLY-TOK\n'                            > "$SW/.git/planted.txt"
+BARESW="$ROOT/sweep-bare"                          # git repo, none of the three roots
+git init -q -b main "$BARESW" >/dev/null 2>&1
+
+chk "policy lists all 3 existing roots" \
+  test "$(libsh "mentor_sweep_roots '$SW' policy" | grep -c . )" = "3"
+chk "plans lists exactly the main repo's plans dir" \
+  test "$(libsh "mentor_sweep_roots '$SW' plans")" = "$SW/.mentor/plans"
+chk "repo lists the worktree toplevel" \
+  test "$(libsh "mentor_sweep_roots '$SW' repo")" = "$SW"
+chk "unknown set echoes nothing (the CLI owns the usage error)" \
+  test -z "$(libsh "mentor_sweep_roots '$SW' bogus")"
+chk "non-git cwd → no roots for repo" \
+  test -z "$(libsh "mentor_sweep_roots '$NONGIT' repo")"
+chk "non-git cwd → no roots for policy either" \
+  test -z "$(libsh "mentor_sweep_roots '$NONGIT' policy")"
+chk "a repo missing CLAUDE.md/.claude skips them rather than erroring" \
+  test -z "$(libsh "mentor_sweep_roots '$BARESW' policy")"
+
+# The counts line is `<roots> <files> <hits>`, always the FIRST line of output.
+sw_counts() { libsh "mentor_sweep $*" | head -1; }
+chk "gitignored note IS found (policy set)" \
+  test "$(sw_counts "'$SW' policy 'No subagents'" | cut -d' ' -f3)" = "1"
+chk "  hit line carries path:line: (the -H case)" \
+  bash -c 'printf "%s\n" "$1" | grep -q "handoffs/n.md:3:"' _ \
+    "$(libsh "mentor_sweep '$SW' policy 'No subagents'")"
+chk "plans set also reaches it" \
+  test "$(sw_counts "'$SW' plans 'No subagents'" | cut -d' ' -f3)" = "1"
+chk "repo set reaches .mentor/ too" \
+  test "$(sw_counts "'$SW' repo 'No subagents'" | cut -d' ' -f3)" = "1"
+chk "policy does NOT reach src/ (healthy negative)" \
+  test "$(sw_counts "'$SW' policy SRCONLY-TOK" | cut -d' ' -f3)" = "0"
+chk "  …and its files= denominator is non-zero, so the zero is evidence" \
+  test "$(sw_counts "'$SW' policy SRCONLY-TOK" | cut -d' ' -f2)" -gt 0
+chk "repo DOES reach src/" \
+  test "$(sw_counts "'$SW' repo SRCONLY-TOK" | cut -d' ' -f3)" = "1"
+chk "plans does NOT reach CLAUDE.md" \
+  test "$(sw_counts "'$SW' plans CLAUDEONLY-TOK" | cut -d' ' -f3)" = "0"
+chk "repo PRUNES .git/ (planted token unreachable)" \
+  test "$(sw_counts "'$SW' repo GITONLY-TOK" | cut -d' ' -f3)" = "0"
+chk "no roots → '0 0 0', never a bare empty line" \
+  test "$(sw_counts "'$BARESW' plans anything")" = "0 0 0"
+chk "empty pattern → '0 0 0' (fail-soft, no stdin hang)" \
+  test "$(sw_counts "'$SW' policy ''")" = "0 0 0"
+chk "case-sensitive by default" \
+  test "$(sw_counts "'$SW' policy mixedcase-tok" | cut -d' ' -f3)" = "0"
+chk "ignore_case arg matches mixed case" \
+  test "$(sw_counts "'$SW' policy mixedcase-tok 1" | cut -d' ' -f3)" = "1"
+chk "files= equals an independent find count (plans)" \
+  test "$(sw_counts "'$SW' plans 'No subagents'" | cut -d' ' -f2)" \
+     = "$(find "$SW/.mentor/plans" -type f | wc -l | tr -d ' ')"
+chk "roots= counts the roots actually searched" \
+  test "$(sw_counts "'$SW' policy 'No subagents'" | cut -d' ' -f1)" = "3"
+# Fail-soft under the caller CONTRACT: libsh runs `set -euo pipefail`, so a non-zero rc
+# here means the helper aborted its caller — the one thing lib/state.sh may never do.
+chk "mentor_sweep never aborts a set -e caller (no match)" \
+  libsh "mentor_sweep '$SW' policy DEFINITELY-ABSENT-XYZZY >/dev/null"
+chk "mentor_sweep never aborts a set -e caller (no roots)" \
+  libsh "mentor_sweep '$BARESW' plans x >/dev/null"
+chk "mentor_sweep_roots never aborts a set -e caller (bad set)" \
+  libsh "mentor_sweep_roots '$SW' bogus >/dev/null"
+chk "mentor_sweep tolerates a pattern starting with a dash" \
+  libsh "mentor_sweep '$SW' policy '-not-a-flag' >/dev/null"
+
+# Linked worktree: own CLAUDE.md, shared .mentor/plans. One resolution for both is wrong.
+SWWT="$ROOT/sweep-wt"
+git -C "$SW" worktree add -q "$SWWT" -b sweep-wt >/dev/null 2>&1
+if [ -d "$SWWT" ]; then
+  printf 'WTONLY-TOK\n' > "$SWWT/CLAUDE.md"
+  chk "linked worktree reads its OWN CLAUDE.md" \
+    test "$(sw_counts "'$SWWT' policy WTONLY-TOK" | cut -d' ' -f3)" = "1"
+  chk "…not the main worktree's" \
+    test "$(sw_counts "'$SWWT' policy CLAUDEONLY-TOK" | cut -d' ' -f3)" = "0"
+  chk "…while plans still resolves to the MAIN repo's .mentor" \
+    test "$(libsh "mentor_sweep_roots '$SWWT' plans")" = "$SW/.mentor/plans"
+  chk "…so the shared directive is still found from the worktree" \
+    test "$(sw_counts "'$SWWT' plans 'No subagents'" | cut -d' ' -f3)" = "1"
+else
+  printf "  skip linked-worktree sweep checks (git worktree add unavailable)\n"
+fi
+rm -rf "$SW" "$BARESW" "$SWWT"
+
 
 echo
 echo "RESULT: PASS=$PASS FAIL=$FAIL"
