@@ -281,8 +281,21 @@ Enforce these in every pane you create or touch:
    invisible without the hint above. `bind -n <k>`: one keystroke, and it takes that key from every
    program in every pane on the server while it stays bound. `bind -n <k> if-shell -F '<the pane's
    own condition>' '<action>' 'send-keys <k>'`: one keystroke with no theft, at the cost of a
-   condition that must identify the pane correctly — a wrong one steals the key silently. Function
-   keys are the cheap candidates; most TUIs don't claim them. Check collisions against the whole
+   condition that must identify the pane correctly — a wrong one steals the key silently.
+
+   **There is a fourth axis under those three, and it is the one that bites: does the key reach tmux
+   at all?** Collision-safety, keystroke count and theft are all questions about the *server*; a key
+   the terminal emulator or the keyboard consumes never gets that far, and every check in this
+   plugin still passes because `send-keys` injects downstream of the gap. Function keys look like
+   the cheap candidates — most TUIs don't claim them — and they are Fn-modified by default on Mac
+   laptops, which is the same trap as PageUp/PageDown and `⌥`-combinations. Prefer a plain
+   letter or `Ctrl`-letter key, or ship one as an alias alongside the pretty binding, and read
+   "Keys that do not arrive the way you think" in
+   `${CLAUDE_PLUGIN_ROOT}/skills/console/references/verifying-pane-shapes.md` before committing to
+   a key. Whichever key ships, the hint row above has to advertise **that** one — advertising a key
+   the user's terminal eats is worse than advertising nothing.
+
+   Check collisions against the whole
    table — `tmux list-keys -T prefix | grep -E "^bind-key +-T prefix +<k> "` — because the obvious
    shortcut lies: `list-keys -T prefix <k>` prints nothing and exits 0 whether the key is bound or
    free (3.7b), so it reads "available" for every key you ask about. Key tables are **server**-wide
@@ -478,6 +491,17 @@ were launched with, which is why "I edited it but nothing changed" happens. Afte
    it renders escapes as `\033[1m…` and is portable. Reach for it rather than `cat -A`, which is a GNU
    flag: on macOS `cat -A` fails with `cat: illegal option -- A` (measured), and a verification step
    that errors out is one that gets skipped.
+   **Assert the sandbox landed on the isolated socket, once per run**, because the way `-L` actually
+   gets lost is not misunderstanding this block — it is improvising a variant of it later, and the
+   improvised spelling is always the shorter `tmux new-session`. Nothing above catches that: a
+   sandbox on the ambient server works perfectly, and quietly leaves `_sbx` in the user's live
+   workspace. One line names it:
+   ```bash
+   tmux has-session -t _sbx 2>/dev/null && echo "LEAKED: _sbx is on the AMBIENT server — you dropped -L"
+   ```
+   That is a bare `tmux` on purpose — it asks the *user's* server whether your sandbox is sitting in
+   it, which is the one question the `-L`-qualified commands in this block can never answer.
+
    Open with the `kill-server`, on every sandbox block in this loop. If a previous run aborted before
    its own teardown, `new-session` fails with `duplicate session: _sbx`, the `&&` drops the capture
    that would have told you — and the next command in the block still succeeds against the **stale**
@@ -707,5 +731,8 @@ SQL validation loop.
   zero, new name non-zero), not by a single sweep that returned nothing.
 - Any keybinding added is visible in the pane's own content, persisted in a file the launcher reloads
   (tmuxp cannot carry it), and was driven through a real attached client — not inferred from
-  `list-keys` in the sandbox, and not from a title suffix `capture-pane` can never see.
+  `list-keys` in the sandbox, and not from a title suffix `capture-pane` can never see. Every key the
+  pane advertises is either a plain letter/`Ctrl`-letter that clears the prefix check, or has one as
+  an alias — a `send-keys` pass is evidence the renderer handles the key, never that the user's
+  keyboard can send it.
 - No `clear`-loops, no raw-text panes, timestamps localized, palette consistent.

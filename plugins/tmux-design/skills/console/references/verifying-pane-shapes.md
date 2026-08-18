@@ -163,8 +163,16 @@ Drive it on step 1's isolated server, and point it at a **scratch copy of the da
 the only step in the whole loop that writes, so aiming it at the real file means the verification
 mutates the thing it was verifying.
 
+**Read the pointer knob off *this* renderer before you write the block** — `grep -n 'add_argument\|
+os.environ' <renderer>` — rather than reusing the spelling the last one took. Guessing `TASK_ROOT=`
+at a renderer that only accepts `--root` costs a whole cycle, because an ignored pointer is not an
+error: the TUI comes up on the **real** data and behaves perfectly. Copy the *store*, too, not one
+file — a sqlite datastore's `-wal`/`-shm` sidecars left behind send the writes somewhere the scratch
+copy will never show.
+
 ```bash
 scratch="$(mktemp)"; cp <the real datastore> "$scratch"   # verification writes — never to the original
+printf 'ZZ_SENTINEL_ROW\n' >> "$scratch"                  # a row that cannot exist in the real store
 sbx() { tmux -L _tmuxdesign_sbx "$@"; }
 await() {   # await <marker> — no -e here: SGR bytes can split a marker mid-word
   for _ in $(seq 40); do
@@ -175,10 +183,23 @@ await() {   # await <marker> — no -e here: SGR bytes can split a marker mid-wo
 }
 sbx -f /dev/null new-session -d -s _sbx -x 100 -y 30 \
   "<tui command, its datastore pointed at $scratch>; echo __DONE__; sleep 60"
+await ZZ_SENTINEL_ROW || { echo "pointer knob IGNORED — this pane is on the REAL datastore"; exit 1; }
 await 'Title:' && sbx send-keys -t _sbx -l 'buy milk' && sbx send-keys -t _sbx Enter
 await __DONE__ && grep -q 'buy milk' "$scratch"      # the write, not the frame
 sbx kill-server
 ```
+
+**Prove the instrument moves before you trust a negative** — the sentinel, not a knob probe, is what
+does that here. The width sweep asks the same question with two renders (`SKILL.md`, "Confirm the
+width injection actually reaches the renderer"), but a datastore pointer has no differential to
+diff: an ignored pointer renders the real data, which looks entirely plausible. A row that cannot
+exist upstream turns "is the knob wired" into "is this frame reading my file", costs one `await`
+that is already defined three lines above, and fires **before** any keystroke is spent. It also
+makes the closing assertion honest: `$scratch` starts as a copy of the real store, so a fixture the
+store already contains — a re-run, a same-named task — passes `grep -q 'buy milk'` with no write at
+all. Skipping it costs more than the cycle: if the pointer was ignored, the scenario's write just
+landed in the user's live datastore, and the closing grep reports a **false negative** about a pane
+that worked.
 
 **Poll, don't sleep.** A hand-picked `sleep` is guesswork that passes on a fast machine and lands the
 next keystroke in the wrong prompt on a slow one, and the run still reports a pass — so `await` has
@@ -189,6 +210,90 @@ exists — the marker gives you something to wait for and the sleep holds the se
 
 Assert the **side effect**, not the frame: a TUI paints a plausible "saved" frame whether or not the
 write landed, and the datastore row is the only evidence that it did.
+
+**A pane that reloads on its own clock while holding keystroke state is this shape plus the own-loop
+one, not a fourth shape** — read "Verifying an own-loop pane" above for the parts it inherits
+(`primitives.md`'s "Two clocks, never one" applies in full: the reload publishes an immutable
+snapshot by rebinding one name, never mutating the list the paint path is walking; the viewer gate
+does **not** apply, since gating a pane the user is typing into blanks it under the probe you are
+verifying with). What is genuinely new is the failure: the reload lands and **clobbers the in-memory
+selection**, leaving the cursor on a different entity than the one the user chose, or a detail panel
+describing a row that moved. Two things make that test able to fail. Mutate the scratch store so the
+list changes **length and order** — appending one row leaves index 3 pointing at the same entity, so
+the assertion passes by construction — and assert the selection by **entity name, not index**. Send
+a keystroke burst spanning `interval + ε` rather than idling through the reload window, because a
+race with no keys in flight is not the race. And note `await`'s timeout is 10s (40 × 0.25): a reload
+interval anywhere near that makes the poller expire mid-test, so give this scenario its own bound
+rather than reusing the shared helper's.
+
+### Keys that do not arrive the way you think
+
+Everything above drives the pane with `send-keys`, and there is one thing `send-keys` **cannot**
+tell you. It injects at the far end of the pipe: keyboard → terminal emulator → escape sequence →
+tmux → pane. A `send-keys` starts at the arrow, so a green run says the renderer handles the key
+correctly and says **nothing** about whether the user's keypress ever reaches tmux at all. That is a
+pass-shaped failure of this subsection's own procedure, and it has cost this plugin twice — a
+PageUp/PageDown scroll verified twice and unusable by the user, and before it an `⌥h` binding that
+never arrived as Alt.
+
+Reach for the obvious workaround and measure it first, because it is a no-op. On **3.7b**, the bytes
+a pane process reads are byte-identical whichever spelling you use:
+
+| send | bytes the pane process reads |
+|---|---|
+| `send-keys -t <pane> NPage` | `1b 5b 36 7e` |
+| `send-keys -t <pane> PPage` | `1b 5b 35 7e` |
+| `send-keys -t <pane> -H 1b 5b 36 7e` | `1b 5b 36 7e` |
+
+tmux already emits the real sequence for a named key, so "send the raw bytes instead" exercises the
+same code path and buys no new signal. There is no agent-runnable send that covers the missing link,
+which is what makes the next paragraph the fix rather than a fallback.
+
+**Design the key so the question doesn't arise.** A key on the interception list is one where the
+emulator or the keyboard can eat the press before tmux sees it: PageUp/PageDown (emulators bind them
+to their own scrollback), Option/Alt combinations (only meta-encoded if the emulator is configured
+to), and function keys (Fn-modified by default on Mac laptops). Ship those **with** a plain
+letter-or-Ctrl alias from the first line and let "verified" attach to the alias, which the sandbox
+can drive end to end. Check the alias against the prefix before adopting it — `Ctrl-b` is the
+default (measured: `show -gv prefix` → `C-b`), and a client that eats your alias as its prefix is
+this section's own failure reintroduced as its remedy:
+
+```bash
+[ "$alias_key" = "$(tmux show -gv prefix)" ] && echo "alias collides with the prefix — pick another"
+```
+
+**Two runs of the same instrument are one measurement.** Verifying in the sandbox *and* on the live
+pane feels like corroboration and is not: both runs were `send-keys`, so they share one blind spot.
+That is why the second run raised no doubt.
+
+**When the user says a key doesn't work, triage in this order** — it is also the only moment the
+`cat -v` check below is realistic, because the person with the keyboard is already there:
+
+1. **Re-run `send-keys <key>` at the pane.** Still works → the renderer is exonerated and the entire
+   renderer-side investigation is skipped. This is one command and it is the highest-value one.
+2. **Ask the user to press the key into a `cat -v` pane** and paste the line back. Measured on 3.7b:
+   the tty echo of the sequence appears **immediately**, and `cat -v`'s own decoded line appears
+   after Enter — so have them press the key, then Enter, and read both. Nothing at all means the
+   emulator or the keyboard consumed it; `1b 5b 35 7e` (`^[[5~`) for PageUp and `^[[6~` for PageDown
+   means it arrived clean and the fault is elsewhere; a modified sequence like `^[[5;2~` means it
+   arrived as something the renderer never matched.
+3. **Fix it where it broke** — the emulator's own binding (its config can release a key it claimed,
+   and its Option-as-Meta setting is what makes `⌥`-combinations arrive as Alt) — and ship the alias
+   regardless, so the pane is usable before the user edits any config.
+
+Naming *which* emulator claims *which* key is deliberately left out: that is a third-party claim
+this plugin cannot stamp with a measurement, and it rots faster than tmux behavior does. The classes
+above are stable; the culprit is whatever the user's own `cat -v` says it is.
+
+**A key can also arrive on time and be acted on late.** Under ncurses, a bare Esc is ambiguous —
+it may be a keypress or the first byte of an escape sequence — so the library waits out its
+`ESCDELAY` (documented default 1000 ms) before delivering it. The pane is not broken and no
+assertion here catches it: `await` tolerates 10s, so a one-second Esc lag passes every check in this
+file while the user calls the pane unresponsive. `curses.set_escdelay(25)` at startup is the fix
+(Python ≥ 3.9; on older interpreters set the `ESCDELAY` environment variable, which ncurses reads
+directly). 25 ms is a local-pane number — over a high-latency connection the bytes of `ESC [ A` can
+split far enough apart that arrow keys start reading as bare Esc, which is the trade being made:
+Esc-as-quit responsiveness against escape-sequence keys.
 
 ### Rule 4 still applies, and here a one-shot dump is the only way to check it
 
@@ -310,3 +415,10 @@ precisely why a keypress can never report failure; without `-b` you get 127, or 
 status, back. If the command prints anything it leaves that pane in view-mode
 (`#{pane_in_mode}` → 1), which will poison the step-4 capture — `send-keys -X cancel` first, or run
 the script yourself and resolve the id with `display -p -t <pane> '#{pane_id}'`.
+
+**This shape has the delivery gap too, one layer up.** Sending the key into the nested client
+exercises tmux's own key model — better than a pane-targeted send, and still short of the user's
+keyboard, so `bind -n M-h` and `bind -n PageUp` earn the same confident pass over a binding nobody
+can fire. The `⌥h` precedent is exactly this shape. Choose the key by "Keys that do not arrive the
+way you think" above before you bind it, and read a green run here as "the binding is correct",
+never as "the key is reachable".
