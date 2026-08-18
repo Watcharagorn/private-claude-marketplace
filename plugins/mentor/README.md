@@ -225,7 +225,7 @@ on every write, so a plain `set` deliberately clears a stale failure note.
 
 `set-deps` replaces a plan's deps wholesale and refuses a write that would create a
 dependency cycle (direct or transitive) — fail-soft: a stderr warning, no write.
-Unknown dep slugs are allowed (the dep plan may not exist yet); `overview` marks them
+Unknown dep slugs are allowed (the dep plan may not exist yet); `query` marks them
 `missing` rather than failing.
 
 `priority` is the plan's **impact tier** — how much this plan matters, so
@@ -247,7 +247,7 @@ scope rule rules out. `set-category <slug> ""` clears it back to unset, mirrorin
 `deferred_from` names the plan slug a stub was captured out of — unvalidated like `deps`'
 targets, since the source plan may itself be deleted later. Unlike `deps`, `plan-state.sh`
 carries **no** script-side `missing` flag for it: a dangling `deferred_from` is resolved
-render-side, by `/mentor:track` checking the slug against the same `overview --json` array it
+render-side; since v2.33.0 `query` resolves it server-side as `{slug, missing}`, the same shape `deps[]` has always had, so the consumer no longer scans the array it
 already holds, rendering `from: <slug> (missing)`.
 
 ### Deferring work (`/mentor:defer`)
@@ -264,12 +264,13 @@ entry isn't buildable as-is. Picking it up runs `/mentor:plan <slug>`, which fle
 out the stub and calls `claim <slug>` to clear `origin`, after which normal approval
 promotes it like any plan.
 
-### The repo-wide hierarchy (`overview --json`)
+### The repo-wide hierarchy (`query`)
 
-`plan-state.sh overview --json` is the one call that answers "what's remaining?" — a
+`plan-state.sh query` is the one call that answers "what's remaining?" — a
 JSON array covering every plan dir with a `plan.md` (state, group, order, `priority`,
-`category`, `deps`, each marked `missing` when no such plan dir exists, `origin`,
-`deferred_from`, live handoffs, ticked/total step counts, and `goal` — a one-line summary
+`category`, `deps`, `deferred_from` and `parent` — each of those three a `{slug, missing}`
+pair, `missing` true when no such plan dir exists — plus `origin`,
+live handoffs, ticked/total step counts, and `goal` — a one-line summary
 computed only for `origin: "deferred"` entries, `null` otherwise; it is not a sidecar
 field, it is extracted from the stub's own `## Goal` section at read time), plus topic
 dirs with a live handoff but no `plan.md` yet, plus the legacy flat `.mentor/handoffs/`
@@ -402,7 +403,7 @@ Knobs — env vars under `env` in `~/.claude/settings.json` (or the project's
 | `hooks/context-gate.sh` | **Context gate.** `UserPromptSubmit` — measures live context from the transcript: warns once (~200k), re-warns near the limit (~315k), and above ~350k asks the user — hand off (recommended) or bypass for the session. Never blocks or erases prompts. Fail-soft; slash commands always pass. |
 | `hooks/bypass-context.sh` | Writes the session-scoped `.context-bypass-<session_id>` marker when the user answers "Proceed anyway" — degrades the ask tier to a one-line advisory for the rest of the session. |
 | `hooks/planning-intent.sh` | **Planning-intent advisory.** `UserPromptSubmit` — a narrow, once-per-session, non-blocking nudge: an anchored opener ("help me plan…", "let's plan…") suggests `/mentor:plan <topic>` so a conversational planning ask doesn't silently skip the edit gate. Never blocks, never creates repo state; suppressed only while THIS worktree's own marker or the legacy marker is live — routed through the same liveness check as the gate, so a long-stale marker no longer suppresses it forever, and a sibling worktree's marker never suppresses it here. |
-| `hooks/plan-state.sh` | **The one plan-state API** (not a hook — skills call it directly). `init` / `set` / `set-deps` / `set-priority` / `claim` / `tick` / `verify` / `list [--owners]` / `current [--any]` / `overview` / `context` / `dir` / `ensure-dir` / `relocate` / `gate` / `handoff-path` / `handoff-selfcheck`. `verify <slug>` backs planning's "Verify the write": fence-balance + table-pipe-count `CHECK:` lines that gate its exit code, plus informational-only `CHECK: Rev-note order` and `CHECK: context` lines (the latter folds the separately-mandated pre-approval context re-check into the same call). Sole writer of `.state.json` (incl. `deps` and `origin`, v2.17.0; `owner`/`owner_session` — the minting/re-owning worktree — v2.23.0, stamped by `ensure-dir`/`init`/`claim`/`relocate`; `priority` — the impact tier, v2.24.0, written by `init --priority`/`set-priority` and surfaced on every `overview` entry); derives effective state from the plan's ✅ ticks; `current` is group-aware and, since v2.23.0, ownership-scoped to plans owned by this worktree (`--any` for a deliberate repo-wide read) — after a split it reports the whole owned group rather than whichever child agent finished last. `list --owners` adds an OWNER column for slug-reuse scans. `overview --json` computes the repo-wide plans+deps+handoffs+owner hierarchy fresh on every call — nothing cached. `dir` (v2.14.0) is the one repo-scoped `.mentor` path derivation — skills call it instead of hand-rolling `git-common-dir` snippets that drift. `relocate <src-plan-dir>` (v2.26.0) copies a plan from a DIFFERENT repo's `.mentor/plans/<slug>` into this one (run from the destination repo) and re-owns it here in one step — never deletes the source, and warns about repo-relative paths left stale under "Suggested first steps" and about the source repo's plan-gate no longer protecting edits made back there. `gate` is the one plan-gate marker status check for THIS worktree (`ARMED`/`STALE`/`ARMED_ELSEWHERE`/`RELEASED`, read-only; `--verbose` adds per-token fields, e.g. `owner_worktree=` on `ARMED` or one `elsewhere=` line per live sibling on `ARMED_ELSEWHERE`) — resuming/touring/plan-track call it instead of each re-deriving the marker path and 8h staleness window themselves. `handoff-path`/`handoff-selfcheck` back `handoff-note`'s Step 2/Step 5: the first resolves + confines + creates a topic's private `handoffs/` dir (+ gitignore) and prints the timestamped note path in one call; the second supersedes a topic's older notes into `resolved/` and prints both self-check verdicts atomically, so neither half of the check can be dropped by a partial hand-copy. |
+| `hooks/plan-state.sh` | **The one plan-state API** (not a hook — skills call it directly). `init` / `set` / `set-deps` / `set-priority` / `claim` / `tick` / `verify` / `list [--owners]` / `current [--any]` / `query` / `context` / `dir` / `ensure-dir` / `relocate` / `gate` / `handoff-path` / `handoff-selfcheck`. `verify <slug>` backs planning's "Verify the write": fence-balance + table-pipe-count `CHECK:` lines that gate its exit code, plus informational-only `CHECK: Rev-note order` and `CHECK: context` lines (the latter folds the separately-mandated pre-approval context re-check into the same call). Sole writer of `.state.json` (incl. `deps` and `origin`, v2.17.0; `owner`/`owner_session` — the minting/re-owning worktree — v2.23.0, stamped by `ensure-dir`/`init`/`claim`/`relocate`; `priority` — the impact tier, v2.24.0, written by `init --priority`/`set-priority` and surfaced on every `overview` entry); derives effective state from the plan's ✅ ticks; `current` is group-aware and, since v2.23.0, ownership-scoped to plans owned by this worktree (`--any` for a deliberate repo-wide read) — after a split it reports the whole owned group rather than whichever child agent finished last. `list --owners` adds an OWNER column for slug-reuse scans. `query` computes the repo-wide plans+deps+handoffs+owner hierarchy fresh on every call — nothing cached, and takes select/filter/enrich/output flags so a caller asks for the slice it needs instead of sifting the whole array (`--roots --open-counts` answers a whole-repo roll-up in one process; it replaced `overview --json` plus one `subtree` per root in v2.33.0). `dir` (v2.14.0) is the one repo-scoped `.mentor` path derivation — skills call it instead of hand-rolling `git-common-dir` snippets that drift. `relocate <src-plan-dir>` (v2.26.0) copies a plan from a DIFFERENT repo's `.mentor/plans/<slug>` into this one (run from the destination repo) and re-owns it here in one step — never deletes the source, and warns about repo-relative paths left stale under "Suggested first steps" and about the source repo's plan-gate no longer protecting edits made back there. `gate` is the one plan-gate marker status check for THIS worktree (`ARMED`/`STALE`/`ARMED_ELSEWHERE`/`RELEASED`, read-only; `--verbose` adds per-token fields, e.g. `owner_worktree=` on `ARMED` or one `elsewhere=` line per live sibling on `ARMED_ELSEWHERE`) — resuming/touring/plan-track call it instead of each re-deriving the marker path and 8h staleness window themselves. `handoff-path`/`handoff-selfcheck` back `handoff-note`'s Step 2/Step 5: the first resolves + confines + creates a topic's private `handoffs/` dir (+ gitignore) and prints the timestamped note path in one call; the second supersedes a topic's older notes into `resolved/` and prints both self-check verdicts atomically, so neither half of the check can be dropped by a partial hand-copy. |
 
 ### Commands and skills never share a name
 
@@ -680,7 +681,7 @@ follow-up subcommand; `claim` clears `origin` as before but now also **keeps**
 context still exists — leaving any of the three unset rather than inventing a default,
 and reports what it judged inline:
 `deferred → <slug> [<tier> · <cat>] (.mentor/plans/<slug>/) — from: <plan> — deps: <a>`.
-`overview --json` appends `category`, `deferred_from`, and a computed `goal` key (a
+`query` returns `category`, `deferred_from`, and a computed `goal` key (a
 one-line summary of the stub's own `## Goal`, `null` on non-deferred entries — see "The
 repo-wide hierarchy" above); `/mentor:track` renders the tier and category as aligned tag
 columns, a `from:` clause (`from: <slug> (missing)` when the source plan is gone), and a
@@ -704,7 +705,7 @@ is a manual, one-time choice, not a requirement.
 `medium`, `low`, `noise`, or `null` — so `/mentor:track`'s hierarchy can say which plans
 matter and which are noise. Until now there was nowhere to put that: the sidecar was a
 fixed key set that silently dropped anything hand-added on the next write, and `--note`
-is replaced on every `set` and never surfaced by `overview --json`.
+is replaced on every `set` and never surfaced by `query`.
 
 Written two ways: `init <slug> --priority <p>` at mint time, and `set-priority <slug>
 <p>` for an existing plan (`""` clears it back to unset). `set-priority` is its own
@@ -720,7 +721,7 @@ unvalidated typo would silently become a sixth bucket. An invalid value is a usa
 (exit 1, nothing written), never a fail-soft skip: a tiering pass over twenty plans must
 not report success having quietly dropped one.
 
-`overview --json` carries `priority` on every entry, `null` where none is set —
+`query` carries `priority` on every entry, `null` where none is set —
 including the `no_plan_topic` and `legacy_handoffs` kinds, so a consumer never branches
 on kind to read it. An unset tier renders as **absent**, never as a default: "nobody has
 judged this plan's impact" is a different and more honest answer than `medium`.
@@ -776,7 +777,7 @@ byte-unchanged (still exactly one token on line 1), so every existing `= "ARMED"
 check keeps working — and now correctly reads `ARMED_ELSEWHERE` as "not armed for me."
 `current` is now ownership-scoped to plans owned by this worktree (or unowned), with a
 new `--any` for a deliberate repo-wide read; `list` gains an opt-in `--owners` column;
-`overview` carries an additive `owner` field.
+`query` carries an additive `owner` field.
 
 **Every asking/reading skill now understands the difference between "armed here,"
 "armed elsewhere," and "a pre-upgrade repo-wide lock."** `planning`'s Step 0 gate
@@ -970,7 +971,7 @@ previously unsatisfiable, so those cases could never pass).
 **Smaller things:** `handoff` pasted `plan-state.sh list` in its "Current state" section
 — `list` only tables topics that already have a `plan.md`, so work done outside a plan
 printed "No plans …" and got reported as invisible to `/mentor:track`. It now pastes
-`overview`, which is what `/mentor:track` itself reads, and offers `/mentor:defer` to
+`query`, which is what `/mentor:track` itself reads, and offers `/mentor:defer` to
 register a stub. `grilling` gained a concrete dispatch threshold (a second file, or any
 read past ~100 lines, hands off to an `Explore` subagent) and a gated "the grill settled
 it and the work is trivial → implement directly" close, valid only when no `.planning`
@@ -997,7 +998,7 @@ down while the gate was armed stays `draft` instead of being swept into
 hatch, so the defer→claim path cannot be bypassed.
 
 **`/mentor:track` answers "what's remaining?" for the whole repo.** Discovery
-moved from `list` to the new `plan-state.sh overview --json`, and the view is
+moved from `list` to `plan-state.sh query` (introduced as `overview --json`, renamed and made filterable in v2.33.0), and the view is
 now a hierarchy rather than a flat table: every plan with its state and
 ticked/total step counts, `deferred` tags, cross-plan dependency edges, and each
 plan's live handoffs as sub-lines. It also surfaces two things nothing showed

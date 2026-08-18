@@ -54,7 +54,7 @@ Make this a call, not a memory of one — a nested spawn (a `plan-split`/`plan-r
 pass's children, in particular) can still be resident and mutating its own artifacts
 even after it last reported to you. Run `TaskList` now; Step 3's **Current state**
 carries what it found as evidence, the same way that section already carries
-`plan-state.sh overview --json` rather than a recollection of it.
+`plan-state.sh query` rather than a recollection of it.
 
 `$ARGUMENTS` (the command argument) answers **"what will the next session be used for?"** Use it to
 decide what the document emphasizes — the parts of the work relevant to that focus get the most
@@ -85,7 +85,7 @@ the plan gate, so the write is always allowed.) Resolve `topic` first:
 
 - **The session's work is tied to a mentor plan** — you created or followed
   `<repo>/.mentor/plans/<topic>/plan.md` this session — → use that plan's slug as `topic`,
-  **unless** `plan-state.sh overview --json` already reports that plan's state as
+  **unless** `plan-state.sh query` already reports that plan's state as
   `implemented` **and** the Step 1 focus / this note's Recommended-commands routing names a
   different slug — treat that combination as "no related plan" below (this is the reverse of
   Step 5's "different topic dir" case: stamp that plan-topic's own live note, if any, as
@@ -150,15 +150,16 @@ it — Step 5's self-check catches that before you report.
 - **What happened** — a tight summary of the conversation and the progress made. Narrative, not a transcript.
 - **Current state** — branch, what is done vs pending, any failing checks or known-broken bits.
   Paste a rendering of
-  `bash "${CLAUDE_PLUGIN_ROOT}/hooks/plan-state.sh" overview --json` here — `--json` is required
-  (the subcommand exits 1 without it; there is no human-table mode), so read the JSON and write
-  the table yourself. A table of real plan states
+  `bash "${CLAUDE_PLUGIN_ROOT}/hooks/plan-state.sh" query` here. A table of real plan states
   beats a prose recollection of what got built, and it is exactly what the next agent needs before
-  running `/mentor:track`. Use `overview`, **not** `list`: `list` only tables topics that already
+  running `/mentor:track`. Use `query`, **not** `list`: `list` only tables topics that already
   have a `plan.md`, so on work done outside a plan it prints "No plans …" and you will wrongly
-  report the work as invisible to `/mentor:track`. `overview` reports the same topics *plus* the
+  report the work as invisible to `/mentor:track`. `query` reports the same topics *plus* the
   ones holding only handoffs (`state: "no plan yet"`) — which is what `/mentor:track` itself
   reads, so this section and that command agree.
+  A note usually wants the unfinished work, not all of it, and that is a filter rather than a
+  post-hoc trim: `query --open` drops everything already `implemented`/`superseded`, and
+  `--format table` renders it directly so there is no JSON left to transcribe by hand.
   Also run `bash "${CLAUDE_PLUGIN_ROOT}/hooks/plan-state.sh" gate --verbose` and record its verdict
   here, rather than inferring the gate by hand (a raw `test -f .mentor/plans/.planning` collapses
   all four states into one bucket and drops who holds it). `gate` prints exactly one of four tokens
@@ -256,9 +257,9 @@ press count) and mark the walk-through as confirmation only, not the primary evi
     pasted as the task statement. It has no mentor plan record, so `/mentor:track` cannot *execute*
     it as-is — say that plainly rather than suggesting the next agent "consider registering it",
     which is not something they can act on. What they *can* act on: `/mentor:defer <focus>` writes an
-    ordinary stub plan the existing `overview`/`/mentor:track` path already understands, so offer
+    ordinary stub plan the existing `query`/`/mentor:track` path already understands, so offer
     that when the work should show up in the hierarchy. (`/mentor:track` does already *list* the
-    topic — `overview` reports it as "no plan yet" — so never report it as invisible.)
+    topic — `query` reports it as "no plan yet" — so never report it as invisible.)
   - *The design was converged in THIS session but never written as a mentor plan* (the user asked
     this skill to "write it up as a plan" or similar) → say plainly that authoring a plan is
     `mentor:planning`'s job, not this one's — hand-rolling it here skips Step 3's domain routing,
@@ -327,8 +328,8 @@ keeps that picker landing on the primary note — the one this session's own wor
 Re-run Step 2's snippet with `topic="<the other topic>"` and its own `slug=` — this is a genuinely
 second note for a second topic, not a re-run for the same one, so nothing gets stranded (see the
 scoped once-rule in Step 2 above). Author it per Step 3's section structure, but resolve
-**Recommended mentor commands for the next agent** from **that topic's own** state — the `overview
---json` render above already carries its `state`/`steps.ticked`/`steps.total` — never copy the
+**Recommended mentor commands for the next agent** from **that topic's own** state — the `query`
+render above already carries its `state`/`steps.ticked`/`steps.total` — never copy the
 primary note's routing onto it; that would just recommit the stale instruction you're correcting.
 Redact it (Step 4) and run Step 5's `handoff-selfcheck` against **its own** note path, independently
 of the primary note's: each topic dir's `CHECK: live notes now` must read `1` on its own, and each
@@ -483,9 +484,9 @@ substitute for it.
   reporting the miss and moving on.
 - Its `CHECK: current-state evidence missing:` line named `none` too — **Current state** carries
   the actual `gate --verbose` verdict token (Step 3) and Step 1's `TaskList` close-out, not just the
-  `overview --json` rendering. This third line is informational (it never fails the command — it is
+  `query` rendering. This third line is informational (it never fails the command — it is
   a prose heuristic, not a heading parse) but a real miss here means the section has nothing backing
-  its "current state" claim beyond the plan-overview table.
+  its "current state" claim beyond the plan-state table.
 - Existing artifacts are referenced by path/URL, **not duplicated**.
 - Secrets are redacted.
 - The content is tailored to the next-session focus.

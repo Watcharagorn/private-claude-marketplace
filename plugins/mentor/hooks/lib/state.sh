@@ -343,7 +343,7 @@ mentor_cwd() {
 #    "deferred_from":"<plan slug>"|null}
 # `group` is the slug of the plan that /plan-split replaced; standalone plans hold null.
 # `deps` names plan slugs this one needs first (unknown slugs allowed — the dep may be
-# deferred later; `plan-state.sh overview` marks those `missing`). `origin` is
+# deferred later; `plan-state.sh query` marks those `missing`). `origin` is
 # `"deferred"` for a stub born via `/mentor:defer` (shields it from the approval
 # sweep — see approve-plan.sh) and null once `claim`ed or for an ordinary plan. `owner`
 # is the wt-id (mentor_worktree_id) that minted or last re-owned this plan dir —
@@ -561,7 +561,7 @@ mentor_plan_order() {
 # mentor_plan_group/mentor_plan_order but for a list-valued field: the generic
 # mentor_plan_state_field `tostring`s every value, which on `deps` would hand back a
 # JSON-stringified array rather than something a caller can loop over (the set-deps
-# cycle walk) or re-encode as real JSON (`overview --json`). Empty output when no
+# cycle walk) or re-encode as real JSON (`query`). Empty output when no
 # sidecar / no jq / corrupt / unset / empty array — same jq-default (`// []`) that
 # makes a pre-2.17.0 4-field sidecar read as "no deps" with no migration needed.
 mentor_plan_deps() {
@@ -610,7 +610,7 @@ mentor_plan_category() {
 # slug) or empty (null / unset / no sidecar / no jq / an ordinary plan, or one
 # deferred before v2.25.0). UNVALIDATED, like mentor_plan_deps' targets — the source
 # plan may itself be deleted later; resolving that dangle is a render-time concern
-# (plan-track's `(missing)` marker checked against the same overview array), never
+# (plan-track's `(missing)` marker, now carried by the field itself as `{slug, missing}`), never
 # this reader's job. Thin wrapper over the generic scalar reader, matching
 # mentor_plan_origin/mentor_plan_priority.
 mentor_plan_deferred_from() {
@@ -638,7 +638,7 @@ mentor_plan_parent() {
 # BFS from each tentative dep, following every OTHER plan's CURRENTLY STORED deps
 # (mentor_plan_deps) — reaching <slug> again means a cycle closes through it. A dep
 # slug with no matching plan dir is a dead end, not an error (unknown deps are
-# allowed — see overview's `missing` marking). The visited-set makes this terminate
+# allowed — see query's `missing` marking). The visited-set makes this terminate
 # in at most one pass over the plan dirs, so a torn/circular sidecar graph that
 # somehow already exists can never spin forever. Fail-soft: no plans_dir / no slug /
 # no jq → echoes "" (treated as safe by callers, matching every other reader here).
@@ -705,7 +705,7 @@ mentor_plan_would_cycle_parent() {
 # order is BREADTH-FIRST (a plan before its own children) — NOT the leaf-first
 # post-order `/mentor:resume`'s drain needs; that ordering is a consumer-side
 # concern layered on top of this bare transitive-closure primitive, same as the
-# open/closed verdict `subtree` decorates it with. A visited-set guards against a
+# open/closed verdict `query --subtree` decorates it with. A visited-set guards against a
 # torn/circular sidecar graph that already exists (should never happen given the
 # write-time cycle refusal above, but a hand-edited .state.json is still possible),
 # so this always terminates in at most one pass per depth level. Fail-soft: no
@@ -744,7 +744,7 @@ mentor_plan_descendants() {
 # handoffs dir doesn't exist or holds nothing live.
 # The exclusion is shared with /mentor:resume; the NAME filter deliberately is not.
 # /mentor:resume lists only `^[0-9]{8}-[0-9]{6}-.+\.md$` and skips the rest, so a
-# misnamed note is invisible there — which is exactly why `overview` must still show
+# misnamed note is invisible there — which is exactly why `query` must still show
 # it: this is the only surface that can tell the user the note exists and needs
 # renaming. Applying resume's filter here would hide it from both sides at once.
 mentor_plan_live_handoffs() {
@@ -779,7 +779,7 @@ mentor_plan_live_handoffs() {
 # merely starts with a number reads as its own step — a decimal ("3.5 seconds is
 # acceptable here"), a multi-part version ("1.2.3 is the release we target"), or a
 # possessive reference to another step ("Step 4.1's design output is ready") —
-# inflating the denominator `overview` reports and shifting which physical line
+# inflating the denominator `query` reports and shifting which physical line
 # `tick`'s positional write lands ✅ on. Every existing heading form mentor itself
 # writes (`1. Title`, `### 1. Title`, `**1.** Title`, `Step 3 — Title`) already
 # carries this delimiter naturally, so nothing legitimate loses coverage.
@@ -790,7 +790,7 @@ MENTOR_STEP_LINE_PATTERN='^[[:space:]]*(-[[:space:]]+)?([*][*])?(#{3,4}[[:space:
 # "0 0" when no plan.md or no recognizable step lines. The one parsing
 # implementation — mentor_plan_tick_state (below) derives its
 # implemented/in_progress/empty verdict FROM these counts, and
-# `plan-state.sh overview --json` reports the raw counts for the task-level rung of
+# `plan-state.sh query` reports the raw counts for the task-level rung of
 # the hierarchy — so the ratio and the verdict can never disagree.
 mentor_plan_tick_counts() {
   local md="${1:-}"

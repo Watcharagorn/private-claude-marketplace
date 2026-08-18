@@ -253,7 +253,7 @@ chk "live handoff listed"               test "$got" = "live-one.md"
 chk "resolved handoff excluded"         sh -c '! printf "%s" "$0" | grep -q old-one' "$got"
 rm -rf "$PLANS"
 
-echo "== B9. mentor_plan_tick_counts — raw ticked/total (overview's step-count rung) =="
+echo "== B9. mentor_plan_tick_counts — raw ticked/total (query's step-count rung) =="
 mkdir -p "$PLANS/tc"
 printf '# t\n## Implementation steps\n1. one ✅\n2. two ✅\n3. three\n' > "$PLANS/tc/plan.md"
 chk "counts reflect ticked/total"       test "$(libsh "mentor_plan_tick_counts '$PLANS/tc/plan.md'")" = "2 3"
@@ -319,7 +319,7 @@ echo "== B11. mentor_plan_goal_line — ## Goal first paragraph, reflowed + word
 # this exact output proves reflow crosses the original line breaks (the cut lands on
 # "reflects", the first word of physical line 2 — it could only appear here if the
 # three lines were joined before truncating) rather than truncating line 1 alone.
-# The same fixture text is used by test-plan-state.sh's overview-level assertion, so
+# The same fixture text is used by test-plan-state.sh's query-level assertion, so
 # the two suites pin the identical reflow+truncation at different layers.
 mkdir -p "$PLANS/goalw"
 printf '# stub\n\n## Goal\n\n`claim_order()` in `daily-run.sh` orders concurrent learn slots by key that\nreflects real lock-acquisition order, so the plan promise that the oldest backlog\nsession gets first crack at merging is actually true under three-way concurrency.\n\n## Context\nmore prose here\n' > "$PLANS/goalw/plan.md"

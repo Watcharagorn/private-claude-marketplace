@@ -1,7 +1,7 @@
 ---
 name: deferring
 description: >
-  Capture work discovered mid-flow — planning or implementation — as one or more deferred plan stubs, without derailing the task. Backs /mentor:defer; triggers conversationally any time the user wants something noted for later: "stash this for later", "park it", "note that and keep going" — or anything with that shape. When the item blocks a plan's "really done" — a fix a verifier demands, a gap that would leave a `Done when:` bullet unmet, or a confirmed defect in an already-implemented plan's shipped work — it parks as a child plan under the plan that owns it (parent-aware capture): "park this, it blocks the plan". Accepts one or many per call. Each becomes a plan dir under .mentor/plans/ (own slug, draft, origin deferred, optionally a parent) recognized by overview, approval sweep, and /mentor:track. Capture only: never plans, approves, or implements — that's /mentor:plan (claims the stub) or /mentor:track (surveys, routes it). Refuses check-shaped items; only isolated work is captured.
+  Capture work discovered mid-flow — planning or implementation — as one or more deferred plan stubs, without derailing the task. Backs /mentor:defer; triggers conversationally any time the user wants something noted for later: "stash this for later", "park it", "note that and keep going" — or anything with that shape. When the item blocks a plan's "really done" — a fix a verifier demands, a gap that would leave a `Done when:` bullet unmet, or a confirmed defect in an already-implemented plan's shipped work — it parks as a child plan under the plan that owns it (parent-aware capture): "park this, it blocks the plan". Accepts one or many per call. Each becomes a plan dir under .mentor/plans/ (own slug, draft, origin deferred, optionally a parent) recognized by query, approval sweep, and /mentor:track. Capture only: never plans, approves, or implements — that's /mentor:plan (claims the stub) or /mentor:track (surveys, routes it). Refuses check-shaped items; only isolated work is captured.
 ---
 
 # Defer — Stash Work for Later
@@ -154,7 +154,7 @@ same batch — the stub exists on disk by the time you get there):
    from `approve-plan.sh`'s promotion sweep, so it doesn't get swept into `approved` alongside
    whatever real plan is being approved around it, and (b) is what `/mentor:track`'s pick-up flow
    and its draft-approval escape hatch check before they'll treat this as a buildable plan. `--deps`
-   is a comma-separated list of plan slugs — existing or not-yet-created (`overview` marks an
+   is a comma-separated list of plan slugs — existing or not-yet-created (`query` marks an
    unknown one `missing` rather than failing); pass it only when a dependency is actually known now.
    `--priority`, `--category`, and `--from` carry Step 1's judgment onto the sidecar — each flag is
    passed only when that field was actually judged or known; an unjudged field is simply omitted
@@ -170,7 +170,7 @@ same batch — the stub exists on disk by the time you get there):
    This is the mechanism the whole branch exists for — without it, a parked fix is just another
    flat stub indistinguishable from backlog, so the owning plan can read `implemented` while the
    fix it actually depends on still dangles, invisible to every `parent`-walking surface
-   (`subtree`, `/mentor:track`'s roll-up, `/mentor:resume`'s drain). Worked examples:
+   (`query --subtree`, `/mentor:track`'s roll-up, `/mentor:resume`'s drain). Worked examples:
    mid-implementation of `root-plan`, a verifier demands a retry-loop fix → `init fix-retry-loop
    --deferred --parent root-plan --from root-plan`; the same session confirms a defect in
    already-shipped `auth-plan`'s token refresh → `init fix-token-refresh --deferred --parent

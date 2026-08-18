@@ -155,18 +155,24 @@ if [ -n "$skipped" ]; then echo "skipped non-conforming: $skipped"; fi   # `if`,
 # roots for unparented fixes — printed
 # AFTER every note, in the SAME numbering (`i` continues from above, same shell), so Step 4's
 # ordinal rule extends unchanged and `latest`/`newest`/`last` still mean the newest NOTE, never
-# a drain entry. Every open/closed call goes through `subtree` — never re-derived here. `overview
-# --json`'s `parent`/`group` fields (not a hand-rolled walk) pick the candidates to ask it about.
-# `-` is the empty-group placeholder (same convention `overview`'s own `_plan_walk` uses
-# internally) — NOT a bare empty field: tab is "IFS whitespace" to `read`, so consecutive tabs
-# collapse and silently eat a column, exactly the corruption a real empty field would cause here.
-ov="$(bash "${CLAUDE_PLUGIN_ROOT}/hooks/plan-state.sh" overview --json)"
+# a drain entry.
+#
+# ONE call does the whole root survey. `--roots` is the "kind plan, no parent" selection and
+# `--open-counts` attaches each root's open-descendant count from a single pass over the parent
+# graph — so "open" keeps its one definition (effective state ∉ {implemented, superseded}), owned
+# by plan-state.sh, and is still never re-derived here. This used to be one `overview --json` plus
+# one `subtree` per root, which on a 32-root repo meant 33 subprocesses and ~7s before the first
+# row printed; the counts it produced are identical.
+#
+# `--format tsv` emits `-` for any null field, which is exactly the placeholder this loop needs:
+# tab is "IFS whitespace" to `read`, so a genuinely empty column would collapse into its neighbour
+# and silently shift every field after it.
 drain_rows=()
-while IFS="$(printf '\t')" read -r rslug rgroup rstate; do
+while IFS="$(printf '\t')" read -r rslug rgroup rstate n; do
   [ -n "$rslug" ] || continue
-  n="$(bash "${CLAUDE_PLUGIN_ROOT}/hooks/plan-state.sh" subtree "$rslug" | tail -1 | grep -o '^[0-9]\+' || true)"   # `|| true`: "no descendants." has no digit, grep's non-match must not abort the loop
   drain_rows+=("${rslug}$(printf '\t')${rgroup}$(printf '\t')${rstate}$(printf '\t')${n:-0}")
-done < <(printf '%s' "$ov" | jq -r '.[] | select(.kind=="plan" and .parent==null) | [.slug, (.group // "-"), .state] | @tsv')
+done < <(bash "${CLAUDE_PLUGIN_ROOT}/hooks/plan-state.sh" query --roots --open-counts \
+           --format tsv --fields slug,group,state,open_descendants)
 printed_roots=" "   # slugs already given a [drain: root] row — the lineage pass below dedupes on it
 for row in "${drain_rows[@]}"; do   # ungrouped roots with open descendants
   IFS="$(printf '\t')" read -r rslug rgroup rstate n <<<"$row"
@@ -196,22 +202,27 @@ for row in "${drain_rows[@]}"; do   # split groups: unbuilt when any sibling is 
   printf '%d. [drain: group] %s — split group with unbuilt sibling(s)\n' "$i" "$rgroup"
 done
 # Lineage-only fixes: open `category: "fix"` stubs with `deferred_from` set but no `parent`.
-# `subtree` is structurally blind to them, so their source plan may have printed NOTHING above
-# (0 parented descendants, or it sits inside a group whose row names only the group) — and Step 4
-# resolves ONLY printed entries, so without these rows "adopt & drain" would dead-end on exactly
-# the plan the user wants to name. Targets are filtered to real plan entries: a dangling
-# `deferred_from` has nothing to adopt into.
-while IFS="$(printf '\t')" read -r lslug lcount; do
+# The descendant walk is structurally blind to them, so their source plan may have printed NOTHING
+# above (0 parented descendants, or it sits inside a group whose row names only the group) — and
+# Step 4 resolves ONLY printed entries, so without these rows "adopt & drain" would dead-end on
+# exactly the plan the user wants to name.
+#
+# Every one of those conditions is now a flag, so this is a selection rather than a query language:
+# `--category fix --no-parent --open` are the three predicates, and `--deferred-from-exists` is the
+# one that used to need real work — it keeps only stubs whose source plan actually exists, which
+# previously meant rebuilding the entire slug universe in jq and testing membership against it. A
+# dangling `deferred_from` has nothing to adopt into, so dropping it here is the point.
+# Default IFS on purpose (no `IFS=`): `uniq -c` pads its count with leading spaces, and
+# a read with IFS cleared does no word splitting at all — the whole line would land in
+# $lcount and $lslug would come back empty, silently dropping every lineage row.
+while read -r lcount lslug; do
   [ -n "$lslug" ] || continue
   case "$printed_roots" in *" ${lslug} "*) continue ;; esac   # already selectable via its own root row
   i=$((i+1))
   printf '%d. [drain: root] %s — %s unparented open fix(es) by lineage\n' "$i" "$lslug" "$lcount"
-done < <(printf '%s' "$ov" | jq -r '
-  [.[] | select(.kind=="plan")] as $all | ($all | map(.slug)) as $slugs
-  | [ $all[] | select(.category=="fix" and .parent==null and .deferred_from!=null
-        and ((.state=="implemented" or .state=="superseded")|not)
-        and (.deferred_from as $t | $slugs | index($t))) ]
-  | group_by(.deferred_from)[] | [.[0].deferred_from, (length|tostring)] | @tsv')
+done < <(bash "${CLAUDE_PLUGIN_ROOT}/hooks/plan-state.sh" query \
+           --category fix --no-parent --open --deferred-from-exists \
+           --format tsv --fields deferred_from.slug | sort | uniq -c)
 ```
 
 The exclusion is anchored to `*/handoffs/resolved/*` on purpose — a bare `*/resolved/*` would also
@@ -601,17 +612,19 @@ reading and that report is exactly the shape `context-gate.sh`'s own WARN tier c
      legacy flat dir, handoff's sweep cannot see it: hand its absolute path to the handoff step
      explicitly, or stamp it here with the snippet above.
    - **Never while the topic still has open descendants — check before either bullet above fires.**
-     Run `bash "${CLAUDE_PLUGIN_ROOT}/hooks/plan-state.sh" subtree <topic-slug>` (the note's topic —
-     the `plans/<topic>/` dir it lives in) and read its trailing count. A non-zero count means the
+     Run `bash "${CLAUDE_PLUGIN_ROOT}/hooks/plan-state.sh" query --slug <topic-slug> --open-counts
+     --format tsv --fields open_descendants` (the note's topic — the `plans/<topic>/` dir it lives
+     in), which prints that one number and nothing else. A non-zero count means the
      topic is NOT actually done, however cleanly the note's own tasks wrapped up: every recommended
      command can have run, every step in the plan file can be ticked, and there can still be a fix
      parked underneath that nobody has built. Ticks measure the plan's own steps, not its descendants
      — that gap is exactly what `parent` exists to close. Leave the note live in this case even if the
      bullet above would otherwise have fired; go to the closing paragraph below instead of stamping.
-     While there, also check `overview --json` for open `category: "fix"` entries whose
-     `deferred_from` is the topic (or a slug in its subtree) with no `parent` — lineage-only fixes.
-     These do **not** block the stamp (`subtree` stays the sole open/closed authority), but report
-     them and fold them into the drain offer below rather than letting them vanish with the note.
+     While there, also run `query --category fix --no-parent --open --deferred-from <topic-slug>`
+     for lineage-only fixes — open fix stubs pointing back at this topic with no `parent` of their
+     own. These do **not** block the stamp (`--open-counts` stays the sole open/closed authority),
+     but report them and fold them into the drain offer below rather than letting them vanish with
+     the note.
 
    If the session ends with the work unfinished and no nested handoff, **leave the note live** —
    unfinished work must stay resumable; that is not a failure. A stamp is reversible by moving the
@@ -622,7 +635,7 @@ reading and that report is exactly the shape `context-gate.sh`'s own WARN tier c
 **When this note's topic also has open descendants** — or lineage-only fixes from item 7's check —
 whether or not the note itself just got stamped resolved, offer the drain as the turn's own next
 step rather than ending silently: "This topic still has N open fix(es) parked under it — continue
-draining them now?" (the count from item 7's `subtree` check above, plus any lineage-only fixes,
+draining them now?" (the count from item 7's `--open-counts` check above, plus any lineage-only fixes,
 counted separately). A **yes** proceeds into "Draining Parked Fixes and Split Groups" below,
 treating the topic slug as the root — its adoption gate handles the unparented ones. A **no** leaves them exactly where Step 2 will find them on a
 later `/mentor:resume <topic>` call — nothing forces the drain in the same session. Never start it
@@ -639,7 +652,7 @@ handoff note. This is the other half of "continue" — for work that a fix `pare
 `mentor:deferring`) or a plan-split left behind and nobody wrote a note about.
 
 **Resume stays the door, not a second surveyor here either.** Every open/closed call below goes
-through `subtree`/`overview --json` — this skill never reads `.state.json` or a plan's ✅ ticks
+through `query` — this skill never reads `.state.json` or a plan's ✅ ticks
 itself to decide what's open. "Open" has exactly one definition (effective state ∉ {`implemented`,
 `superseded`}), owned by `plan-state.sh`, and reused unchanged everywhere it matters
 (`mentor:plan-track`'s tree render, the `set … implemented` soft warn, and here).
@@ -654,13 +667,15 @@ it structurally depends on has already closed.
 
 To compute the drain order for a root `R`:
 
-1. `bash "${CLAUDE_PLUGIN_ROOT}/hooks/plan-state.sh" subtree R` — the descendant set, each with its
-   effective state and open/closed verdict, plus the trailing open count. This is the only source of
-   truth for which descendants are open; never re-derive it.
-2. `overview --json`'s `parent` field on those same descendant slugs gives the immediate-parent edges
-   needed to arrange them into a tree — `subtree`'s own text is breadth-first with depth, not grouped
-   by branch; reconstructing the branch shape is a consumer-side concern layered on top of it by
-   design (`hooks/lib/state.sh`'s `mentor_plan_descendants` says so explicitly in its own comment).
+1. `bash "${CLAUDE_PLUGIN_ROOT}/hooks/plan-state.sh" query --subtree R --open-counts` — the
+   descendant set, each with its effective state (and, via `--open-counts`, its own open count).
+   This is the only source of truth for which descendants are open; never re-derive it. Add
+   `--open` to get just the open ones.
+2. The same call's `parent` field on those descendants gives the immediate-parent edges needed to
+   arrange them into a tree — `--subtree` returns them breadth-first, not grouped by branch;
+   reconstructing the branch shape is a consumer-side concern layered on top of it by design
+   (`hooks/lib/state.sh`'s `mentor_plan_descendants` says so explicitly in its own comment). One
+   call now serves both steps, so there is no second read to drift from the first.
 3. Walk that tree post-order. At each sibling group, break ties by `order` ascending (present when
    the siblings came from a plan-split, or were parked with an explicit order); when `order` is
    absent or tied, break by ascending directory mtime — `stat -c %Y "$dir" 2>/dev/null || stat -f %m
@@ -676,18 +691,18 @@ siblings — no separate handling needed.
 
 ### Unparented lineage fixes: adopt before draining
 
-Before computing `R`'s queue (and again on every re-survey), check `overview --json` for open
-`category: "fix"` entries whose `deferred_from` is `R` or any slug in `R`'s subtree but whose
-`parent` is null — fixes linked by lineage only (captured before the owning-plan routing rule, or
-judged backlog at capture time), which `subtree` is structurally blind to, so the drain would
-finish "clean" while they still dangle. When any exist, present them and ask the user **one**
+Before computing `R`'s queue (and again on every re-survey), run `query --category fix
+--no-parent --open --deferred-from <slug>` for `R` and each slug in `R`'s subtree — fixes linked by
+lineage only (captured before the owning-plan routing rule, or judged backlog at capture time),
+which the `parent` walk is structurally blind to, so the drain would finish "clean" while they
+still dangle. When any exist, present them and ask the user **one**
 consented question: adopt each into the drain (run
 `bash "${CLAUDE_PLUGIN_ROOT}/hooks/plan-state.sh" set-parent <stub-slug> <owning-plan>` — default
 owning plan is the stub's `deferred_from` target; the user can redirect a stub to a different
 owner or leave it flat). An adopted stub is then just an ordinary descendant — the next survey
 picks it up with no special handling. Never put an unparented stub in the queue directly:
-open/closed classification stays `subtree`'s alone, and adoption is what brings the stub into its
-jurisdiction. A stub the user leaves flat is reported once and not re-asked on later re-surveys
+open/closed classification stays `--subtree`/`--open-counts`'s alone, and adoption is what brings
+the stub into its jurisdiction. A stub the user leaves flat is reported once and not re-asked on later re-surveys
 of the same drain.
 
 ### Split-group drain
@@ -701,14 +716,16 @@ group is done when every sibling's queue is empty.
 
 ### Re-survey after each item
 
-Do not compute the queue once and burn through it. **Re-run the survey — `subtree` for a root, the
-same per-sibling walk for a group — after every completed item**, before picking the next one. An
+Do not compute the queue once and burn through it. **Re-run the survey — `query --subtree` for a
+root, the same per-sibling walk for a group — after every completed item**, before picking the next
+one. An
 item's own build can park a brand-new child under it (nesting, discovered mid-fix) that must drain
 before whatever was going to run next; recomputing fresh each time is what lets a child parked
 *during* the drain join the queue immediately, instead of waiting for a second `/mentor:resume` call
 to notice it exists.
 
-Stop when `subtree R`'s trailing line reads `0 open descendant(s)` (root drain), or — for a group —
+Stop when `query --slug R --open-counts --format tsv --fields open_descendants` prints `0` (root
+drain), or — for a group —
 when every sibling's own queue is empty. The stop test only counts after that same survey's
 adoption check ("Unparented lineage fixes" above) found nothing or was declined — a lineage-only
 fix captured mid-drain would otherwise slip past on the very survey that declares the drain clean.
@@ -734,7 +751,7 @@ own question, not once for all of them.
 
 ```
 $ /mentor:resume fix-auth-timeout        (resolves to a root with open descendants)
-subtree fix-auth-timeout → fix-retry-loop   draft   open        (1 open descendant)
+query --subtree fix-auth-timeout → fix-retry-loop   draft   open   (open_descendants: 1)
 queue (post-order): fix-retry-loop, fix-auth-timeout
   → begin-plan fix-retry-loop → claim → flesh out → approve → build
   → re-survey: 0 open under fix-retry-loop; fix-auth-timeout itself still open (draft)
@@ -799,4 +816,4 @@ queue (post-order): fix-retry-loop, fix-auth-timeout
 - Do **not** let one approval cover more than one queued item — each drained item gets its own
   `begin-plan.sh` → `mentor:planning` approval question.
 - Do **not** re-derive "open"/"closed" from a plan's own ticks or `.state.json` — always go through
-  `subtree`/`overview --json`; that classification has one owner.
+  `query` (`--open`/`--closed`/`--open-counts`); that classification has one owner.

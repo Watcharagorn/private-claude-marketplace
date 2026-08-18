@@ -302,7 +302,7 @@ else
   # manual rm — or the gate was simply never armed this session, e.g. begin-plan.sh's
   # CONTEXT: ASK or foreign-marker guard exiting 0 without arming). Name the
   # candidates instead of asserting one, and point at a command that actually
-  # answers "did MY plan promote?" (`list`, not `overview` — the latter is
+  # answers "did MY plan promote?" (`list`, not `query` — the latter is
   # JSON-only and repo-wide, the wrong shape here).
   newest_plan="$(mentor_newest_plan "$plans_dir")"
   echo "[mentor approve-plan] Gate is already open — nothing to release."

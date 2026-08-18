@@ -10,35 +10,35 @@
 # linked worktree, legacy bare `.planning` reserved repo-global — see `gate` below
 # and lib/state.sh's state-layout header); plans stay SHARED across every worktree,
 # tracked by an `owner`/`owner_session` pair on the sidecar (stamped by ensure-dir/
-# init/claim/relocate — see `current --any`, `list --owners`, and `overview`'s
+# init/claim/relocate — see `current --any`, `list --owners`, and `query`'s
 # `owner` field).
 #
 # v2.24.0: the sidecar carries a `priority` — the plan's IMPACT tier, one of
 # critical|high|medium|low|noise or null — so /mentor:track's hierarchy can say which
 # plans matter and which are noise. Written by `init --priority` and `set-priority`;
-# read back on every `overview --json` plan entry. Orthogonal to `order` (sequence
+# read back on every `query` plan entry. Orthogonal to `order` (sequence
 # WITHIN a split group) and `deps` (what must be built FIRST) — neither of those says
 # whether a plan is worth building at all.
 #
 # v2.25.0: two more sidecar fields for triaging deferred stubs, plus a derived
-# `overview` key — all mirroring the priority-tier pattern above:
+# `query` key — all mirroring the priority-tier pattern above:
 #   `category`      the plan's WORK KIND, one of feature|fix|refactor|docs|tooling or
 #                    null — a CLOSED vocabulary, deliberately excluding anything
 #                    test/verify-shaped (a stub's Goal names work to build, never a
 #                    check to run). Written by `init --category` and `set-category`;
-#                    read back on every `overview --json` plan entry.
+#                    read back on every `query` plan entry.
 #   `deferred_from`  the plan slug a `/mentor:defer` stub was captured out of, or
 #                    null — UNVALIDATED like a `deps` target (no script-side missing
-#                    flag; a dangling value is resolved at render time, by the
-#                    consumer, against the same `overview` array). Written only by
-#                    `init --from` — there is no `set-deferred-from`.
-#   `goal`           (overview --json only, not stored) the `## Goal` section's first
+#                    flag; v2.33.0 note: `query` now resolves it to `{slug, missing}`
+#                    for the consumer, so a dangle is no longer a render-time concern).
+#                    Written only by `init --from` — there is no `set-deferred-from`.
+#   `goal`           (query only, not stored) the `## Goal` section's first
 #                    paragraph, reflowed to one line and word-boundary truncated —
 #                    computed ONLY for entries whose `origin` is "deferred", so an
 #                    ordinary plan never pays the extra file read.
 #
 # v2.29.0: one more sidecar field for PARKING blocking work under the plan that must
-# finish first, plus a derived `overview` roll-up query — recursively, so a fix
+# finish first, plus a derived roll-up — recursively, so a fix
 # discovered while building a fix nests arbitrarily deep:
 #   `parent`         the slug of the plan THIS one must complete before, or null —
 #                     UNLIKE `deferred_from` (informational only), existence AND
@@ -46,12 +46,12 @@
 #                     a usage error; a cycle — self-parent or transitive, mirroring
 #                     the existing `deps[]` cycle refusal — is refused fail-soft, no
 #                     write). Written by `init --parent` and `set-parent`; read back
-#                     on every `overview --json` plan entry and as a new PARENT
+#                     on every `query` plan entry and as a new PARENT
 #                     column in `list --parent`. A dangling parent (the target dir
 #                     later renamed/removed) is a render-time concern for the
 #                     consumer, same pattern `deferred_from` already uses — this
 #                     script never re-validates a parent that was valid when set.
-#   `subtree <slug>` (new subcommand, not a stored field) every TRANSITIVE
+#   `subtree <slug>` (v2.29.0; RETIRED in v2.33.0 — now `query --subtree`) every TRANSITIVE
 #                     descendant of <slug> via `parent` chains, indented by depth,
 #                     each with its effective state and an open/closed verdict
 #                     ("open" = effective state NOT in {implemented, superseded}),
@@ -150,11 +150,11 @@
 #       Grouped, ordered within a group, `superseded` and `unknown` last. The default
 #       (no --owners, no --parent) 5-column shape is byte-compatible with pre-2.23.0
 #       output — both extra columns are opt-in for exactly that reason. Deliberately
-#       carries NO priority column, in any shape: `overview --json` is what every
+#       carries NO priority column, in any shape: `query` is what every
 #       rendering skill reads, and a column here would buy a table nothing consumes
 #       at the cost of the byte-compatibility promise above. `--parent` earns its own
 #       flag anyway (unlike priority) because the tree it exposes is this
-#       plan-state.sh's OWN new completion-tracking concern (`subtree`, the soft
+#       plan-state.sh's OWN new completion-tracking concern (`query --subtree`, the soft
 #       warn), not something only a rendering skill cares about.
 #
 #   current [--any]
@@ -165,24 +165,56 @@
 #       it prints the whole group and says so, instead of silently picking one of N
 #       children.
 #
-#   overview --json
-#       Repo-wide JSON array (--json is required — there is no human-table mode): one
-#       object per plan dir with a plan.md (slug, effective state, group, order,
-#       priority, category, deferred_from, parent, deps (`[{slug, missing}]` — missing
-#       true when no such plan dir exists; only deps carries this per-entry flag, the
-#       other fields below are plain values), origin, live handoffs, ticked/total step
-#       counts, goal),
-#       plus topic dirs that hold live handoffs but no plan.md yet (state "no plan
-#       yet") and the legacy flat handoffs/ dir (topic-less). `priority`/`category`/
-#       `deferred_from`/`parent`/`goal` are null on every entry that has none,
-#       including both non-plan kinds, so a consumer never has to branch on kind to
-#       read them. `goal` is the ONLY one of these NOT stored in the sidecar — it is
-#       derived, per call, from the `## Goal` section of a `origin: "deferred"`
-#       entry's own plan.md (see lib/state.sh's mentor_plan_goal_line), reflowed to
-#       one line and word-boundary-truncated; null for every non-deferred entry.
-#       Computed fresh every call — nothing is cached. Consumers build the parent
-#       TREE from this array's `parent` field exactly as they already build `group`
-#       blocks from `group`/`order` — same pattern, no new machinery.
+#   query [select] [filter] [enrich] [output]
+#       The ONE filterable read surface (v2.33.0). Repo-wide JSON array by default:
+#       one object per plan dir with a plan.md (slug, effective state, group, order,
+#       owner, priority, category, deferred_from, parent, deps, origin, live handoffs,
+#       ticked/total step counts, goal), plus topic dirs that hold live handoffs but no
+#       plan.md yet (state "no plan yet") and the legacy flat handoffs/ dir
+#       (topic-less). `priority`/`category`/`deferred_from`/`parent`/`goal` are null on
+#       every entry that has none, including both non-plan kinds, so a consumer never
+#       has to branch on kind to read them. `goal` is the ONLY one of these NOT stored
+#       in the sidecar — it is derived, per call, from the `## Goal` section of an
+#       `origin: "deferred"` entry's own plan.md (see lib/state.sh's
+#       mentor_plan_goal_line), reflowed to one line and word-boundary-truncated; null
+#       for every non-deferred entry. Computed fresh every call — nothing is cached.
+#
+#       `deps`, `deferred_from` and `parent` all carry the SAME `{slug, missing}` shape
+#       (missing true when no such plan dir exists), so a consumer never re-resolves a
+#       reference against the array by hand. Consumers still build the parent TREE from
+#       `parent` exactly as they build `group` blocks from `group`/`order` — same
+#       pattern, no new machinery.
+#
+#       select   --slug S          just that plan
+#                --subtree S       every TRANSITIVE descendant of S via parent chains,
+#                                   breadth-first, never S itself
+#                --roots           kind plan with no parent
+#       filter   --kind --state --open --closed --priority --category --origin --group
+#                --parent S --no-parent --deferred-from S --deferred-from-exists
+#                --owner W --unowned --has-handoff --deps-missing --match GLOB
+#                AND-combined; a comma-separated value ORs within that ONE flag.
+#                "open" means effective state NOT in {implemented, superseded} — the
+#                same definition the `set … implemented` soft warn uses.
+#       enrich   --open-counts     adds `open_descendants` to EVERY entry, computed in
+#                                   one pass over the parent graph. This is what makes
+#                                   a whole-repo roll-up one process instead of one per
+#                                   root.
+#       output   --format json|table|slug|count|tsv   (json default, so migrating a
+#                                   caller off the retired `overview --json` is a
+#                                   rename and nothing else)
+#                --fields a,b      dot paths (steps.total, parent.slug); tsv/table
+#                                   render null as `-`
+#                --sort F --limit N
+#
+#       Two phases, deliberately: a fixed ~3 subprocesses scan every sidecar/plan.md/
+#       handoff regardless of plan count, then only the SURVIVORS of the filter pay the
+#       per-entry `## Goal` re-read — and only when the projection actually emits it.
+#
+#   overview --json / subtree <slug>   [RETIRED in v2.33.0]
+#       Both were replaced by `query` and now exit 1 naming it, rather than failing as
+#       an unknown subcommand: a caller still invoking one has a migration to do, not a
+#       typo to find. `overview --json` → `query`; `subtree <slug>` → `query --subtree
+#       <slug>`, or `query --roots --open-counts` for every root at once.
 #
 #   context
 #       CONTEXT: ASK|HANDOFF|WARN|OK|UNKNOWN (~N tokens), plus the handoff/compact
@@ -283,7 +315,7 @@ Usage: plan-state.sh <subcommand>
                                          create the sidecar as draft (idempotent)
   set <slug> <state> [--note "…"]       state: draft|approved|in_progress|implemented|failed|superseded;
                                          `implemented` with open descendants prints a soft
-                                         WARN (the write still succeeds — see subtree)
+                                         WARN (the write still succeeds — see query --subtree)
   set-deps <slug> a,b                   replace deps wholesale (cycle-checked, fail-soft)
   set-priority <slug> <P>               impact tier: critical|high|medium|low|noise ("" clears)
   set-category <slug> <C>               work kind: feature|fix|refactor|docs|tooling ("" clears)
@@ -296,18 +328,27 @@ Usage: plan-state.sh <subcommand>
                                          Rev-note order) + a folded CONTEXT read, as CHECK: lines;
                                          exit 1 iff a structural check fails (context/Rev-order are
                                          informational only)
-  subtree <slug>                        every transitive descendant via parent chains, indented
-                                         by depth, with effective state + open/closed verdict,
-                                         plus a trailing open-descendant count
   list [--group G] [--owners] [--parent]
                                          every plan with its effective state (--owners adds OWNER,
                                          --parent adds PARENT; both compose)
   current [--any]                       the current plan, owned-by-this-worktree scoped (group-aware);
                                          --any for a deliberate repo-wide read
-  overview --json                       repo-wide JSON: plans + priority/category/deferred_from/parent +
-                                         deps (`[{slug, missing}]`) + live handoffs +
-                                         step counts (`steps.ticked`/`steps.total`) +
-                                         goal (deferred entries)
+  query [select] [filter] [enrich] [output]
+                                         the ONE filterable read surface (replaced the retired
+                                         `overview --json` and `subtree`). Repo-wide JSON by default:
+                                         plans + priority/category/parent/deferred_from
+                                         (the last two as `{slug, missing}`, like deps) +
+                                         live handoffs + step counts + goal, plus
+                                         no-plan topics and legacy handoffs.
+    select   --slug S | --subtree S | --roots
+    filter   --kind K --state S --open --closed --priority P --category C --origin O
+             --group G --parent S --no-parent --deferred-from S --deferred-from-exists
+             --owner W --unowned --has-handoff --deps-missing --match GLOB
+             (AND-combined; a comma-separated value ORs within that one flag)
+    enrich   --open-counts        adds `open_descendants` to every entry, one pass for all
+    output   --format json|table|slug|count|tsv   (default json)
+             --fields a,b         dot paths, e.g. steps.total, parent.slug
+             --sort F --limit N
   brief <slug> [--step N]               scope-complete envelope for one plan: title, CONTEXT
                                          goal line, whole Out of scope section, every step's
                                          title line with tick state, the verbatim body of step
@@ -801,11 +842,25 @@ if [ "$sub" = "gate" ]; then
 fi
 
 case "$sub" in
-  init|set|set-deps|set-priority|set-category|set-parent|claim|tick|verify|subtree|list|current|overview|brief) ;;
+  init|set|set-deps|set-priority|set-category|set-parent|claim|tick|verify|query|list|current|brief) ;;
   ""|-h|--help|help)
     usage
     [ -n "$sub" ] && exit 0
     echo "[mentor plan-state] Missing subcommand." >&2
+    exit 1
+    ;;
+  overview|subtree)
+    # Retired in v2.33.0, replaced by `query`. Deliberately its own branch rather than
+    # falling through to the unknown-subcommand catch-all: a caller that still invokes
+    # one of these is a MIGRATION problem, and "Unknown subcommand: overview" sends
+    # them looking for a typo instead of at the flag that replaced it.
+    echo "[mentor plan-state] '${sub}' was retired — use 'query' instead." >&2
+    case "$sub" in
+      overview) echo "  overview --json   ->  query" >&2 ;;
+      subtree)  echo "  subtree <slug>    ->  query --subtree <slug>" >&2
+                echo "                        (every root at once: query --roots --open-counts)" >&2 ;;
+    esac
+    usage >&2
     exit 1
     ;;
   *)
@@ -847,7 +902,7 @@ fi
 # non-deferred entry (see below). `deps_json`/`handoffs_json` are compact (`jq -c`)
 # single-line JSON — safe to sit in a tab field because compact jq output never
 # contains a literal tab or newline, even inside a string. `list_rows` (below,
-# byte-compatible with the pre-v2.17.0 5-field format) and `overview --json` both
+# byte-compatible with the pre-v2.17.0 5-field format) and `query` both
 # derive from this ONE walk — neither re-walks plans_dir on its own. `list`/`current`
 # never needed deps/handoffs/step-counts, so computing them for those two callers too
 # is a deliberate small cost in exchange for there being exactly one place that
@@ -873,7 +928,7 @@ _plan_walk() {
     goal=""
     # Gate: mentor_plan_goal_line re-reads plan.md, so it runs ONLY for entries
     # whose origin is "deferred" — every ordinary plan skips this file read
-    # entirely, which is what keeps overview fast on a big plan set.
+    # entirely, which is what keeps the walk fast on a big plan set.
     if [ "$origin" = "deferred" ]; then
       goal="$(mentor_plan_goal_line "${d}/plan.md")"
     fi
@@ -1016,12 +1071,12 @@ require_jq() {
   exit 0
 }
 
-# require_jq_read — the READ-side counterpart for overview (which never writes):
+# require_jq_read — the READ-side counterpart for query (which never writes):
 # a single stderr line and exit 0, per this file's fail-soft convention for
 # environmental problems (see the header comment).
 require_jq_read() {
   command -v jq >/dev/null 2>&1 && return 0
-  echo "[mentor plan-state] jq not found — cannot compute overview." >&2
+  echo "[mentor plan-state] jq not found — cannot compute query." >&2
   exit 0
 }
 
@@ -1120,7 +1175,7 @@ tick_reconciliation_reminder() {
 # _descendant_lines <slug> — one TAB-separated line per TRANSITIVE descendant of
 # <slug> (mentor_plan_descendants, lib/state.sh): <depth>\t<child-slug>\t<effective
 # state>\t<open|closed>. "open" = effective state NOT in {implemented, superseded}
-# — the plan's ONE definition of "open descendant"; `subtree`'s tree render and
+# — the plan's ONE definition of "open descendant"; `query --subtree`'s tree render and
 # `set … implemented`'s soft warn both draw from this SAME classification below so
 # the two can never drift apart. <depth> is 0 for a direct child of <slug>, 1 for a
 # grandchild, etc. — computed by walking each descendant's own parent chain back up
@@ -1152,6 +1207,376 @@ _descendant_lines() {
   done <<<"$(mentor_plan_descendants "$plans_dir" "$for_slug")"
   return 0
 }
+
+# --- query engine: phase-1 scan ------------------------------------------------
+# The `query` subcommand replaced `overview --json` + `subtree` (both retired in
+# v2.33.0) with one filterable
+# read surface. Its whole performance argument rests on a TWO-PHASE walk, so the
+# helpers below are deliberately shaped around subprocess COUNT, not code brevity:
+#
+#   phase 1 (these helpers)  — a fixed, small number of spawns REGARDLESS of plan
+#                              count: one jq over every sidecar, one awk over every
+#                              plan.md, one find over every handoffs dir. This is
+#                              the change that matters. `_plan_walk` calls
+#                              mentor_plan_state_field (one `jq` each) nine times per
+#                              plan and mentor_plan_tick_counts (one `awk`) once
+#                              more, so a 34-plan repo paid ~440 spawns and 1.8 s for
+#                              what is really three passes over the same bytes.
+#   phase 2 (the query branch) — per-entry work that a filter can ELIMINATE, so it
+#                              runs only for survivors: the `## Goal` re-read (one
+#                              awk + a bash reflow per deferred entry), which is also
+#                              skipped outright when the projection never emits it.
+#
+# `_plan_walk` stays exactly as it was and remains the single source for
+# `list`/`current`; `query` is a second reader of the same plan dirs, not a second
+# definition of what a plan is — both agree because both derive "effective state"
+# from the same stored-vs-ticks rule (mentor_plan_effective_state's rank comparison,
+# reimplemented here over batch-scanned data rather than re-read per plan).
+
+# _query_state_rank <state> — the pure-string half of mentor_plan_state_rank, inlined
+# here so the effective-state merge below needs no subshell per plan.
+_query_state_rank() {
+  case "${1:-}" in
+    superseded)  echo 9 ;;
+    failed)      echo 5 ;;
+    implemented) echo 4 ;;
+    in_progress) echo 3 ;;
+    approved)    echo 2 ;;
+    draft)       echo 1 ;;
+    *)           echo 0 ;;
+  esac
+}
+
+# _query_sidecars — ONE jq spawn for every plan dir's .state.json, emitting
+# `{order: [<slug>…], map: {<slug>: <sidecar>}}`. `order` preserves the bash GLOB
+# order the dirs were read in, because that is the order the retired `overview --json`
+# emitted entries in (a contract `query` keeps); jq's own `keys` sorts by codepoint, which disagrees with glob
+# collation on `-` under some locales and would silently reorder the array. Each sidecar is streamed as `<slug><TAB><json-on-one-line>`
+# so the slug rides WITH its data: a positional zip against a parallel slug list
+# would silently shift every later plan the moment one sidecar is missing. `tr -d`
+# is safe because a raw newline cannot appear inside a JSON string (it must be
+# escaped as \n), so collapsing a pretty-printed sidecar to one line never changes
+# what it parses to. A corrupt sidecar yields `null` from `fromjson?` and is treated
+# as "no sidecar" — the same fail-soft reading mentor_plan_state_field gives it,
+# rather than aborting the whole query.
+_query_sidecars() {
+  local d slug
+  for d in "${plans_dir}"/*/; do
+    [ -d "$d" ] || continue
+    d="${d%/}"
+    [ -f "${d}/plan.md" ] || continue
+    slug="$(basename "$d")"
+    printf '%s\t' "$slug"
+    [ -f "${d}/.state.json" ] && tr -d '\n' < "${d}/.state.json"
+    printf '\n'
+  done | jq -R -s -c '
+    [ split("\n")[] | select(length > 0)
+      | (index("\t")) as $i
+      | { key: .[0:$i], value: ( (.[$i+1:] | fromjson?) // {} ) } ] as $rows
+    | { order: [$rows[].key], map: ($rows | from_entries) }' 2>/dev/null
+}
+
+# _query_plan_files — ONE awk spawn over every plan.md, emitting
+# `<slug>\t<ticked>\t<total>\t<hdr-group>\t<hdr-order>` per plan ("-" for an absent
+# header field, matching _plan_walk's placeholder convention — a bare empty field
+# collapses under `read`'s IFS handling).
+#
+# It folds together THREE per-plan reads that were separate processes before:
+# mentor_plan_tick_counts' awk, and mentor_plan_header_field's two `sed -n '1,20p'`
+# pipelines for the isolation header's group/order. All three want the same file, and
+# two of them want only its first 20 lines, so one pass serves all of them.
+#
+# The step-line match uses MENTOR_STEP_LINE_PATTERN — the SAME shared pattern
+# mentor_plan_tick_counts and mentor_plan_tick_step match against — so `query`'s step
+# counts can never disagree with what `tick` writes or what the retired `overview` reported.
+# The header extractions mirror mentor_plan_header_field's two `sed` expressions
+# exactly (first match within lines 1-20 wins). `[*][*]` rather than `\*\*`: a
+# backslash-escaped literal is undefined behavior in a dynamic awk regex on some
+# implementations (macOS awk 20200816), and the bracket form is portable in both.
+_query_plan_files() {
+  local d files=()
+  for d in "${plans_dir}"/*/; do
+    [ -d "$d" ] || continue
+    d="${d%/}"
+    [ -f "${d}/plan.md" ] || continue
+    files+=("${d}/plan.md")
+  done
+  [ "${#files[@]}" -gt 0 ] || return 0
+  awk -v pat="$MENTOR_STEP_LINE_PATTERN" '
+    function slugof(f,   n, parts) { n = split(f, parts, "/"); return parts[n-1] }
+    FNR == 1 { s = slugof(FILENAME); seen[s] = 1; tot[s] += 0; tk[s] += 0; insec = 0 }
+    FNR <= 20 {
+      if (grp[s] == "" && match($0, /[Gg]roup `[^`]*`/)) {
+        v = substr($0, RSTART, RLENGTH); sub(/^[Gg]roup `/, "", v); sub(/`$/, "", v); grp[s] = v
+      }
+      if (ord[s] == "" && match($0, /[*][*]Plan [0-9]+ of /)) {
+        v = substr($0, RSTART, RLENGTH); gsub(/[^0-9]/, "", v); ord[s] = v
+      }
+    }
+    /^##[[:space:]]/ {
+      h = tolower($0)
+      insec = (h ~ /^##[[:space:]]+implementation[[:space:]]+steps/) ? 1 : 0
+      next
+    }
+    !insec { next }
+    $0 ~ pat { tot[s]++; if (index($0, "✅") > 0) tk[s]++ }
+    END {
+      for (x in seen)
+        printf "%s\t%d\t%d\t%s\t%s\n", x, tk[x] + 0, tot[x] + 0,
+               (grp[x] == "" ? "-" : grp[x]), (ord[x] == "" ? "-" : ord[x])
+    }
+  ' "${files[@]}" 2>/dev/null
+}
+
+# _query_handoffs — ONE find over the whole mentor dir, emitting
+# `<topic>\t<live|resolved>\t<basename>\t<path>` per note, where <topic> is `-` for a
+# note in the LEGACY flat `.mentor/handoffs/` dir (pre-v2.10, topic-less). Replaces
+# both mentor_plan_live_handoffs' per-plan-dir find (one spawn each) and the retired
+# `overview`'s separate legacy-dir find — every handoff note in the repo comes from this one pass.
+#
+# The resolved/live split is by the ANCHORED `*/handoffs/resolved/*` path test, never
+# a bare `*/resolved/*`: an unanchored test also matches a repo whose own path
+# contains a `resolved/` segment, or a topic slug literally named `resolved`, and
+# would silently reclassify every note in the repo. Both kinds are emitted here and
+# the caller filters — the default output (equivalent to the retired `overview`) wants live only, while
+# `--kind handoff` wants both with their state labelled.
+#
+# A note that is under neither `<plans_dir>/<topic>/handoffs/` nor the legacy dir is
+# dropped rather than guessed at: `topic` has to be a real plan-topic dir name for a
+# consumer to resolve it back to a plan.
+_query_handoffs() {
+  local mdir="$1" hf hstate htopic rest
+  [ -d "$mdir" ] || return 0
+  find "$mdir" -type f -name '*.md' -path '*/handoffs/*' 2>/dev/null \
+  | while IFS= read -r hf; do
+      case "$hf" in
+        */handoffs/resolved/*) hstate="resolved" ;;
+        *)                     hstate="live" ;;
+      esac
+      case "$hf" in
+        "${plans_dir}"/*)
+          rest="${hf#"${plans_dir}/"}"
+          htopic="${rest%%/*}"
+          # must be <topic>/handoffs/… — anything else is not a plan-topic note
+          case "$rest" in "${htopic}/handoffs/"*) ;; *) continue ;; esac
+          ;;
+        "${mdir}"/handoffs/*) htopic="-" ;;
+        *) continue ;;
+      esac
+      printf '%s\t%s\t%s\t%s\n' "$htopic" "$hstate" "${hf##*/}" "$hf"
+    done
+}
+
+# _query_handoff_mtimes — `<path>\t<epoch-seconds>` for every path on stdin, in ONE
+# `stat` call rather than one per note. BSD (`-f %m %N`) and GNU (`-c %Y %n`) disagree
+# on both the flag and the format, so it tries BSD first and falls back; a path `stat`
+# cannot read is simply absent from the output and the caller renders `mtime: null`.
+# Only ever called when `--kind handoff` is actually requested — an ordinary query
+# never pays for it.
+_query_handoff_mtimes() {
+  local paths=()
+  while IFS= read -r p; do [ -n "$p" ] && paths+=("$p"); done
+  [ "${#paths[@]}" -gt 0 ] || return 0
+  if stat -f '%m %N' "${paths[@]}" 2>/dev/null; then return 0; fi
+  stat -c '%Y %n' "${paths[@]}" 2>/dev/null || true
+}
+
+# MENTOR_QUERY_JQ — the whole `query` build+filter engine as ONE jq program, so the
+# entry construction and every predicate cost a single spawn no matter how many plans
+# or filters are involved. Inputs (all named, all pre-batched by the `_query_*`
+# helpers above):
+#   $sc       {order: [<slug>…], map: {<slug>: <sidecar>}} — plan dirs WITH a plan.md,
+#             in glob order (see _query_sidecars on why order is carried explicitly)
+#   $alldirs  newline-joined names of EVERY subdir of plans_dir — the set a ref target
+#             is checked against, matching _plan_walk's `[ -d … ]` test, which does not
+#             require a plan.md
+#   $ticks    <slug>\t<ticked>\t<total>\t<hdr-group>\t<hdr-order> per plan
+#   $ho       <topic>\t<live|resolved>\t<basename>\t<path> per handoff note
+#   $f        the parsed filter flags
+#
+# Effective state is recomputed here rather than shelled out to
+# mentor_plan_effective_state per plan, but by the SAME rule — the more advanced of
+# the stored state and the tick-derived one, ties keeping stored, `unknown` when
+# neither exists. `rank` mirrors mentor_plan_state_rank exactly (superseded 9 >
+# failed 5 > implemented 4 > in_progress 3 > approved 2 > draft 1), including why
+# `failed` outranks everything derivable from ticks: an explicit failure record must
+# never be overruled by a derivation.
+MENTOR_QUERY_JQ='
+def rank: {"superseded":9,"failed":5,"implemented":4,"in_progress":3,"approved":2,"draft":1}[.] // 0;
+def valid_state: . as $s | ["draft","approved","in_progress","implemented","failed","superseded"] | index($s) != null;
+def dash: if . == "-" then null else . end;
+def nz: if . == null or . == "" then null else . end;
+
+# scal — the batch equivalent of mentor_plan_state_field: a SCALAR sidecar read that
+# `tostring`s whatever it finds and reports unset/null/empty alike as null.
+def scal($c; $k): ($c[$k] | if . == null then "" else tostring end) | nz;
+
+# ref — a slug-typed field resolved to deps[]-shaped {slug, missing}, or null when
+# unset. This is the contract change that lets consumers stop re-resolving
+# deferred_from/parent by hand against the same array.
+# `== null` rather than `| not`: jq counts 0 as truthy, so a target sitting at index
+# 0 would still read correctly — but only by accident, and the explicit test is what
+# makes that non-obvious. `$v`/`$dirs` are bound variables, never a bare `.`: see the
+# filter block below for what a rebinding `.` costs here.
+def ref($v; $dirs): if ($v | nz) == null then null else {slug: $v, missing: (($dirs | index($v)) == null)} end;
+
+# globre — glob (`*`, `?`) to regex, escaping every other non-word character so a slug
+# containing regex punctuation cannot turn into an accidental pattern. Character-wise
+# rather than a gsub chain: no nested backslash-escaping to get wrong, and no named
+# captures (not portable across every jq build).
+def globre:
+  reduce (explode[] | [.] | implode) as $ch ("";
+    . + (if $ch == "*" then ".*"
+         elif $ch == "?" then "."
+         elif ($ch | test("[A-Za-z0-9_-]")) then $ch
+         else "\\" + $ch end));
+def csv: split(",") | map(select(length > 0));
+
+# descendants — every TRANSITIVE child of $root via parent chains, breadth-first,
+# alphabetical within a level. This is `mentor_plan_descendants`'"'"'s walk (lib/state.sh)
+# served from the parent graph phase 1 already built, not a reimplementation of a
+# different algorithm: same frontier/seen structure, same ordering, same
+# "descendants only, never $root itself" contract. The whole point is that N roots
+# now cost ONE pass over an in-memory map instead of N `subtree` subprocesses.
+# The `seen` set is what makes a torn/cyclic parent graph terminate rather than spin —
+# `set-parent` cycle-checks at write time, but a hand-edited sidecar has no such gate.
+def descendants($children; $root):
+  {frontier: [$root], seen: [$root], out: []}
+  | until((.frontier | length) == 0;
+      ([.frontier[] as $x | ($children[$x] // [])[]] | unique) as $next
+      | ($next - .seen) as $fresh
+      | .out = (.out + $fresh) | .seen = (.seen + $fresh) | .frontier = $fresh)
+  | .out;
+
+($alldirs | split("\n") | map(select(length > 0)))                                    as $DIRS |
+($ticks | split("\n") | map(select(length > 0) | split("\t"))
+  | map({key: .[0],
+         value: {ticked: (.[1] | tonumber), total: (.[2] | tonumber),
+                 hgroup: (.[3] | dash), horder: (.[4] | dash)}})
+  | from_entries)                                                                     as $T |
+($ho | split("\n") | map(select(length > 0) | split("\t")))                           as $H |
+(reduce ($H[] | select(.[0] != "-" and .[1] == "live")) as $r
+   ({}; .[$r[0]] = ((.[$r[0]] // []) + [$r[2]])))                                     as $LIVE |
+[$H[] | select(.[0] == "-" and .[1] == "live") | .[2]]                                as $LEGACY |
+($homt | split("\n") | map(select(length > 0))
+   | map((index(" ")) as $i | {key: .[$i+1:], value: .[0:$i]}) | from_entries)         as $MT |
+
+[ $sc.order[] as $s
+  | ($sc.map[$s] // {})                                                               as $c
+  | ($T[$s] // {ticked: 0, total: 0, hgroup: null, horder: null})                     as $t
+  | (if (($c.state | type) == "string" and ($c.state | valid_state))
+     then $c.state else "" end)                                                       as $stored
+  | (if $t.total == 0 then ""
+     elif $t.ticked == $t.total then "implemented"
+     elif $t.ticked > 0 then "in_progress"
+     else "" end)                                                                     as $tick
+  | (if $stored == "" then "unknown" else $stored end)                                as $storedeff
+  | (if $tick == "" then $storedeff
+     elif ($tick | rank) > ($stored | rank) then $tick
+     else $storedeff end)                                                             as $eff
+  | (scal($c; "group") // $t.hgroup)                                                  as $group
+  | (scal($c; "order") // $t.horder)                                                  as $order
+  | {kind: "plan", slug: $s, state: $eff,
+     group: $group,
+     order: (if $order == null then null else ($order | tonumber? // null) end),
+     owner: scal($c; "owner"),
+     priority: scal($c; "priority"),
+     category: scal($c; "category"),
+     deferred_from: ref(scal($c; "deferred_from"); $DIRS),
+     parent: ref(scal($c; "parent"); $DIRS),
+     deps: [ ($c.deps // []) | if type == "array" then .[] else empty end
+             | tostring | select(length > 0) | . as $dep
+             | {slug: $dep, missing: (($DIRS | index($dep)) == null)} ],
+     origin: scal($c; "origin"),
+     handoffs: ($LIVE[$s] // []),
+     steps: {ticked: $t.ticked, total: $t.total},
+     goal: null}
+]                                                                                     as $PLANS |
+
+[ $DIRS[] | . as $s
+  | select($sc.map[$s] == null)
+  | ($LIVE[$s] // []) as $hs | select(($hs | length) > 0)
+  | {kind: "no_plan_topic", slug: $s, state: "no plan yet",
+     group: null, order: null, owner: null, priority: null, category: null,
+     deferred_from: null, parent: null, deps: [], origin: null,
+     handoffs: $hs, steps: {ticked: 0, total: 0}, goal: null} ]                       as $NPT |
+
+# Handoff notes as first-class entries — opt-in via `--kind handoff`, so a bare
+# `query` returns exactly the kinds the retired `overview --json` returned, so migrating
+# a caller stayed a rename. Unlike the `handoffs` array on a plan entry (live basenames only),
+# this kind carries RESOLVED notes too, each labelled, because the whole reason to ask
+# for notes as items is to see the ones already retired alongside the ones that are not.
+# `mtime` is converted from epoch seconds by jq'"'"'s own `todate` rather than a `date`
+# subprocess per note.
+(if $f.want_handoffs == 1 then
+   [ $H[] | . as $r
+     | {kind: "handoff",
+        topic: (if $r[0] == "-" then null else $r[0] end),
+        path: ($r[3] | if ($reporoot != "" and startswith($reporoot + "/")) then .[($reporoot | length) + 1:] else . end),
+        handoff_state: $r[1],
+        mtime: (($MT[$r[3]] // null) | if . == null then null else (tonumber | todate) end)} ]
+ else [] end)                                                                         as $HOF |
+
+(if ($LEGACY | length) > 0 then
+   [{kind: "legacy_handoffs", slug: null, state: null,
+     group: null, order: null, owner: null, priority: null, category: null,
+     deferred_from: null, parent: null, deps: [], origin: null,
+     handoffs: $LEGACY, steps: null, goal: null}]
+ else [] end)                                                                         as $LEG |
+
+# The parent graph and the open/closed verdict are built from EVERY plan, never from
+# the filtered set: an `open_descendants` count computed after filtering would silently
+# report 0 for a root whose children the filter happened to exclude.
+(reduce ($PLANS[] | select(.parent != null)) as $p
+   ({}; .[$p.parent.slug] = ((.[$p.parent.slug] // []) + [$p.slug])))          as $CHILDREN |
+(reduce $PLANS[] as $p
+   ({}; .[$p.slug] = (($p.state == "implemented" or $p.state == "superseded") | not))) as $OPEN |
+
+($PLANS + $NPT + $LEG + $HOF)
+| (if $f.sel_slug_set == 1 then map(select(.slug == $f.sel_slug)) else . end)
+| (if $f.sel_subtree_set == 1
+   then (descendants($CHILDREN; $f.sel_subtree)) as $D
+        | map(. as $e | select($e.slug != null and (($D | index($e.slug)) != null)))
+        # Restore BFS/level order: the array being filtered is in glob order, so a
+        # plain `select` would hand back the walk'"'"'s answer in the wrong sequence and
+        # `--format slug` would stop matching what `subtree` printed.
+        | (. as $sel | [$D[] as $s | $sel[] | select(.slug == $s)])
+   else . end)
+| (if $f.roots == 1 then map(select(.kind == "plan" and .parent == null)) else . end)
+| (if $f.open_counts == 1
+   then map(if .slug == null then .open_descendants = 0
+            else .open_descendants =
+                 ([descendants($CHILDREN; .slug)[] | select($OPEN[.])] | length) end)
+   else . end)
+# Every predicate reads the entry through the explicit `$e` binding, never a bare
+# `.`: several of them pipe into a derived value first (`$f.state | csv`), and a
+# pipe rebinds `.` to that value — so a bare `.state` inside one of them indexes
+# the CSV ARRAY, not the entry, and jq aborts the whole read with "Cannot index
+# array with string". Binding once here is what keeps a filter list this long
+# uniform enough to extend safely.
+| map(. as $e | select(
+      ($f.kind     == "" or (($f.kind     | csv) | index($e.kind)     != null))
+  and ($f.state    == "" or (($f.state    | csv) | index($e.state)    != null))
+  and ($f.priority == "" or (($f.priority | csv) | index($e.priority) != null))
+  and ($f.category == "" or (($f.category | csv) | index($e.category) != null))
+  and ($f.origin   == "" or (($f.origin   | csv) | index($e.origin)   != null))
+  and ($f.openf   == 0 or (($e.state == "implemented" or $e.state == "superseded") | not))
+  and ($f.closedf == 0 or ($e.state == "implemented" or $e.state == "superseded"))
+  and ($f.group_set  == 0 or (if ($f.group | nz) == null then ($e.group == null)
+                              else (($f.group | csv) | index($e.group) != null) end))
+  and ($f.parent_set == 0 or (($e.parent != null)
+                              and (($f.parent | csv) | index($e.parent.slug) != null)))
+  and ($f.no_parent  == 0 or ($e.parent == null))
+  and ($f.dfrom_set    == 0 or (($e.deferred_from != null) and ($e.deferred_from.slug == $f.dfrom)))
+  and ($f.dfrom_exists == 0 or (($e.deferred_from != null) and (($e.deferred_from.missing) | not)))
+  and ($f.owner_set == 0 or (if ($f.owner | nz) == null then ($e.owner == null)
+                             else (($f.owner | csv) | index($e.owner) != null) end))
+  and ($f.unowned   == 0 or ($e.owner == null))
+  and ($f.has_handoff  == 0 or (($e.handoffs | length) > 0))
+  and ($f.deps_missing == 0 or (([$e.deps[] | select(.missing)] | length) > 0))
+  and ($f.match == "" or (($e.slug // "") | test("^" + ($f.match | globre) + "$")))
+))
+'
 
 case "$sub" in
 
@@ -1521,31 +1946,291 @@ case "$sub" in
     fi
     ;;
 
-  subtree)
-    slug="${1:-}"; [ "$#" -gt 0 ] && shift
-    if [ "$#" -gt 0 ]; then
-      echo "[mentor plan-state] subtree: unexpected argument ${1}" >&2
-      usage >&2
+
+  # --- query: the ONE filterable read surface, which replaced `overview --json` (whole
+  # array, no filters) and `subtree <slug>` (one root's descendants, one process per
+  # root). Four orthogonal argument groups — Select (which items are walked at all),
+  # Filter (AND-combined predicates), Enrich (opt-in extra fields), Output (shape).
+  #
+  # Two contract changes vs the retired `overview --json`, both deliberate:
+  #   * `deferred_from` and `parent` are resolved to `{slug, missing}` — the shape
+  #     `deps[]` has carried since v2.17.0 — instead of a bare slug string. Consumers
+  #     were re-resolving those two by hand against the same array (plan-track's
+  #     `(parent: X missing)` and `from: X (missing)` render rules, resuming's
+  #     lineage-fix jq); the field now carries the answer.
+  #   * `open_descendants` appears when `--open-counts` is passed, computed for EVERY
+  #     entry from one parent graph rather than one `subtree` subprocess per root.
+  #
+  # Performance is the reason this exists at all, so the walk is two-phase: phase 1
+  # (the `_query_*` helpers above) costs a FIXED three subprocesses no matter how many
+  # plans there are, and phase 2 — the `## Goal` re-read, the only genuinely per-entry
+  # cost left — runs for survivors only, and only when the projection actually emits
+  # `goal`. A naive filter-after-enrich walk would pass every correctness check here
+  # and still be slower than what it replaced.
+  query)
+    q_sel_slug=""; q_sel_slug_set=0
+    q_sel_subtree=""; q_sel_subtree_set=0; q_roots=0; q_open_counts=0
+    q_kind=""; q_state=""; q_openf=0; q_closedf=0
+    q_priority=""; q_category=""; q_origin=""
+    q_group=""; q_group_set=0
+    q_parent=""; q_parent_set=0; q_no_parent=0
+    q_dfrom=""; q_dfrom_set=0; q_dfrom_exists=0
+    q_owner=""; q_owner_set=0; q_unowned=0
+    q_has_handoff=0; q_deps_missing=0; q_match=""
+    q_format="json"; q_fields=""; q_sort=""; q_limit=""
+    # Whether the projection will actually emit `goal`. Always 1 today; the output
+    # layer sets it to 0 when --fields/--format leaves `goal` out, so a query that
+    # never shows the field also never pays for the plan.md re-reads behind it.
+    q_want_goal=1
+    q_need() {
+      if [ "$2" -lt 2 ]; then
+        echo "[mentor plan-state] query: ${1} needs a value." >&2
+        usage >&2
+        exit 1
+      fi
+    }
+    while [ "$#" -gt 0 ]; do
+      case "$1" in
+        --slug)        q_need "$1" "$#"; q_sel_slug="$2";  q_sel_slug_set=1; shift 2 ;;
+        --subtree)     q_need "$1" "$#"; q_sel_subtree="$2"; q_sel_subtree_set=1; shift 2 ;;
+        --roots)       q_roots=1; shift ;;
+        --open-counts) q_open_counts=1; shift ;;
+        --kind)        q_need "$1" "$#"; q_kind="$2";      shift 2 ;;
+        --state)       q_need "$1" "$#"; q_state="$2";     shift 2 ;;
+        --open)        q_openf=1;   shift ;;
+        --closed)      q_closedf=1; shift ;;
+        --priority)    q_need "$1" "$#"; q_priority="$2";  shift 2 ;;
+        --category)    q_need "$1" "$#"; q_category="$2";  shift 2 ;;
+        --origin)      q_need "$1" "$#"; q_origin="$2";    shift 2 ;;
+        --group)       q_need "$1" "$#"; q_group="$2";     q_group_set=1;  shift 2 ;;
+        --parent)      q_need "$1" "$#"; q_parent="$2";    q_parent_set=1; shift 2 ;;
+        --no-parent)   q_no_parent=1; shift ;;
+        --deferred-from) q_need "$1" "$#"; q_dfrom="$2";   q_dfrom_set=1;  shift 2 ;;
+        --deferred-from-exists) q_dfrom_exists=1; shift ;;
+        --owner)       q_need "$1" "$#"; q_owner="$2";     q_owner_set=1;  shift 2 ;;
+        --unowned)     q_unowned=1;     shift ;;
+        --has-handoff) q_has_handoff=1; shift ;;
+        --deps-missing) q_deps_missing=1; shift ;;
+        --match)       q_need "$1" "$#"; q_match="$2";     shift 2 ;;
+        --format)      q_need "$1" "$#"; q_format="$2";    shift 2 ;;
+        --fields)      q_need "$1" "$#"; q_fields="$2";    shift 2 ;;
+        --sort)        q_need "$1" "$#"; q_sort="$2";      shift 2 ;;
+        --limit)       q_need "$1" "$#"; q_limit="$2";     shift 2 ;;
+        *)
+          echo "[mentor plan-state] query: unexpected argument ${1}" >&2
+          usage >&2
+          exit 1
+          ;;
+      esac
+    done
+    if [ "$q_openf" -eq 1 ] && [ "$q_closedf" -eq 1 ]; then
+      echo "[mentor plan-state] query: --open and --closed are mutually exclusive." >&2
       exit 1
     fi
-    require_slug "$slug"
-    require_jq_read
-    st_lines="$(_descendant_lines "$slug")"
-    if [ -z "$st_lines" ]; then
-      echo "[mentor plan-state] ${slug}: no descendants."
-      exit 0
+    if [ "$q_parent_set" -eq 1 ] && [ "$q_no_parent" -eq 1 ]; then
+      echo "[mentor plan-state] query: --parent and --no-parent are mutually exclusive." >&2
+      exit 1
     fi
-    st_open=0
-    while IFS="$(printf '\t')" read -r st_depth st_d st_state st_verdict; do
-      [ -n "$st_d" ] || continue
-      [ "$st_verdict" = "open" ] && st_open=$((st_open + 1))
-      st_indent=""
-      st_i=0
-      while [ "$st_i" -lt "$st_depth" ]; do st_indent="${st_indent}  "; st_i=$((st_i + 1)); done
-      printf '%-40s %-13s %s\n' "${st_indent}${st_d}" "$st_state" "$st_verdict"
-    done <<<"$st_lines"
-    echo
-    echo "${st_open} open descendant(s)."
+    if [ "$q_owner_set" -eq 1 ] && [ "$q_unowned" -eq 1 ]; then
+      echo "[mentor plan-state] query: --owner and --unowned are mutually exclusive." >&2
+      exit 1
+    fi
+    case "$q_format" in
+      json|table|slug|count|tsv) ;;
+      *)
+        echo "[mentor plan-state] query: --format must be one of json|table|slug|count|tsv (got: ${q_format})." >&2
+        exit 1
+        ;;
+    esac
+    if [ -n "$q_limit" ]; then
+      case "$q_limit" in
+        ''|*[!0-9]*)
+          echo "[mentor plan-state] query: --limit must be a non-negative integer (got: ${q_limit})." >&2
+          exit 1
+          ;;
+      esac
+    fi
+    if [ "$q_sel_slug_set" -eq 1 ] && [ "$q_sel_subtree_set" -eq 1 ]; then
+      echo "[mentor plan-state] query: --slug and --subtree are mutually exclusive." >&2
+      exit 1
+    fi
+    if [ "$q_sel_slug_set" -eq 1 ]; then require_slug "$q_sel_slug"; fi
+    if [ "$q_sel_subtree_set" -eq 1 ]; then require_slug "$q_sel_subtree"; fi
+    require_jq_read
+
+    # Skip phase 2 entirely when nothing downstream can show `goal` — the enrichment
+    # costs one plan.md re-read per deferred survivor, and a projection that never
+    # emits the field has no reason to pay for it. `--sort goal` still needs it even
+    # though the field may not be printed, so it re-enables the pass.
+    case "$q_format" in
+      count|slug) q_want_goal=0 ;;
+    esac
+    if [ -n "$q_fields" ]; then
+      case ",${q_fields}," in
+        *,goal,*) q_want_goal=1 ;;
+        *)        q_want_goal=0 ;;
+      esac
+    fi
+    [ "$q_sort" = "goal" ] && q_want_goal=1
+
+    q_mentor_dir="$(dirname "$plans_dir")"
+
+    # Every subdir of plans_dir, glob order — the set a `deps`/`deferred_from`/`parent`
+    # target is checked against. Deliberately NOT the plan.md-only set: `_plan_walk`'s
+    # own missing-marking tests `[ -d "${plans_dir}/${dep}" ]`, so a topic dir that
+    # holds handoffs but no plan.md yet counts as PRESENT, not missing. Built with
+    # plain string concatenation — no subprocess.
+    q_alldirs=""
+    for q_d in "${plans_dir}"/*/; do
+      [ -d "$q_d" ] || continue
+      q_d="${q_d%/}"
+      q_alldirs="${q_alldirs}${q_d##*/}
+"
+    done
+
+    # `handoff` entries are opt-in: only a --kind that explicitly names them adds the
+    # kind to the pool, so bare `query` keeps returning exactly what the retired
+    # `overview --json` did. The mtime `stat` pass is gated on the same answer.
+    q_want_handoffs=0
+    case ",${q_kind}," in *,handoff,*) q_want_handoffs=1 ;; esac
+
+    q_sc="$(_query_sidecars)"
+    [ -n "$q_sc" ] || q_sc='{"order":[],"map":{}}'
+    q_ticks="$(_query_plan_files)"
+    q_ho="$(_query_handoffs "$q_mentor_dir")"
+    q_homt=""
+    if [ "$q_want_handoffs" -eq 1 ] && [ -n "$q_ho" ]; then
+      q_homt="$(printf '%s\n' "$q_ho" | cut -f4 | _query_handoff_mtimes)"
+    fi
+
+    q_filters="$(jq -n -c \
+      --arg kind "$q_kind" --arg state "$q_state" \
+      --argjson openf "$q_openf" --argjson closedf "$q_closedf" \
+      --arg priority "$q_priority" --arg category "$q_category" --arg origin "$q_origin" \
+      --arg group "$q_group" --argjson group_set "$q_group_set" \
+      --arg parent "$q_parent" --argjson parent_set "$q_parent_set" --argjson no_parent "$q_no_parent" \
+      --arg dfrom "$q_dfrom" --argjson dfrom_set "$q_dfrom_set" --argjson dfrom_exists "$q_dfrom_exists" \
+      --arg owner "$q_owner" --argjson owner_set "$q_owner_set" --argjson unowned "$q_unowned" \
+      --argjson has_handoff "$q_has_handoff" --argjson deps_missing "$q_deps_missing" \
+      --arg match "$q_match" --arg sel_slug "$q_sel_slug" --argjson sel_slug_set "$q_sel_slug_set" \
+      --arg sel_subtree "$q_sel_subtree" --argjson sel_subtree_set "$q_sel_subtree_set" \
+      --argjson roots "$q_roots" --argjson open_counts "$q_open_counts" \
+      --argjson want_handoffs "$q_want_handoffs" \
+      '$ARGS.named')"
+
+    q_out="$(jq -n -c \
+      --argjson sc "$q_sc" \
+      --arg alldirs "$q_alldirs" \
+      --arg ticks "$q_ticks" \
+      --arg ho "$q_ho" \
+      --arg homt "$q_homt" \
+      --arg reporoot "$repo_root" \
+      --argjson f "$q_filters" \
+      "$MENTOR_QUERY_JQ")" || {
+        echo "[mentor plan-state] query: the read failed (corrupt sidecar or jq error)." >&2
+        exit 1
+      }
+
+    # --- phase 2: enrich SURVIVORS only -----------------------------------------
+    # `goal` is the one field that still costs a per-entry plan.md re-read (an awk
+    # pass plus a reflow), and _plan_walk's own gate applies unchanged: only an
+    # `origin: "deferred"` entry has a `## Goal` section to read, so an ordinary plan
+    # never pays it. Running this AFTER the filter is the whole point of the two-phase
+    # split — a query that selected 3 of 34 plans reads 3 files, not 34.
+    if [ "$q_want_goal" -eq 1 ]; then
+      q_goal_slugs="$(printf '%s' "$q_out" | jq -r '.[] | select(.kind == "plan" and .origin == "deferred") | .slug')"
+      if [ -n "$q_goal_slugs" ]; then
+        q_goal_tsv=""
+        while IFS= read -r q_g; do
+          [ -n "$q_g" ] || continue
+          q_goal_tsv="${q_goal_tsv}${q_g}$(printf '\t')$(mentor_plan_goal_line "${plans_dir}/${q_g}/plan.md")
+"
+        done <<<"$q_goal_slugs"
+        q_out="$(printf '%s' "$q_out" | jq -c --arg g "$q_goal_tsv" '
+          ($g | split("\n") | map(select(length > 0) | split("\t"))
+             | map({key: .[0], value: (.[1] // "")}) | from_entries) as $G
+          | map(if $G[.slug // ""] != null and $G[.slug] != ""
+                then .goal = $G[.slug] else . end)')"
+      fi
+    fi
+
+    # --- output layer: sort, limit, project, format ------------------------------
+    # Applied in that order, and deliberately AFTER phase 2, so `--sort goal` sorts on
+    # the enriched value rather than the null placeholder. `--fields` takes dot paths
+    # (`steps.total`, `parent.slug`) resolved with getpath, so a caller can pull one
+    # scalar out of a nested field without a second jq of their own.
+    #
+    # `json` is the default precisely so migrating a caller off the retired
+    # `overview --json` was a rename and nothing more.
+    q_out="$(printf '%s' "$q_out" | jq -c \
+      --arg sort "$q_sort" --arg limit "$q_limit" '
+      def path_of($s): ($s | split("."));
+      (if $sort == "" then . else sort_by(getpath(path_of($sort))) end)
+      | (if $limit == "" then . else .[0:($limit | tonumber)] end)')"
+
+    case "$q_format" in
+      count)
+        printf '%s' "$q_out" | jq 'length'
+        ;;
+      slug)
+        # `.slug // empty`, not `.slug // "-"`: a legacy_handoffs entry has no slug at
+        # all, and inventing a placeholder here would put a non-slug into a list whose
+        # entire purpose is to be fed back in as `--slug`/`--subtree` arguments.
+        printf '%s' "$q_out" | jq -r '.[] | .slug // empty'
+        ;;
+      json)
+        if [ -n "$q_fields" ]; then
+          printf '%s' "$q_out" | jq --arg fields "$q_fields" '
+            ($fields | split(",") | map(select(length > 0))) as $F
+            | map(. as $e | reduce $F[] as $f ({}; .[$f] = ($e | getpath($f | split(".")))))'
+        else
+          printf '%s' "$q_out" | jq '.'
+        fi
+        ;;
+      tsv|table)
+        # Default columns mirror `list`'s five, so a `--format table` with no --fields
+        # reads like the table people already know.
+        q_cols="${q_fields:-slug,state,group,order}"
+        q_tsv="$(printf '%s' "$q_out" | jq -r --arg fields "$q_cols" '
+          ($fields | split(",") | map(select(length > 0))) as $F
+          | .[] | . as $e
+          | [ $F[] as $f
+              | ($e | getpath($f | split(".")))
+              | if . == null then "-"
+                elif type == "array"  then (map(tostring) | join(" "))
+                elif type == "object" then (tostring)
+                else tostring end ]
+          | @tsv')"
+        if [ "$q_format" = "tsv" ]; then
+          [ -n "$q_tsv" ] && printf '%s\n' "$q_tsv"
+        else
+          if [ -z "$q_fields" ]; then
+            # print_table's own widths, so the default table lines up with `list`.
+            printf '%-3s %-13s %-38s %-24s %s\n' "#" "STATE" "PLAN" "GROUP" "ORDER"
+            q_i=0
+            while IFS="$(printf '\t')" read -r q_c1 q_c2 q_c3 q_c4; do
+              [ -n "$q_c1" ] || continue
+              q_i=$((q_i + 1))
+              printf '%-3s %-13s %-38s %-24s %s\n' "$q_i" "$q_c2" "$q_c1" "$q_c3" "$q_c4"
+            done <<<"$q_tsv"
+          else
+            # An arbitrary --fields set has no pre-agreed widths, so size each column
+            # to its own widest cell (header included) rather than truncating into
+            # `list`'s layout, which was chosen for a different five columns.
+            printf '%s\n' "$q_tsv" | awk -F'\t' -v hdr="$q_cols" '
+              BEGIN { n = split(hdr, H, ",") ; for (i = 1; i <= n; i++) w[i] = length(H[i]) }
+              { for (i = 1; i <= n; i++) if (length($i) > w[i]) w[i] = length($i); rows[NR] = $0 }
+              END {
+                for (i = 1; i <= n; i++) printf "%-*s%s", w[i], toupper(H[i]), (i < n ? "  " : "\n")
+                for (r = 1; r <= NR; r++) {
+                  split(rows[r], C, "\t")
+                  for (i = 1; i <= n; i++) printf "%-*s%s", w[i], C[i], (i < n ? "  " : "\n")
+                }
+              }'
+          fi
+        fi
+        ;;
+    esac
     ;;
 
   # --- verify <slug>: the ONE call planning's "Verify the write" (SKILL.md, Step 4)
@@ -1659,12 +2344,12 @@ case "$sub" in
     echo
     if ! print_table "$filter" "$list_owners" "$list_parent"; then
       echo "[mentor plan-state] No plans${filter:+ in group ${filter}} in ${plans_dir}." >&2
-      echo "[mentor plan-state] Topics holding only handoffs (no plan.md yet) never appear here — use 'overview --json' for the full picture." >&2
+      echo "[mentor plan-state] Topics holding only handoffs (no plan.md yet) never appear here — use 'query' for the full picture." >&2
       exit 0
     fi
     echo
     echo "Plan files are PLANS_DIR/<PLAN>/plan.md. 'unknown' = a pre-2.4.0 plan with no state on record."
-    echo "Topics holding only handoffs (no plan.md yet) never appear above — use 'overview --json' for the full picture."
+    echo "Topics holding only handoffs (no plan.md yet) never appear above — use 'query' for the full picture."
     ;;
 
   current)
@@ -1722,103 +2407,6 @@ case "$sub" in
       echo "sibling — do NOT assume it is the one the user means. Ask which sibling (or all):"
       echo
       print_table "$group" || true
-    fi
-    ;;
-
-  overview)
-    ov_json_flag=0
-    while [ "$#" -gt 0 ]; do
-      case "$1" in
-        --json) ov_json_flag=1; shift ;;
-        *) echo "[mentor plan-state] overview: unexpected argument ${1}" >&2; usage >&2; exit 1 ;;
-      esac
-    done
-    if [ "$ov_json_flag" -ne 1 ]; then
-      echo "[mentor plan-state] overview: --json is required — there is no human-table mode." >&2
-      usage >&2
-      exit 1
-    fi
-    require_jq_read
-    mentor_dir="$(dirname "$plans_dir")"
-    ov_entries=""
-
-    # 1) every plan dir with a plan.md — the shared per-plan iterator (_plan_walk).
-    while IFS="$(printf '\t')" read -r ov_slug ov_state ov_group ov_order ov_owner ov_deps ov_origin ov_handoffs ov_ticked ov_total ov_priority ov_category ov_deferred_from ov_goal ov_parent; do
-      [ -n "$ov_slug" ] || continue
-      [ "$ov_group" = "-" ] && ov_group=""    # un-placeholder — see _plan_walk's comment
-      [ "$ov_order" = "-" ] && ov_order=""
-      [ "$ov_owner" = "-" ] && ov_owner=""
-      [ "$ov_origin" = "-" ] && ov_origin=""
-      [ "$ov_priority" = "-" ] && ov_priority=""
-      [ "$ov_category" = "-" ] && ov_category=""
-      [ "$ov_deferred_from" = "-" ] && ov_deferred_from=""
-      [ "$ov_goal" = "-" ] && ov_goal=""
-      [ "$ov_parent" = "-" ] && ov_parent=""
-      entry="$(jq -n \
-        --arg slug "$ov_slug" --arg state "$ov_state" --arg group "$ov_group" --arg order "$ov_order" \
-        --arg owner "$ov_owner" --arg priority "$ov_priority" \
-        --arg category "$ov_category" --arg deferred_from "$ov_deferred_from" --arg goal "$ov_goal" \
-        --arg parent "$ov_parent" \
-        --argjson deps "$ov_deps" --arg origin "$ov_origin" --argjson handoffs "$ov_handoffs" \
-        --argjson ticked "$ov_ticked" --argjson total "$ov_total" '
-        {kind: "plan", slug: $slug, state: $state,
-         group: (if $group == "" then null else $group end),
-         order: (if $order == "" then null else ($order | tonumber? // null) end),
-         owner: (if $owner == "" then null else $owner end),
-         priority: (if $priority == "" then null else $priority end),
-         category: (if $category == "" then null else $category end),
-         deferred_from: (if $deferred_from == "" then null else $deferred_from end),
-         parent: (if $parent == "" then null else $parent end),
-         deps: $deps, origin: (if $origin == "" then null else $origin end),
-         handoffs: $handoffs, steps: {ticked: $ticked, total: $total},
-         goal: (if $goal == "" then null else $goal end)}')"
-      ov_entries="${ov_entries}${entry}
-"
-    done <<<"$(_plan_walk)"
-
-    # 2) topic dirs with live handoffs but NO plan.md yet — additive coverage; NOT
-    #    part of _plan_walk's plan.md-only filter, so list/current never see these.
-    for ov_d in "${plans_dir}"/*/; do
-      [ -d "$ov_d" ] || continue
-      ov_d="${ov_d%/}"
-      [ -f "${ov_d}/plan.md" ] && continue
-      ov_slug="$(basename "$ov_d")"
-      ov_handoffs="$(mentor_plan_live_handoffs "$ov_d" | jq -R -s -c 'split("\n") | map(select(length>0))' 2>/dev/null)"
-      [ -n "$ov_handoffs" ] || ov_handoffs="[]"
-      [ "$ov_handoffs" = "[]" ] && continue
-      entry="$(jq -n --arg slug "$ov_slug" --argjson handoffs "$ov_handoffs" '
-        {kind: "no_plan_topic", slug: $slug, state: "no plan yet",
-         group: null, order: null, owner: null, priority: null, category: null, deferred_from: null,
-         parent: null,
-         deps: [], origin: null,
-         handoffs: $handoffs, steps: {ticked: 0, total: 0}, goal: null}')"
-      ov_entries="${ov_entries}${entry}
-"
-    done
-
-    # 3) legacy flat .mentor/handoffs/*.md — topic-less (pre-v2.10 notes).
-    ov_legacy_dir="${mentor_dir}/handoffs"
-    if [ -d "$ov_legacy_dir" ]; then
-      ov_legacy_json="$(find "$ov_legacy_dir" -type f -name '*.md' -not -path '*/handoffs/resolved/*' 2>/dev/null \
-        | while IFS= read -r ov_f; do basename "$ov_f"; done \
-        | jq -R -s -c 'split("\n") | map(select(length>0))' 2>/dev/null)"
-      [ -n "$ov_legacy_json" ] || ov_legacy_json="[]"
-      if [ "$ov_legacy_json" != "[]" ]; then
-        entry="$(jq -n --argjson handoffs "$ov_legacy_json" '
-          {kind: "legacy_handoffs", slug: null, state: null,
-           group: null, order: null, owner: null, priority: null, category: null, deferred_from: null,
-           parent: null,
-           deps: [], origin: null,
-           handoffs: $handoffs, steps: null, goal: null}')"
-        ov_entries="${ov_entries}${entry}
-"
-      fi
-    fi
-
-    if [ -z "$ov_entries" ]; then
-      echo "[]"
-    else
-      printf '%s' "$ov_entries" | jq -s '.'
     fi
     ;;
 

@@ -256,7 +256,7 @@ The point of SDD: quality through narrow focus, and a lean main thread.
     verification passed → the same parent-aware branch, `parent` = the owning plan's
     slug. A post-completion defect answers "no" to "does it block the *active* plan?",
     but parking it flat on that answer makes it invisible to every `parent`-walking
-    surface (`subtree`, `/mentor:track`'s roll-up, `/mentor:resume`'s drain) while the
+    surface (`query --subtree`, `/mentor:track`'s roll-up, `/mentor:resume`'s drain) while the
     owning plan reads cleanly `implemented`. Parented, that plan honestly shows "done
     with open fixes" instead.
   - **An unbuilt plan's future scope** → no `parent` (nothing done exists to block);

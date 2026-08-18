@@ -20,7 +20,7 @@
 #     `owner`/`owner_session`; `list --owners` adds a 6th OWNER column.
 #   • v2.24.0 (impact tier): the sidecar carries `priority` — a CLOSED vocabulary
 #     (critical|high|medium|low|noise), written by `init --priority` and
-#     `set-priority`, surfaced on every `overview --json` entry. Unset stays null
+#     `set-priority`, surfaced on every `query` entry. Unset stays null
 #     and never defaults into a tier; an invalid value is a usage error (exit 1,
 #     nothing written), not a fail-soft skip; and `list`'s column count is
 #     unchanged in both its shapes.
@@ -59,8 +59,8 @@ WTB_ID="$(mentor_worktree_id "$WTB")"
 WTC_ID="$(mentor_worktree_id "$WTC")"
 [ -n "$WTA_ID" ] && [ -n "$WTB_ID" ] && [ -n "$WTC_ID" ] || { echo "FATAL: could not derive worktree ids for the fixture repo" >&2; exit 1; }
 
-# A PATH with real `git`/`dirname` but NO jq — for overview's fail-soft-without-jq
-# check. Only those two externals run before overview's own require_jq_read guard
+# A PATH with real `git`/`dirname` but NO jq — for query's fail-soft-without-jq
+# check. Only those two externals run before query's own require_jq_read guard
 # (mentor_repo_root → git/dirname; everything after is shell builtins), so this
 # minimal PATH is enough to prove the guard fires rather than crashing on a missing
 # unrelated tool.
@@ -1050,11 +1050,11 @@ chk "..names the missing file"                      has "no plan.md at" "$out"
 out="$(ps verify vf extra)"; rc=$?
 chk "verify with a stray extra argument → exit 1"   test "$rc" = "1"
 
-echo "== M. overview --json: repo-wide hierarchy (v2.17.0) — the new surface =="
+echo "== M. query: the ONE filterable read surface (v2.33.0 — replaced overview --json + subtree) =="
 rm -rf "$PLANS" "$REPO/.mentor/handoffs"; mkdir -p "$PLANS"
-out="$(psout overview --json)"; rc=$?
-chk "overview --json on an empty repo → exit 0" test "$rc" = "0"
-chk "overview --json on an empty repo → []"     test "$out" = "[]"
+out="$(psout query)"; rc=$?
+chk "query on an empty repo → exit 0" test "$rc" = "0"
+chk "query on an empty repo → []"     test "$out" = "[]"
 
 plan ov-a '# a' '## Implementation steps' '1. one ✅' '2. two ✅'
 mkdir -p "$PLANS/ov-a/handoffs/resolved"
@@ -1071,7 +1071,7 @@ ps set-deps ov-b "ov-a,ov-missing" >/dev/null
 # A deferred stub whose `## Goal` first paragraph WRAPS across three physical lines —
 # the exact text mentor_plan_goal_line's own unit test in test-state-lib.sh pins, so
 # the two suites verify the same reflow+truncation at different layers (lib helper vs.
-# the CLI's overview plumbing).
+# the CLI's query plumbing).
 plan ov-deferred '# stub' '' '## Goal' '' \
   '`claim_order()` in `daily-run.sh` orders concurrent learn slots by key that' \
   'reflects real lock-acquisition order, so the plan promise that the oldest backlog' \
@@ -1079,8 +1079,25 @@ plan ov-deferred '# stub' '' '## Goal' '' \
   '## Context' 'more prose here'
 ps init ov-deferred --deferred --priority medium --category fix --from ov-a >/dev/null
 
+# A three-level parent chain: ov-a → ov-child → ov-grand. Depth matters — a walk that
+# only looks one level down still passes every single-level assertion.
 plan ov-child '# child, parented under ov-a (v2.29.0)'
 ps init ov-child --parent ov-a >/dev/null
+plan ov-grand '# grandchild, parented under ov-child'
+ps init ov-grand --parent ov-child >/dev/null
+
+# A deferred fix whose SOURCE plan does not exist — the case `--deferred-from-exists`
+# is for, and the one that used to need the whole slug universe rebuilt in jq.
+plan ov-orphan '# orphan stub'
+ps init ov-orphan --deferred --category fix --from ov-vanished >/dev/null
+
+# Two split-group siblings — `--group` is the only filter with a meaningful EMPTY
+# value (`--group ""` means "ungrouped"), so it needs both a grouped and an ungrouped
+# plan present to be tested at all.
+plan ov-g1 '# sibling 1'
+plan ov-g2 '# sibling 2'
+ps init ov-g1 --group ov-split --order 1 >/dev/null
+ps init ov-g2 --group ov-split --order 2 >/dev/null
 
 mkdir -p "$PLANS/ov-topic/handoffs"
 : > "$PLANS/ov-topic/handoffs/nudge.md"
@@ -1088,10 +1105,10 @@ mkdir -p "$PLANS/ov-topic/handoffs"
 mkdir -p "$REPO/.mentor/handoffs"
 : > "$REPO/.mentor/handoffs/legacy-note.md"
 
-out="$(psout overview --json)"; rc=$?
-chk "overview --json → exit 0"    test "$rc" = "0"
-chk "overview --json → valid JSON" sh -c 'printf "%s" "$0" | jq . >/dev/null 2>&1' "$out"
-chk "overview → 6 entries (4 plans + plan-less topic + legacy)" test "$(printf '%s' "$out" | jq 'length')" = "6"
+out="$(psout query)"; rc=$?
+chk "query → exit 0"    test "$rc" = "0"
+chk "query → valid JSON" sh -c 'printf "%s" "$0" | jq . >/dev/null 2>&1' "$out"
+chk "query → 10 entries (8 plans + plan-less topic + legacy)" test "$(printf '%s' "$out" | jq 'length')" = "10"
 
 ov_a="$(printf '%s' "$out" | jq -c '.[] | select(.slug=="ov-a")')"
 chk "ov-a: kind plan"                   test "$(printf '%s' "$ov_a" | jq -r '.kind')" = "plan"
@@ -1117,21 +1134,31 @@ chk "ov-b: no handoffs"                      test "$(printf '%s' "$ov_b" | jq -c
 chk "ov-b: owner carries this worktree's wt-id (v2.23.0)" test "$(printf '%s' "$ov_b" | jq -r '.owner')" = "$WTA_ID"
 chk "ov-b: priority carries the tier (v2.24.0)" test "$(printf '%s' "$ov_b" | jq -r '.priority')" = "critical"
 chk "ov-b: category carries the kind (v2.25.0)" test "$(printf '%s' "$ov_b" | jq -r '.category')" = "fix"
-chk "ov-b: deferred_from carries the slug even though origin is null" \
-  test "$(printf '%s' "$ov_b" | jq -r '.deferred_from')" = "ov-a"
 chk "ov-b: goal null — deferred_from alone does not compute a goal (origin gates it)" \
   test "$(printf '%s' "$ov_b" | jq -r '.goal')" = "null"
 
+echo "-- M1. deferred_from/parent resolve to {slug, missing}, the shape deps[] already had --"
+chk "ov-b: deferred_from is an object, not a bare string" \
+  test "$(printf '%s' "$ov_b" | jq -r '.deferred_from | type')" = "object"
+chk "ov-b: deferred_from.slug carries the source plan" \
+  test "$(printf '%s' "$ov_b" | jq -r '.deferred_from.slug')" = "ov-a"
+chk "ov-b: deferred_from.missing false — ov-a exists" \
+  test "$(printf '%s' "$ov_b" | jq -r '.deferred_from.missing')" = "false"
+ov_orph="$(printf '%s' "$out" | jq -c '.[] | select(.slug=="ov-orphan")')"
+chk "ov-orphan: deferred_from.missing true — the source plan is gone" \
+  test "$(printf '%s' "$ov_orph" | jq -r '.deferred_from.missing')" = "true"
 ov_child="$(printf '%s' "$out" | jq -c '.[] | select(.slug=="ov-child")')"
 chk "ov-child: kind still plan"                       test "$(printf '%s' "$ov_child" | jq -r '.kind')" = "plan"
-chk "ov-child: parent carries the containing plan's slug (v2.29.0)" \
-  test "$(printf '%s' "$ov_child" | jq -r '.parent')" = "ov-a"
+chk "ov-child: parent is an object too"               test "$(printf '%s' "$ov_child" | jq -r '.parent | type')" = "object"
+chk "ov-child: parent.slug carries the containing plan (v2.29.0)" \
+  test "$(printf '%s' "$ov_child" | jq -r '.parent.slug')" = "ov-a"
+chk "ov-child: parent.missing false"                  test "$(printf '%s' "$ov_child" | jq -r '.parent.missing')" = "false"
 
 ov_def="$(printf '%s' "$out" | jq -c '.[] | select(.slug=="ov-deferred")')"
-chk "ov-deferred: origin deferred"     test "$(printf '%s' "$ov_def" | jq -r '.origin')" = "deferred"
-chk "ov-deferred: priority medium"     test "$(printf '%s' "$ov_def" | jq -r '.priority')" = "medium"
-chk "ov-deferred: category fix"        test "$(printf '%s' "$ov_def" | jq -r '.category')" = "fix"
-chk "ov-deferred: deferred_from ov-a"  test "$(printf '%s' "$ov_def" | jq -r '.deferred_from')" = "ov-a"
+chk "ov-deferred: origin deferred"          test "$(printf '%s' "$ov_def" | jq -r '.origin')" = "deferred"
+chk "ov-deferred: priority medium"          test "$(printf '%s' "$ov_def" | jq -r '.priority')" = "medium"
+chk "ov-deferred: category fix"             test "$(printf '%s' "$ov_def" | jq -r '.category')" = "fix"
+chk "ov-deferred: deferred_from.slug ov-a"  test "$(printf '%s' "$ov_def" | jq -r '.deferred_from.slug')" = "ov-a"
 chk "ov-deferred: goal reflowed to one line, word-boundary truncated at ~85 chars" \
   test "$(printf '%s' "$ov_def" | jq -r '.goal')" = '`claim_order()` in `daily-run.sh` orders concurrent learn slots by key that reflects…'
 
@@ -1141,7 +1168,7 @@ chk "plan-less topic: state 'no plan yet'" test "$(printf '%s' "$ov_topic" | jq 
 chk "plan-less topic: live handoff listed" test "$(printf '%s' "$ov_topic" | jq -c '.handoffs')" = '["nudge.md"]'
 chk "plan-less topic: zero step counts"    test "$(printf '%s' "$ov_topic" | jq -c '.steps')" = '{"ticked":0,"total":0}'
 chk "plan-less topic: owner null (no sidecar)" test "$(printf '%s' "$ov_topic" | jq -r '.owner')" = "null"
-chk "plan-less topic: category/deferred_from/parent/goal all null too (v2.25.0/v2.29.0, uniform shape)" \
+chk "plan-less topic: category/deferred_from/parent/goal all null too (uniform shape)" \
   test "$(printf '%s' "$ov_topic" | jq -r '.category,.deferred_from,.parent,.goal' | tr '\n' ' ')" = "null null null null "
 
 ov_legacy="$(printf '%s' "$out" | jq -c '.[] | select(.kind=="legacy_handoffs")')"
@@ -1150,20 +1177,193 @@ chk "legacy dir: state null"             test "$(printf '%s' "$ov_legacy" | jq -
 chk "legacy dir: steps null"             test "$(printf '%s' "$ov_legacy" | jq -r '.steps')" = "null"
 chk "legacy dir: lists the flat note"    test "$(printf '%s' "$ov_legacy" | jq -c '.handoffs')" = '["legacy-note.md"]'
 chk "legacy dir: owner null"             test "$(printf '%s' "$ov_legacy" | jq -r '.owner')" = "null"
-chk "legacy dir: category/deferred_from/parent/goal all null too (v2.25.0/v2.29.0, uniform shape)" \
+chk "legacy dir: category/deferred_from/parent/goal all null too (uniform shape)" \
   test "$(printf '%s' "$ov_legacy" | jq -r '.category,.deferred_from,.parent,.goal' | tr '\n' ' ')" = "null null null null "
 
 chk "plan dirs never double as a plan-less topic" \
   test -z "$(printf '%s' "$out" | jq -r '.[] | select(.kind=="no_plan_topic" and (.slug=="ov-a" or .slug=="ov-b"))')"
 
-echo "== N. overview --json is fail-soft when jq is absent from PATH =="
-out="$(psq_nojq_out overview --json)"
-err="$(psq_nojq_err overview --json)"
-rc=0; psq_nojq_rc overview --json || rc=$?
+echo "-- M2. filters: each one against an independent jq over the unfiltered array --"
+# Every assertion compares `query <filter>` to the same predicate evaluated in jq over
+# the FULL array — so a filter that silently returns everything, or nothing, fails.
+# `[.[] | (.slug // "-")]`, never `[.[].slug // "-"]`: jq's `//` yields its default when
+# the LEFT side produces no outputs at all, so the second form renders an empty result
+# as "-" and quietly turns a broken filter into a passing test.
+qslugs() { psout query "$@" | jq -r '[.[] | (.slug // "-")] | sort | join(",")'; }
+jslugs() { printf '%s' "$out" | jq -r "[.[] | select($1) | (.slug // \"-\")] | sort | join(\",\")"; }
+chk "--kind plan"              test "$(qslugs --kind plan)"          = "$(jslugs '.kind=="plan"')"
+chk "--state draft"            test "$(qslugs --state draft)"        = "$(jslugs '.state=="draft"')"
+chk "--state draft,implemented ORs within one flag" \
+                               test "$(qslugs --state draft,implemented)" = "$(jslugs '.state|IN("draft","implemented")')"
+chk "--open"                   test "$(qslugs --open)"               = "$(jslugs '(.state|IN("implemented","superseded"))|not')"
+chk "--closed"                 test "$(qslugs --closed)"             = "$(jslugs '.state|IN("implemented","superseded")')"
+chk "--priority critical"      test "$(qslugs --priority critical)"  = "$(jslugs '.priority=="critical"')"
+chk "--category fix"           test "$(qslugs --category fix)"       = "$(jslugs '.category=="fix"')"
+chk "--origin deferred"        test "$(qslugs --origin deferred)"    = "$(jslugs '.origin=="deferred"')"
+chk "--parent ov-a"            test "$(qslugs --parent ov-a)"        = "$(jslugs '.parent!=null and .parent.slug=="ov-a"')"
+chk "--no-parent"              test "$(qslugs --no-parent)"          = "$(jslugs '.parent==null')"
+chk "--group <name>"           test "$(qslugs --group ov-split)"     = "$(jslugs '.group=="ov-split"')"
+chk "--group <name> really selects both siblings" test "$(qslugs --group ov-split)" = "ov-g1,ov-g2"
+chk "--group \"\" means UNGROUPED, not unfiltered" \
+                               test "$(qslugs --group "")"           = "$(jslugs '.group==null')"
+chk "--group \"\" is a strict subset (the grouped siblings are excluded)" \
+  sh -c 'case ",$0," in *,ov-g1,*) exit 1 ;; *) exit 0 ;; esac' "$(qslugs --group "")"
+chk "--group order field survives the round trip" \
+                               test "$(psout query --slug ov-g2 --format tsv --fields order)" = "2"
+chk "--deferred-from ov-a"     test "$(qslugs --deferred-from ov-a)" = "$(jslugs '.deferred_from!=null and .deferred_from.slug=="ov-a"')"
+chk "--deferred-from-exists drops the dangling one" \
+                               test "$(qslugs --deferred-from-exists)" = "$(jslugs '.deferred_from!=null and (.deferred_from.missing|not)')"
+chk "--deferred-from-exists really excludes ov-orphan" \
+  sh -c 'case ",$0," in *,ov-orphan,*) exit 1 ;; *) exit 0 ;; esac' "$(qslugs --deferred-from-exists)"
+chk "--owner <this worktree>"  test "$(qslugs --owner "$WTA_ID")"    = "$(jslugs ".owner==\"$WTA_ID\"")"
+chk "--unowned"                test "$(qslugs --unowned)"            = "$(jslugs '.owner==null')"
+chk "--has-handoff"            test "$(qslugs --has-handoff)"        = "$(jslugs '(.handoffs|length)>0')"
+chk "--deps-missing"           test "$(qslugs --deps-missing)"       = "$(jslugs '([.deps[]|select(.missing)]|length)>0')"
+chk "--match glob"             test "$(qslugs --match 'ov-d*')"      = "$(jslugs '(.slug//"")|test("^ov-d.*$")')"
+chk "--slug picks exactly one" test "$(qslugs --slug ov-b)"          = "ov-b"
+
+# Comma-as-OR is documented for EVERY value-taking filter, but only --state was ever
+# covered here — so --group/--parent/--owner compiled to a plain `==` against the whole
+# "a,b" string and returned NOTHING, silently, for a comma value. A false empty is the
+# worst shape for a read API (it reads as "no matches", not as an error), so each of the
+# three is pinned twice: once against a real+bogus pair (which must equal the real value
+# alone) and once as a true union, plus a non-empty guard so a filter that breaks by
+# returning nothing again cannot pass this vacuously on both sides.
+chk "--group ORs within one flag (real + bogus == real alone)" \
+                               test "$(qslugs --group ov-split,no-such-group)" = "$(qslugs --group ov-split)"
+chk "--group comma form is not silently empty" \
+                               test "$(qslugs --group ov-split,no-such-group)" = "ov-g1,ov-g2"
+chk "--parent ORs within one flag (union of two real parents)" \
+                               test "$(qslugs --parent ov-a,ov-child)" = "$(jslugs '.parent!=null and (.parent.slug|IN("ov-a","ov-child"))')"
+chk "--parent comma form is not silently empty" \
+                               test "$(qslugs --parent ov-a,ov-child)" = "ov-child,ov-grand"
+chk "--owner ORs within one flag (real + bogus == real alone)" \
+                               test "$(qslugs --owner "$WTA_ID",no-such-worktree)" = "$(qslugs --owner "$WTA_ID")"
+chk "--owner comma form is not silently empty" \
+  sh -c '[ -n "$0" ] && [ "$0" != "-" ]' "$(qslugs --owner "$WTA_ID",no-such-worktree)"
+# The comma fix must not cost the empty-value selectors their meaning: for --group and
+# --owner an empty value still means "the null one", which a naive csv rewrite drops.
+chk "--group \"\" still means UNGROUPED after the comma fix" \
+                               test "$(qslugs --group "")"  = "$(jslugs '.group==null')"
+chk "--owner \"\" still means UNOWNED after the comma fix" \
+                               test "$(qslugs --owner "")"  = "$(jslugs '.owner==null')"
+chk "two filters AND (intersection, never union)" \
+  test "$(qslugs --category fix --origin deferred)" = "$(jslugs '.category=="fix" and .origin=="deferred"')"
+chk "AND is never a superset of either operand" \
+  sh -c '[ "$(printf "%s" "$0" | tr "," "\n" | grep -c .)" -le "$(printf "%s" "$1" | tr "," "\n" | grep -c .)" ]' \
+    "$(qslugs --category fix --origin deferred)" "$(qslugs --category fix)"
+
+echo "-- M3. graph layer: --subtree / --roots / --open-counts, from one parent-graph pass --"
+chk "--subtree ov-a → transitive descendants, breadth-first, never ov-a itself" \
+  test "$(psout query --subtree ov-a --format slug | tr '\n' ',')" = "ov-child,ov-grand,"
+chk "--subtree ov-child → the grandchild only" \
+  test "$(psout query --subtree ov-child --format slug | tr '\n' ',')" = "ov-grand,"
+chk "--subtree on a leaf → empty" test "$(psout query --subtree ov-grand --format count)" = "0"
+chk "--roots → only kind plan with no parent" \
+  test "$(psout query --roots --format slug | sort | tr '\n' ',')" = "ov-a,ov-b,ov-deferred,ov-g1,ov-g2,ov-orphan,"
+chk "--open-counts: ov-a counts BOTH levels of its chain" \
+  test "$(psout query --slug ov-a --open-counts --format tsv --fields open_descendants)" = "2"
+chk "--open-counts: ov-child counts its own one descendant" \
+  test "$(psout query --slug ov-child --open-counts --format tsv --fields open_descendants)" = "1"
+chk "--open-counts: a leaf counts 0" \
+  test "$(psout query --slug ov-grand --open-counts --format tsv --fields open_descendants)" = "0"
+ps set ov-grand implemented >/dev/null
+chk "--open-counts: closing the leaf drops the root's count (open ≠ merely present)" \
+  test "$(psout query --slug ov-a --open-counts --format tsv --fields open_descendants)" = "1"
+chk "--subtree still lists the CLOSED descendant (membership is structural)" \
+  test "$(psout query --subtree ov-a --format count)" = "2"
+ps set ov-grand draft >/dev/null
+chk "--open-counts absent unless asked for" \
+  test "$(psout query --slug ov-a | jq -r '.[0] | has("open_descendants")')" = "false"
+
+echo "-- M4. output layer: --format / --fields / --sort / --limit --"
+chk "--format count equals --format slug | wc -l" \
+  test "$(psout query --kind plan --format count)" = "$(psout query --kind plan --format slug | wc -l | tr -d ' ')"
+chk "--format slug omits the slugless legacy entry rather than inventing a placeholder" \
+  test "$(psout query --kind legacy_handoffs --format slug)" = ""
+chk "--format tsv: one row per entry"  test "$(psout query --format tsv | wc -l | tr -d ' ')" = "$(psout query --format count)"
+chk "--format tsv: default 4 columns"  test "$(psout query --format tsv | head -1 | awk -F'\t' '{print NF}')" = "4"
+chk "--format tsv: null renders as the - placeholder, never an empty field" \
+  test "$(psout query --slug ov-a --format tsv --fields slug,group)" = "$(printf 'ov-a\t-')"
+chk "--format table: prints a header row" has "STATE" "$(psout query --format table)"
+chk "--fields dot path pulls one nested scalar" \
+  test "$(psout query --slug ov-b --format tsv --fields steps.total)" = "2"
+chk "--fields dot path reaches into a ref object" \
+  test "$(psout query --slug ov-child --format tsv --fields parent.slug)" = "ov-a"
+chk "--fields json projection emits ONLY the requested keys" \
+  test "$(psout query --slug ov-b --fields steps.total | jq -c '.[0]|keys')" = '["steps.total"]'
+chk "--limit truncates"    test "$(psout query --limit 2 --format count)" = "2"
+chk "--limit 0 is empty"   test "$(psout query --limit 0 --format count)" = "0"
+chk "--sort slug ascends"  test "$(psout query --kind plan --sort slug --format slug | tr '\n' ',')" = "$(psout query --kind plan --format slug | sort | tr '\n' ',')"
+out="$(ps query --format bogus)"; rc=$?
+chk "--format rejects an unknown value (exit 1)"        test "$rc" = "1"
+chk "--format error names the valid set"                has "json|table|slug|count|tsv" "$out"
+ps query --limit abc >/dev/null 2>&1; rc=$?
+chk "--limit rejects a non-integer (exit 1)"            test "$rc" = "1"
+out="$(ps query --state)"; rc=$?
+chk "a flag missing its value is a usage error"         test "$rc" = "1"
+chk "  ...and says which flag"                          has -- "--state needs a value" "$out"
+ps query --slug ov-a --subtree ov-a >/dev/null 2>&1; rc=$?
+chk "--slug and --subtree together are refused"         test "$rc" = "1"
+ps query --open --closed >/dev/null 2>&1; rc=$?
+chk "--open and --closed together are refused"          test "$rc" = "1"
+ps query --frobnicate >/dev/null 2>&1; rc=$?
+chk "an unknown flag is a usage error"                  test "$rc" = "1"
+ps query --slug nope >/dev/null 2>&1; rc=$?
+chk "--slug on a nonexistent plan is a usage error"     test "$rc" = "1"
+
+echo "-- M5. --kind handoff: notes as first-class items, opt-in only --"
+chk "bare query returns NO handoff entries" \
+  test "$(psout query | jq '[.[]|select(.kind=="handoff")]|length')" = "0"
+disk_notes="$(find "$REPO/.mentor" -type f -name '*.md' -path '*/handoffs/*' | wc -l | tr -d ' ')"
+chk "--kind handoff count equals the on-disk note count (live AND resolved)" \
+  test "$(psout query --kind handoff --format count)" = "$disk_notes"
+chk "--kind handoff: live/resolved both present and labelled" \
+  test "$(psout query --kind handoff | jq -r '[.[].handoff_state]|unique|join(",")')" = "live,resolved"
+chk "--kind handoff: a note carries its topic" \
+  test "$(psout query --kind handoff | jq -r 'map(select(.path|endswith("live-note.md")))[0].topic')" = "ov-a"
+chk "--kind handoff: the legacy flat note has a null topic" \
+  test "$(psout query --kind handoff | jq -r 'map(select(.path|endswith("legacy-note.md")))[0].topic')" = "null"
+chk "--kind handoff: path is repo-relative, not absolute" \
+  test "$(psout query --kind handoff | jq -r '[.[]|select(.path|startswith("/"))]|length')" = "0"
+chk "--kind handoff: mtime is an ISO-8601 Z timestamp" \
+  sh -c 'printf "%s" "$0" | jq -e "all(.[]; .mtime|test(\"^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$\"))" >/dev/null' \
+    "$(psout query --kind handoff)"
+chk "--kind handoff: the resolved/ note is labelled, not dropped (anchored exclusion)" \
+  test "$(psout query --kind handoff | jq -r '[.[]|select(.handoff_state=="resolved")]|length')" = "1"
+chk "--kind handoff: that resolved note is the one under ov-a/handoffs/resolved/" \
+  test "$(psout query --kind handoff | jq -r 'map(select(.handoff_state=="resolved"))[0].path|endswith("resolved/old-note.md")')" = "true"
+chk "a plan entry's own handoffs array still excludes resolved notes" \
+  test "$(psout query --slug ov-a | jq -c '.[0].handoffs')" = '["live-note.md"]'
+
+echo "== N. query is fail-soft when jq is absent from PATH =="
+out="$(psq_nojq_out query)"
+err="$(psq_nojq_err query)"
+rc=0; psq_nojq_rc query || rc=$?
 chk "no jq → exit 0"                  test "$rc" = "0"
 chk "no jq → empty stdout"            test -z "$out"
 chk "no jq → one-line stderr notice"  test "$(printf '%s\n' "$err" | wc -l | tr -d ' ')" = "1"
 chk "no jq → notice names the problem" has "jq not found" "$err"
+
+echo "== N2. overview and subtree are RETIRED: they fail loudly and name query, never no-op =="
+for retired in overview subtree; do
+  out="$(ps "$retired" --json)"; rc=$?
+  chk "$retired → exit 1 (not a silent success)" test "$rc" = "1"
+  chk "$retired → says it was retired"           has "was retired" "$out"
+  chk "$retired → names query as the replacement" has "query" "$out"
+  chk "$retired → is NOT reported as an unknown subcommand" hasnt "Unknown subcommand" "$out"
+done
+out="$(ps subtree ov-a)"; rc=$?
+chk "subtree <slug> → exit 1 even with a real slug"      test "$rc" = "1"
+chk "subtree <slug> → points at the --subtree flag"      has -- "--subtree" "$out"
+chk "subtree <slug> → also points at --roots --open-counts for the all-roots case" \
+  has -- "--roots --open-counts" "$out"
+out="$(ps)"; 
+chk "usage block lists query"                   has "query \[select\]" "$out"
+chk "usage block no longer lists overview"      hasnt "^  overview " "$out"
+chk "usage block no longer lists subtree"       hasnt "^  subtree " "$out"
+# The whole point of retiring them: ov-b keeps its priority for section O below.
+ps init ov-b --priority critical >/dev/null
 
 echo "== O. list stays byte-compatible even when a plan carries deps/origin/priority/category/deferred_from (v2.25.0: 3 more append-last fields) =="
 ps init ov-b --deferred >/dev/null   # give ov-b an origin too, alongside its deps
@@ -1473,7 +1673,7 @@ ps set tr-refire implemented >/dev/null            # first close — the fresh t
 out="$(pserr set tr-refire implemented)"           # idempotent re-close (e.g. ship re-running set)
 chk "idempotent re-close → no re-fired tick warning" hasnt "steps ticked" "$out"
 
-echo "== T. subtree <slug>: every transitive descendant via parent chains, indented by depth, effective state + open/closed, trailing count (v2.29.0) =="
+echo "== T. query --subtree / --open-counts: transitive descendants via parent chains, open/closed verdicts, counts (v2.33.0, was `subtree`) =="
 rm -rf "$PLANS"; mkdir -p "$PLANS"
 plan st-root '# root' '## Implementation steps' '1. one' '2. two'
 plan st-child '# child' '## Implementation steps' '1. one' '2. two'
@@ -1484,42 +1684,51 @@ ps init st-child --parent st-root >/dev/null
 ps init st-grandchild --parent st-child >/dev/null
 ps init st-other >/dev/null
 
-out="$(ps subtree st-other)"; rc=$?
-chk "subtree with no descendants → exit 0"    test "$rc" = "0"
-chk "subtree with no descendants → says so"   has "no descendants" "$out"
+# `subtree <slug>` printed an indented tree plus a trailing "N open descendant(s)." line;
+# `query --subtree` returns the same descendant SET as data, and `--open-counts` returns
+# the same N as a field. Depth is no longer rendered as indentation — a consumer that
+# wants the branch shape reads each entry's own `parent`, which is the same
+# consumer-side reconstruction lib/state.sh's mentor_plan_descendants always documented.
+out="$(psout query --subtree st-other --format count)"; rc=$?
+chk "--subtree with no descendants → exit 0"    test "$rc" = "0"
+chk "--subtree with no descendants → count 0"   test "$out" = "0"
 
-out="$(ps subtree st-root)"; rc=$?
-chk "subtree → exit 0"                        test "$rc" = "0"
-chk "subtree lists the direct child"          has "st-child" "$out"
-chk "subtree lists the transitive grandchild" has "st-grandchild" "$out"
-chk "subtree reports both as open (draft, not implemented/superseded)" \
-  test "$(printf '%s' "$out" | grep -c 'open$')" = "2"
-chk "subtree reports the trailing open count"  has "2 open descendant(s)." "$out"
-# The grandchild line is indented deeper than the direct-child line — depth increases
-# going down the tree.
-child_indent="$(printf '%s' "$out" | grep -m1 'st-child ' | sed -E 's/^( *).*/\1/' | wc -c)"
-grandchild_indent="$(printf '%s' "$out" | grep -m1 'st-grandchild' | sed -E 's/^( *).*/\1/' | wc -c)"
-chk "grandchild is indented deeper than the direct child" test "$grandchild_indent" -gt "$child_indent"
+out="$(psout query --subtree st-root)"; rc=$?
+chk "--subtree → exit 0"                        test "$rc" = "0"
+chk "--subtree lists the direct child"          has "st-child" "$out"
+chk "--subtree lists the transitive grandchild" has "st-grandchild" "$out"
+chk "--subtree returns breadth-first: child before grandchild" \
+  test "$(psout query --subtree st-root --format slug | tr '\n' ',')" = "st-child,st-grandchild,"
+chk "--subtree never includes the root itself" \
+  sh -c 'case ",$0," in *,st-root,*) exit 1 ;; *) exit 0 ;; esac' "$(psout query --subtree st-root --format slug | tr '\n' ',')"
+chk "both descendants are open (draft, not implemented/superseded)" \
+  test "$(psout query --subtree st-root --open --format count)" = "2"
+chk "--open-counts reports the same N the trailing count used to" \
+  test "$(psout query --slug st-root --open-counts --format tsv --fields open_descendants)" = "2"
+chk "depth is readable from each entry's own parent field" \
+  test "$(psout query --subtree st-root --format tsv --fields slug,parent.slug | tr '\n' ';')" \
+     = "$(printf 'st-child\tst-root;st-grandchild\tst-child;')"
 
-# Close the grandchild → it verdicts closed, the trailing open count drops to 1.
+# Close the grandchild → it verdicts closed, the open count drops to 1.
 ps set st-grandchild implemented >/dev/null
-out="$(ps subtree st-root)"
 chk "closing the grandchild flips its own verdict to closed" \
-  test "$(printf '%s' "$out" | grep 'st-grandchild' | grep -c 'closed')" = "1"
-chk "open count now reflects only the still-open child" has "1 open descendant(s)." "$out"
+  test "$(psout query --subtree st-root --closed --format slug)" = "st-grandchild"
+chk "open count now reflects only the still-open child" \
+  test "$(psout query --slug st-root --open-counts --format tsv --fields open_descendants)" = "1"
 
-# Close the direct child too → subtree reports zero open, but descendants still list.
+# Close the direct child too → zero open, but descendants still list.
 ps set st-child implemented >/dev/null
-out="$(ps subtree st-root)"
-chk "all descendants closed → 0 open descendant(s)."  has "0 open descendant(s)." "$out"
-chk "closed descendants still listed (not hidden)"    has "st-child" "$out"
+chk "all descendants closed → open count 0" \
+  test "$(psout query --slug st-root --open-counts --format tsv --fields open_descendants)" = "0"
+chk "closed descendants still listed (membership is structural, not a verdict)" \
+  test "$(psout query --subtree st-root --format count)" = "2"
 
-out="$(ps subtree no-such-plan)"; rc=$?
-chk "subtree unknown slug → exit 1"           test "$rc" = "1"
-out="$(ps subtree)"; rc=$?
-chk "subtree with no slug → exit 1"           test "$rc" = "1"
-out="$(ps subtree st-root extra)"; rc=$?
-chk "subtree with a stray extra argument → exit 1" test "$rc" = "1"
+rc=0; ps query --subtree no-such-plan >/dev/null 2>&1 || rc=$?
+chk "--subtree unknown slug → exit 1"           test "$rc" = "1"
+rc=0; ps query --subtree >/dev/null 2>&1 || rc=$?
+chk "--subtree with no value → exit 1"          test "$rc" = "1"
+rc=0; ps query --subtree st-root extra >/dev/null 2>&1 || rc=$?
+chk "--subtree with a stray extra argument → exit 1" test "$rc" = "1"
 
 echo "== U. set <slug> implemented: unconditional soft WARN when open descendants exist (write still succeeds); no warn once all close (v2.29.0) =="
 rm -rf "$PLANS"; mkdir -p "$PLANS"

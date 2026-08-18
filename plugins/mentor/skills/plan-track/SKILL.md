@@ -27,7 +27,7 @@ honest on their own.
 - **Authoring a plan for a new ask** — that is `/mentor:plan`.
 - **One plan is too big** — that is `/plan-split`.
 - **Capturing new work discovered mid-flow** — that is `/mentor:defer`. It writes the stub; this
-  skill only reads what already exists (via `overview`) and, when the user picks a stub, routes
+  skill only reads what already exists (via `query`) and, when the user picks a stub, routes
   them to `/mentor:plan` to flesh it out.
 - **Auditing a plan's quality before approving it** — that is `/plan-review`.
 - **Resuming a *session* from a handoff note** — that is `/mentor:resume`. Handoff
@@ -76,17 +76,30 @@ having no check at all.
 ## Step 1 — See the hierarchy
 
 ```bash
-bash "${CLAUDE_PLUGIN_ROOT}/hooks/plan-state.sh" overview --json
+bash "${CLAUDE_PLUGIN_ROOT}/hooks/plan-state.sh" query --open-counts
 ```
 
 This is the ONE call that answers "what's remaining?" — a JSON array covering every plan dir with
 a `plan.md` (slug, effective state, group, order, `priority`, `deps` — each marked `missing` when
 no such plan dir exists, `origin`, live handoffs, `✅` step counts), plus topic dirs holding a live
 handoff but no plan yet, plus the legacy flat `.mentor/handoffs/*.md` dir. It replaces the old
-`list` table — `list` still exists and is byte-compatible, but `overview` is the only call that
+`list` table — `list` still exists and is byte-compatible, but `query` is the only call that
 also carries deps, origin, priority, and step counts, so it is Step 1 now. Whenever it prints anything, that output is valid JSON
 (`jq .` parses it); see the hook script's header comment for the exact per-entry shape
 (`kind: "plan" | "no_plan_topic" | "legacy_handoffs"`). Plan files live at `PLANS_DIR/<PLAN>/plan.md`.
+
+`--open-counts` is what makes this **one** call rather than one plus a per-root walk: it adds
+`open_descendants` to every entry from a single pass over the parent graph, which is exactly the
+number the roll-up clause below renders. Historically (before v2.33.0 retired it) the same figure
+took one `subtree` call per root — 32 subprocesses and about 5 seconds on this repo before anything
+was drawn.
+
+`query` also takes filters, so an ask narrower than the whole hierarchy does not have to pull the
+whole hierarchy and sift it in `jq`: `--open`, `--state`, `--category`, `--priority`, `--parent`,
+`--no-parent`, `--deferred-from`, `--match`, and friends AND-combine, and `--format
+json|table|slug|count|tsv` with `--fields a,b` shapes what comes back. The full flag set is in
+`plan-state.sh`'s usage block. Step 1 itself stays unfiltered on purpose — this view is the
+inventory of what is left, and a filtered inventory is a different (and easily misleading) answer.
 
 **It can also print nothing at all** — stdout empty, exit 0, one stderr line saying which case it
 hit: **no git repo** (mentor keeps no plan registry outside a repo), or **no `.mentor/plans` dir
@@ -169,24 +182,28 @@ Per plan entry: `<glyph> [<tier>] [<cat>] <slug>   <state>[ (fix child)][ (defer
   applies — `(fix child, deferred)` is an unclaimed parked stub; `(fix child)` alone is a claimed
   fix already being built in its own right.
 - `from: <slug>` joins that parenthetical on a deferred entry whose `deferred_from` is set — e.g.
-  `(deferred, from: loom-automation)` — resolved against the same `overview --json` array already
-  in hand (never a filesystem probe). When the slug matches **no entry in that same output**, render
-  `from: <slug> (missing)` instead — a deleted source plan must never silently dangle in the very
-  view built for triage trust (parity with the `deps` `(missing)` marker below).
+  `(deferred, from: loom-automation)`, reading `deferred_from.slug`. When `deferred_from.missing`
+  is true, render `from: <slug> (missing)` instead — a deleted source plan must never silently
+  dangle in the very view built for triage trust (parity with the `deps` `(missing)` marker below).
+  The field carries `{slug, missing}` directly, the same shape `deps[]` has always had, so there is
+  nothing to re-resolve here: this used to mean scanning the array for a matching entry at render
+  time, and two renderers checking a dangle by hand is two chances to check it differently.
 - step counts only when `steps.total > 0`.
 - the `deps` clause only when `deps` is non-empty; a dep entry with `missing: true` gets
   ` (missing)` appended — named as a dependency, but no such plan dir exists yet.
 - the `— N open descendant(s)` clause only on a **true root** — an entry with no `parent` of its
   own — and only when N > 0; an internal fix's own count would just repeat what the next line
-  down already shows. Get N (and the list, when asked) from `plan-state.sh subtree <root-slug>`,
-  never a hand-rolled walk — "open" is that command's own definition (effective state ∉
-  `implemented`/`superseded`), not one to re-derive here. A dangling `parent` (matches no entry in
-  this same `overview --json` output) falls the entry back to the top level with `(parent: <slug>
-  missing)` appended — parity with the `deps` and `from:` missing markers above.
+  down already shows. N is the entry's own `open_descendants`, already in hand from Step 1's
+  `--open-counts` — never a hand-rolled walk, and no longer a call per root. When the LIST is
+  wanted too (the user asks which ones), `plan-state.sh query --subtree <root-slug>` returns those
+  entries. "Open" stays `query`'s own definition (effective state ∉ `implemented`/`superseded`),
+  not one to re-derive here. A `parent` whose `missing` is true falls the entry back to the top
+  level with `(parent: <slug> missing)` appended — parity with the `deps` and `from:` markers
+  above, and read off the field rather than re-resolved against the array.
 - a `— ⚠ N unparented open fix(es) trace here` clause when N > 0 open (effective state ∉
-  `implemented`/`superseded`) `category: "fix"` entries in this same `overview --json` output
+  `implemented`/`superseded`) `category: "fix"` entries in this same `query` output
   carry `deferred_from` = this entry's slug but no `parent` of their own — lineage without
-  containment, which `subtree` and the descendant roll-up above are structurally blind to
+  containment, which `--subtree` and the descendant roll-up above are structurally blind to
   (typically fixes captured before the owning-plan routing rule existed, or judged backlog at
   capture). The stubs themselves still render flat at the top level — structure stays
   `parent`-only — but without this clause an `implemented` plan whose confirmed defects were
@@ -197,8 +214,8 @@ Per plan entry: `<glyph> [<tier>] [<cat>] <slug>   <state>[ (fix child)][ (defer
   repair hint line — unnumbered, never consuming an ordinal (Step 2's selection resolves
   against this render):
   `unparented fixes exist — adopt with: bash "${CLAUDE_PLUGIN_ROOT}/hooks/plan-state.sh" set-parent <stub-slug> <owning-plan>`.
-- ` [worktree: <id>]` appended when the entry's `owner` (an additive field on every `overview
-  --json` plan entry, v2.23.0) is set AND differs from the worktree you're running in. Derive
+- ` [worktree: <id>]` appended when the entry's `owner` (an additive field on every `query`
+  plan entry, v2.23.0) is set AND differs from the worktree you're running in. Derive
   your own id once, before rendering, by reusing the same helper the hooks use rather than
   re-deriving the recipe by hand:
 
@@ -211,11 +228,11 @@ Per plan entry: `<glyph> [<tier>] [<cat>] <slug>   <state>[ (fix child)][ (defer
   a KNOWN different owner does. This is what lets a reader spot a sibling worktree's draft before
   Step 2's selection or the dispatch that follows it, without waiting for Step 3's gate check to
   say so.
-- each entry's **live** handoffs (its `handoffs` array — `overview` already excludes `resolved/`)
+- each entry's **live** handoffs (its `handoffs` array — `query` already excludes `resolved/`)
   render as one indented line beneath it: `     └ handoff: <name> (live)`.
 - a deferred entry's `goal` (non-null only when `origin == "deferred"`) renders as one indented
   line beneath it, at the same indent the `handoff:` line above uses: `     └ goal: <text>` —
-  straight from `overview --json`'s `goal` key; the render never re-opens the plan file.
+  straight from `query`'s `goal` key; the render never re-opens the plan file.
 
 Split-group siblings (`group` set) stay contiguous, ordered by `order`; on the group's first
 sibling, print a one-line header `▸ group: <group-slug>` and indent the members two spaces under
@@ -223,7 +240,7 @@ it — same grouping `list` sorted by, just rendered instead of tabulated.
 
 ### Fix children nest under their parent, not the top level
 
-Walk `overview --json`'s `parent` field exactly as the paragraph above walks `group`: an entry
+Walk `query`'s `parent` field exactly as the paragraph above walks `group`: an entry
 with `parent` set never renders at the top level, but directly beneath its parent's line, indented
 two spaces deeper than it — recursively, so a fix parked under a fix (a grandchild of the root)
 sits two spaces deeper again, however far the chain runs. This composes with the group block: a
@@ -241,7 +258,7 @@ A worked example, three levels deep — `fix-retry-loop`'s `parent` is `fix-auth
 ```
 
 `root-plan` carries the roll-up because it has no `parent` of its own; neither fix line repeats
-it. A root whose own effective state already reads `implemented` while `subtree` still reports
+it. A root whose own effective state already reads `implemented` while `query --subtree` still reports
 open descendants — the CLI's warn on `set … implemented` fired once at write time, but nothing
 re-checks it later — surfaces the same warning here: prefix the line `⚠ ` and swap the tail to
 `— not really done, N open descendant(s)`, exactly as `root-plan` does above.
@@ -255,7 +272,7 @@ selection resolves against fix children exactly as it does everything else in th
 "sibling of a split, same rank" (the `▸ group:` header); `parent` means "must close before its
 container reads done" (tree position, the root's count, and the warn). Draining a root's open
 descendants in order is `/mentor:resume <root>`'s job, not this skill's — it walks the same
-subtree; here you only ever see the count and the warn.
+descendants; here you only ever see the count and the warn.
 
 `kind: "no_plan_topic"` entries use `▷` and the literal state text `no plan yet`, followed by their
 `handoff:` line(s) — a topic that only has conversation history, never a plan.
@@ -269,9 +286,9 @@ Sort `kind: "plan"` entries the same way the old `list` table did: active states
 
 ### On a broader ask than the hierarchy (a scope/goal digest)
 
-The hierarchy above is deliberately just state + progress — `overview --json`'s `goal` field is
+The hierarchy above is deliberately just state + progress — `query`'s `goal` field is
 populated **only** for `origin: "deferred"` entries, by design (`plan-state.sh`'s `_plan_walk` skips
-the `plan.md` re-read for every ordinary plan so `overview` stays fast on a big plan set; see that
+the `plan.md` re-read for every ordinary plan so `query` stays fast on a big plan set; see that
 function's own comment). When a survey-shaped ask (the gate above) wants more than the bare
 hierarchy — a one-line synopsis of what each plan actually covers — do **not** hand-roll ad hoc
 `grep`/heading patterns against `plan.md`: plans don't share one heading convention (one `plan-
@@ -333,7 +350,7 @@ to a file, a plan section, a coined id or code, or an earlier turn to learn what
 Here that means an option describes the plan's *work* and where it stands ("Thanos SSA reprojection
 — approved, 3 of 7 steps left"), never a bare slug or a hierarchy position ("the second one"): the
 hierarchy scrolled off the moment the question opened. For a deferred stub, that description can
-draw on `overview`'s `goal`, `deferred_from`, and `priority` keys directly — e.g. "claim-order-
+draw on `query`'s `goal`, `deferred_from`, and `priority` keys directly — e.g. "claim-order-
 tiebreak — medium-priority fix deferred from loom-automation: `claim_order()` in daily-run.sh orders
 concurrent…" — rather than falling back to the bare stub state.
 
@@ -347,7 +364,7 @@ expected instead of a surprise two steps later.
 ## Step 2.5 — Deps advisory (soft — never a block)
 
 If the selected entry's `deps` array is non-empty, look up each dep's effective state in the same
-`overview --json` output you already have (match by slug; a dep marked `missing` has no plan dir
+`query` output you already have (match by slug; a dep marked `missing` has no plan dir
 at all). When any dep is not `implemented`:
 
 - Say so plainly — name the unmet dep(s) and their current state (or "not yet planned" for a
@@ -366,7 +383,7 @@ No deps, or all deps already `implemented` → nothing to say; continue.
 topic dir holding conversation history and no `plan.md` — no `.state.json`, so no row of the table
 below applies, and no implementation steps, so there is nothing to dispatch. Do not fall through to
 the table: the closest-looking row (`unknown`) offers "mark it implemented", and `plan-state.sh set`
-will accept it — `require_slug` only checks that the dir exists — writing a sidecar no `overview`
+will accept it — `require_slug` only checks that the dir exists — writing a sidecar no `query`
 branch ever reads, under a report that says the work is done. Say plainly that this topic has no plan
 of record, then route:
 
@@ -380,14 +397,14 @@ of record, then route:
   lands in this same dir beside its handoffs; `mentor:planning` otherwise derives a slug from the
   request and can mint a second topic dir that orphans these notes.
 
-One caveat before recommending resume: `overview` lists every live `*.md` in the topic's `handoffs/`,
+One caveat before recommending resume: `query` lists every live `*.md` in the topic's `handoffs/`,
 while `/mentor:resume` lists only names matching `^[0-9]{8}-[0-9]{6}-.+\.md$`. If the basename
 rendered above does not match, say so — the note is real but invisible to resume until it is renamed,
 and `mentor:resuming` Step 4 owns that recovery on the user's explicit ask. Never dispatch a
 `no_plan_topic` entry, and never offer to.
 
 **A deferred stub short-circuits it next.** If the selected entry's `origin ==
-"deferred"` (same `overview --json`), it is an unclaimed `/mentor:defer` stub — a
+"deferred"` (same `query` output), it is an unclaimed `/mentor:defer` stub — a
 Goal/Context/Why-deferred skeleton, not a plan ready to build. Say so, then point the user at
 `/mentor:plan <the stub's slug or its Goal>` to flesh it out — that skill runs `claim` on the stub
 when it does, clearing `origin` so the normal approval sweep can pick it up afterward. The same
@@ -413,7 +430,7 @@ bash "${CLAUDE_PLUGIN_ROOT}/hooks/plan-state.sh" gate   # ARMED | ARMED_ELSEWHER
   still writing.
 
   Two things put you here, and the plan's own sidecar note tells them apart — read
-  `.mentor/plans/<slug>/.state.json` directly, since `overview --json` does not carry `note`:
+  `.mentor/plans/<slug>/.state.json` directly, since `query` does not carry `note`:
 
   - note says `approval retracted` → this plan's approval was taken back (`planning`'s
     [Retracting an approval](#retract)). Point the user at `/mentor:plan <slug>` to finish planning it.
@@ -444,7 +461,7 @@ Otherwise, act on the effective state:
 | Effective state | What to do |
 |---|---|
 | `approved` | If the sidecar's note says it was **swept in by `approve-plan.sh`** rather than individually approved (a different plan's approval promoted it too, because both `plan.md` files were newer than that session's marker), show the note and confirm with the user before dispatching — it was not necessarily reviewed. Otherwise set `in_progress`, then execute (below). |
-| `failed` | Show the sidecar's note — it says what broke last time, and on a verification failure it names the topics left unresolved. Then split on the ticks (`steps: {ticked, total}` from Step 1's `overview --json`). **`ticked < total`** — it broke mid-implementation: set `in_progress` and retry from the first unticked step, feeding that note to the first agent. **`ticked == total` with `total > 0`** — it broke at end-to-end verification, whether escalated after a failed remediation or handed off with topics outstanding: re-enter `mentor:dispatch-agents`' **Verifying the plan (execution-time)** round on the topics the note names — every topic, if a bare `set … failed` left the note empty — and leave the state at `failed` until Step 4's close-out writes `implemented`. Writing `in_progress` on this shape is erased on the next read — the tick derivation outranks it, so the plan would report `implemented` before the retry has run. A plan with no step lines at all (`{0, 0}`) takes neither branch: it never ran implementation steps, so read the note and pick up where it says. |
+| `failed` | Show the sidecar's note — it says what broke last time, and on a verification failure it names the topics left unresolved. Then split on the ticks (`steps: {ticked, total}` from Step 1's `query`). **`ticked < total`** — it broke mid-implementation: set `in_progress` and retry from the first unticked step, feeding that note to the first agent. **`ticked == total` with `total > 0`** — it broke at end-to-end verification, whether escalated after a failed remediation or handed off with topics outstanding: re-enter `mentor:dispatch-agents`' **Verifying the plan (execution-time)** round on the topics the note names — every topic, if a bare `set … failed` left the note empty — and leave the state at `failed` until Step 4's close-out writes `implemented`. Writing `in_progress` on this shape is erased on the next read — the tick derivation outranks it, so the plan would report `implemented` before the retry has run. A plan with no step lines at all (`{0, 0}`) takes neither branch: it never ran implementation steps, so read the note and pick up where it says. |
 | `in_progress` | An interrupted run. Re-enter execution **from the first unticked step**; never restart from step 1. |
 | `implemented` | Say so and offer another. Do not rebuild it. |
 | `draft` | **Not buildable as it stands.** The approval gate never released this plan, and once the marker has aged out (or the session that armed it ended) `plan-gate.sh` would happily allow the edits — this refusal is what keeps that from becoming a hole in the gate. A `draft` plan *with* a fresh **own** marker is a paused planning session and never reaches this row: the preflight above catches it. There is exactly one authorized way through, on the user's explicit say-so: **"Approving a draft plan here"** below — unless the preflight's gate check read `ARMED_ELSEWHERE`, in which case even that one way through is hard-refused (see above). |
@@ -473,7 +490,7 @@ and stop; do not ask the three-way question below. `ARMED` (this worktree's own 
 legacy marker) stops you here too, for the same reason Step 3's preflight already gives for
 `ARMED`. Only `STALE` or `RELEASED` let you continue.
 
-**Origin check, next.** Confirm `origin` for this slug (from Step 1's `overview --json`, or
+**Origin check, next.** Confirm `origin` for this slug (from Step 1's `query` output, or
 re-run it if you no longer have it in hand). If it is `"deferred"` — arriving here any other way
 than through Step 3's short-circuit above, e.g. the user jumped straight to "approve draft plan
 X" — **refuse**: this is an unclaimed `/mentor:defer` stub, and approving it as-is would promote
@@ -560,7 +577,7 @@ after the remediation re-dispatch also failed, or handing off with topics
 outstanding — and the note is what makes the retry cheap next time.
 
 **Reconcile the ticks before writing `implemented`.** Read this plan's
-`steps: {ticked, total}` from `plan-state.sh overview --json`; if `ticked < total`,
+`steps: {ticked, total}` from `plan-state.sh query`; if `ticked < total`,
 either tick the step lines that actually passed or tell the user which steps are
 closing untracked and why. `plan-state.sh set <slug> implemented` now prints a
 fail-soft warning when `ticked < total`, but that fires only *after* the write and

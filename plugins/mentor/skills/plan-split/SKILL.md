@@ -127,10 +127,11 @@ mentor_dir="$(bash "${CLAUDE_PLUGIN_ROOT}/hooks/plan-state.sh" dir)"   # worktre
 [ -n "$mentor_dir" ] || { echo "ERROR: mentor dir unresolved — is CLAUDE_PLUGIN_ROOT set? do not search the plugin cache or hardcode a version path; ask the user to /reload-plugins or restart" >&2; exit 1; }
 ls "$mentor_dir/constitution.md" 2>/dev/null   # include only if it exists
 # The one number every child's prompt quotes for the parent's size — take it from
-# overview's own step-tick counter, never a hand-count: two agents dispatched from the
+# query's own step-tick counter, never a hand-count: two agents dispatched from the
 # same hand-count have independently mis-derived it the same wrong way before.
-parent_step_count="$(bash "${CLAUDE_PLUGIN_ROOT}/hooks/plan-state.sh" overview --json \
-  | jq -r --arg s "<PARENT>" '.[] | select(.slug == $s) | .steps.total')"
+# `--slug` + `--fields` pulls exactly that one scalar, so there is no array to sift.
+parent_step_count="$(bash "${CLAUDE_PLUGIN_ROOT}/hooks/plan-state.sh" query \
+  --slug "<PARENT>" --format tsv --fields steps.total)"
 ```
 
 **Mint every child's directory from the MAIN THREAD before dispatching any agent —
@@ -286,7 +287,7 @@ starts:
 - Each child is implementable alone, given only its stated dependencies.
 - Each child has a non-empty **Owns** and **Does NOT touch**.
 - No child's Context/Scenario prose misstates the parent's own metrics (step counts, etc.) or
-  what a sibling proves — check each against `<PARENT-STEP-COUNT>` (from `overview --json`, not
+  what a sibling proves — check each against `<PARENT-STEP-COUNT>` (from `query`, not
   a hand-count) and item 4's own line for that sibling. Two independently-dispatched children can
   make the same wrong inference for the same reason, so this is worth checking even when both agree.
 
@@ -334,15 +335,16 @@ deleting.
 2. **Check the structural links mechanically first — `plan-state.sh` already has the answer,
    so don't grep for it:**
    ```bash
-   bash "${CLAUDE_PLUGIN_ROOT}/hooks/plan-state.sh" subtree <retiring-slug>
+   bash "${CLAUDE_PLUGIN_ROOT}/hooks/plan-state.sh" query --subtree <retiring-slug>
    bash "${CLAUDE_PLUGIN_ROOT}/hooks/plan-state.sh" list --group <retiring-slug>
    ```
    Every child born from this split still names the parent as its `group` — that's expected
    lineage, not a reason to keep the directory. What matters is anything **outside** this split's
    own children still depending on it: an unrelated plan with `<retiring-slug>` as its `parent`,
-   or one whose `deps` would go `missing: true` once the directory is gone (`overview --json`
-   already flags this per plan). Those must be repointed with `set-parent`/`set-deps` — never a
-   text `Edit` of `.state.json`, which `plan-state.sh` alone writes.
+   or one whose `deps` would go `missing: true` once the directory is gone (`query --deps-missing`
+   lists exactly those, once the dir is gone; `query --parent <retiring-slug>` lists the first
+   set). Those must be repointed with `set-parent`/`set-deps` — never a text `Edit` of
+   `.state.json`, which `plan-state.sh` alone writes.
 3. **Then sweep the prose — plan-level citations `plan-state.sh` cannot see:**
    ```bash
    # Re-derive: step 1's block was a separate Bash call and its variables are gone. An unset
@@ -379,8 +381,9 @@ deleting.
    will NOT be removed by deleting it:
    - `.mentor/zooms/<retiring-slug>/` (`mentor:zooming`'s `zoom_dir`)
    - `.mentor/tours/<retiring-slug>-*.html` (`mentor:touring`'s acceptance tours)
-8. **Verify.** Re-run `overview --json` for the whole repo and confirm nothing still reports
-   `<retiring-slug>` as a `parent` or a `deps` entry with `missing: true` — that would mean a
+8. **Verify.** Both checks are now a filter each, so neither needs reading the whole array:
+   `query --parent <retiring-slug> --format count` must print `0`, and `query --deps-missing
+   --format slug` must not list anything pointing at `<retiring-slug>`. A hit in either means a
    repoint from step 2 or 3 was missed.
 
 ## Done when
