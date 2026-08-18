@@ -13,7 +13,10 @@ Immediately call `Skill({"skill": "mentor:deferring"})` and follow it end to end
 or many in a single call, judges each item's **priority** (`critical|high|medium|low|noise`) and
 **category** (`feature|fix|refactor|docs|tooling` — deliberately no `test`/`verify` entry) from the
 conversation's own evidence, plus the **source plan** (`--from`) when one is interrupted, leaving
-any of the three unset rather than inventing a default. It refuses check-shaped items — a deferred
+any of the three unset rather than inventing a default. When a caller supplies that routing
+outright — a mentor gate that already carries the user's verdict prepends `from`/`parent`/
+`category` in prose ahead of the skill load — the skill takes it as given and judges only what
+was left out. It refuses check-shaped items — a deferred
 stub captures work to build, never a check to run — then creates a stub `plan.md` (Goal / Context /
 Why deferred / Suggested first steps) plus a `.state.json` marked `origin: "deferred"` (with the
 judged `priority`/`category`/`deferred_from`) for each, reports every created stub as

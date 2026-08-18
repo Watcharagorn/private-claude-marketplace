@@ -1178,11 +1178,13 @@ require_jq_read() {
 # Agent dispatch with no matching TaskList call — a prior learn fix already reworded
 # that rule's prose once and the same miss recurred, so this gives it a structural
 # trigger instead of depending on the model re-reading ~15 lines of prose late in a
-# session. The defer-sweep line is unconditional on both terminal states, matching the
+# session. The follow-up line is unconditional on both terminal states, matching the
 # checklist's own "always, whatever Verification returned." (v2.25.0: reworded to
-# scope the sweep — a deferred stub captures isolated WORK to build, never a check to
+# scope it — a deferred stub captures isolated WORK to build, never a check to
 # run; an unresolved verification topic belongs on ITS OWN plan's record via
-# `set <slug> failed --note "…"`, not a backlog stub that lets the plan close clean.)
+# `set <slug> failed --note "…"`, not a backlog stub that lets the plan close clean.
+# v2.33.0: deferral became manual-only, so the line asks for follow-ups to be NAMED
+# and offers /mentor:defer as a pointer, instead of instructing a sweep through it.)
 # The tour/ship lines print only for `implemented` — the checklist explicitly holds
 # them on `failed`/handed-off ("which speak for work that was accepted"). Never
 # blocks — the state write already succeeded by the time this runs.
@@ -1195,7 +1197,7 @@ closing_checklist_reminder() {
   - TaskList: enumerate live tasks, diff against this session's dispatch tree, TaskStop only what traces to it."
   fi
   echo "[mentor plan-state] Closing checklist (dispatch-agents' CLOSING CHECKLIST):${tasklist_line}"
-  echo "  - Sweep any follow-up WORK through /mentor:defer before it's forgotten — never a check: an unresolved verification topic ends 'failed --note', not a stub."
+  echo "  - Name every follow-up WORK item in the report before it's forgotten — don't park it yourself; offer /mentor:defer and let the user choose. Never a check: an unresolved verification topic ends 'failed --note', not a stub."
   if [ "$outcome" = "implemented" ]; then
     echo "  - Offer /mentor:tour — one line."
     echo "  - Point at /mentor:ship — one line."

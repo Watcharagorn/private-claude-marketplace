@@ -30,7 +30,7 @@ cd plugins/mentor/evals
 python3 harness.py claude-opus-5 2      # <model> <reps-per-query>
 ```
 
-Needs the `claude` CLI on PATH. ~44 queries × reps, 6 at a time, roughly 10–25s each.
+Needs the `claude` CLI on PATH. ~55 queries × reps, 6 at a time, roughly 10–25s each.
 The scratch project and `results.json` are written to `$TMPDIR/mentor-trigger-eval/`
 (override with `MENTOR_EVAL_WORKDIR`) — never into the repo.
 
@@ -74,7 +74,7 @@ keyword baits (`break up` commits, `split` a component, `review` a PR, `track` a
 sprint, `zoom` the video call) that share vocabulary with a skill but must trigger
 nothing.
 
-## Two known failures, both understood
+## Known failures, all understood
 
 - **#20** (`plan` fires on a bare "help me plan X") is expected and **not** a hole.
   The semantic match beats any wording that merely asks the model to prefer the
@@ -85,6 +85,15 @@ nothing.
 - **#2** is a flawed query, deliberately left alone. It reuses `plan-track`'s own
   phrase "one session at a time" and gives "break this up" no referent. Tuning a
   description to win it would be overfitting to a bad test.
+
+- **#55** (`dispatch-agents` on a goal-blocking verification gap, added in v2.33.0) is
+  **not baselined**. Measured over 10 runs it splits between `dispatch-agents` and a bare
+  non-trigger, every run landing in the 55–100s band this file flags as the
+  fixture/latency signature rather than a description defect — and untouched **#45**, a
+  pre-existing core trigger whose description v2.33.0 never edited, fails 4/4 the same
+  slow way in the same environment. What #55 exists to guard **does** hold flat: across
+  all 10 runs `deferring` never fired once. Read a red #55 as unbaselined, not as a
+  regression, until someone re-baselines the whole set on a clean fixture.
 
 When you add a skill, run this first. A new sibling that quietly steals
 an existing skill's queries is exactly what it is here to catch — v2.12.0's `zoom`

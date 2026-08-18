@@ -593,11 +593,11 @@ Required sections, in order:
    oversize threshold below doing its job, not a reason to re-merge.
    **Keep it small while you write:** if the step count creeps past ~12 while
    drafting this section — Step 6's oversize threshold below, just reached early —
-   pause and offer to defer non-core **isolated deliverables** — a plan's `## Verification`
-   section is never a deferrable chunk, since a deferred stub captures work to build, never a check to run —
-   via `Skill(skill="mentor:deferring")` before finishing the write, rather than waiting for
-   the Step 6 gate to catch an already-oversized plan. A plan that arrives at Step 6
-   already trimmed rarely needs the full split treatment.
+   pause and offer to narrow the plan: move non-core **isolated deliverables** into
+   `## Out of scope`, or split. A plan's `## Verification` section is never one of those
+   chunks — every topic stays with the work it checks. Doing this while drafting beats
+   waiting for the Step 6 gate to catch an already-oversized plan; a plan that arrives at
+   Step 6 already trimmed rarely needs the full split treatment.
    **Never title a step "Verification pass," "Testing," or similar** — that name
    belongs to the plan's own `## Verification` section below, and a step that reads
    as satisfying it invites skipping that section's mandatory per-topic dispatch at
@@ -845,9 +845,9 @@ re-slicing a slice usually means the first split drew its lines in the wrong pla
 Typing `/plan-split` still works if the user insists.
 
 When oversized, mention in the question text that non-core **isolated deliverables**
-can instead be **deferred via `/mentor:defer`** rather than a full split — a lighter
+can instead be **moved into `## Out of scope`** rather than a full split — a lighter
 alternative worth naming even though it isn't its own button; a plan's `## Verification`
-section is never a deferrable chunk, since a deferred stub captures work to build, never a check to run.
+section is never one of those chunks, since every topic stays with the work it checks.
 The option table below is unchanged: the user reaches this by typing it into
 `AskUserQuestion`'s always-present "Other" free text, not by picking a listed option.
 
@@ -895,9 +895,9 @@ second place for it to drift out of sync with this one.
 handoff option.** It is a command, not an option: it writes a handoff note and never
 calls `approve-plan.sh`, so it neither releases the gate nor needs the plan approved
 first. A user who wants a fresh agent to continue before any context verdict fires can
-type it into this question's always-present "Other" free text — the same route
-`/mentor:defer` takes above — rather than rejecting the question, which returns no
-answer and forces a re-ask. That covers the literal command; bare handoff *intent* in
+type it into this question's always-present "Other" free text — the same route the
+trim-to-`## Out of scope` alternative takes above — rather than rejecting the question,
+which returns no answer and forces a re-ask. That covers the literal command; bare handoff *intent* in
 free text is still governed by the routing rule below.
 
 **Whenever both handoff options are listed, say in the question text which options
@@ -1009,10 +1009,11 @@ release, but there is still work to hand back:
   editable guided-tour review artifact (pass/not-pass scenarios) of what shipped.
   Do not auto-run it; it publishes to a stable URL, so the user chooses.
 - **Sweep the report you're about to write** — every follow-up, gap, or
-  known-broken item in it goes through `/mentor:defer` first, scoped to
-  work to build, never a check to run: an unresolved verification topic
-  or an unverified claim is never a stub — it's `set <slug> failed --note`
-  on the plan; only a confirmed defect's fix still defers.
+  known-broken item in it is **named** there, in plain terms, so nothing survives
+  only as an aside that dies with the session. Do not capture them on your own:
+  parking work is the user's call. Offer `/mentor:defer` as the pointer for
+  whatever they want parked. Either way an unresolved verification topic or an
+  unverified claim is never a stub — it's `set <slug> failed --note` on the plan.
 
 Skipping dispatch is a decision about *who types the edits*, not a discount on
 what the user gets at the end. Implementation may be main-thread; verification

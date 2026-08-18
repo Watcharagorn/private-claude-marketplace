@@ -204,14 +204,32 @@ Per plan entry: `<glyph> [<tier>] [<cat>] <slug>   <state>[ (fix child)][ (defer
   `implemented`/`superseded`) `category: "fix"` entries in this same `query` output
   carry `deferred_from` = this entry's slug but no `parent` of their own — lineage without
   containment, which `--subtree` and the descendant roll-up above are structurally blind to
-  (typically fixes captured before the owning-plan routing rule existed, or judged backlog at
-  capture). The stubs themselves still render flat at the top level — structure stays
+  (a fix the user parked as backlog rather than as a child, or a legacy stub captured before
+  the owning-plan routing rule existed). The stubs themselves still render flat at the top level — structure stays
   `parent`-only — but without this clause an `implemented` plan whose confirmed defects were
   all captured lineage-only reads completely clean, which is exactly the wrong answer to "any
   fixes left under this plan?". The filter keys on `category: "fix"` for precision, so a legacy
   defect stub captured with no category stays uncounted — `set-category <slug> fix` repairs
-  that first. Whenever at least one such clause rendered, close the hierarchy with a single
-  repair hint line — unnumbered, never consuming an ordinal (Step 2's selection resolves
+  that first.
+
+  **One exclusion, and it is load-bearing:** a stub whose sidecar `note` reads
+  `gate: left uncontained` was deferred by the user at `mentor:dispatch-agents`' non-goal
+  disposition gate, where flat *is* the answer they gave — the finding was judged not to block
+  the plan's goal, which is precisely why it isn't a fix child. Counting it here and then
+  printing a hint telling the reader to adopt it instructs them to undo a decision they already
+  made, every session, forever. `query` does not carry `note`, so resolve the exclusion set
+  once before rendering:
+
+  ```bash
+  plans_dir="$(bash "${CLAUDE_PLUGIN_ROOT}/hooks/plan-state.sh" dir --plans)"
+  grep -l 'gate: left uncontained' "$plans_dir"/*/.state.json 2>/dev/null \
+    | sed 's|.*/\([^/]*\)/\.state\.json|\1|'
+  ```
+
+  Those slugs render as ordinary flat stubs: no ⚠ count, no repair hint.
+
+  Whenever at least one such clause rendered after the exclusion, close the hierarchy with a
+  single repair hint line — unnumbered, never consuming an ordinal (Step 2's selection resolves
   against this render):
   `unparented fixes exist — adopt with: bash "${CLAUDE_PLUGIN_ROOT}/hooks/plan-state.sh" set-parent <stub-slug> <owning-plan>`.
 - ` [worktree: <id>]` appended when the entry's `owner` (an additive field on every `query`
@@ -553,7 +571,7 @@ here rather than straight from `mentor:planning`:
   everything around it (step ticks, `Done when:` verification, the **No busy-wait** rule
   from `mentor:dispatch-agents`, its **Verifying the plan (execution-time)** dispatch —
   no escape hatch; implementation may be main-thread, verification never is — and its
-  **CLOSING CHECKLIST** — the `/mentor:tour` offer, the `/mentor:defer` sweep, and the
+  **CLOSING CHECKLIST** — the `/mentor:tour` offer, the follow-up naming sweep, and the
   `/mentor:ship` pointer) exactly as the dispatch path does it.
   Arriving here does not make that path unowned — and on a resumed plan the skip
   line is a claim about the plan as it stood when someone last checked it, not as
@@ -568,10 +586,13 @@ here rather than straight from `mentor:planning`:
 
 ## Step 4 — Close out
 
-When every `Done when:` has passed and every Verification topic is PASS (gaps
-fixed, deferred, or accepted), `set <slug> implemented` — a plan with zero topics
+When every `Done when:` has passed and every Verification topic is PASS with every
+`[GOAL]` gap fixed, `set <slug> implemented` — a plan with zero topics
 clears that vacuously, so it gets there only on the user's explicit acceptance of it
-unverified, per **Verifying the plan (execution-time)**. Verification ending
+unverified, per **Verifying the plan (execution-time)**. Every `[NON-GOAL]` gap carries a
+user verdict from that skill's non-goal disposition gate — fixed, deferred, or left open —
+and the ones left open ride on the same call:
+`set <slug> implemented --note "open: <handle>, <handle>"`. Verification ending
 unresolved writes `set <slug> failed --note "<what broke>"` either way — escalating
 after the remediation re-dispatch also failed, or handing off with topics
 outstanding — and the note is what makes the retry cheap next time.

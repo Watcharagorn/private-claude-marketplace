@@ -145,7 +145,9 @@ When you reach shared understanding:
    unverified with a real keypress" — never as confirmed. `ARMED_ELSEWHERE` (only a sibling
    worktree's marker is live) does **not** count as armed here — this worktree's own edits are unblocked, so the trivial-implement branch still applies. If the gate reads `ARMED` for THIS worktree, this branch does not apply — `plan-gate.sh` blocks repo edits, so surface the deltas per item 3 and let the plan flow re-render them. Once the edit is
    verified, route the same way any other close would: `/mentor:ship` if it's ready to go out,
-   `/mentor:defer` for anything surfaced but not done, or `/mentor:handoff` if the session ends here.
+   or `/mentor:handoff` if the session ends here. Anything surfaced but not done gets **named**
+   in the close-out, with `/mentor:defer` offered as the pointer — parking work is the user's
+   call, and a grill has no plan or verification gate behind it to make that call for them.
 
 ## Done when
 

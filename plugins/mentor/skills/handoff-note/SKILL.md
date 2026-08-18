@@ -316,8 +316,8 @@ here (e.g. it says "resume at Step N" and this session moved that topic past N, 
 the way to finishing the current focus). Write a second, full handoff note for that topic too — a
 **courtesy note** — when, and only when, that topic already has a live note or a plan whose stated
 resume point this session just proved wrong. Don't reach for this for every topic merely adjacent
-to this session's work: an un-planned follow-up with no existing note belongs to `/mentor:defer`
-instead (see the Done-when bullet on it below) — a courtesy note per adjacent topic would bury the
+to this session's work: an un-planned follow-up with no existing note is named in *this* note
+instead, with `/mentor:defer` offered (see the Done-when bullet on it below) — a courtesy note per adjacent topic would bury the
 one that actually matters, especially since `/mentor:resume`'s no-argument path shows only the
 newest few notes.
 
@@ -492,18 +492,23 @@ substitute for it.
 - The content is tailored to the next-session focus.
 - The recommended next-step mentor commands are listed.
 - Work the note surfaced that **outlives the note** — repo-wide breakage, a follow-up feature, debt
-  discovered while shipping — was captured with `/mentor:defer` so `/mentor:track` can see it,
-  scoped to work to build, never a check to run: a check on this plan's own work is never eligible,
-  only a confirmed defect's fix is. The note's own next steps need no stub: the note itself is
-  durable and will be resumed. What needs one is everything that stays true after this topic closes,
-  which otherwise survives only as prose in a document nobody re-reads once its work is done.
+  discovered while shipping — is **named in the note**, with `/mentor:defer` offered as the pointer
+  for whatever the user wants parked. Don't capture it on their behalf: a handoff note gets written
+  at the end of a session, frequently for work whose fate nobody has decided yet, and a stub written
+  on your judgment commits them to it. The note's own next steps need nothing beyond the note, which
+  is durable and will be resumed. What needs naming is everything that stays true after this topic
+  closes, which otherwise survives only as prose in a document nobody re-reads once its work is done.
 - Any claim in the note that findings are closed or verification is clean ("no open findings," "all
   verified") was checked against the plan's own `## Verification` `Topic N —` outcomes first — a
   topic logged as partial, skipped, or substitute-verified is never silently dropped in favor of the
   cleaner-sounding claim: it is named as a caveat here **and** recorded on the plan via
-  `set <slug> failed --note`, never routed to its own `/mentor:defer` stub. A stub is eligible only
+  `set <slug> failed --note`, never routed to its own `/mentor:defer` stub. One exception, and it
+  matters: a finding the plan already records under an `open:` note is **not** an unresolved topic —
+  the user saw it at `dispatch-agents`' disposition gate and chose to leave it open, on a plan that
+  legitimately closed `implemented`. Name it here as a caveat and leave the plan's state alone;
+  writing `failed` over it would destroy the record of the verdict they gave. A stub is eligible only
   when the topic **ran** and confirmed a defect the user chooses not to fix now — then the defect's
-  fix, isolated work to build, is what gets deferred, never the topic itself.
+  fix, isolated work to build, is what a defer captures, never the topic itself.
 - The report **ends with literal copy-paste resume prompts** (`/mentor:resume <slug>` + the
   plugin-free alternative) — real values filled in, no placeholders.
 - Any claim about state **outside this repo's working tree** (a deploy target, a PR/CI/remote-branch

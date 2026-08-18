@@ -153,10 +153,16 @@ cannot reach green by waiting: drop **Auto-merge on green** (it would queue fore
 offer instead **Merge anyway** — stating plainly which jobs *did* pass, so the user is
 weighing real evidence rather than a bare override — alongside **Leave open**. Whichever
 they pick, the rot itself outlives this PR: it's a pre-existing defect on `base`, not a
-check on this PR's own work, so under the scope rule its **fix** is deferrable. Capture
-that fix with `/mentor:defer "fix <failing job>, broken on <base> since <date>"` before
-you finish; a verdict that lives only in this turn's output is how the same five `gh`
-calls get spent again next week.
+check on this PR's own work, so under the scope rule its **fix** is deferrable. But
+whether to park it is the user's call, and it does not earn a second consecutive question
+about the same red check — fold it into this one as a paired option set: **Merge anyway**
+/ **Merge anyway, and park the base fix** / **Leave open** / **Leave open, and park the
+base fix**. On either "park" verdict the verdict *is* the invocation — run
+`Skill(skill="mentor:deferring")` yourself with `fix <failing job>, broken on <base> since
+<date>` rather than telling them to type `/mentor:defer`. On a plain option, **name the
+rot in your report** and leave it there; a verdict that lives only in this turn's output
+is how the same five `gh` calls get spent again next week, and naming it is what prevents
+that without parking work nobody asked to park.
 
 Report the result (merged SHA or queued state) and, if the branch is deletable
 per repo convention, mention `--delete-branch` as an option — don't apply it
@@ -182,11 +188,19 @@ plan's steps, and `implemented` would hide the rest from `/mentor:track`:
 
 ```bash
 [ -d "${CLAUDE_PLUGIN_ROOT}/hooks" ] || { echo "ERROR: CLAUDE_PLUGIN_ROOT unresolved or stale — do not search the plugin cache or hardcode a version path; ask the user to /reload-plugins or restart" >&2; exit 1; }
-bash "${CLAUDE_PLUGIN_ROOT}/hooks/plan-state.sh" set <slug> implemented --note "merged: PR #<n> <sha>"
+plans_dir="$(bash "${CLAUDE_PLUGIN_ROOT}/hooks/plan-state.sh" dir --plans)"
+open="$(jq -r '.note // ""' "$plans_dir/<slug>/.state.json" 2>/dev/null | tr '|' '\n' | grep -m1 '^ *open:' | sed 's/^ *//; s/ *$//')"
+bash "${CLAUDE_PLUGIN_ROOT}/hooks/plan-state.sh" set <slug> implemented --note "${open:+$open | }merged: PR #<n> <sha>"
 ```
 
-Carry the `--note`: a bare `set` replaces any existing note with an empty one, so a
-prior `failed` reason would be lost. The directory guard and the split-parent
+Carry the `--note`, and carry any `open:` segment forward inside it. `note` is the one
+sidecar field always replaced on write, and an `open:` list is the plan's only record of
+verification findings the user chose to leave open — overwriting it silently converts
+"done with three known gaps" into "done". Everything *else* in the old note is meant to
+clear (a stale `failed` reason, most of all), which is why the read greps for the `open:`
+segment specifically instead of prepending the whole string. The composition is literal —
+`open: a, b | merged: PR #12 abc` — so a later reader still finds `merged:` where it
+expects it. The directory guard and the split-parent
 downgrade caveat are `mentor:shipping` Step 6's ("Also close the plan's state") — follow
 them there rather than reading a second copy here. No candidate, or the user says
 no → say what you found and stop; never hand-edit `.state.json`.
@@ -227,9 +241,11 @@ the base branch is a fresh working session, not a tail on this one.
 When the red is the **same test Step 3 flake-verdicted**, that is not a second budget — it is a test
 that failed, went green on a rerun, and failed again on what actually landed, which is as easily a
 real failure the rerun masked as a flake. This is a pre-existing defect on `base`, not a check on
-this PR's own work, so its fix is work to build, never a check to run — name it and capture **that
-fix** with `/mentor:defer "fix <test> flaky on <base>"`: that verdict outlives this session, while
-another rerun would only re-roll it.
+this PR's own work, so its fix is work to build, never a check to run. **Name it in your report**,
+then offer to park it — one `AskUserQuestion`, park the fix / just report it — and on a park verdict
+run the capture yourself (`Skill(skill="mentor:deferring")`, `fix <test> flaky on <base>`) rather
+than handing back a command to type. The verdict outlives this session either way; another rerun
+would only re-roll it.
 
 **A green run on `base` is when a deploy artifact actually goes live** — the merged PR may have
 touched one. The detection is `mentor:shipping` Step 7's ("Say when the shipped diff touches a
@@ -244,8 +260,8 @@ against `base`'s diff rather than re-deriving a second copy of the pattern list.
   explicit choice — or the PR was left open with its status stated plainly.
 - A red check was sorted into flake / regression / **pre-existing (broken base)** before
   the rerun was spent, using the base-branch run history and the CI-file diff — and a
-  pre-existing verdict reached Step 4 as its own option set plus a `/mentor:defer` capture,
-  never as a third dead end.
+  pre-existing verdict reached Step 4 as its own option set, with the base fix either
+  captured on the user's verdict or named plainly in the report, never as a third dead end.
 - A landed merge either closed its plan's state on the user's say-so, or reported that
   no plan matched the branch — never left a shipped plan silently `in_progress`. A PR
   merged outside the session still reached this step, rather than being reported as

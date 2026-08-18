@@ -304,7 +304,7 @@
     {
       "id": 48,
       "expected": "deferring",
-      "tests": "core trigger, blocking fix parks as child under active plan — NOT resuming (nothing parked yet to drain), NOT plan-track (not a status check)",
+      "tests": "core trigger, user explicitly asks to park a blocking fix — it becomes a child under the active plan. The ask ('park this, it blocks the plan') is what routes here; a verifier gap on its own never does (see id 55) — NOT resuming (nothing parked yet to drain), NOT plan-track (not a status check)",
       "query": "the verifier flagged we also need to backfill the missing index before this ships — park this, it blocks the plan, ill circle back after"
     },
     {
@@ -340,8 +340,14 @@
     {
       "id": 54,
       "expected": "deferring",
-      "tests": "owning-plan branch of the blocking test: confirmed defect in an ALREADY-IMPLEMENTED plan's shipped work parks under THAT plan (parent = owning plan, diverging from the discovering flow) — NOT plan-track (not a status query), NOT resuming (nothing parked yet to drain)",
+      "tests": "owning-plan parent branch: user parks a confirmed defect in an ALREADY-IMPLEMENTED plan's shipped work under THAT plan (parent = owning plan, diverging from the discovering flow) — NOT plan-track (not a status query), NOT resuming (nothing parked yet to drain)",
       "query": "while testing the exporter we confirmed a real bug in the auth-hardening plan we already shipped — token refresh drops the session on retry. park it under that plan so it stops reading as done"
+    },
+    {
+      "id": 55,
+      "expected": "dispatch-agents",
+      "tests": "NEAR-MISS vs deferring: a verification gap that blocks the plan's OWN goal is remediated through the failure loop and re-verified, never parked. Opens on the same 'the verifier flagged X' phrasing as id 48 but asks for a fix, not a capture — deferral is manual only as of v2.33.0, so a verifier finding alone must never reach deferring",
+      "query": "topic 2's verifier came back FAIL — the migration never runs on a fresh db, and thats the whole point of this plan. get that fixed and run the verification for that topic again"
     }
   ]
 }

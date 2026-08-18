@@ -68,14 +68,14 @@ implementation, handoff, and review.
 | `/mentor:constitution [principles]` | Create/amend this repo's governing principles at `.mentor/constitution.md` — versioned, committed, and honored by every plan. |
 | `/mentor:mode [plan\|plan-only\|status]` | Get/set the persisted approval-gate default (which approval option is listed first). |
 | `/mentor:ship` | Finish the current branch: clean-check → `/simplify` → optional tests → push + auto-open PR/MR (or push to upstream). Never force-pushes. |
-| `/mentor:merge [PR#]` | The tail `/mentor:ship` leaves off: one bounded `gh pr checks --watch`, then one triage — flake (one rerun max) / regression (stop and report) / already broken on the base branch (don't spend the rerun; capture the rot with `/mentor:defer`) — then merge only on your explicit choice. GitHub-only. |
+| `/mentor:merge [PR#]` | The tail `/mentor:ship` leaves off: one bounded `gh pr checks --watch`, then one triage — flake (one rerun max) / regression (stop and report) / already broken on the base branch (don't spend the rerun; parking the rot is offered inside that same question, never captured for you) — then merge only on your explicit choice. GitHub-only. |
 | `/mentor:grill [topic]` | One-question-at-a-time interview that sharpens a design's open decisions before you build. Conversation only, beyond a settled trivial one-file change. |
 | `/mentor:handoff "<focus>"` | Compact the session into a handoff document (in its plan-topic folder, `.mentor/plans/<topic>/handoffs/`, gitignored) for a fresh agent; ends with copy-paste resume prompts (`/mentor:resume <slug>` + a plugin-free alternative). Also offered at the approval gate in two flavors — **Hand off to next agent** (approves and releases first; leads the options, marked **(Recommended)**, when the context gate warns or asks) and **Pause — still drafting** (hands off with the gate still armed and the plan still `draft`, so the next session continues planning). |
 | `/mentor:resume [slug\|number]` | List this repo's live handoff notes (across all plan topics) and continue the chosen one. A note is stamped **resolved** (moved to a `resolved/` subdir, never re-listed) only when its work completes per the plan file (`/mentor:ship` stamps too) or a nested `/mentor:handoff` supersedes it — unfinished work stays resumable. Also the drain door for parked work: `/mentor:resume <root>` works through a root plan's open fix children leaf-first, and `/mentor:resume <group>` finishes a split group's remaining siblings in `order` — each item through the normal plan → approve → build cycle. |
 | `/mentor:plan-tour [plan slug] [area] [perspective]` | **Pre-approval storytelling walkthrough**: a paged, local-only HTML tour of how a plan will execute — one persistent diagram evolving alongside narrative text, per chosen area × perspective, with per-page notes exportable as a self-identifying MD report. Never published; distinct from `/mentor:tour` below (published, post-approval, pass/not-pass acceptance). Artifacts live in `.mentor/plans/<slug>/tour/` (gitignored). |
 | `/mentor:tour [user\|dev\|both] [subject]` | **Post-approval acceptance review**: an editable guided-tour artifact — scenario cards with pass/not-pass toggles, feedback capture, and MD/JSON report export — published to a stable URL that revisions republish in place. Subject defaults to the newest plan; artifacts live in `.mentor/tours/` (gitignored). |
 | `/mentor:zoom [subject] [topic] [perspective]` | **Topic × perspective HTML zoom of any subject** — a repo subsystem, a doc, a mentor plan, or the thing under discussion; no plan file or planning session required. One dispatched agent per combo writes a self-contained page to `.mentor/zooms/<subject-slug>/` (gitignored), auto-opened locally and **never published**. `plan` Step 5 delegates here for in-planning zooms. |
-| `/mentor:defer <item(s)>` | `git stash`-like capture: park one or many mid-flow discoveries (mid-planning or mid-implementation) as draft plan stubs at the normal plans location (`origin: "deferred"` in the sidecar, no separate stash area), then return to the interrupted flow. Picked up later via `/mentor:track`, which routes it to `/mentor:plan` to be claimed before it can build. An item that **blocks a plan's "really done"** — the active plan, or an already-implemented plan whose shipped work carries a confirmed defect — parks as a fix child under the plan that owns it (`--parent` = the owning plan's slug, nesting when that plan is itself a fix), so a plan can't read done while its fixes dangle. |
+| `/mentor:defer <item(s)>` | `git stash`-like capture, **manual only** — mentor never defers on your behalf; the harness names follow-ups and offers this command, and a gate that surfaces a finding runs the capture only on your explicit Defer verdict. Park one or many mid-flow discoveries (mid-planning or mid-implementation) as draft plan stubs at the normal plans location (`origin: "deferred"` in the sidecar, no separate stash area), then return to the interrupted flow. Picked up later via `/mentor:track`, which routes it to `/mentor:plan` to be claimed before it can build. An item that **blocks a plan's "really done"** — the active plan, or an already-implemented plan whose shipped work carries a confirmed defect — parks as a fix child under the plan that owns it (`--parent` = the owning plan's slug, nesting when that plan is itself a fix), so a plan can't read done while its fixes dangle. |
 | `/mentor:track [slug\|number\|status]` | Repo-wide remaining-work hierarchy — every plan's state, step progress, cross-plan `deps`, deferred stubs, and live handoffs — with fix children nested under their root and per-root open-descendant counts — then build the one you pick. The way back into a `/plan-split` group. |
 | `plan-split`* | Split an oversized plan into independently buildable sibling plans, each with explicit scope isolation; also offered as **Split into multiple plans** at the approval gate when a plan is oversized. |
 | `plan-review`* | Staged review of the current plan: a judgment pass (practicality, comprehensiveness) with a **fold gate** that walks the recommended edits **one question at a time** — each question carries the reviewer's case with the key words bolded — then — against the updated plan — a mechanical pass (cleanliness + spec-kit-`analyze`-style **consistency** across related artifacts) whose safe fixes **auto-fold**; decision-level findings surface as a one-line **digest**, only **CRITICAL** ones asked one at a time and the rest resolved in **one batched question**, applied only on your verdict. The mechanical stage is invocable alone ("check plan consistency"). Also offered as **Review the plan (staged)** at the proceed gate. |
@@ -172,7 +172,7 @@ session can answer "which of these five is next?" without re-reading five plans.
 | `draft` | Written, not yet approved. `/mentor:track` won't build it until you approve it. |
 | `approved` | The gate released it. Ready to build. |
 | `in_progress` | Execution started; some steps are ticked. |
-| `implemented` | Every `Done when:` passed and every Verification topic PASS, with each reported gap fixed, deferred, or explicitly accepted — a plan with no topics clears that vacuously, so it gets here only if you accept it unverified. |
+| `implemented` | Every `Done when:` passed and every Verification topic PASS, with every goal-blocking gap fixed — a plan with no topics clears that vacuously, so it gets here only if you accept it unverified. Non-goal gaps each carry your own verdict; any you left open are recorded on the plan itself as `note: open: <handle>, …`. |
 | `failed` | Escalated after the remediation re-dispatch, or handed off with verification unresolved; the note says what broke or which topics are outstanding. |
 | `superseded` | Replaced by its children via `/plan-split`. Sorted last. |
 | *(no sidecar)* | `unknown` — a pre-2.4.0 plan. Never reported as "never approved". |
@@ -263,6 +263,11 @@ while the surrounding real plan gets approved), and it tells `/mentor:track` thi
 entry isn't buildable as-is. Picking it up runs `/mentor:plan <slug>`, which fleshes
 out the stub and calls `claim <slug>` to clear `origin`, after which normal approval
 promotes it like any plan.
+
+**Since v2.33.0 this is a manual capability.** No workflow step defers on your behalf.
+Mentor's close-outs *name* follow-ups in the report and offer `/mentor:defer` as the
+pointer; the one automated path left runs the capture on your explicit Defer verdict at a
+gate, so you never have to retype the command to act on a choice you already made.
 
 ### The repo-wide hierarchy (`query`)
 
@@ -545,6 +550,75 @@ extra deliverable. Instruction-only — no hooks.
 | `plan-domain-backend-api` | API/endpoint/route/handler/schema/DTO/contract — or the data model behind it: migration, table, column, index, constraint, enum, RLS policy | Before/after contract diff tables, schema diffs, Mermaid sequence flows; on a DDL change also a per-column delta table + a Mermaid ER diff of the changed entities. |
 | `plan-domain-architecture` | Structural change — services, containers, datastores, queues, integrations, data flows (not pure content/config/doc/style/refactor) | Diff-highlighted C4-style Mermaid flowcharts, only the levels that change; a provenance list for any changed datastore field. |
 | `plan-domain-dynamic` | No registered domain matched, and no already-available project/plugin skill names the technology (fallback) | A dispatched domain-definer names the domain and returns a best-practices brief; the plan gains a practice→step mapping. A substituted available skill can supply the brief instead. |
+
+## Changes in v2.33.0
+
+**Deferral is manual only, and verification findings now reach you as a decision.**
+
+`/mentor:defer` started as a `git stash`-like escape hatch *you* reach for. Across
+v2.17 → v2.31 it grew into something the harness reached for on its own — twelve
+machine-driven trigger points, down to `plan-state.sh` itself printing "Sweep any
+follow-up WORK through /mentor:defer" on every close. The harness parked work without
+asking, and the plan still read `implemented`. All twelve are gone or converted to an ask.
+
+**The rule:** a fix needed to complete the plan's main goal gets fixed in the loop, no
+question asked. Everything else is yours to decide. Two routes into `deferring` remain —
+you ask for it, or you pick a Defer option at a gate, where the verdict *is* the
+invocation: mentor runs the capture rather than handing you a command to retype.
+
+**Verifiers now grade severity and size.** The return contract
+(`dispatch-agents/references/verifier-contract.md`) stamps every gap line: `[GOAL]` /
+`[NON-GOAL]` — does the plan's Goal, a `Done when:` bullet, or this topic's own
+`Pass when:` stay unmet without the fix — and `[LARGE]` / `[SMALL]`, judged on the *fix*
+rather than on the finding. Both tiebreaks point at you: unsure of severity → `[NON-GOAL]`,
+unsure of size → `[LARGE]`, because a misfiled `[GOAL]` gets quietly fixed and you never
+learn it existed, while a misfiled `[NON-GOAL]` costs you one keystroke. `Verdict:` is
+reconciled with the stamps — **`FAIL` iff a `[GOAL]` gap exists** — so a topic whose only
+gap is cosmetic can still reach PASS instead of deadlocking a plan with no legal terminal
+state.
+
+**A `Notes:` channel, which is the quiet win here.** `Gaps / Missing:` has always been
+mandatory even on PASS, so verifiers who found nothing real wrote *something* — "two soft
+observations, not scope-rule defects", "not a defect in the implementation, just a note".
+Measured across 37 real `topic-N-verify.md` artifacts in this repo, roughly half of all
+gap content was not a finding at all, and every one of those would now cost a question.
+They go to `Notes:` instead: carried into the report, never gated.
+
+**The non-goal disposition gate** (new, in `dispatch-agents`) runs once per plan, after
+`[GOAL]` remediation settles: a digest, then one question per `[LARGE]` finding — those
+same 37 artifacts show a round produces a median ~7 gaps but only 0–2 large ones — and one
+batched question covering all the `[SMALL]` ones. Defer / fix now / leave open. A stamp the
+verifier set is never re-graded by the orchestrator, which is the context that just built
+the thing and wants the plan to close.
+
+**Findings you leave open are recorded, not lost.** `implemented` now means every topic
+PASS and every `[GOAL]` gap fixed; whatever you left open rides along on the same call as
+`set <slug> implemented --note "open: <handle>, <handle>"`. `note` is the one sidecar field
+always replaced on write, so `shipping` Step 6 and `merging` Step 5 — both of which
+re-close an already-closed plan — now carry that segment forward and let everything else
+clear, composing as `open: a, b | merged: PR #12 abc`. `handoff-note`'s "no open findings"
+consistency check no longer flips such a plan to `failed`.
+
+**Gate-deferred stubs stop setting off alarms.** A defer chosen at the gate is flat on
+purpose — which is exactly the `category: fix` + `deferred_from` + no `parent` signature
+`/mentor:track` flags as "lineage without containment" and `/mentor:resume` offers to
+adopt. Those stubs now carry `note: gate: left uncontained`; `/mentor:track` renders them
+with no ⚠ and no repair hint, and `/mentor:resume`'s adoption gate defaults them to **leave
+flat**. Otherwise both surfaces spent every session offering to undo a decision you had
+already made.
+
+**Reversed, not relocated:** `verifier-contract.md` used to route a confirmed pre-existing
+defect's fix through `/mentor:defer` from inside the verifier, and declared a finding on
+the plan's own work "never a defer candidate". Both rules are gone, not moved. A verifier
+reports and stamps; it does not dispose. This reverses part of the v2.25.0 note below
+rather than relocating it.
+
+`plan-state.sh`'s closing-checklist line is **replaced rather than deleted** — it still
+names `/mentor:defer`, now as a pointer for you instead of an instruction to sweep through
+it. `deferring`'s own description no longer headlines "a fix a verifier demands, a gap that
+would leave a `Done when:` bullet unmet", which was precisely the class that must never
+reach it unasked. Its scope rule, its parent-aware capture, and the active-plan branch you
+reach by saying "park this, it blocks the plan" all survive unchanged.
 
 ## Changes in v2.32.1
 

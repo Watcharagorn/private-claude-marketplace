@@ -46,8 +46,8 @@ appear here.
   split group's remaining descendants — that is `/mentor:track`, which renders the whole tree and
   rolls every branch up.
 - You just discovered blocking work and want to park it — that is `mentor:deferring`
-  (`/mentor:defer`), which captures it with a `parent`; this skill only continues what capture
-  already parked.
+  (`/mentor:defer`), which captures it, with a `parent` when it blocks some plan's "really
+  done"; this skill only continues what capture already parked.
 - This repo has no handoff notes and no open descendants or unbuilt split groups — there is nothing
   to resume (Step 3 handles this and points you at `/mentor:handoff` or `/mentor:plan`).
 
@@ -566,7 +566,7 @@ reading and that report is exactly the shape `context-gate.sh`'s own WARN tier c
 
    **The bound is on the work, not on how it is executed or delivered.** Running the note's work by
    hand instead of through `/mentor:track` skips the step ticks and `mentor:dispatch-agents`' closing
-   sweep — the sweep that routes every follow-up through `/mentor:defer` — and hand-rolling
+   sweep — the sweep that names every follow-up in the report — and hand-rolling
    `git push` + `gh pr create` skips `mentor:shipping` Step 6, which stamps this note resolved and
    closes the plan's state. The note then stays live and `/mentor:track` re-offers work that already
    shipped. Concretely: when you are about to type `git push`, `gh pr create`, or `gh pr merge`, run
@@ -693,13 +693,30 @@ siblings — no separate handling needed.
 
 Before computing `R`'s queue (and again on every re-survey), run `query --category fix
 --no-parent --open --deferred-from <slug>` for `R` and each slug in `R`'s subtree — fixes linked by
-lineage only (captured before the owning-plan routing rule, or judged backlog at capture time),
-which the `parent` walk is structurally blind to, so the drain would finish "clean" while they
-still dangle. When any exist, present them and ask the user **one**
+lineage only (parked as backlog rather than as a child, or captured before the owning-plan routing
+rule existed), which the `parent` walk is structurally blind to, so the drain would finish "clean"
+while they still dangle. When any exist, present them and ask the user **one**
 consented question: adopt each into the drain (run
-`bash "${CLAUDE_PLUGIN_ROOT}/hooks/plan-state.sh" set-parent <stub-slug> <owning-plan>` — default
-owning plan is the stub's `deferred_from` target; the user can redirect a stub to a different
-owner or leave it flat). An adopted stub is then just an ordinary descendant — the next survey
+`bash "${CLAUDE_PLUGIN_ROOT}/hooks/plan-state.sh" set-parent <stub-slug> <owning-plan>`), or leave
+it flat.
+
+**What that question defaults to turns on the stub's `note`**, and getting it backwards
+re-litigates a settled decision every single session. `query` does not carry `note`, so read the
+sidecar:
+
+```bash
+plans_dir="$(bash "${CLAUDE_PLUGIN_ROOT}/hooks/plan-state.sh" dir --plans)"
+jq -r '.note // ""' "$plans_dir/<stub-slug>/.state.json"
+```
+
+- Note reads `gate: left uncontained` → the user already answered this at
+  `mentor:dispatch-agents`' non-goal disposition gate, and flat is the answer they gave: the
+  finding was judged not to block the plan's goal. Default **leave flat**, and say so in the
+  question, so the default reads as a record of their decision rather than a shrug.
+- Anything else → default the owning plan to the stub's `deferred_from` target, as before; the
+  user can redirect a stub to a different owner or leave it flat.
+
+An adopted stub is then just an ordinary descendant — the next survey
 picks it up with no special handling. Never put an unparented stub in the queue directly:
 open/closed classification stays `--subtree`/`--open-counts`'s alone, and adoption is what brings
 the stub into its jurisdiction. A stub the user leaves flat is reported once and not re-asked on later re-surveys

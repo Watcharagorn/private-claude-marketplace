@@ -46,31 +46,80 @@ Verdict: PASS | FAIL
 <evidence per check — the exact command run and its output, or a file:line citation>
 
 Gaps / Missing:
-<concrete items found, or the literal words "none found">
+<one stamped line per gap, or the literal words "none found">
+  [GOAL] <finding> — which `Done when:` bullet or this topic's `Pass when:` it leaves unmet — fix: <a few words>
+  [NON-GOAL][SMALL] <finding> — why the plan's goal is met without it — fix: <a few words>
+  [NON-GOAL][LARGE] <finding> — why the plan's goal is met without it — fix: <a few words>
+
+Notes:
+<observations that are NOT defects — context for the reader, or the literal word "none">
 
 Cross-topic:
 <a finding that belongs to a DIFFERENT topic's Focus:/Checks: — name the sibling
 topic and the finding in one line, or the literal word "none">
 ```
 
+Every gap line carries stamps, because what happens to a gap turns entirely on
+them, and the reader downstream is the orchestrator — the context that just
+built the thing and wants the plan to close. Prose leaves that judgment to it;
+a stamp takes the judgment away from it and gives it to you, who checked.
+
+- **`[GOAL]`** — without this fix the plan's Goal is unmet, or a `Done when:`
+  bullet or this topic's own `Pass when:` stays unmet. Name the bullet in the
+  line: the citation is what makes the stamp checkable rather than a feeling.
+  These are remediated in the loop without the user being asked.
+- **`[NON-GOAL]`** — real, worth recording, but the plan's stated goal is met
+  without it. Say why in the same line. These reach the user as a decision.
+- **`[LARGE]` / `[SMALL]`** — judged on the **fix**, not on the finding, in the
+  conditional-future frame: `[LARGE]` if fixing it would span more than one
+  service or layer, touch more than ~10 files, need a live multi-service stack
+  to prove, or force design decisions the plan never made.
+- **`— fix:`** — a few words on the repair. This gets read back to the user
+  verbatim, so "add the missing index on `orders.user_id`" earns its place
+  where "fix the query" does not.
+
+**Both tiebreaks point at the user**, deliberately: unsure whether a gap is
+`[GOAL]` → stamp `[NON-GOAL]`; unsure whether its fix is `[LARGE]` → stamp
+`[LARGE]`. A misfiled `[GOAL]` gets quietly fixed and the user never learns the
+finding existed; a misfiled `[NON-GOAL]` reaches them as a question they answer
+in one keystroke. Only the second mistake is recoverable.
+
+`Verdict:` follows from the stamps: **`FAIL` iff at least one `[GOAL]` gap
+exists.** `[NON-GOAL]` gaps never produce a `FAIL` — they are reported, not
+failed on. A topic whose only gap is cosmetic has to be able to reach PASS, or
+it sits in a loop that by design will not remediate it and the plan can reach
+no terminal state at all.
+
 `Gaps / Missing:` is mandatory even on a `PASS` verdict. An absent or empty
 one is a contract violation, not an oversight: that explicit line is the
 only thing that forces "what is missing?" to actually get asked, instead of
 silence reading as "nothing to report."
 
+`Notes:` is where everything that is **not** a defect goes — context a reader
+benefits from, a suggestion, something you checked and found fine. Keeping
+those out of `Gaps / Missing:` is what makes the mandatory-on-PASS rule
+survivable: every gap line becomes a decision someone has to make, so a note
+filed as a gap spends a real question on a non-problem. If you catch yourself
+writing "not a defect, just an observation" inside a gap line, it belongs here.
+
+**One carve-out:** `grilling` Step 3's standalone verifier checks a single
+trivial change with no plan, no `Done when:`, and no disposition gate behind it
+(`grilling/SKILL.md` → "Step 3 — Close"), so nothing downstream reads the
+stamps — it returns the block unstamped.
+
 `Cross-topic:` is not a gap against this verdict — a PASS with a real
-`Cross-topic:` line is still a PASS; the failure loop's "any non-`none found`
-Gaps line" rule does not apply to it. Name the finding and stop there; do not
+`Cross-topic:` line is still a PASS; the failure loop reads this topic's gaps,
+and a `Cross-topic:` line is not one. Name the finding and stop there; do not
 verdict a sibling topic's scope from inside this one — independence is the
 whole point of the per-topic split (above). The orchestrator routes it: to
 that topic's verifier if still live (`dispatch-agents/SKILL.md` → "Follow-up
 vs re-dispatch"), or as a round gap (`Gaps / Missing:`) if that topic already
-returned. A finding that belongs to no topic at all is a round gap too,
-**unless** it is a *confirmed* pre-existing defect (present before this
-plan's work began) — only then does its fix route through `/mentor:defer`. A
-finding on *this* plan's own, uncovered work is never a defer candidate
-regardless of topic coverage: an unconfirmed suspicion about the plan's own
-deliverable stays a round gap for the orchestrator's failure-loop handling.
+returned. A finding that belongs to no topic at all is a round gap too — no
+finding falls out of the report for want of a home. Whether a gap is a
+*confirmed* pre-existing defect (present before this plan's work began) is
+worth saying in the finding's own line, since it usually settles the
+`[NON-GOAL]` stamp; the disposition is not yours either way. You report and
+stamp, the orchestrator and the user decide what becomes of it.
 
 Before going idle, write a durable copy to
 `.mentor/plans/<slug>/topic-N-verify.md` — the flat, no-subdirectory naming

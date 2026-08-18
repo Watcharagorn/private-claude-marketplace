@@ -56,9 +56,10 @@ mentor plan or run an approval question over it (`plan-track`, "When NOT to use"
 Annotate that framework's phase with the grammar below and execute — every `plan.md`
 mechanic here (approved-plan read, ✅ ticks, `plan-state.sh`, the gate, `## Verification`
 dispatch) has no counterpart and is skipped, and `/mentor:defer` redirects: a follow-up
-belonging to that framework's backlog goes there, not into a mentor stub (repo work
-outside its scope still defers normally, routed by the blocking test below). Three
-rules hold on this path:
+belonging to that framework's backlog goes there, not into a mentor stub. Repo work
+outside its scope is **named in your report** and `/mentor:defer` offered — this path is
+self-graded, with no verifier and no disposition gate behind it, so there is nothing here
+that could responsibly park work on the user's behalf. Three rules hold on this path:
 
 - Copy `Goal:`/`Done when:` **verbatim from the task's own text** and verify the
   delivery against that text — your brief is a lossy transcription of it. You self-grade
@@ -243,33 +244,30 @@ The point of SDD: quality through narrow focus, and a lean main thread.
   in the runtime stops them, and a chain they spawn is invisible to you and
   outlives your close-out. Size each step so one agent completes it alone; the
   contract block below is what actually holds the line.
-- **Work discovered mid-flight is captured, not lost — route it by the blocking test.**
-  If the orchestrator or a dispatched agent notices real work outside the current step's
-  scope, ask: **which plan's work does this item block from being *really* done?** For a
-  confirmed defect, that is the plan whose work carries it — not merely whichever plan
-  happened to be active when it surfaced:
-  - **The active plan's own work** (a verifier-demanded fix, a gap that would leave a
-    `Done when:` unmet) → invoke `Skill(skill="mentor:deferring")` (`/mentor:defer`)'s
-    parent-aware branch: the stub's sidecar gets `parent` = the active plan's slug,
-    nesting for free when that plan is itself a fix child.
-  - **An already-implemented plan's work** — including the active plan after its own
-    verification passed → the same parent-aware branch, `parent` = the owning plan's
-    slug. A post-completion defect answers "no" to "does it block the *active* plan?",
-    but parking it flat on that answer makes it invisible to every `parent`-walking
-    surface (`query --subtree`, `/mentor:track`'s roll-up, `/mentor:resume`'s drain) while the
-    owning plan reads cleanly `implemented`. Parented, that plan honestly shows "done
-    with open fixes" instead.
+- **Work discovered mid-flight is carried to the close-out, never parked on your own
+  initiative.** If the orchestrator or a dispatched agent notices real work outside the
+  current step's scope, the agent **reports** it and the orchestrator holds it: stamp it
+  the way a verifier would — `[GOAL]` if it leaves one of this plan's `Done when:` bullets
+  unmet, which means it gets remediated in the loop, otherwise `[NON-GOAL]` — and fold it
+  into "The non-goal disposition gate" below alongside the round's verifier gaps. Holding
+  is not dropping: an aside in a chat message disappears at session end, which is the
+  failure this rule exists to prevent. But nothing gets deferred here on your reading of
+  what matters; deferral is the user's verdict to give.
+
+  When a defer **is** the verdict, one question fixes the parent link — **which plan's
+  work does this item block from being *really* done?** For a confirmed defect that is the
+  plan whose work carries it, not merely whichever plan happened to be active when it
+  surfaced:
+  - **An already-implemented plan's work** — including the active plan once its own
+    verification passed → `parent` = that plan's slug. A post-completion defect answers
+    "no" to "does it block the *active* plan?", but parking it flat on that answer makes it
+    invisible to every `parent`-walking surface (`query --subtree`, `/mentor:track`'s
+    roll-up, `/mentor:resume`'s drain) while the owning plan reads cleanly `implemented`.
+    Parented, that plan honestly shows "done with open fixes" instead.
   - **An unbuilt plan's future scope** → no `parent` (nothing done exists to block);
     record the ordering as `deps` on that plan instead.
   - **Nobody's in particular** (backlog — a refactor idea, tooling, a feature aside) →
-    plain `Skill(skill="mentor:deferring")` (`/mentor:defer`), flat, unchanged.
-
-  Ambiguous → one self-contained question to the user at capture time. A blocking fix
-  parked without its parent link lets its owner read `implemented` while its fixes
-  dangle — the failure this routing prevents. Capture either way and keep going — never
-  leave it as an aside in a chat message that disappears at session end. Eligibility
-  still follows the scope rule — work to build, never a check to run: a check on the
-  current plan's own work is never a stub, only a confirmed defect's fix is.
+    flat, no `parent`. This is also what a gate verdict routes by default.
 
 ## Per-step output shape
 
@@ -416,10 +414,12 @@ before issuing `Agent` calls. Then:
      before *nudging* on idle — that path has no id-rejection safety net at all).
    - **Offer `/mentor:tour`** — one line: a hands-on acceptance pass building an editable guided-tour review artifact (pass/not-pass scenarios) of what shipped. Do not auto-run it.
    - **Sweep the report you're about to write** — every follow-up, gap, or known-broken
-     item in it goes through **`Skill(skill="mentor:deferring")`** (`/mentor:defer`), routed by
-     the blocking test above, scoped to work to build, never a check to run: an unresolved verification topic or an
-     unverified claim is never a stub — it's `set <slug> failed --note` on the plan;
-     only a confirmed defect's fix still defers.
+     item in it is **named** there, in plain terms, so nothing survives only as an aside
+     that dies with the session. Do not capture them on your own: parking work is the
+     user's call, and anything a verifier raised already carries their verdict from "The
+     non-goal disposition gate" below. Close by offering `/mentor:defer` as the pointer for
+     whatever else they want parked. Either way an unresolved verification topic or an
+     unverified claim is never a stub — it's `set <slug> failed --note` on the plan.
    - **Commit this session's implementation work.** `git status --porcelain`: if
      every dirty/untracked path is something this session's dispatches touched,
      ask via `AskUserQuestion` — commit it as this plan's work (recommended) /
@@ -478,35 +478,127 @@ Step 1 instead. A verification round moves the plan with `set`.
   with no `Gaps / Missing:` line is not a verdict yet — ask that same verifier for it
   ("Follow-up vs re-dispatch" below); silence is never `none found`.
 - **Failure loop.** A `FAIL`, or any non-`none found` Gaps line even on a PASS, surfaces
-  the round's gaps. **Re-check context first** — the same move as `planning`'s "Re-check
-  context": run `bash "${CLAUDE_PLUGIN_ROOT}/hooks/plan-state.sh" context` fresh rather
-  than trusting an earlier reading. A verification round runs mostly on harness-synthetic
-  prompts (inbound agent reports), which `context-gate.sh`'s own WARN tier deliberately
-  skips, so a round can grow well past WARN with nothing having said so. Then ask ONE
-  question for the round, however many topics failed — **remediate now, or hand off to
-  a fresh session?**, informed by that fresh reading (offered early, since verification
-  runs when the session is often largest). **Remediate**: one dispatch by the file's
-  implementation role; a skipped plan assigned none, so pick one the normal way
-  ("Choosing `role`" above) — the skip covered the original edits, not their repair.
-  Then a **fresh** verifier for that topic; a second failure escalates to the user —
-  offer **park as a fix child under this plan** per the blocking test above, alongside
-  `Hand off` below — and sets `failed` (the one-retry contract above). **Hand off**: set
-  `failed` with the unresolved topics as its note, then `mentor:handoff-note` with the
-  verifier reports, then stop — `handoff-note` writes no plan state, so an all-ticked
-  plan would read `implemented` to the next session. A deferred/accepted gap exits the
-  loop — "deferred" here can only mean the confirmed gap's **fix**, captured via the
-  active-plan branch of the blocking test above (`parent` = the active plan's slug,
-  nesting when that plan is itself a fix child) since a verification gap by definition
-  leaves a `Done when:` unmet — never the verification topic itself, which instead exits via `failed --note`;
-  concurrent remediations run **sequentially, never in parallel** — parallel fixes on
-  shared files race.
+  the round's gaps. Split them on the contract's stamp and **work every `[GOAL]` gap to a
+  fixed point before assembling anything for the user** — a remediation dispatch routinely
+  turns up more gaps, so a digest built while the set is still growing is stale before it
+  is read.
+  - **Re-check context first** — the same move as `planning`'s "Re-check context": run
+    `bash "${CLAUDE_PLUGIN_ROOT}/hooks/plan-state.sh" context` fresh rather than trusting
+    an earlier reading. A verification round runs mostly on harness-synthetic prompts
+    (inbound agent reports), which `context-gate.sh`'s own WARN tier deliberately skips,
+    so a round can grow well past WARN with nothing having said so. This is a **context
+    guard, not a disposition question**: at `WARN`, `ASK`, or `HANDOFF`, ask the one
+    question the round gets — **remediate now, or hand off to a fresh session?** — and at
+    `ASK` answer it with the two-option directive `context` prints itself rather than
+    inventing a competing one. At `OK` or `UNKNOWN`, ask nothing and remediate. So a round
+    whose gaps are all `[GOAL]` runs silently through to close-out; that is intended — the
+    user asked not to be consulted about work the goal requires — and the closing report is
+    where it surfaces.
+  - **`[GOAL]` gaps are remediated, never asked about.** One dispatch by the file's
+    implementation role; a skipped plan assigned none, so pick one the normal way
+    ("Choosing `role`" above) — the skip covered the original edits, not their repair.
+    Then a **fresh** verifier for that topic. A second failure on the same topic escalates
+    to the user (the one-retry contract above) as an explicit verdict rather than a routing
+    rule: **remediate again**, **park it as a fix child under this plan** — `parent` = this
+    plan's slug, which is legal here because the user chose it, nesting when this plan is
+    itself a fix child — or **hand off**, which sets `failed`.
+  - **`[NON-GOAL]` gaps are never fixed on your own judgment and never parked on it
+    either.** They accumulate across rounds, **deduped by handle** — a re-verify that
+    re-reports an unfixed non-goal gap is the same finding, not a second one — and go to
+    "The non-goal disposition gate" below once remediation has settled. That dedup is also
+    the resume mechanism: a gate interrupted mid-walk simply leaves the plan short of
+    `implemented`, and the next round re-presents whatever is still open.
+  - **Hand off**: set `failed` with the unresolved topics as its note, then
+    `mentor:handoff-note` with the verifier reports, then stop — `handoff-note` writes no
+    plan state, so an all-ticked plan would read `implemented` to the next session. An
+    unresolvable *verification topic* always exits this way, never as a stub.
+
+  Remediations run **sequentially, never in parallel** — parallel fixes on shared files
+  race — and that covers the gate's "Fix it now" dispatches below too. One asymmetry there
+  is deliberate: a fix that fails on a `[NON-GOAL]` finding **never** sets `failed`, it
+  records as left open. Electing to fix a cosmetic finding must not leave the plan worse
+  off than declining to.
 - **No escape hatch.** Runs even when the plan opened `Dispatch: skipped`. One allowance
   (**lite verify**): a skipped plan with ≤2 topics may dispatch **one combined fresh
   verifier** carrying both — independence holds, only the fan-out relaxes. `implemented`
-  needs every topic PASS with every gap fixed, deferred, or accepted; zero topics clears
-  that vacuously, so a topicless plan gets there only on the acceptance above. That
+  needs every topic PASS and every `[GOAL]` gap fixed; zero topics clears
+  that vacuously, so a topicless plan gets there only on the acceptance above. Every
+  `[NON-GOAL]` gap carries a user verdict — fixed, deferred, or left open — and the ones
+  left open are written to the plan record in the same call:
+  `set <slug> implemented --note "open: <handle>, <handle>"`. That
   combined verifier is itself a substitution — carry it into the report the same way
   the disclosure rule below asks of every other one, not just into a passing tick.
+
+## The non-goal disposition gate
+
+Every `[NON-GOAL]` gap the round accumulated is a decision the **user** makes, never one
+you make for them. Deferral especially: mentor parks work on a verdict, never on its own
+reading of what matters. Run this gate once, after remediation has settled and before the
+`implemented` write.
+
+**A stamp the verifier set stands — never re-grade it.** You are the context that built
+the thing and wants the plan to close, which is exactly the pressure that re-reads a
+`[GOAL]` gap as `[NON-GOAL]` and quietly buries it. **Unstamped** gaps are real and have
+their own route: a verifier that ignored the contract, a `Cross-topic:` finding you
+promoted to a round gap (those carry no stamp by construction), or work a dispatched
+implementation agent reported from outside its step's scope. Ask that verifier for the
+stamp, exactly as a missing `Gaps / Missing:` line is re-asked ("Verifying the plan"
+above); if it comes back unstamped again, or there is no verifier to ask, treat it as
+`[NON-GOAL]` and it rides through this gate with the rest.
+
+1. **Digest.** One line per `[NON-GOAL]` finding, `[LARGE]` first: a 2–4 word handle, the
+   size, half a sentence of what it is, and the verifier's `fix:` clause. Empty set → skip
+   the gate and go straight to the report. **Size, not severity, drives the split below** —
+   the opposite of how `plan-review` walks its findings, and worth holding onto if that
+   skill is also in context. Severity was already spent on the `[GOAL]`/`[NON-GOAL]` call;
+   what is left to decide is whether the user wants to spend a session on the fix.
+2. **Walk the `[LARGE]` ones** — one `AskUserQuestion` each, the handle as its header, a
+   `(<k> of <n>)` prefix, opening with one plain sentence naming the decision. In practice
+   a round produces none to two of these. Options: **"Defer as its own plan"** /
+   **"Fix it now in this session"** / **"Leave open"** / **"Skip the rest"** — the last
+   leaves this finding and **every** remaining one open, batched ones included, so offer it
+   only while findings still remain anywhere in the gate. Say in the question text that a
+   narrower resolution is reachable through "Other".
+3. **Batch the `[SMALL]` ones into ONE question.** Header `"Remaining <N>"`. Restate each
+   finding as its own line *inside the question text* — the digest may have scrolled away,
+   and a question that points back at earlier output is one the user has to leave the
+   screen to answer. Three options: **"Fix them all now (Recommended)"** /
+   **"Defer them all"** / **"Leave all open"**. Exactly one remaining finding collapses to
+   a normal per-finding question instead.
+4. **Apply the verdicts once they are all in**, in a single pass. Remediation dispatches
+   stay sequential, per the failure loop above.
+5. **A Defer verdict is itself the invocation** — run the capture rather than telling the
+   user to retype `/mentor:defer`. Invoke `Skill(skill="mentor:deferring")` and state the
+   routing as a prose preamble, the shape `planning` already uses when it prepends "The
+   user selected …" ahead of a skill load: `from` = this plan, `parent` = **none**,
+   `category` = the verifier's judgement, and **`priority` left unset**. That last one
+   matters — the only "conversation" a gate-routed capture can read is the verifier's
+   digest, which is thick with severity words, and a `critical` tier floats a stub to the
+   top of `/mentor:track`'s build queue. An explicitly non-goal finding must not land
+   there. The single exception to `parent` = none: a defect in an **already-implemented**
+   plan's shipped work parks under *that* plan, which it genuinely blocks. If `deferring`
+   refuses the item under its own scope rule, **record it left open and say so** — a
+   verdict the user gave must not evaporate because the capture bounced.
+
+   Then stamp each flat stub the capture created, using the slug it reported back:
+
+   ```bash
+   bash "${CLAUDE_PLUGIN_ROOT}/hooks/plan-state.sh" set <stub-slug> draft --note "gate: left uncontained"
+   ```
+
+   That note is what tells the rest of the harness this stub is flat **on purpose**.
+   Without it, a `category: fix` stub carrying `deferred_from` but no `parent` matches
+   `/mentor:track`'s "lineage without containment" alarm exactly, and both `/mentor:track`
+   and `/mentor:resume` would spend every future session offering to adopt it — asking the
+   user to reverse a decision they already made here. Skip the stamp on the
+   already-implemented exception above: that stub has a `parent` and is contained.
+6. **Report three groups**, by handle: fixed, deferred (with their stub slugs), and left
+   open — plus the verifiers' `Notes:` lines as context, unverdicted. The left-open group
+   is exactly what the `implemented` write records as `--note "open: …"`.
+
+Each question follows the relay rule in "Context efficiency — the orchestrator contract"
+above: strip the agent-side ids, carry the finding rather than its filing, and let the
+question stand on its own.
 
 ## Async runtime & lifecycle
 

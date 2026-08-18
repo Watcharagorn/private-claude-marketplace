@@ -1040,6 +1040,13 @@ mentor_plan_effective_state() {
 # rework. "note REPLACED every time" is a deliberate feature (a plain `set` with no
 # --note clears a stale failure note); a caller that wants to keep the current note
 # must re-pass it, the same way `init` already reads it back before writing.
+# One note segment is load-bearing and callers carry it forward themselves: an
+# `open: <handle>, <handle>` list records the verification findings a user chose to
+# leave open at close-out (mentor:dispatch-agents' non-goal disposition gate), and it
+# is the only record of them anywhere. `mentor:shipping` Step 6 and `mentor:merging`
+# Step 5 both re-close an already-closed plan, so both read `.note` first, keep only
+# that segment, and let everything else clear — composing as
+# `open: a, b | merged: PR #12 abc`.
 #
 # Passing a flag with an EXPLICIT EMPTY VALUE clears that field (group/order/origin/
 # owner/owner_session/priority/category/deferred_from/parent → null, deps → [])

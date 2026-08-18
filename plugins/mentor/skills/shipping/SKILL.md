@@ -441,16 +441,25 @@ the next session's `/mentor:track`:
 ```bash
 plans_dir="$(bash "${CLAUDE_PLUGIN_ROOT}/hooks/plan-state.sh" dir --plans)"
 [ -n "$plans_dir" ] || { echo "ERROR: mentor plans dir unresolved — is CLAUDE_PLUGIN_ROOT set? do not search the plugin cache or hardcode a version path; ask the user to /reload-plugins or restart" >&2; exit 1; }
-[ -d "$plans_dir/<topic>" ] && \
-  bash "${CLAUDE_PLUGIN_ROOT}/hooks/plan-state.sh" set <topic> implemented
+if [ -d "$plans_dir/<topic>" ]; then
+  open="$(jq -r '.note // ""' "$plans_dir/<topic>/.state.json" 2>/dev/null | tr '|' '\n' | grep -m1 '^ *open:' | sed 's/^ *//; s/ *$//')"
+  bash "${CLAUDE_PLUGIN_ROOT}/hooks/plan-state.sh" set <topic> implemented --note "$open"
+fi
 ```
 
 Guard on the directory rather than letting it fail: `set` exits 1 with "No such
 plan" when the plans dir exists but the slug doesn't — exactly the focus-slug
 handoff case that never got a `plan.md`. Don't invent a slug to satisfy it.
-Two edges worth knowing: `set` with no `--note` replaces any existing note with
-an empty one (so a prior `failed` reason is lost), and it has no downgrade guard —
-if `<topic>` resolves to a split parent, `implemented` overwrites `superseded`.
+Two edges worth knowing. `note` is always replaced on write, so a bare `set` blanks it —
+usually what you want, since it clears a stale `failed` reason, but **not** for an `open:`
+segment: that list is the plan's only record of verification findings the user chose to
+leave open, and blanking it silently turns "done with three known gaps" into "done". The
+read above carries just that segment forward and lets everything else clear. Pass `--note`
+unconditionally rather than assembling the flag conditionally: `--note ""` and an omitted
+`--note` both blank the field, while a `${open:+--note "$open"}` construction word-splits on
+the note's own spaces and `set` rejects the fragments as unknown flags. And `set` has
+no downgrade guard — if `<topic>` resolves to a split parent, `implemented` overwrites
+`superseded`.
 
 ## Step 7 — Point at the merge tail, and stop
 
