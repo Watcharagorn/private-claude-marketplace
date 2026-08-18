@@ -1416,7 +1416,7 @@ mentor_sweep_roots() {
 mentor_sweep() {
   local cwd="${1:-$PWD}" set_name="${2:-policy}" pattern="${3:-}" icase="${4:-}"
   local roots r root_count files out hits
-  local -a root_args grep_args
+  local -a root_args find_args grep_args
   roots="$(mentor_sweep_roots "$cwd" "$set_name")"
   if [ -z "$roots" ] || [ -z "$pattern" ]; then echo "0 0 0"; return 0; fi
   root_count=0
@@ -1426,13 +1426,19 @@ mentor_sweep() {
   done <<<"$roots"
   if [ "$root_count" -eq 0 ]; then echo "0 0 0"; return 0; fi
 
+  # ONE traversal expression, built once and reused by both passes below. It is deliberately
+  # not written out twice: the counting pass and the grepping pass must walk exactly the same
+  # set, or `files=` stops describing what was actually searched — and a denominator that
+  # doesn't match the search is precisely the false confidence this subcommand exists to
+  # remove. Two literal copies would let a later edit change one and not the other, silently.
   # `-name .git -prune` drops git's own store from the `repo` set — as a DIR in the main
   # worktree and as a FILE in a linked one, which this predicate covers either way.
+  find_args=("${root_args[@]}" -name .git -prune -o -type f -print0)
+
   # Counting NUL bytes is the only newline-safe count that holds on BSD tools: piping
   # through `tr '\0' '\n' | wc -l` over-counts a filename containing a newline, and BSD
   # awk silently ignores RS="\0" and reports 1 for any list.
-  files="$(find "${root_args[@]}" -name .git -prune -o -type f -print0 2>/dev/null \
-           | tr -cd '\0' | wc -c | tr -d ' ' || true)"
+  files="$(find "${find_args[@]}" 2>/dev/null | tr -cd '\0' | wc -c | tr -d ' ' || true)"
   files="${files:-0}"
   # Return before xargs when there is nothing to search: BSD and GNU xargs disagree about
   # running the utility on empty input, and a `grep` invoked with no file operands reads
@@ -1443,7 +1449,7 @@ mentor_sweep() {
   if [ -n "$icase" ]; then grep_args+=(-i); fi
   # `-e` guards a pattern beginning with `-`; the trailing `--` guards a FILENAME
   # beginning with `-` (xargs appends the file operands after it).
-  out="$(find "${root_args[@]}" -name .git -prune -o -type f -print0 2>/dev/null \
+  out="$(find "${find_args[@]}" 2>/dev/null \
          | xargs -0 grep "${grep_args[@]}" -e "$pattern" -- 2>/dev/null || true)"
   # The hit count comes from the OUTPUT, never from grep's exit status: a long file list
   # is split across several xargs batches, so the status reflects only the LAST batch.
