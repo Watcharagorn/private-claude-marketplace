@@ -63,7 +63,7 @@ a neighbour's files.
 ## Step 1 — Resolve the plan and its state
 
 ```bash
-[ -n "$CLAUDE_PLUGIN_ROOT" ] && [ -d "$CLAUDE_PLUGIN_ROOT/hooks" ] || { echo "ERROR: CLAUDE_PLUGIN_ROOT unresolved or stale — do not search the plugin cache or hardcode a version path; ask the user to /reload-plugins or restart" >&2; exit 1; }
+[ -d "${CLAUDE_PLUGIN_ROOT}/hooks" ] || { echo "ERROR: CLAUDE_PLUGIN_ROOT unresolved or stale — do not search the plugin cache or hardcode a version path; ask the user to /reload-plugins or restart" >&2; exit 1; }
 bash "${CLAUDE_PLUGIN_ROOT}/hooks/plan-state.sh" current
 ```
 
@@ -121,7 +121,7 @@ Each subagent starts with **zero memory of this conversation and no
 `{#write-the-plan}`" gives it nothing it can resolve. Resolve the paths first:
 
 ```bash
-[ -n "$CLAUDE_PLUGIN_ROOT" ] || { echo "ERROR: CLAUDE_PLUGIN_ROOT unresolved — cannot build subagent prompts; do not search the plugin cache or hardcode a version path; ask the user to /reload-plugins or restart" >&2; exit 1; }
+[ -d "${CLAUDE_PLUGIN_ROOT}/hooks" ] || { echo "ERROR: CLAUDE_PLUGIN_ROOT unresolved or stale — cannot build subagent prompts; do not search the plugin cache or hardcode a version path; ask the user to /reload-plugins or restart" >&2; exit 1; }
 echo "${CLAUDE_PLUGIN_ROOT}/skills/planning/SKILL.md"
 mentor_dir="$(bash "${CLAUDE_PLUGIN_ROOT}/hooks/plan-state.sh" dir)"   # worktree-safe
 [ -n "$mentor_dir" ] || { echo "ERROR: mentor dir unresolved — is CLAUDE_PLUGIN_ROOT set? do not search the plugin cache or hardcode a version path; ask the user to /reload-plugins or restart" >&2; exit 1; }
@@ -345,6 +345,12 @@ deleting.
    text `Edit` of `.state.json`, which `plan-state.sh` alone writes.
 3. **Then sweep the prose — plan-level citations `plan-state.sh` cannot see:**
    ```bash
+   # Re-derive: step 1's block was a separate Bash call and its variables are gone. An unset
+   # $plans_dir would make grep search the cwd instead of the repo's plans, reporting a
+   # false-clean sweep — guarded below rather than left to fail silently.
+   [ -d "${CLAUDE_PLUGIN_ROOT}/hooks" ] || { echo "ERROR: CLAUDE_PLUGIN_ROOT unresolved or stale — do not search the plugin cache or hardcode a version path; ask the user to /reload-plugins or restart" >&2; exit 1; }
+   plans_dir="$(bash "${CLAUDE_PLUGIN_ROOT}/hooks/plan-state.sh" dir --plans)"
+   [ -d "$plans_dir" ] || { echo "ERROR: plans dir unresolved — do not fall back to a relative path; the sweep would report a false clean" >&2; exit 1; }
    command grep -rn '<retiring-slug>' "$plans_dir" --include='*.md' | command grep -v "^$plans_dir/<retiring-slug>/"
    ```
    Use a literal `grep`, not a Grep-tool style search — `.mentor/` is entirely gitignored by

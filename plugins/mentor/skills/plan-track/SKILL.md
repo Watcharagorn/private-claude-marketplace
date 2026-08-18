@@ -51,7 +51,7 @@ honest on their own.
 ## Step 0 — Check the context before doing anything else
 
 ```bash
-[ -n "$CLAUDE_PLUGIN_ROOT" ] && [ -d "$CLAUDE_PLUGIN_ROOT/hooks" ] || { echo "ERROR: CLAUDE_PLUGIN_ROOT unresolved or stale — do not search the plugin cache or hardcode a version path; ask the user to /reload-plugins or restart" >&2; exit 1; }
+[ -d "${CLAUDE_PLUGIN_ROOT}/hooks" ] || { echo "ERROR: CLAUDE_PLUGIN_ROOT unresolved or stale — do not search the plugin cache or hardcode a version path; ask the user to /reload-plugins or restart" >&2; exit 1; }
 bash "${CLAUDE_PLUGIN_ROOT}/hooks/plan-state.sh" context
 ```
 
@@ -203,7 +203,7 @@ Per plan entry: `<glyph> [<tier>] [<cat>] <slug>   <state>[ (fix child)][ (defer
   re-deriving the recipe by hand:
 
   ```bash
-  [ -n "$CLAUDE_PLUGIN_ROOT" ] && [ -d "$CLAUDE_PLUGIN_ROOT/hooks" ] || { echo "ERROR: CLAUDE_PLUGIN_ROOT unresolved or stale — do not search the plugin cache or hardcode a version path; ask the user to /reload-plugins or restart" >&2; exit 1; }
+  [ -d "${CLAUDE_PLUGIN_ROOT}/hooks" ] || { echo "ERROR: CLAUDE_PLUGIN_ROOT unresolved or stale — do not search the plugin cache or hardcode a version path; ask the user to /reload-plugins or restart" >&2; exit 1; }
   this_wt="$(. "${CLAUDE_PLUGIN_ROOT}/hooks/lib/state.sh"; mentor_worktree_id "$(pwd)")"
   ```
 
@@ -280,7 +280,7 @@ some. Instead, call the shared extractor per plan you're summarizing, same recip
 lookup above:
 
 ```bash
-[ -n "$CLAUDE_PLUGIN_ROOT" ] && [ -d "$CLAUDE_PLUGIN_ROOT/hooks" ] || { echo "ERROR: CLAUDE_PLUGIN_ROOT unresolved or stale — do not search the plugin cache or hardcode a version path; ask the user to /reload-plugins or restart" >&2; exit 1; }
+[ -d "${CLAUDE_PLUGIN_ROOT}/hooks" ] || { echo "ERROR: CLAUDE_PLUGIN_ROOT unresolved or stale — do not search the plugin cache or hardcode a version path; ask the user to /reload-plugins or restart" >&2; exit 1; }
 synopsis="$(. "${CLAUDE_PLUGIN_ROOT}/hooks/lib/state.sh"; plans_dir="$(mentor_plans_dir "$(git rev-parse --show-toplevel)")"; mentor_plan_goal_line "${plans_dir}/<slug>/plan.md" context)"
 ```
 

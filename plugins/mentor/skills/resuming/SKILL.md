@@ -112,6 +112,16 @@ in the same skill does not cover it. Applies across every skill/command in this 
 here; when adding a new `${CLAUDE_PLUGIN_ROOT}` call, grep for `CLAUDE_PLUGIN_ROOT unresolved` to
 match the existing wording rather than inventing a new one.
 
+Always write the guard against the **braced** `${CLAUDE_PLUGIN_ROOT}` — never the bare
+`$CLAUDE_PLUGIN_ROOT`. Claude Code substitutes only the braced token into command/skill text at
+load time; it never exports a `CLAUDE_PLUGIN_ROOT` variable into the Bash tool's environment
+(hooks get the env var, Bash tool calls do not). So `[ -n "$CLAUDE_PLUGIN_ROOT" ]` reads an empty
+string every time and the guard fails unconditionally — v2.32.0 and earlier shipped exactly that
+bug, aborting `/mentor:track` and friends in every repo. Testing the braced path instead is
+correct in both directions: when the plugin is loaded the token becomes a real absolute path and
+the check passes; when it is stale or unresolved the token survives literally, expands to nothing,
+and the check fails loudly as intended.
+
 ```bash
 # Re-derive: Step 1's block was a separate Bash call and its variables are gone. An unset
 # $mentor_dir would make `find` search "/plans" and "/handoffs" instead of the repo's —

@@ -545,6 +545,28 @@ extra deliverable. Instruction-only — no hooks.
 | `plan-domain-architecture` | Structural change — services, containers, datastores, queues, integrations, data flows (not pure content/config/doc/style/refactor) | Diff-highlighted C4-style Mermaid flowcharts, only the levels that change; a provenance list for any changed datastore field. |
 | `plan-domain-dynamic` | No registered domain matched, and no already-available project/plugin skill names the technology (fallback) | A dispatched domain-definer names the domain and returns a best-practices brief; the plan gains a practice→step mapping. A substituted available skill can supply the brief instead. |
 
+## Changes in v2.32.1
+
+**Every mentor command and skill aborted before it could do anything.** The
+`CLAUDE_PLUGIN_ROOT` guard standardized in v2.17.0 tested the bare
+`$CLAUDE_PLUGIN_ROOT`, but Claude Code substitutes only the **braced**
+`${CLAUDE_PLUGIN_ROOT}` token into command/skill text at load time, and it never exports
+a `CLAUDE_PLUGIN_ROOT` variable into the Bash tool's environment (hooks get the env var;
+Bash tool calls do not). The guard therefore read an empty string on every invocation and
+failed unconditionally — `/mentor:track`, `/mentor:plan`, `/mentor:mode` and the skills
+behind them stopped at their first step, in every repo, telling the user to
+`/reload-plugins` or restart when nothing was actually stale. All 16 guard sites across
+3 commands and 10 skills now test `[ -d "${CLAUDE_PLUGIN_ROOT}/hooks" ]` instead, which
+is correct in both directions: a loaded plugin substitutes to a real absolute path and
+passes, while a stale or unresolved one leaves the token literal, expands to nothing, and
+fails loudly as intended. `resuming`'s plugin-wide convention note now records why the
+braced form is mandatory so the bare form does not creep back.
+
+Also fixes a cross-block variable leak in `plan-split`'s retirement sweep: `$plans_dir`
+was derived in an earlier fenced block and read in a later one, and each fenced block is
+its own Bash call — the unset variable made `grep` search the cwd instead of the repo's
+plans and report a false-clean sweep. It is re-derived and guarded in place.
+
 ## Changes in v2.32.0
 
 **The standing dispatch contract is injected structurally, not by remembering to paste

@@ -23,7 +23,7 @@ Do these in order:
    `plan-only` | `status`; empty → `status`) and run:
 
    ```bash
-   [ -n "$CLAUDE_PLUGIN_ROOT" ] && [ -d "$CLAUDE_PLUGIN_ROOT/hooks" ] || { echo "ERROR: CLAUDE_PLUGIN_ROOT unresolved or stale — do not search the plugin cache or hardcode a version path; ask the user to /reload-plugins or restart" >&2; exit 1; }
+   [ -d "${CLAUDE_PLUGIN_ROOT}/hooks" ] || { echo "ERROR: CLAUDE_PLUGIN_ROOT unresolved or stale — do not search the plugin cache or hardcode a version path; ask the user to /reload-plugins or restart" >&2; exit 1; }
    bash "${CLAUDE_PLUGIN_ROOT}/hooks/set-mode.sh" <mode-word>
    ```
 
@@ -38,7 +38,7 @@ beyond the first mode-word token), it did **not** start the plan harness. After
 reporting the mode, enter the harness yourself:
 
 ```bash
-[ -n "$CLAUDE_PLUGIN_ROOT" ] && [ -d "$CLAUDE_PLUGIN_ROOT/hooks" ] || { echo "ERROR: CLAUDE_PLUGIN_ROOT unresolved or stale — do not search the plugin cache or hardcode a version path; ask the user to /reload-plugins or restart" >&2; exit 1; }
+[ -d "${CLAUDE_PLUGIN_ROOT}/hooks" ] || { echo "ERROR: CLAUDE_PLUGIN_ROOT unresolved or stale — do not search the plugin cache or hardcode a version path; ask the user to /reload-plugins or restart" >&2; exit 1; }
 bash "${CLAUDE_PLUGIN_ROOT}/hooks/begin-plan.sh"
 ```
 

@@ -210,7 +210,7 @@ The point of SDD: quality through narrow focus, and a lean main thread.
 - **Move the plan's state as you go**, so `/mentor:track` can answer "what is
   built?" in a fresh session without re-reading anything:
   ```bash
-  [ -n "$CLAUDE_PLUGIN_ROOT" ] && [ -d "$CLAUDE_PLUGIN_ROOT/hooks" ] || { echo "ERROR: CLAUDE_PLUGIN_ROOT unresolved or stale — do not search the plugin cache or hardcode a version path; ask the user to /reload-plugins or restart" >&2; exit 1; }
+  [ -d "${CLAUDE_PLUGIN_ROOT}/hooks" ] || { echo "ERROR: CLAUDE_PLUGIN_ROOT unresolved or stale — do not search the plugin cache or hardcode a version path; ask the user to /reload-plugins or restart" >&2; exit 1; }
   bash "${CLAUDE_PLUGIN_ROOT}/hooks/plan-state.sh" set <slug> in_progress    # before the first dispatch
   bash "${CLAUDE_PLUGIN_ROOT}/hooks/plan-state.sh" set <slug> implemented    # every Done when: + Verification PASS
   bash "${CLAUDE_PLUGIN_ROOT}/hooks/plan-state.sh" set <slug> failed --note "<what broke>"
