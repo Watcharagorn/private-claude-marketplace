@@ -37,3 +37,31 @@ skill-creator's `quick_validate.py`. Arguments provided: $ARGUMENTS
 
 4. **Report** one pass/fail line per skill, surfacing any validator error text inline.
    Exit non-zero overall if any skill failed.
+
+## Environment: a python3 that actually has `pyyaml`
+
+`quick_validate.py` imports `yaml`. On this machine the system `python3` often lacks it, and
+`pip3 install --user pyyaml` is refused under PEP 668 (`externally-managed-environment`) — so a
+bare `python3 "$SC_SCRIPT"` dead-ends with `ModuleNotFoundError: No module named 'yaml'`.
+
+Resolve an interpreter **before** step 3 and use `$PY` in place of `python3` there. Cache the
+venv at a stable path so the bootstrap cost is paid once per machine, never per invocation:
+
+```bash
+PY=python3
+if ! "$PY" -c "import yaml" >/dev/null 2>&1; then
+  for cand in python3.13 python3.12 python3.11 /opt/homebrew/bin/python3 /usr/bin/python3; do
+    command -v "$cand" >/dev/null 2>&1 && "$cand" -c "import yaml" >/dev/null 2>&1 && { PY="$cand"; break; }
+  done
+fi
+if ! "$PY" -c "import yaml" >/dev/null 2>&1; then
+  VENV="${CLAUDE_CONFIG_DIR:-$HOME/.claude}/.cache/quick-validate-venv"
+  [ -x "$VENV/bin/python3" ] || { python3 -m venv "$VENV" && "$VENV/bin/pip" install -q pyyaml; }
+  PY="$VENV/bin/python3"
+fi
+"$PY" -c "import yaml" >/dev/null 2>&1 \
+  || { echo "cannot obtain a python3 with pyyaml — validate manually"; exit 1; }
+```
+
+Never build a throwaway venv under a session scratchpad — it gets cleaned up and the next run
+rediscovers the same problem from scratch.

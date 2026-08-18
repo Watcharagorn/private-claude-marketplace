@@ -55,6 +55,25 @@ marketplace repo. Arguments provided: $ARGUMENTS
    Implement it generically — split blocks with awk, collect each block's `NAME=` assignments, then
    cross-reference `$NAME` uses against them. Don't hardcode a list of variable names; the next
    instance will use different ones.
+9. **Skill/command name collision** — for each `commands/<name>.md` under `plugins/$1/commands/`,
+   check whether `plugins/$1/skills/<name>/` also exists (same basename). FAIL if so, listing the
+   colliding pair. `Skill(skill="$1:<name>")` resolves ambiguously between the command file and the
+   skill's `SKILL.md`, so the skill body can silently fail to load — the run still reports success
+   while the skill's mandatory steps never execute. mentor v2.17.0 shipped exactly this for `resume`
+   (skipping its secret scan and on-disk gate verification) and was fixed by renaming the skill
+   (`resume` → `resuming`); see `plugins/mentor/hooks/tests/test-skill-command-collision.sh` for the
+   full history. Use `find`, not a bare glob — a bare `for f in plugins/$1/commands/*.md` aborts under
+   zsh's `nomatch` when a plugin has no `commands/` dir, silently skipping the check:
+
+   ```bash
+   find "plugins/$1/commands" -maxdepth 1 -name '*.md' 2>/dev/null | while read -r f; do
+     c="$(basename "$f" .md)"
+     [ -d "plugins/$1/skills/$c" ] && echo "COLLISION: $1 -> commands/$c.md <-> skills/$c/"
+   done
+   ```
+
+   The fix is to rename the skill (and rewrite every cross-reference — `/rename-skill` does this),
+   not to delete the command.
 
 ## Output
 
