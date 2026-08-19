@@ -9,8 +9,9 @@ description: |
   "analyze the plan for consistency".
   Reads the current mentor plan (.md) and, with the edit gate closed, runs a
   staged review: Stage 1 judgment reviewers (practicality,
-  comprehensiveness), then a fold gate that walks their recommended edits
-  ONE AT A TIME — each edit its own question, verdicted fold/skip; then
+  comprehensiveness), then a fold gate that walks their CRITICAL and HIGH
+  recommended edits one question at a time and resolves the rest in one
+  batched verdict; then
   Stage 2 mechanical reviewers (cleanliness + a
   spec-kit-analyze-style consistency check over related artifacts) against
   the updated plan, whose safe fixes auto-fold while decision-level findings
@@ -24,10 +25,11 @@ A pre-approval review pass in **two stages of two concurrent reviewers each**:
 it reads the current plan, confirms at the Step 2 gate, then fans out the
 **judgment reviewers** (practicality, comprehensiveness) — one `Agent()` call
 per dimension in a **single message**. Their recommended edits go through a
-**fold gate** (Step 4): the user verdicts each edit **one question at a
-time** — every question presents the reviewer's case the way a human reviewer
-would, self-contained and in plain language, key words bolded — and the
-accepted edits are folded by re-writing the plan in place. Only then do the **mechanical reviewers** (cleanliness,
+**fold gate** (Step 4): each edit the reviewers stamped **CRITICAL** or **HIGH** gets
+its own question — presenting the reviewer's case the way a human reviewer would,
+self-contained and in plain language, key words bolded — while the MEDIUM and LOW ones
+resolve in a single batched verdict, and the accepted edits are folded by re-writing the
+plan in place. Only then do the **mechanical reviewers** (cleanliness,
 consistency) dispatch — against the UPDATED plan, so they also catch anything
 the fold introduced. Their `MECHANICAL`-tagged fixes are auto-folded;
 `DECISION-REQUIRED` findings surface as a one-line digest, CRITICAL ones
@@ -164,7 +166,7 @@ question:
 ```
 Question — header "Plan review", single-select, 3 options:
   1. "Run staged review"   (Recommended)
-     description: "Stage 1 judgment review (practicality, comprehensiveness) whose recommended edits you verdict one question at a time, then Stage 2 mechanical review (cleanliness, consistency) on the updated plan — safe fixes auto-folded, CRITICAL decision-level findings asked one at a time, the rest resolved in one batched question."
+     description: "Stage 1 judgment review (practicality, comprehensiveness) whose CRITICAL and HIGH edits you verdict one question at a time, the rest in one batched question; then Stage 2 mechanical review (cleanliness, consistency) on the updated plan — safe fixes auto-folded, CRITICAL decision-level findings asked one at a time, the rest resolved in one batched question."
   2. "Stage 2 only"
      description: "Skip the judgment stage; run just the mechanical pass — cleanliness + the spec-kit-analyze-style consistency check — and auto-fold its safe fixes. CRITICAL decision-level findings are asked one at a time, the rest resolved in one batched question, applied only on your verdict."
   3. "Pass (skip)"
@@ -185,15 +187,25 @@ mechanical reviewers are not in this batch; they dispatch in Step 6, after
 the fold. Each call uses
 `subagent_type: general-purpose`, `model: sonnet`,
 `description: "Review plan: <topic>"`. Every reviewer must stay in its own lane
-(see the table above) — drop any finding another reviewer owns. Reviewer
-dispatches follow `dispatch-agents`' **"Async runtime & lifecycle"**
-rules — invoke `Skill(skill="mentor:dispatch-agents")` now if it is not already
-loaded (this skill runs standalone as often as it runs from `plan`, so usually it
-is not), then end each reviewer's prompt with that section's **"Deliver before
-idling"** block pasted verbatim. Loading it is for that block and the **Standing
-no-subagents policy** check alone: nothing here is being implemented and this
-worktree's plan gate stays closed. That block is also what
-produces the durable verdict copy — give each reviewer its own filename for it,
+(see the table above) — drop any finding another reviewer owns. **Run the pre-dispatch preflight before the first `Agent` call, not after.** One call,
+no skill load:
+
+```bash
+[ -d "${CLAUDE_PLUGIN_ROOT}/hooks" ] || { echo "ERROR: CLAUDE_PLUGIN_ROOT unresolved or stale — do not search the plugin cache or hardcode a version path; ask the user to /reload-plugins or restart" >&2; exit 1; }
+bash "${CLAUDE_PLUGIN_ROOT}/hooks/plan-state.sh" policy
+```
+
+`POLICY: FOUND` — a standing no-subagents instruction is on record; stop and ask before
+dispatching. `UNRESOLVED` — the check could not run, which is not a clean result; treat
+the question as open. `NONE` — dispatch. `CONTRACT: active` confirms
+`hooks/dispatch-contract.sh` appends the standing "Deliver before idling" block to every
+dispatch prompt automatically: **do not paste it by hand.** Only on `CONTRACT: MISSING`
+do you paste it yourself, from `dispatch-agents`' own section of that name.
+
+Reviewer dispatches are governed by `dispatch-agents`' **"Async runtime & lifecycle"**
+rules, which the injected block delivers to the agent without this skill having to load
+that one. The block is also what produces the durable verdict copy — give each reviewer
+its own filename for it,
 `.mentor/plans/<slug>/practicality-review.md` and
 `.mentor/plans/<slug>/comprehensiveness-review.md`, since both dispatch in one
 message and the block's own `step-N-review.md` example would have them writing over
@@ -220,13 +232,23 @@ Each `prompt` must contain:
    - `practicality` → `Is the approach feasible, realistically scoped, and low-risk?`
    - `comprehensiveness` → `Does it cover the requirement, edge cases, and gaps?`
 4. `When proposing Recommended plan edits, recommend the most practical and clean solution — never trade maintainability or reliability for implementation speed — and give each edit a one-line why.` This governs how the reviewer constructs and picks among its OWN proposed edits — it never widens the critique lens set by item 3 above.
-5. Required structured output:
+5. Required structured output — each `Recommended plan edits` item opens with its
+   severity on the consistency reviewer's own scale, so Step 4's gate can tell the
+   edits that deserve their own question from the ones that do not:
    ```
    Strengths:
    Risks:
    Gaps:
    Recommended plan edits:
+     [CRITICAL|HIGH|MEDIUM|LOW] <the edit>
    ```
+   `CRITICAL` = the plan cannot be built, or its acceptance cannot be verified, as
+   written. `HIGH` = a real risk or gap that survives into the built result. `MEDIUM`
+   and `LOW` improve the plan without changing what it produces. Stamp honestly rather
+   than defensively: over-stamping just rebuilds the exhaustive walk this scale exists
+   to replace, and a MEDIUM edit is still applied by default (Step 4's batch leads with
+   folding them all) — the severity decides how much of the *user's attention* it buys,
+   not whether it lands.
 6. Word cap: `Cap your reply at 400 words.`
 7. Anti-recursion: `Do not invoke /plan-review or any planning skill.`
 8. **Constitution (conditional)** — if the resolved constitution exists (the
@@ -248,7 +270,7 @@ Each `prompt` must contain:
    line used to carry, "re-check with the gitignore bypassed", is what sent reviewers
    reaching for a non-portable flag instead.
 
-## Step 4 — Fold gate: one verdict per edit, asked one at a time
+## Step 4 — Fold gate: walk the consequential edits, batch the rest
 
 Surface both reviewers' `Strengths/Risks/Gaps/Recommended plan edits` blocks
 in full, giving every recommended edit a stable **handle** as you surface it —
@@ -259,20 +281,37 @@ letter-number codes (`P2`, `C3`) or any other shorthand the user would have
 to decode: a code forces a scroll-back to the surfaced block to learn what it
 means, while a handle carries its meaning with it.
 
-If neither reviewer returned recommended edits, say so and go straight to
-Step 6. Otherwise walk the edits **one at a time** (practicality's edits in
-order, then comprehensiveness's): each edit gets its own `AskUserQuestion`
-call containing exactly ONE
-single-select question, and the next question is not asked until the current
-verdict lands. Never batch several edits into one question or one call — the
-point is that the user judges each finding on its own merits, the way a
-reviewer walks a colleague through a review, instead of skimming a checklist.
-Before building each call, count the edits still ahead of this one: the
-option set is exactly 4 (`Fold in`, `Skip`, `Skip the rest`, `Fold in the
-rest`) while more than one remains, exactly 2 (`Fold in`, `Skip`) on the
-last — a long walk is where a call quietly drops back to the 2-option form
-out of habit, so treat a mismatch between the count and the position as a
-malformed call and rebuild it before sending, not after the user notices.
+If neither reviewer returned recommended edits, say so and go straight to Step 6.
+
+**Then split the edits by the severity the reviewers stamped.** `CRITICAL` and `HIGH`
+edits are walked one at a time; `MEDIUM` and `LOW` are resolved together in one batched
+question. This is the same shape Step 7 already uses on the mechanical stage's findings,
+and for the same measured reason: a per-question walk over everything taxes the user far
+more than the small edits are worth (a 21-step plan once produced twelve dense questions
+and half an hour of answering), while the edits that actually change what gets built
+still each get their own decision. A severity a reviewer stamped stands — **never
+re-grade one**; you are the context that wants the review to end, which is exactly the
+pressure that quietly demotes an inconvenient finding. An edit that arrived with no
+stamp at all is `MEDIUM` unless its content meets the CRITICAL definition above.
+
+**Digest first.** Before asking anything, list every recommended edit as one line,
+CRITICAL → LOW: the handle, the severity, half a sentence of what it does, and which
+reviewer raised it. This is the map that keeps the questions below from arriving cold —
+the user sees how many are coming and which ones matter before answering the first.
+
+### Walking the CRITICAL and HIGH edits
+
+Each gets its own `AskUserQuestion` call containing exactly ONE single-select question,
+and the next question is not asked until the current verdict lands. Never batch several
+walked edits into one question — the point is that the user judges each on its own
+merits, the way a reviewer walks a colleague through a review. Before building each
+call, count the walked edits still ahead of this one: the option set is exactly 4
+(`Fold in`, `Skip`, `Skip the rest`, `Fold in the rest`) while more than one remains,
+exactly 2 (`Fold in`, `Skip`) on the last — a long walk is where a call quietly drops
+back to the 2-option form out of habit, so treat a mismatch between the count and the
+position as a malformed call and rebuild it before sending, not after the user notices.
+`Skip the rest` and `Fold in the rest` cover the batched edits too, so offer them
+whenever anything remains anywhere in this gate.
 
 **Each question must carry the full case, written like a human review — and
 stand entirely on its own.** This is the fullest statement of a rule every
@@ -310,35 +349,62 @@ options:
      actual words, not a paraphrase.
   2. "Skip" — description: leave the plan unchanged here, and what that
      accepts (the risk stays open / the gap stays uncovered).
-  3. "Skip the rest" — description: skip this and every remaining edit and
-     move on to Stage 2. (Offer only while more than one edit remains.)
+  3. "Skip the rest" — description: skip this and every remaining edit, batched
+     ones included, and move on to Stage 2. (Offer only while more remain.)
   4. "Fold in the rest" — description: fold this and every remaining edit,
      naming each one it covers by handle ("folds this plus the rollback step
      and edge-case tests"), so the click is never blind. (Offer only while
-     more than one edit remains.)
+     more remain.)
 ```
 
-Every question at this gate carries the same binary, which is what makes a bulk
-answer well-defined here — and offering a bulk decline without a bulk accept
-quietly biases the gate toward skipping. If the user **rejects the question** and
-free-types an instruction instead ("fold in all"), map it onto the option set,
-then state the exact edits — each by handle — you read it as covering and get
-confirmation before folding. The span is rarely as obvious as it looks:
-answered edits are already behind you, so "all" may mean the remainder or the
-whole set.
+`n` counts only the edits being **individually walked** — never the whole set. A
+2-question walk that announces itself as "1 of 14" reads as a fourteen-question ordeal
+and invites a blind bulk answer, which is the opposite of what the walk is for.
 
 Mark `"Fold in"` as `(Recommended)` on every edit question — each surfaced
 edit is, by construction, one the reviewer already recommends (Step 3's
 prompt requires it), so the option that applies it leads and carries the
 label; the reviewer's one-line why lives in its `description`, which is what
 keeps the mark substantive instead of habitual. Never mark `"Fold in the
-rest"` or `"Skip the rest"` as `(Recommended)`: a bulk verdict is the user's
-call to make, and nudging toward one would hollow out the one-edit-at-a-time
-design this gate exists for. An
+rest"` or `"Skip the rest"` as `(Recommended)`: a bulk verdict over edits the
+user has not seen individually is theirs to reach for, not yours to nudge. An
 "Other" answer may accept a modified version of the edit
 ("fold the rollback step, but only for the rollout phase") — fold the
-modified wording — or name earlier edits by handle to revisit. Skipping every
-edit is a valid outcome: fold nothing and continue to Step 6 regardless.
+modified wording — or name earlier edits by handle to revisit.
+
+### Batching the MEDIUM and LOW edits
+
+After the walk — or immediately, when nothing is CRITICAL or HIGH — resolve every
+remaining edit in ONE single-select question. The question text restates each one as its
+own line, MEDIUM → LOW: `**handle** (severity) — half-line summary → what folding it
+changes`. The list IS the question's substance: the user verdicts from the question
+screen alone, and the digest may have scrolled away, so the lines live here rather than
+as a pointer back to it. Header `"Remaining <N>"`, options:
+
+  1. "Fold them all in (Recommended)" — description: applies every listed edit in one
+     pass, naming what that covers.
+  2. "Leave all out" — description: the plan is unchanged by these; each is recorded in
+     the report as declined.
+  3. "Walk them one by one" — description: the full per-question walk over these edits,
+     severity order, for when the list shows calls the user wants to weigh individually.
+
+On "Walk them one by one", run the walk above over these edits — same writing contract,
+same option-count rule, `n` now counting these. That walk ends at Step 5; it never
+re-batches.
+
+Marking the bulk option `(Recommended)` here is deliberate: every listed edit is one a
+reviewer already judged worth making, and below HIGH the cost of a per-edit question
+exceeds what the decision is worth. Two edge cases collapse the batch: exactly one
+remaining edit gets a normal per-edit question instead of a one-line list, and a
+remainder of zero skips the question entirely.
+
+**Free-typed bulk answers.** Every question at this gate carries the same binary, which
+is what makes a bulk answer well-defined here. If the user rejects a question and
+free-types an instruction instead ("fold in all"), map it onto the option set, then
+state the exact edits — each by handle — you read it as covering and get confirmation
+before folding. The span is rarely as obvious as it looks: answered edits are already
+behind you, so "all" may mean the remainder or the whole set. Skipping every edit is a
+valid outcome: fold nothing and continue to Step 6 regardless.
 
 **Re-entry dedup:** when the staged review runs again in the same session (the
 approval question loops back here), do not re-ask edits the user already
@@ -375,11 +441,10 @@ the fold introduced. Issue one `Agent()` call each in a single message (both
 `tool_use` blocks side by side) — not two messages, one call each waiting on
 its `tool_result` before the next; that serialization spends a full
 main-thread round trip for no benefit, since both agents run async once
-dispatched either way. `subagent_type: general-purpose`, `model: sonnet`. Dispatches follow
-`dispatch-agents`' **"Async runtime & lifecycle"** rules, handled the same way as
-Step 3: load `Skill(skill="mentor:dispatch-agents")` if it is not already loaded,
-then end each prompt with its **"Deliver before idling"** block pasted verbatim,
-with this stage's own durable-copy filenames —
+dispatched either way. `subagent_type: general-purpose`, `model: sonnet`. The standing block reaches these prompts the same
+way it reached Step 3's — automatically, via the dispatch hook — so re-run the `policy`
+preflight only if Step 3 was skipped (Stage-2-only mode). Give this stage its own
+durable-copy filenames —
 `.mentor/plans/<slug>/cleanliness-review.md` and
 `.mentor/plans/<slug>/consistency-review.md`. Close both reviewers out once their
 findings are consumed, BEFORE Step 7's first verdict question — walk or
@@ -607,17 +672,11 @@ decision being asked, then the reviewer's case in 2–4 sentences with the
 **key words bolded** — what disagrees or is missing, **where** (quote or
 describe the plan text in place; a bare `Location(s)` cell like
 "§Verification" or "Step 3" must be translated into what that part of the
-plan says), and what each resolution costs. Step 4's exact-4/exact-2
-option-shape check stays in Step 4 — this walk's option count varies with
-the alternatives each finding carries, so a 3-option question here is
-well-formed, not malformed. The gate is narrowed to CRITICAL
-deliberately: a CRITICAL finding blocks the core requirement, contradicts a
-sibling artifact, or violates a constitution MUST — each one is worth its own
-question. Below that, a per-question walk taxes the user more than the
-decisions are worth (a 21-step plan once produced twelve dense questions and
-half an hour of answering), and the digest plus the batch question below keep
-every choice the user's at a fraction of the cost. The options come from the
-finding itself:
+plan says), and what each resolution costs. Step 4's exact-4/exact-2 option-shape check governs Step 4's walk only — this walk's
+option count varies with the alternatives each finding carries, so a 3-option question
+here is well-formed, not malformed. (Why the cut is at CRITICAL here and at HIGH in
+Step 4: `references/rationale.md` → **Why the severity line sits where it does**.) The
+options come from the finding itself:
 
 - One option per substantive alternative the reviewer stated, ordered with
   the reviewer's recommended resolution **first** — per the Step 6 tagging
@@ -668,16 +727,15 @@ same count rule, `n` now counting these findings, and the free-text
 bulk-accept applies here too. That walk ends at the report; it never
 re-batches. An "Other" answer carries mixed verdicts ("apply the first two,
 leave the
-rest") — map it by handle and confirm the span before applying. Marking the
-bulk option `(Recommended)` here is deliberate, and deliberately different
-from Step 4's never-recommend-bulk rule: there, one-edit-at-a-time IS the
-gate's design, so nudging toward bulk would hollow it out; here the batch is
-the design below CRITICAL, and every listed recommendation is one the
-reviewer already named as the most practical and clean resolution. Two edge
-cases collapse the batch: exactly one remaining finding gets a normal
-per-finding question instead of a one-line list, and a remainder that is all
-toss-ups skips straight to the walk — the lead option would cover nothing,
-and a declared toss-up is precisely the finding that needs individual
+rest") — map it by handle and confirm the span before applying. Marking the bulk option `(Recommended)` here is deliberate and matches Step 4's fold
+gate below HIGH — the batch IS the design under the severity line, and every listed
+recommendation is one the reviewer already named as most practical and clean. What is
+never recommended in either gate is a bulk *decline*, or a bulk answer covering findings
+the user has not seen individually (`references/rationale.md` → **Why bulk is
+recommended in one gate and not the other**). Two edge cases collapse the batch: exactly
+one remaining finding gets a normal per-finding question instead of a one-line list, and
+a remainder that is all toss-ups skips straight to the walk — the lead option would
+cover nothing, and a declared toss-up is precisely the finding that needs individual
 judgment.
 
 **Free-text bulk-accept.** If the user free-types a bulk instruction during
@@ -755,5 +813,5 @@ resuming's "invoke the command exactly as the note states" bound limits
 ### Do NOT
 
 - Do **not** run `approve-plan.sh` from inside this skill — review never releases the gate.
-- Plan-file writes from inside this skill are limited to exactly two moments — Step 5 (the user's per-edit fold verdicts) and Step 7 (the MECHANICAL auto-fold pass plus the user's verdicts, walked and batched). Never apply an edit or resolution the user did not explicitly accept, never touch zoom artifacts or repo source files, and always follow `plan` Step 4's re-write-in-place rule.
+- Plan-file writes from inside this skill are limited to exactly two moments — Step 5 (the user's fold verdicts, walked and batched) and Step 7 (the MECHANICAL auto-fold pass plus the user's verdicts, walked and batched). Never apply an edit or resolution the user did not explicitly accept, never touch zoom artifacts or repo source files, and always follow `plan` Step 4's re-write-in-place rule.
 - Do **not** detect domains or ask the user to select topics — the review topics are fixed (see the dimension table above).

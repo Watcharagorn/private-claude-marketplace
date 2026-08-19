@@ -3,8 +3,9 @@
 Read this when dispatching a plan's Verification topics (execution step 5 in
 `dispatch-agents/SKILL.md` → "Verifying the plan (execution-time)"). Paste
 the fenced block under "What the verifier must return" into every verifier's
-prompt verbatim, alongside the standing "Deliver before idling" block
-(`dispatch-agents/SKILL.md` → "Async runtime & lifecycle"). It is what turns
+prompt verbatim. The standing "Deliver before idling" block is NOT pasted —
+`hooks/dispatch-contract.sh` appends it to every dispatch automatically. This
+block is what turns
 a topic's authored `Focus:` / `Checks:` / `Pass when:` into a self-contained
 brief and a checkable return — a verifier briefed only with "check topic 3"
 has to re-derive the criteria from memory, which is exactly the

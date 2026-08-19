@@ -1,7 +1,15 @@
 #!/usr/bin/env bash
-# context-gate.sh — UserPromptSubmit
+# context-gate.sh — UserPromptSubmit (the ONE per-prompt hook)
 #
-# The mentor CONTEXT GATE. Measures the live context size from the session transcript
+# Carries two independent advisories that both fire on every prompt: the CONTEXT GATE
+# (tier 1) and the PLANNING-INTENT NUDGE (tier 2, merged in from the retired
+# planning-intent.sh in v2.34.0). They share nothing but the preamble — one process, one
+# `. lib/state.sh`, one jq parse of stdin, one cwd/repo resolution — which is the entire
+# reason they are one file. Each keeps its own kill switch, its own config key, its own
+# marker location, and its own passthrough semantics for synthetic prompts (the gate
+# MEASURES them; the nudge skips them). See each tier's own banner below.
+#
+# TIER 1 — the mentor CONTEXT GATE. Measures the live context size from the session transcript
 # and acts in three tiers — it NEVER blocks or erases a prompt (warn-only + ask-first):
 #   • WARN  (≥ warn threshold, default 200000): exit 0 with a one-line stdout notice
 #     (UserPromptSubmit stdout is injected as context, so Claude can proactively offer a
@@ -76,12 +84,20 @@ esac
 CWD="$(mentor_cwd "$INPUT")"
 repo_root="$(mentor_repo_root "$CWD")"
 
+# ---------------------------------------------------------------------------
+# TIER 1 — the context gate. A function, not the tail of the script, because the
+# planning-intent nudge below must still run when this half returns early (kill switch
+# off, unmeasurable transcript, or a tier that already fired). Under the two separate
+# hooks this merge replaced, that independence was free; here `return 0` is what buys it.
+# Bodies are deliberately NOT re-indented: the ASK tier's heredoc terminator has to stay
+# at column 0, and an indent-only diff would hide the real change in review.
+mentor_context_tiers() {
 # Kill switch (env or per-repo config).
-[ "$(mentor_context_gate_state "$repo_root")" = "on" ] || exit 0
+[ "$(mentor_context_gate_state "$repo_root")" = "on" ] || return 0
 
-TRANSCRIPT="$(printf '%s' "$INPUT" | jq -r '.transcript_path // ""' 2>/dev/null)" || exit 0
+TRANSCRIPT="$(printf '%s' "$INPUT" | jq -r '.transcript_path // ""' 2>/dev/null)" || return 0
 TOKENS="$(mentor_context_tokens "$TRANSCRIPT")"
-[ -z "$TOKENS" ] && exit 0   # unmeasurable → fail-soft
+[ -z "$TOKENS" ] && return 0   # unmeasurable → fail-soft
 
 SESSION_ID="$(printf '%s' "$INPUT" | jq -r '.session_id // ""' 2>/dev/null)" || true
 state_dir="$(mentor_state_dir "$repo_root")"
@@ -97,7 +113,7 @@ if [ "$TOKENS" -ge "$ASK_AT" ]; then
   # 1) The user already chose to bypass this session → one-line advisory only.
   if [ -e "${state_dir}/.context-bypass-${SESSION_ID:-nosession}" ]; then
     echo "[mentor] Context gate bypassed for this session (~${TOKENS} tokens ≥ ${ASK_AT}) — still prefer wrapping the current unit of work and handing off at the next natural boundary (/mentor:handoff → /mentor:resume in a fresh session)."
-    exit 0
+    return 0
   fi
   # 2) A fresh handoff note (<30 min) exists → the handoff already happened; point at it.
   latest_handoff="$(mentor_latest_handoff "$repo_root")"
@@ -105,12 +121,12 @@ if [ "$TOKENS" -ge "$ASK_AT" ]; then
     slug="${latest_handoff##*/}"; slug="${slug%.md}"
     slug="${slug#[0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9]-[0-9][0-9][0-9][0-9][0-9][0-9]-}"
     echo "[mentor] Context is over the ask threshold (~${TOKENS} tokens ≥ ${ASK_AT}) but a fresh handoff note already exists (${latest_handoff}). Answer briefly and remind the user they can continue in a fresh session with: /mentor:resume ${slug}"
-    exit 0
+    return 0
   fi
   # 3) Synthetic agent report → never a question; consume the result, advise loudly.
   if [ "$SYNTHETIC" = "1" ]; then
     echo "[mentor] Context is over the ask threshold (~${TOKENS} tokens ≥ ${ASK_AT}) and this prompt is a harness-generated agent report. Consume this result, then hand off at the next natural boundary — /mentor:handoff (→ /mentor:resume in a fresh session) or /compact — BEFORE dispatching more work."
-    exit 0
+    return 0
   fi
   # 4) Human prompt, no bypass, no fresh handoff → the user decides first.
   cat <<EOF
@@ -125,13 +141,13 @@ FIRST ask the user via AskUserQuestion (header "Context", two options):
 (Threshold: "context_block_tokens" in .mentor/config.json or MENTOR_CONTEXT_BLOCK_TOKENS;
 disable entirely with MENTOR_CONTEXT_GATE=off.)
 EOF
-  exit 0
+  return 0
 fi
 
 # --- WARN-HIGH tier (near-limit, re-fires every prompt in the zone) ----------
 if [ "$TOKENS" -ge "$WARN_HIGH_AT" ]; then
   echo "[mentor] Context is nearing the handoff threshold (~${TOKENS} of ${ASK_AT} tokens). Steer toward a natural boundary now — wrap the current unit of work, then /mentor:handoff (→ /mentor:resume in a fresh session) or /compact. Avoid opening new large workstreams. (Re-fires each prompt; tune \"context_warn_high_tokens\" / \"context_block_tokens\" in .mentor/config.json if your repo uses a different budget.)"
-  exit 0
+  return 0
 fi
 
 # --- WARN tier (re-arms on growth) ------------------------------------------
@@ -158,5 +174,72 @@ if [ "$SYNTHETIC" = "0" ] && [ "$TOKENS" -ge "$WARN_AT" ]; then
     echo "[mentor] Context is getting large (~${TOKENS} tokens ≥ ${WARN_AT}). At a natural stopping point, consider /mentor:handoff (then /mentor:resume in a fresh session) or /compact. (Re-fires every ~${rearm_delta} tokens of further growth; thresholds: \"context_warn_tokens\" / \"context_block_tokens\" in .mentor/config.json.)"
   fi
 fi
+
+return 0
+}
+
+# ---------------------------------------------------------------------------
+# TIER 2 — the planning-intent nudge, merged in from the retired planning-intent.sh
+# (v2.34.0). It used to be a second UserPromptSubmit hook: a second process, a second
+# source of the state lib, and a second jq parse of the same stdin, on every prompt of
+# every session — to fire at most once. Everything it does is unchanged, including its
+# own kill switch, its own config key, and its marker living under a machine-global
+# scratch dir rather than the repo (a heuristic prompt match must never create .mentor/
+# in a repo that has never used mentor). The shared preamble above already applied its
+# empty-prompt, slash-command and synthetic-prompt passthroughs, which were identical.
+mentor_planning_nudge() {
+# Kill switch (env, or per-repo config when one already exists — read-only, never
+# creates .mentor/ or config.json).
+case "${MENTOR_PLANNING_INTENT:-}" in
+  off|0|false|no) return 0 ;;
+esac
+[ "$(mentor_config_get "$repo_root" "planning_intent")" = "off" ] && return 0
+
+# Already inside mentor's planning flow → THIS worktree's own marker (or the legacy
+# repo-global one) is live, nudging now is noise. Routed through mentor_marker_stale
+# (not a bare `-f` check) so a long-dead marker can't suppress the nudge forever, and
+# through mentor_worktree_id/mentor_plan_marker so a live SIBLING worktree's marker —
+# an independent gate that doesn't touch this worktree — never suppresses here.
+if [ -n "$repo_root" ]; then
+  pi_plans="${repo_root}/.mentor/plans"
+  pi_wt_id="$(mentor_worktree_id "$CWD")"
+  pi_own="$(mentor_plan_marker "$pi_plans" "$pi_wt_id")"
+  pi_legacy="$(mentor_plan_marker "$pi_plans" "")"
+  if { [ -e "$pi_own" ] && ! mentor_marker_stale "$pi_own"; } \
+     || { [ -n "$pi_wt_id" ] && [ -e "$pi_legacy" ] && ! mentor_marker_stale "$pi_legacy"; }; then
+    return 0
+  fi
+fi
+
+# Narrow, anchored planning-intent openers (case-insensitive). See header for why this
+# list stays short.
+PROMPT_LC="$(printf '%s' "$PROMPT" | tr '[:upper:]' '[:lower:]')"
+case "$PROMPT_LC" in
+  "help me plan"*|"let's plan"*|"lets plan"*|"can you plan"*|"plan out"*|"i want to plan"*) ;;
+  *) return 0 ;;
+esac
+
+# Once-per-session only. Marker lives under a machine-global scratch dir — NEVER
+# inside the target repo's .mentor/ (see header).
+SESSION_ID="$(printf '%s' "$INPUT" | jq -r '.session_id // ""' 2>/dev/null)" || true
+scratch_dir="${HOME}/.claude/mentor/_prompt-nudges"
+marker="${scratch_dir}/.planning-intent-${SESSION_ID:-nosession}"
+[ -e "$marker" ] && return 0
+mkdir -p "$scratch_dir" 2>/dev/null || true
+# Prune stale nudge markers (>24h) so the scratch dir doesn't grow one empty file
+# per matching session forever — same idiom as context-gate.sh / bypass-context.sh.
+find "$scratch_dir" -maxdepth 1 -name '.planning-intent-*' -mmin +1440 -delete 2>/dev/null || true
+: > "$marker" 2>/dev/null || true
+
+echo "[mentor] This looks like a planning request. Offer the user \`/mentor:plan <topic>\` so mentor's edit gate and structured plan format apply — do NOT invoke Skill(mentor:planning) yourself; only the /mentor:plan command arms the gate that makes it safe. (Disable this advisory with MENTOR_PLANNING_INTENT=off or \"planning_intent\":\"off\" in .mentor/config.json.)"
+
+return 0
+}
+
+# Order mirrors the hooks.json order these two used to have: the context verdict is the
+# more urgent line and must land above the nudge. Both write to stdout, which
+# UserPromptSubmit injects as context — exactly as two separate hooks did.
+mentor_context_tiers
+mentor_planning_nudge
 
 exit 0

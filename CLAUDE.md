@@ -13,6 +13,18 @@ Marketplace repo hosting Claude Code plugins under `plugins/<name>/`, registered
 - This applies even when another workflow (e.g. loom harvest/tune) is driving the change: load `/skill-creator:skill-creator` first, then proceed.
 - Exceptions: pure version-number bumps and typo-only fixes that don't touch behavior or the description may skip it.
 
+### Skill prose convention (mentor and any skill that grows by accretion)
+
+When adding or amending a rule in a plugin `SKILL.md`, put the **imperative rule plus one
+sentence of why** in `SKILL.md`, and the **incident narrative / mechanism essay** in that
+skill's `references/rationale.md`, pointed at by heading name.
+
+- Rationale files load only when someone edits the skill or is about to override a rule;
+  `SKILL.md` loads on every invocation, so narrative there is paid for on every run.
+- This binds automated contributors too — a `/loom:learn` cycle harvesting a new rule
+  appends the story to `references/rationale.md`, never to `SKILL.md`.
+- See `plugins/mentor/README.md` → "Where a new rule goes" for the full convention.
+
 ### Plugin-edit verification gate (MANDATORY)
 
 **Always run `/verify-plugin-edits <plugin>` before `git commit`/`git push` on any change under `plugins/<name>/`.**

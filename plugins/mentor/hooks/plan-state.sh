@@ -313,6 +313,9 @@ Usage: plan-state.sh <subcommand>
   init <slug> [--group G] [--order N] [--deps a,b] [--deferred] [--priority P]
        [--category C] [--from S] [--parent S]
                                          create the sidecar as draft (idempotent)
+  start <slug> [any init flag]          ensure-dir + init + claim in ONE call; echoes the
+                                         plan.md path. The plan-write path — replaces the
+                                         three-call sequence and its re-derive footguns
   set <slug> <state> [--note "…"]       state: draft|approved|in_progress|implemented|failed|superseded;
                                          `implemented` with open descendants prints a soft
                                          WARN (the write still succeeds — see query --subtree)
@@ -365,6 +368,12 @@ Usage: plan-state.sh <subcommand>
                                          plans = that plans dir alone; repo = the whole
                                          worktree minus .git/. find walks so grep never
                                          applies .gitignore — gitignored .mentor/ IS reached
+  policy                                the pre-dispatch preflight, one call, no skill load:
+                                         POLICY: NONE|FOUND|UNRESOLVED (standing
+                                         no-subagents instruction?) + CONTRACT: active|MISSING
+                                         (can dispatch-contract.sh inject?). The printed
+                                         token is the verdict; exit 2 iff the check
+                                         could not run
   context                               CONTEXT: ASK|HANDOFF|WARN|OK|UNKNOWN (~N tokens)
   dir [--plans]                         the repo-scoped mentor dir (or its plans dir)
   gate [--verbose]                      ARMED|STALE|ARMED_ELSEWHERE|RELEASED — read-only marker
@@ -924,9 +933,145 @@ if [ "$sub" = "sweep" ]; then
   exit 1
 fi
 
+# --- policy: the ONE pre-dispatch preflight (v2.34.0) -------------------------
+# Answers, in one call, both questions a surface must settle before its first
+# Agent/Task dispatch — so no skill has to load mentor:dispatch-agents (~16k tokens)
+# just to reach them:
+#
+#   POLICY:    is a STANDING no-subagents instruction recorded anywhere durable —
+#              this worktree's CLAUDE.md, its .claude/ tree, or the main repo's
+#              .mentor/plans handoff notes? Runs exactly the sweep the prescription
+#              always meant (`--roots policy --ignore-case`), so gitignored .mentor/
+#              is really read and a search that read NOTHING can never pass for a
+#              clean result.
+#   CONTRACT:  can hooks/dispatch-contract.sh actually inject the standing "Deliver
+#              before idling" block into this dispatch? That hook fail-softs SILENTLY
+#              (no jq, missing/empty contract file), and since v2.34.0 no skill pastes
+#              the block by hand any more — so a silent fail-soft would ship raw agent
+#              prompts with nothing anywhere saying so. This line is that alarm.
+#
+# THE PRINTED TOKEN IS THE VERDICT, not the exit code. `sweep` needs its grep-shaped
+# codes because a bare hit count cannot distinguish "no match" from "read nothing";
+# here that distinction is spelled out in words (NONE / FOUND / UNRESOLVED), which
+# leaves the exit code free to mean the one thing a caller actually branches on:
+#   0  the check RAN — read POLICY: NONE (dispatch as designed) or FOUND (stop, ask)
+#   2  the check could NOT run — UNRESOLVED; never read this as "no policy"
+# CONTRACT: never moves the exit code. A missing contract is not a reason to withhold
+# the policy answer the caller came for; it is a reason to print a loud second line.
+if [ "$sub" = "policy" ]; then
+  if [ "$#" -gt 0 ]; then
+    echo "[mentor plan-state] policy takes no arguments; got '${1}'." >&2
+    exit 2
+  fi
+
+  # Contract liveness, resolved first so it is reportable on every branch below.
+  pol_txt="${hook_dir}/dispatch-contract.txt"
+  pol_sh="${hook_dir}/dispatch-contract.sh"
+  if ! command -v jq >/dev/null 2>&1; then
+    pol_contract="MISSING — jq is absent, so dispatch-contract.sh fail-softs and injects nothing. Paste the \"Deliver before idling\" block from skills/dispatch-agents/SKILL.md by hand until jq is installed."
+  elif [ ! -s "$pol_txt" ]; then
+    pol_contract="MISSING — hooks/dispatch-contract.txt is absent or empty; nothing can be injected."
+  elif [ -z "$(head -n 1 "$pol_txt" 2>/dev/null || true)" ]; then
+    pol_contract="MISSING — hooks/dispatch-contract.txt has no first line, so the hook's idempotence sentinel is unreadable."
+  elif [ ! -r "$pol_sh" ]; then
+    pol_contract="MISSING — hooks/dispatch-contract.sh is not readable."
+  else
+    pol_contract="active — dispatch prompts are injected automatically; do NOT paste the block by hand."
+  fi
+
+  pol_out="$(mentor_sweep "$(pwd)" policy 'no subagents' 1)"
+  pol_roots=0; pol_files=0; pol_hits=0
+  read -r pol_roots pol_files pol_hits <<<"$(printf '%s\n' "$pol_out" | head -1)" || true
+
+  # `sweep` maps files=0 to NOTHING-SEARCHED because its roots are caller-chosen and its
+  # pattern arbitrary — a zero there really can mean the caller aimed at nothing. THIS
+  # check cannot: its root set is fixed and exhaustive (this worktree's CLAUDE.md, its
+  # .claude/ tree, the main repo's .mentor/plans), and each root is listed only when it
+  # exists. So roots=0 is not a failed search — it is the positive finding that NONE of
+  # the three places a standing instruction can live exists in this repo, which is the
+  # ordinary state of a repo with no CLAUDE.md. Reporting that as UNRESOLVED would stop
+  # every dispatch in every such repo to ask a question with no possible answer.
+  #
+  # roots>0 with files=0 is the genuinely odd one and keeps the loud verdict: a root that
+  # exists but yielded no readable file is as consistent with an unreadable directory
+  # (find swallows the error) as with an empty one, and that is exactly the ambiguity
+  # this whole subcommand refuses to launder into a clean result.
+  if [ "${pol_roots:-0}" -eq 0 ]; then
+    echo "POLICY: NONE (roots=0) — none of the durable locations exists here (CLAUDE.md, .claude/, .mentor/plans), so there is nowhere a standing instruction could be recorded."
+    echo "CONTRACT: ${pol_contract}"
+    exit 0
+  fi
+  if [ "${pol_files:-0}" -eq 0 ]; then
+    echo "POLICY: UNRESOLVED (roots=${pol_roots} files=0) — the durable locations exist but not one readable file was searched. Treat the question as open; this is NOT evidence that no policy exists."
+    echo "CONTRACT: ${pol_contract}"
+    exit 2
+  fi
+  if [ "${pol_hits:-0}" -gt 0 ]; then
+    echo "POLICY: FOUND (files=${pol_files} hits=${pol_hits}) — a standing no-subagents instruction is recorded. Stop before dispatching and ask the user (see mentor:dispatch-agents, \"Standing no-subagents policy\")."
+    echo "CONTRACT: ${pol_contract}"
+    printf '%s\n' "$pol_out" | tail -n +2
+    exit 0
+  fi
+  echo "POLICY: NONE (files=${pol_files}) — no standing no-subagents instruction recorded; dispatch as designed."
+  echo "CONTRACT: ${pol_contract}"
+  exit 0
+fi
+
+# --- start <slug> [init flags]: ensure-dir + init + claim in ONE call (v2.34.0) ---
+# The plan-write path used to cost three separate Bash calls around one Write, and
+# because each is its own shell, the skill had to warn twice about re-deriving $slug
+# — an empty one silently registering nothing. One call removes both footguns.
+#
+# Order is load-bearing and not a convenience: `init` runs require_slug, which demands
+# the dir already exist, and `claim` needs the sidecar `init` writes. Every flag after
+# the slug is forwarded to `init` verbatim, so a caller that needs --group/--order/
+# --parent/--priority/--category/--from/--deps/--deferred keeps all of them.
+#
+# `claim` is folded in unconditionally: it is an idempotent no-op on a plan that was
+# never a /mentor:defer stub, so a brand-new plan pays nothing and a stub being fleshed
+# out stops being shielded from the approval sweep without the caller having to know
+# which case they are in. Its "nothing to claim" notice is suppressed here — that line
+# is the normal path for a new plan, and printing it every time trains the reader to
+# ignore the one case where it matters.
+if [ "$sub" = "start" ]; then
+  st_slug="${1:-}"
+  [ "$#" -gt 0 ] && shift
+  case "$st_slug" in
+    ""|-*)
+      echo "[mentor plan-state] start needs <slug> as its FIRST argument." >&2
+      echo "  usage: start <slug> [any init flag]" >&2
+      exit 1 ;;
+  esac
+  st_repo="$(mentor_repo_root "$(pwd)")"
+  if [ -z "$st_repo" ]; then
+    echo "[mentor plan-state] Not inside a git repo — mentor keeps no plan registry here." >&2
+    exit 1
+  fi
+  st_plans="$(mentor_plans_dir "$st_repo")"
+  st_self="${hook_dir}/plan-state.sh"
+  st_dir="$(bash "$st_self" ensure-dir "${st_plans}/${st_slug}")" || exit 1
+  # Both inner calls report to STDERR here, so this subcommand's stdout is exactly one
+  # line: the plan path. That is what lets the caller write
+  # `plan_md="$(plan-state.sh start "$slug")"` and have a failure kill the pipeline —
+  # ensure-dir's own contract, which is worth nothing if init's state summary rides
+  # along in the same capture. The summaries are not suppressed, only redirected: they
+  # still appear in the command's output for the reader.
+  bash "$st_self" init "$st_slug" "$@" >&2 || exit 1
+  # Surface only a real claim; swallow the "origin already unset" no-op notice, which is
+  # the normal path for a new plan and trains the reader to ignore the line that matters.
+  st_claim="$(bash "$st_self" claim "$st_slug" 2>&1)" || { printf '%s\n' "$st_claim" >&2; exit 1; }
+  case "$st_claim" in
+    *"nothing to claim"*) ;;
+    *) printf '%s\n' "$st_claim" >&2 ;;
+  esac
+  echo "${st_dir}/plan.md"
+  exit 0
+fi
+
 # Every subcommand handled by an early `if` above (context, dir, ensure-dir, relocate,
-# handoff-path, handoff-selfcheck, gate, sweep) exits before reaching here, so none of
-# them appears in this allow-list — adding one would be unreachable code, not a fix.
+# handoff-path, handoff-selfcheck, gate, sweep, policy, start) exits before reaching
+# here, so none of them appears in this allow-list — adding one would be unreachable
+# code, not a fix.
 case "$sub" in
   init|set|set-deps|set-priority|set-category|set-parent|claim|tick|verify|query|list|current|brief) ;;
   ""|-h|--help|help)

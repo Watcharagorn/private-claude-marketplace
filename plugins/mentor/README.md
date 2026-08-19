@@ -27,8 +27,8 @@ implementation, handoff, and review.
 2. Follows the `plan` skill: optional clarify (grilling), research
    (subagent delegation suggested for big tasks), domain routing, open-decision
    resolution (every open question or decision that needs the user is asked via
-   `AskUserQuestion`, one at a time, each with evidence and a recommended
-   option), then a
+   `AskUserQuestion` with evidence and a recommended option — consequential ones
+   one at a time, independent ones grouped into a single call), then a
    Markdown plan written to `<repo>/.mentor/plans/<slug>/plan.md` (in-repo, gitignored).
 3. At approval you choose the outcome — **Proceed** (implement), **Deliver plan
    only** (the plan file is the deliverable), hand off, review, keep planning, or
@@ -78,13 +78,36 @@ implementation, handoff, and review.
 | `/mentor:defer <item(s)>` | `git stash`-like capture, **manual only** — mentor never defers on your behalf; the harness names follow-ups and offers this command, and a gate that surfaces a finding runs the capture only on your explicit Defer verdict. Park one or many mid-flow discoveries (mid-planning or mid-implementation) as draft plan stubs at the normal plans location (`origin: "deferred"` in the sidecar, no separate stash area), then return to the interrupted flow. Picked up later via `/mentor:track`, which routes it to `/mentor:plan` to be claimed before it can build. An item that **blocks a plan's "really done"** — the active plan, or an already-implemented plan whose shipped work carries a confirmed defect — parks as a fix child under the plan that owns it (`--parent` = the owning plan's slug, nesting when that plan is itself a fix), so a plan can't read done while its fixes dangle. |
 | `/mentor:track [slug\|number\|status]` | Repo-wide remaining-work hierarchy — every plan's state, step progress, cross-plan `deps`, deferred stubs, and live handoffs — with fix children nested under their root and per-root open-descendant counts — then build the one you pick. The way back into a `/plan-split` group. |
 | `plan-split`* | Split an oversized plan into independently buildable sibling plans, each with explicit scope isolation; also offered as **Split into multiple plans** at the approval gate when a plan is oversized. |
-| `plan-review`* | Staged review of the current plan: a judgment pass (practicality, comprehensiveness) with a **fold gate** that walks the recommended edits **one question at a time** — each question carries the reviewer's case with the key words bolded — then — against the updated plan — a mechanical pass (cleanliness + spec-kit-`analyze`-style **consistency** across related artifacts) whose safe fixes **auto-fold**; decision-level findings surface as a one-line **digest**, only **CRITICAL** ones asked one at a time and the rest resolved in **one batched question**, applied only on your verdict. The mechanical stage is invocable alone ("check plan consistency"). Also offered as **Review the plan (staged)** at the proceed gate. |
+| `plan-review`* | Staged review of the current plan: a judgment pass (practicality, comprehensiveness) with a **fold gate** that walks the **CRITICAL and HIGH** recommended edits one question at a time — each question carries the reviewer's case with the key words bolded — and resolves the rest in **one batched question**; then — against the updated plan — a mechanical pass (cleanliness + spec-kit-`analyze`-style **consistency** across related artifacts) whose safe fixes **auto-fold**; decision-level findings surface as a one-line **digest**, only **CRITICAL** ones asked one at a time and the rest resolved in **one batched question**, applied only on your verdict. The mechanical stage is invocable alone ("check plan consistency"). Also offered as **Review the plan (staged)** at the proceed gate. |
 | `dispatch-agents`* | The **default implementation path** (subagents-driven development): every plan's steps are dispatch-annotated unless the plan states a `Dispatch: skipped` reason, executed as subagent dispatches after approval, then verified by one fresh verifier agent per Verification topic — implementation dispatch may skip, verification dispatch never does on a mentor plan. |
 
 \* skill trigger phrases, not registered slash commands — there is no `/plan-split`,
 `/plan-review`, or `/dispatch-agents` command. They invoke only via
 `Skill({"skill": "mentor:<name>"})` or natural language matching the skill's
 `description:` (which may not be the literal name above).
+
+## Where a new rule goes (skill authoring convention)
+
+mentor's skills grow by accretion — most rules here were added after a session went
+wrong, together with the story of how. That story is worth keeping and expensive to
+re-read: it is loaded into context on every invocation, but it only matters when someone
+is questioning the rule itself.
+
+So, when adding or amending a rule in a `SKILL.md`:
+
+- **`SKILL.md` gets the imperative rule plus at most one sentence naming the failure it
+  prevents.** That sentence is not optional — a rule with no stated why gets worked
+  around by the next reader who finds it inconvenient.
+- **`references/rationale.md` gets the narrative** — the incident, the mechanism, the
+  alternatives that look right and are not, the measured cost. Give it a `## ` heading
+  and point at it from `SKILL.md` by name (`references/rationale.md` → **Heading**), not
+  by line number.
+- **Reference files are read only when editing the skill**, or when a rule looks wrong
+  and someone is about to change it. They are not part of the skill's own context.
+
+This applies to automated contributors too: a `/loom:learn` cycle that harvests a new
+rule from a session should append the narrative to `references/rationale.md`, not to
+`SKILL.md`. Without that split, every skill converges back on being unreadable.
 
 ## Repo modes (`/mentor:mode`)
 
@@ -550,6 +573,52 @@ extra deliverable. Instruction-only — no hooks.
 | `plan-domain-backend-api` | API/endpoint/route/handler/schema/DTO/contract — or the data model behind it: migration, table, column, index, constraint, enum, RLS policy | Before/after contract diff tables, schema diffs, Mermaid sequence flows; on a DDL change also a per-column delta table + a Mermaid ER diff of the changed entities. |
 | `plan-domain-architecture` | Structural change — services, containers, datastores, queues, integrations, data flows (not pure content/config/doc/style/refactor) | Diff-highlighted C4-style Mermaid flowcharts, only the levels that change; a provenance list for any changed datastore field. |
 | `plan-domain-dynamic` | No registered domain matched, and no already-available project/plugin skill names the technology (fallback) | A dispatched domain-definer names the domain and returns a best-practices brief; the plan gains a practice→step mapping. A substituted available skill can supply the brief instead. |
+
+## Changes in v2.34.0
+
+A trimming release: same gates, same guarantees, less work to get through them.
+
+**The dispatch contract is injected, not pasted.** `hooks/dispatch-contract.sh` has
+appended the standing "Deliver before idling" block to every `Task`/`Agent` prompt since
+v2.30.0, but six skills still told you to load `mentor:dispatch-agents` (~16k tokens) and
+paste it by hand — an instruction `dispatch-agents/SKILL.md` itself contradicted. Those
+eight load points are gone; five real ones remain (the annotation grammar, execution, and
+verification dispatch). A standalone `/plan-review`, `/zoom`, `/plan-tour` or `/plan-split`
+no longer drags that skill into context at all.
+
+**New `plan-state.sh policy`** — the one pre-dispatch preflight, replacing the skill load.
+It answers both questions a surface must settle before its first dispatch: `POLICY:
+NONE|FOUND|UNRESOLVED` (is a standing no-subagents instruction recorded?) and `CONTRACT:
+active|MISSING` (can the hook actually inject?). That second line is new coverage — the
+hook fail-softs silently when `jq` or the contract file is missing, and with nobody
+pasting by hand any more, nothing else would have said so.
+
+**New `plan-state.sh start <slug>`** — `ensure-dir` + `init` + `claim` in one call,
+echoing the plan path. The plan-write path was three separate Bash calls with two
+"re-derive `$slug`, this is a separate shell" warnings attached; it is now one call whose
+stdout is exactly the path.
+
+**One per-prompt hook instead of two.** `planning-intent.sh` is retired into
+`context-gate.sh` as tier 2. Both fired on every prompt, each spawning a process, sourcing
+the 1467-line state lib and re-parsing the same stdin with `jq`. Behavior is unchanged —
+both kill switches, both config keys, and the separate marker locations all survive, and
+the merged hook has explicit tests that neither tier can swallow the other.
+
+**Fewer questions at two gates.** `plan-review`'s Stage 1 fold gate now walks only the
+edits its reviewers stamp **CRITICAL** or **HIGH** and resolves the rest in one batched
+verdict — the same shape Step 7 already used, for the same measured reason (a 21-step plan
+once produced twelve dense questions). Reviewers stamp a severity per edit to make that
+split possible. `/mentor:ship` asks its test question and its ship-target question in one
+call instead of two.
+
+**`plan` Step 3.5 is impact-gated rather than strictly serial.** A decision still gets its
+own question when it is consequential or when an earlier answer could change it; genuinely
+independent decisions ride in one call, each still answered on its own screen.
+
+**Skill prose convention.** Rules stay in `SKILL.md` with one sentence of why; the incident
+narrative moves to `references/rationale.md`, read only when editing the skill. See
+"Where a new rule goes" above — it binds automated contributors too, which is what keeps
+the split from reversing itself.
 
 ## Changes in v2.33.0
 

@@ -8,6 +8,11 @@
 # matrix: passthroughs, kill switch, threshold precedence, once-per-session warn,
 # the ask tier and its degradations, transcript extraction edge cases, and
 # fail-soft robustness.
+#
+# Since v2.34.0 this hook also carries the planning-intent nudge as tier 2 (see
+# test-planning-nudge.sh). Every case here pins MENTOR_PLANNING_INTENT=off so the tiers
+# stay separately measurable; section J below is the one place both run at once, and it
+# exists because the merge's whole risk is one tier's early return swallowing the other.
 set -uo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
@@ -76,7 +81,8 @@ run() {
   local prompt="$1" sess="$2" tx="$3"; shift 3
   RC=0
   OUT="$(mkinput "$prompt" "$tx" "$REPO" "$sess" \
-    | env -u MENTOR_CONTEXT_GATE -u MENTOR_CONTEXT_WARN_TOKENS -u MENTOR_CONTEXT_BLOCK_TOKENS -u MENTOR_CONTEXT_TAIL_LINES "$@" bash "$HOOK" 2>"$ERRFILE")" || RC=$?
+    | env -u MENTOR_CONTEXT_GATE -u MENTOR_CONTEXT_WARN_TOKENS -u MENTOR_CONTEXT_BLOCK_TOKENS -u MENTOR_CONTEXT_TAIL_LINES \
+        MENTOR_PLANNING_INTENT=off "$@" bash "$HOOK" 2>"$ERRFILE")" || RC=$?
   ERR="$(cat "$ERRFILE")"
 }
 # run_nojq: same, but with a PATH where jq cannot be found. Input is fed from a FILE
@@ -339,6 +345,59 @@ RC=0; OUT="$( cd "$REPO" && env -u CLAUDE_CODE_SESSION_ID bash "$BYPASS" 2>&1 )"
 chk "no session id → exit 0 (nosession)"     test "$RC" = "0"
 chk "no session id → nosession marker"       test -e "$STATE/.context-bypass-nosession"
 rm -f "$STATE"/.context-bypass-*
+
+echo "== J. Tier independence (v2.34.0 merge) =="
+# The merge's one real hazard: tier 1 returning early — kill switch off, unmeasurable
+# transcript, or a tier that already fired — must never stop tier 2 from running, and
+# each kill switch must reach only its own tier. Under the two separate hooks this was
+# structurally guaranteed; here it is a behavior that can regress silently.
+NUDGE_HOME="$ROOT/nudge-home"; mkdir -p "$NUDGE_HOME"
+# Section H drove begin-plan.sh, which armed a real plan-gate marker in this fixture repo
+# — and a live marker legitimately suppresses the nudge ("already planning here"). Clear
+# them, or every case below would measure that suppression instead of tier independence.
+rm -f "$REPO"/.mentor/plans/.planning*
+# run_both <prompt> <session> <transcript> [env=val ...] — both tiers live, isolated $HOME
+# so the nudge's once-per-session marker never touches the real machine.
+run_both() {
+  local prompt="$1" sess="$2" tx="$3"; shift 3
+  RC=0
+  OUT="$(mkinput "$prompt" "$tx" "$REPO" "$sess" \
+    | env -u MENTOR_CONTEXT_GATE -u MENTOR_CONTEXT_WARN_TOKENS -u MENTOR_CONTEXT_BLOCK_TOKENS \
+          -u MENTOR_CONTEXT_TAIL_LINES -u MENTOR_PLANNING_INTENT HOME="$NUDGE_HOME" \
+          "$@" bash "$HOOK" 2>"$ERRFILE")" || RC=$?
+  ERR="$(cat "$ERRFILE")"
+}
+
+# 1. Gate silent (under threshold) + nudge matches → the nudge still fires.
+rm -rf "$NUDGE_HOME"; mkdir -p "$NUDGE_HOME"
+run_both "help me plan the billing rewrite" j1 "$TX_UNDER"
+chk "gate silent → nudge still fires"            contains "This looks like a planning request" "$OUT"
+chk "gate silent + nudge → exit 0"               test "$RC" = "0"
+
+# 2. Gate KILLED + nudge matches → the nudge is untouched by the gate's kill switch.
+rm -rf "$NUDGE_HOME"; mkdir -p "$NUDGE_HOME"
+run_both "help me plan the billing rewrite" j2 "$TX_ASK" MENTOR_CONTEXT_GATE=off
+chk "MENTOR_CONTEXT_GATE=off → gate silent"      test -z "$(printf '%s' "$OUT" | grep -c 'CONTEXT: ASK' | grep -v '^0$')"
+chk "MENTOR_CONTEXT_GATE=off → nudge still runs" contains "This looks like a planning request" "$OUT"
+
+# 3. Nudge KILLED + gate over the ask threshold → the gate is untouched by the nudge's
+#    kill switch, and the two verdicts never cross-suppress.
+rm -rf "$NUDGE_HOME"; mkdir -p "$NUDGE_HOME"
+rm -f "$STATE"/.context-bypass-* "$STATE"/.context-warned-*
+run_both "help me plan the billing rewrite" j3 "$TX_ASK" MENTOR_PLANNING_INTENT=off
+chk "MENTOR_PLANNING_INTENT=off → gate still asks" contains "CONTEXT: ASK" "$OUT"
+chk "MENTOR_PLANNING_INTENT=off → nudge silent"    test "$(printf '%s' "$OUT" | grep -c 'This looks like a planning request')" = "0"
+
+# 4. Both fire on one prompt → both lines land, gate verdict FIRST (hooks.json order).
+rm -rf "$NUDGE_HOME"; mkdir -p "$NUDGE_HOME"
+rm -f "$STATE"/.context-bypass-* "$STATE"/.context-warned-*
+run_both "help me plan the billing rewrite" j4 "$TX_ASK"
+chk "both tiers fire → gate line present"        contains "CONTEXT: ASK" "$OUT"
+chk "both tiers fire → nudge line present"       contains "This looks like a planning request" "$OUT"
+gate_ln="$(printf '%s\n' "$OUT" | grep -n 'CONTEXT: ASK' | head -1 | cut -d: -f1)"
+nudge_ln="$(printf '%s\n' "$OUT" | grep -n 'This looks like a planning request' | head -1 | cut -d: -f1)"
+chk "both tiers fire → gate verdict precedes the nudge" test "${gate_ln:-999}" -lt "${nudge_ln:-0}"
+rm -f "$STATE"/.context-bypass-* "$STATE"/.context-warned-*
 
 echo
 echo "RESULT: PASS=$PASS FAIL=$FAIL"

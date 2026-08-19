@@ -160,15 +160,26 @@ path.
 
 ## Step 3 — Generation — one agent per combo, always dispatched
 
-**Load the dispatch contract before the first `Agent` call, not after.** Invoke
-`Skill(skill="mentor:dispatch-agents")` here if it is not already loaded — a `/zoom`
-reached directly rather than through `plan` Step 5 has loaded nothing — then end every
-combo prompt with its **"Deliver before idling"** block pasted verbatim, after the
-per-file spec below. Step 4's citation of that same section covers close-out only; this
-is the load point, and Step 1's "no nested fan-out" reaches a combo agent only through
-this block. The block's durable-copy clause is for verdict-producing agents (reviewers,
-verifiers) — a combo's durable artifact is the HTML file it already writes, and nothing
-here writes under `plans/`.
+**Run the pre-dispatch preflight before the first `Agent` call, not after.** One call,
+no skill load:
+
+```bash
+[ -d "${CLAUDE_PLUGIN_ROOT}/hooks" ] || { echo "ERROR: CLAUDE_PLUGIN_ROOT unresolved or stale — do not search the plugin cache or hardcode a version path; ask the user to /reload-plugins or restart" >&2; exit 1; }
+bash "${CLAUDE_PLUGIN_ROOT}/hooks/plan-state.sh" policy
+```
+
+`POLICY: FOUND` — a standing no-subagents instruction is on record; stop and ask before
+dispatching. `UNRESOLVED` — the check could not run, which is not a clean result; treat
+the question as open. `NONE` — dispatch. `CONTRACT: active` confirms
+`hooks/dispatch-contract.sh` appends the standing "Deliver before idling" block to every
+dispatch prompt automatically: **do not paste it by hand.** Only on `CONTRACT: MISSING`
+do you paste it yourself, from `dispatch-agents`' own section of that name.
+
+Step 1's "no nested fan-out" reaches a combo agent only through that injected block, which
+is why `CONTRACT: MISSING` matters here even though nothing else in this skill dispatches.
+The block's durable-copy clause is for verdict-producing agents (reviewers, verifiers) — a
+combo's durable artifact is the HTML file it already writes, and nothing here writes under
+`plans/`.
 
 Issue one `Agent` call per combo (`subagent_type: general-purpose`,
 `model: sonnet`, `effort: high`), ALL combos in one message — even a single

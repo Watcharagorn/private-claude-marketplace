@@ -293,11 +293,14 @@ if [ -d "$MENTOR" ]; then
   chk "no recursive grep in plan-state.sh / lib/state.sh code" \
     bash -c 'for f in "$@"; do grep -vE "^[[:space:]]*#" "$f" | grep -qE "grep +-[a-zA-Z]*[rR]" && exit 1; done; exit 0' _ \
       "$MENTOR/hooks/plan-state.sh" "$MENTOR/hooks/lib/state.sh"
-  # Each prescribing site must invoke the shared subcommand, not hand-roll a grep.
+  # Each prescribing site must invoke a shared subcommand, not hand-roll a grep. Since
+  # v2.34.0 `policy` counts as one: it wraps this same mentor_sweep call (roots=policy,
+  # pattern='no subagents') behind a spoken verdict, so a site that prescribes it is
+  # still not hand-rolling a grep — which is the whole property this guard protects.
   for site in dispatch-agents planning plan-review; do
     f="$MENTOR/skills/$site/SKILL.md"
-    chk "$site/SKILL.md invokes 'plan-state.sh sweep'" \
-      bash -c 'grep -qF "plan-state.sh\" sweep" "$1"' _ "$f"
+    chk "$site/SKILL.md invokes 'plan-state.sh sweep' or 'policy'" \
+      bash -c 'grep -qF "plan-state.sh\" sweep" "$1" || grep -qF "plan-state.sh\" policy" "$1"' _ "$f"
   done
   # plan-split's command works today BECAUSE it aims below the .gitignore. Pin the
   # comment that records why, so nobody "improves" it by re-aiming it at $mentor_dir.

@@ -228,8 +228,21 @@ the user never chose whether to test, and never chose where the branch goes.
 
 ## Step 4 — Conditional test step
 
-Ask via `AskUserQuestion`: "Run the test suite before shipping?" —
-Yes (Recommended) / No.
+**Ask this together with Step 5's ship target, in ONE `AskUserQuestion` call carrying
+both questions.** They are independent — whether to run tests does not change where the
+branch goes — and both must be answered before the push either way, so splitting them
+into two calls costs a round trip and buys nothing. Resolve the test command first (the
+ladder below), because the question has to name the command that will actually run.
+
+Question 1: "Run the test suite before shipping?" — Yes (Recommended) / No.
+Question 2 is Step 5's, verbatim from the JSON there.
+
+Two cases still ask separately, and both are about the answer arriving too late to be
+useful: when `branch` = `base`, Step 1's on-base question already bound the target, so
+only the test question remains; and when the test run **fails**, its follow-up ("Stop
+and fix / Ship anyway") has to come after the failure, which no combined call can
+anticipate. In that second case, a target answer already collected stays valid — do not
+re-ask it.
 
 **Per-repo override first** — auto-detect guesses wrong in monorepos (a root
 `npm test` can proxy to an unrelated workspace), so an explicit setting always
@@ -285,9 +298,9 @@ Ship anyway.
 ## Step 5 — Choose the ship target (mandatory)
 
 Both answers must exist before any `git push`: Step 4's test answer and this step's
-target answer. If you cannot point at both answers in this transcript — they may
-arrive as two separate `AskUserQuestion` calls, or combined into one call carrying
-both questions — you skipped a step — ask now. Prose selects no option: "ship it",
+target answer. Step 4 issues them as one call carrying both questions; the two-call
+form is still valid (and is what the exceptions there fall back to). Either way, if you
+cannot point at both answers in this transcript, you skipped a step — ask now. Prose selects no option: "ship it",
 "lgtm", "ok all pass, let's ship and deploy" answer neither question, however much
 they sound like a go-ahead. Everything up to here is local and reversible; the push
 is not.
@@ -311,7 +324,8 @@ Never decide this yourself. Substitute real values before emitting the call:
 the local base ref.)
 
 **Not asked when `branch` = `base`** — Step 1's on-base question already chose;
-go straight to 5B.
+go straight to 5B. (That is the case where Step 4's combined call carries only the
+test question.)
 
 ### 5A — Push + open PR/MR
 

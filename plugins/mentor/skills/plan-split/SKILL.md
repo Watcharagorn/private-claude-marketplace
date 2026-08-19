@@ -188,16 +188,26 @@ Author one plan file. You are writing a plan, not implementing anything.
    one-line summary — never the plan body.
 ```
 
-**Every child prompt ends with `mentor:dispatch-agents`' standing contract block**, and
-that block has exactly one authored home — so read **"Deliver before idling"** in that
-skill's "Async runtime & lifecycle" section and paste it verbatim after item 7, the same
-read-it-at-the-source pattern its `references/verifier-contract.md` uses. Invoke
-`Skill(skill="mentor:dispatch-agents")` here if it is not already loaded; a `/plan-split`
-reached directly has loaded nothing. A second copy kept here is how this template drifted
-out of step with the canonical text once already. The block is what makes a child report
-instead of signalling idle with nothing written — without it, Step 6's missing-child
-re-dispatch loop becomes the normal path rather than the rare one, and a paraphrase is no
-substitute: it drops directives the child has no other way to learn.
+**Every child prompt ends with `mentor:dispatch-agents`' standing contract block** —
+appended automatically by `hooks/dispatch-contract.sh`, so write the prompt through item 7
+and stop. The block is what makes a child report instead of signalling idle with nothing
+written; without it, Step 6's missing-child re-dispatch loop becomes the normal path rather
+than the rare one. Confirm it will actually land, once, before the first child goes out:
+
+**Run the pre-dispatch preflight before the first `Agent` call, not after.** One call,
+no skill load:
+
+```bash
+[ -d "${CLAUDE_PLUGIN_ROOT}/hooks" ] || { echo "ERROR: CLAUDE_PLUGIN_ROOT unresolved or stale — do not search the plugin cache or hardcode a version path; ask the user to /reload-plugins or restart" >&2; exit 1; }
+bash "${CLAUDE_PLUGIN_ROOT}/hooks/plan-state.sh" policy
+```
+
+`POLICY: FOUND` — a standing no-subagents instruction is on record; stop and ask before
+dispatching. `UNRESOLVED` — the check could not run, which is not a clean result; treat
+the question as open. `NONE` — dispatch. `CONTRACT: active` confirms
+`hooks/dispatch-contract.sh` appends the standing "Deliver before idling" block to every
+dispatch prompt automatically: **do not paste it by hand.** Only on `CONTRACT: MISSING`
+do you paste it yourself, from `dispatch-agents`' own section of that name.
 
 ## Step 5 — The isolation header
 

@@ -45,31 +45,19 @@ case "$(bash "${CLAUDE_PLUGIN_ROOT}/hooks/plan-state.sh" dir)" in
 esac
 ```
 
-(The `dir` guard comes first on purpose: outside a git repo, `dir` echoes the
-`_no-repo` fallback path — never one ending in `/.mentor` — so `gate`'s `RELEASED`
-there is never mistaken for "not armed inside a repo"; the `case` simply has no
-branch to match and prints nothing. Inside a repo, `gate` already resolves this
-worktree's own marker or the legacy repo-global one, so this check needs no
-`--git-common-dir`/`--show-toplevel` handling of its own.)
+Only the exact `ARMED` token counts: `STALE`, `RELEASED`, and `ARMED_ELSEWHERE` (a
+sibling worktree's independent gate) all read as NOT ARMED here.
 
-The equality is **strict**: only the exact `ARMED` token counts as armed for this
-check. `ARMED_ELSEWHERE` — a sibling worktree's marker is live, an independent gate
-that does not block this one — reads as **NOT ARMED here**, same as `STALE` or
-`RELEASED`. `STALE` reading as NOT ARMED is a **deliberate flip** from the old bare
-`[ -f marker ]` check: a marker file merely *existing* used to read as armed no
-matter its age, but a `STALE` marker is past the self-heal window and
-`plan-gate.sh` no longer enforces it — treating it as armed here would make this
-check stricter than the gate it is checking.
+`GATE: NOT ARMED` means `plan-gate.sh` has no marker enforcing THIS worktree, so every
+repo edit stays allowed for the whole session while Step 6 goes on showing its "no edits
+until approved" banner. Planning that only *looks* read-only is worse than planning that
+admits it isn't, so do not continue: say so in one line and ask the user to run
+`/mentor:plan <their request>`, which arms the gate and comes back here. Do **not** run
+`begin-plan.sh` yourself to patch this up — on a large session it answers `CONTEXT: ASK`
+and exits *without* arming, and resolving that is the command's job, not this skill's.
 
-`GATE: NOT ARMED` means `plan-gate.sh` has no marker enforcing THIS worktree, so
-every repo edit stays allowed for the whole session while Step 6 goes on showing its
-"no edits until approved" banner. Planning that only *looks* read-only is worse than
-planning that admits it isn't, so do not continue: say so in one line and ask the
-user to run `/mentor:plan <their request>`, which arms the gate and comes back here.
-
-Do **not** run `begin-plan.sh` yourself to patch this up — on a large session it
-answers `CONTEXT: ASK` and exits *without* arming, and resolving that with the user
-is the command's job, not this skill's.
+(Why the `dir` guard comes first, and why `STALE` counts as unarmed: `references/rationale.md`
+→ **Step 0 — the armed-gate check**.)
 
 No output means the gate is armed for this worktree, or you are outside a repo
 where there is nothing to protect. Either way, continue.
@@ -128,49 +116,53 @@ designing anything. Skip this for well-specified tasks.
 ## Step 2 — Research (delegation suggested, not enforced) {#research}
 
 For multi-area or unfamiliar tasks, prefer dispatching **1–3 read-only `Explore`
-agents** (`model: sonnet` — this is locate-and-map work, not design; leaving it
-unpinned defaults to the session's own model, a needless cost multiplied by every
-agent in the batch) over disjoint areas — issue every `Agent()` call for the batch in a
-**single message** (N `tool_use` blocks side by side), not one call per message
-waiting for each dispatch's tool_result before writing the next. Serializing the
-dispatch buys nothing — the agents run async once out either way — and spends a
-full main-thread round trip per agent. This keeps the main conversation lean. The strongest signal is an unfamiliar external
-platform (an integration, SDK, or cloud service this session has not already
-researched) **together with** 2+ pre-existing areas of the repo: each half alone
-looks manageable inline, and the pair is what actually exhausts a context
-window. A second, standalone signal: **2+ separate git roots** touched by the
-same plan — unlike areas within one repo, a second root doesn't need pairing
-with an unfamiliar platform to earn its own dispatch, since each root carries
-a full orientation cost (build system, conventions, entry points) the other
-root's research does nothing to amortize. Dispatch one agent per root, still
-inside the 1–3 cap, and resolve each root's real path first (`git rev-parse
---show-toplevel`) before dispatching — a stale duplicate checkout otherwise
-burns a whole dispatch researching the wrong copy. The edit gate only
-protects the repo the session's CWD sits in, so a step whose work lands in a
-second root isn't read-only-gated the way this repo's own edits are, until
-that root has its own plan and gate (`plan-state.sh relocate`'s README note
-spells out the same limit for a moved plan). For small, well-scoped tasks,
-read the files and draft directly in the main thread. Nothing enforces
-delegation; use judgment — with one backstop for when that judgment already
-said "inline" and the reading kept going: once main-thread research reading
-passes roughly 5 files or ~500 cumulative lines, the task is no longer small,
-so dispatch an `Explore` for what is left rather than bulk-reading on. The one
-artifact a decision actually turns on is still read here (Step 3.5's evidence
-rule) — it is the survey reading around it that belongs in an agent. Context
-spent on raw research reads doesn't come back for the rest of the plan —
-grilling, drafting, and Step 3.5's decision loop still have to fit in what's
-left.
-**Load the dispatch contract before the first `Agent()` call, not after.** Research
-dispatches follow `dispatch-agents`' "Async runtime & lifecycle" rules, and this step
-fires before that skill's own first load point (Step 4) — so invoke
-`Skill(skill="mentor:dispatch-agents")` here if it is not already loaded, then end
-every research prompt with its **"Deliver before idling"** block pasted verbatim,
-after the return contract below. Loading it here is for that block and the
-**Standing no-subagents policy** check alone: the annotation grammar is Step 4's,
-the execution rules are Step 6's, and the edit gate stays closed. Citing the rules
-in a paraphrase is not a substitute — it drops
-directives the agent has no other way to learn, the no-nested-fan-out ban above all.
-One nudge on a silent idle; close each agent out once its findings are consumed.
+agents** over disjoint areas, pinned to `model: sonnet` (locate-and-map work, not
+design — leaving it unpinned multiplies the session model's cost by every agent in the
+batch). **Issue every `Agent()` call for the batch in a single message**, N `tool_use`
+blocks side by side: the agents run async either way, so serializing costs a full
+main-thread round trip per agent and buys nothing.
+
+Two signals earn a dispatch:
+
+- **An unfamiliar external platform together with 2+ pre-existing areas of the repo.**
+  Each half alone looks manageable inline; the pair is what exhausts a context window.
+- **2+ separate git roots touched by one plan.** Each root carries a full orientation
+  cost the other root's research cannot amortize, so this one stands alone. Resolve each
+  root's real path first (`git rev-parse --show-toplevel`) — a stale duplicate checkout
+  otherwise burns a whole dispatch on the wrong copy — and note that the edit gate
+  protects only the repo the session's CWD sits in, so work landing in a second root is
+  not read-only-gated until that root has its own plan.
+
+For small, well-scoped tasks, read the files and draft in the main thread. Nothing
+enforces delegation — but **once main-thread research reading passes roughly 5 files or
+~500 cumulative lines, the task is no longer small**: dispatch an `Explore` for what is
+left. Context spent on raw research reads does not come back for grilling, drafting, or
+Step 3.5's decision loop. (The one artifact a decision actually turns on is still read
+here, per Step 3.5's evidence rule; it is the survey reading around it that belongs in
+an agent.)
+**Run the pre-dispatch preflight before the first `Agent()` call, not after.** One
+call answers both questions this step has to settle, and it costs a line rather than a
+skill load:
+
+```bash
+[ -d "${CLAUDE_PLUGIN_ROOT}/hooks" ] || { echo "ERROR: CLAUDE_PLUGIN_ROOT unresolved or stale — do not search the plugin cache or hardcode a version path; ask the user to /reload-plugins or restart" >&2; exit 1; }
+bash "${CLAUDE_PLUGIN_ROOT}/hooks/plan-state.sh" policy
+```
+
+`POLICY: FOUND` means a standing no-subagents instruction is recorded somewhere durable
+— stop and ask before dispatching (`dispatch-agents`' **Standing no-subagents policy**
+has the three-option question). `UNRESOLVED` means the check could not run, which is not
+the same as a clean result: treat the question as open. `NONE` clears you to dispatch.
+`CONTRACT: active` confirms `hooks/dispatch-contract.sh` will append the standing
+"Deliver before idling" block — the no-nested-fan-out ban, the no-poll rule, mandatory
+`SendMessage` delivery — to every dispatch prompt automatically. **Do not paste that
+block by hand**; the hook is idempotent and a hand-typed paraphrase only risks dropping
+a directive the agent has no other way to learn. `CONTRACT: MISSING` is the one case
+where you paste it yourself, from `dispatch-agents`' own "Deliver before idling" section.
+
+One nudge on a silent idle; close each agent out once its findings are consumed
+(`dispatch-agents`' "Async runtime & lifecycle", which governs these dispatches without
+needing to be loaded here — the hook delivers what the agent must know).
 
 **Research the category, not just the named instance.** When the request names
 one instance of something the repo may have several of — one job to make
@@ -210,30 +202,13 @@ transcript already has the answer to. Dispatch new agents only for the
 ground the broadened request — or the grill's own research — genuinely
 didn't cover.
 
-**`.mentor/` is gitignored — a recursive `grep` can miss it, even aimed straight at the
-dir.** `hooks/lib/state.sh` writes `.mentor/.gitignore` as `*` + negations (only
-`.gitignore`/`config.json`/`constitution.md` are un-ignored), so a gitignore-aware search
-returns a clean "no hits" for a standing instruction — a "no subagents" policy, an earlier
-decision — recorded in a prior handoff note under `.mentor/plans/*/handoffs/`, whether the
-search scans the whole repo or `.mentor/` alone. A bare relative path is also wrong in a
-linked worktree, which shares the MAIN repo's `.mentor/` (Step 0's `--git-common-dir`
-note) rather than having its own.
-
-The mechanism is the **traversal root**, not a missing flag — worth understanding, because
-it decides what the fix has to be. Ignore rules apply only while **grep itself** is
-walking, and a grep collects the `.gitignore` files at or below its own root without ever
-walking *up*. So a search rooted at the repo root or at `.mentor/` finds nothing, while
-one rooted at `.mentor/plans/` happens to work — which is exactly why the command that
-used to sit here *looked* fine. It is also not a quirk of one machine's toolchain: the
-Bash tool's shell carries a `grep` **function** routing to Claude Code's own bundled ugrep
-with `--ignore-files` already on, so `grep -r` over `.mentor/` returns a clean zero here
-whatever greps are installed — and since that function is not on `PATH`, a check launched
-as `bash foo.sh` gets a *different*, ignore-blind `grep` and appears to work. Never
-conclude from "it worked in my test script" that it works where this is prescribed. Reaching for a "no ignore" flag is the wrong fix twice
-over: those spellings differ per implementation (ugrep rejects the GNU one outright with
-exit 2), so a flag only moves the failure to someone else's machine. Hand grep an explicit
-file list instead — `find` walks, `grep` only reads — which is what `sweep` does, worktree
-resolution included:
+**Never search `.mentor/` with a recursive `grep` — use `sweep`.** `.mentor/.gitignore`
+is `*` plus three negations, and grep applies ignore rules while *it* walks, so a
+recursive search rooted at or above `.mentor/` reports a clean zero for a standing
+instruction recorded in a handoff note — indistinguishable from "nothing is recorded".
+No "no ignore" flag fixes this portably (ugrep rejects the GNU spelling outright).
+`sweep` hands grep an explicit file list instead — `find` walks, `grep` only reads —
+and resolves linked worktrees to the main repo's `.mentor/`:
 ```bash
 [ -d "${CLAUDE_PLUGIN_ROOT}/hooks" ] || { echo "ERROR: CLAUDE_PLUGIN_ROOT unresolved or stale — do not search the plugin cache or hardcode a version path; ask the user to /reload-plugins or restart" >&2; exit 1; }
 bash "${CLAUDE_PLUGIN_ROOT}/hooks/plan-state.sh" sweep "<pattern>" --roots plans
@@ -344,11 +319,10 @@ Triage each item into exactly one bucket:
 - **Codebase-answerable** — the code, config, git history, or docs can settle
   it. Answer it yourself (dispatch a read-only `Explore` agent, or read
   directly for a quick check); never ask the user what the repo can answer.
-  (Explore dispatches carry the same contract as Step 2's research agents: load
-  `Skill(skill="mentor:dispatch-agents")` if it is not already loaded, and end each
-  prompt with its **"Deliver before idling"** block pasted verbatim — a triage
-  Explore that idles without delivering strands the very question it was sent to
-  settle, and the loop cannot move on without it.)
+  (A triage Explore that idles without delivering strands the very question it was
+  sent to settle, and the loop cannot move on without it — the dispatch hook's standing
+  block is what prevents that, and it is appended automatically. Run Step 2's `policy`
+  preflight first if this is the session's first dispatch.)
 - **User decision** — preference, product direction, scope, priorities, a
   trade-off with no objectively right answer. Queue it for the user.
 - **Immaterial** — the plan comes out the same whichever way it lands. Drop
@@ -360,10 +334,33 @@ delta itself — what's kept, what's cut — in one `AskUserQuestion` before
 resuming. A derived boundary question asked in its place resolves nothing,
 because the boundary it assumes was never agreed.
 
-Resolve the queued user decisions via `AskUserQuestion` — **one call, one
-question, one decision at a time**. Batching decisions into one call produces
-rushed, lower-quality answers. Order by dependency: resolve the decision other
-decisions hang off first, and let each answer narrow the next question.
+Resolve the queued user decisions via `AskUserQuestion`, ordered by dependency:
+resolve the decision other decisions hang off first, and let each answer narrow the
+next question.
+
+**How many decisions ride in one call is a judgment call with two hard edges.** The
+reason to separate them is that a decision answered while three others compete for the
+same attention gets a rushed answer; the reason to combine them is that a plan with six
+independent decisions should not cost six round trips. So:
+
+- **A decision gets its own call when it is consequential** — it changes what gets
+  built, what it costs, or what has to be redone if the answer turns out wrong. The
+  clearest tell is that the options diverge sharply: one is an afternoon and another
+  is a week, or one forecloses something the other keeps open. These deserve the
+  user's whole attention, and a wrong answer here is expensive to unwind.
+- **A decision must stay sequential when an earlier answer could change it** — its
+  options, its framing, or whether it needs asking at all. This is not a preference;
+  a question whose premise the previous answer just invalidated is worse than no
+  question, and the dependency ordering above is what surfaces these.
+- **Everything else may ride together**, up to the tool's cap of four questions per
+  call. Each is still a separate question the user answers on its own screen with its
+  own decision brief — combining calls saves round trips, never deliberation. Group
+  only decisions that genuinely cannot affect each other; when in doubt whether two
+  interact, they are sequential.
+
+Never offer bulk acceptance as an *option* on a question: these decisions share no
+common binary the way `plan-review`'s fold gate does, so a bulk button here would be
+ill-defined.
 
 **Free-typed bulk-accept.** If the user free-types an instruction to take your
 recommendations rather than answering item by item — often by interrupting the open
@@ -374,11 +371,9 @@ drafting, name what you are accepting on — each decision by its plain-language
 one line each — since "your recommendation" after four answered questions usually
 means the remainder but can mean the whole set, and the user can only correct a span
 you showed them. An instruction that also changes what the plan covers is a scope
-change first: resolve it under the rule above, then resume. This does not change the
-default — still one at a time, and never offer bulk acceptance as an *option* on a
-question: these decisions share no common binary the way `plan-review`'s fold gate
-does, so a bulk button here would be ill-defined and would nudge toward the batching
-this step exists to prevent.
+change first: resolve it under the rule above, then resume. Naming the span is what
+makes this safe even when several decisions rode in one call — the user sees exactly
+which recommendations they just accepted.
 
 **Every question ships with decision support, and stands on its own** — the
 user answers from the question screen alone, never sent to a file, a plan
@@ -464,49 +459,36 @@ or recent draft, not yours to continue; mint a fresh slug instead, the same call
 you'd make if nothing plainly matched. Reuse is safe only for a slug this
 worktree already owns, or one the OWNER column shows unowned (`-`).
 
-Compute the path (substituting a kebab-case `<slug>` derived from the request —
-≤30 chars, drop articles, keep nouns/verbs):
+Then mint the plan directory and its state record in **one** call (substituting a
+kebab-case `<slug>` derived from the request — ≤30 chars, drop articles, keep
+nouns/verbs):
 
 ```bash
-slug="<slug>"
-plans_dir="$(bash "${CLAUDE_PLUGIN_ROOT}/hooks/plan-state.sh" dir --plans)"   # worktree-safe
-[ -n "$plans_dir" ] || { echo "ERROR: mentor plans dir unresolved — is CLAUDE_PLUGIN_ROOT set? do not search the plugin cache or hardcode a version path; ask the user to /reload-plugins or restart" >&2; exit 1; }
-plan_dir="$(bash "${CLAUDE_PLUGIN_ROOT}/hooks/plan-state.sh" ensure-dir "$plans_dir/$slug")" || exit 1   # creates it AND locks the path to 700
-echo "${plan_dir}/plan.md"   # fixed name inside the slug dir, NO timestamp — stable across revisions
+plan_md="$(bash "${CLAUDE_PLUGIN_ROOT}/hooks/plan-state.sh" start "<slug>")" || exit 1
+echo "$plan_md"   # fixed name inside the slug dir, NO timestamp — stable across revisions
 ```
 
-`ensure-dir` stamps THIS worktree as the new dir's `owner` the moment it mints it —
-ownership starts here, not at `init` below.
+`start` does three things that used to be three separate Bash calls: creates the dir and
+locks the whole path to 700, records the plan as `draft` in a hidden `.state.json` beside
+it, and clears the `origin` field if this slug was a `/mentor:defer` stub you are now
+fleshing out. Its stdout is exactly the plan path, so the capture above fails the
+pipeline if anything went wrong; the state summary goes to stderr where you can still
+read it.
 
-Write the plan there with the `Write` tool, then register it so mentor can track what
-becomes of it:
+Three consequences worth knowing:
 
-```bash
-slug="<slug>"   # re-derive: the block above was a separate Bash call; an empty slug registers nothing
-bash "${CLAUDE_PLUGIN_ROOT}/hooks/plan-state.sh" init "$slug"
-```
+- **Ownership is stamped on this call** — `start` marks THIS worktree as the dir's owner,
+  and last-write-wins, so running it on a slug another worktree minted re-owns it to you.
+  That is the same mechanism `mentor:resuming` relies on to continue a plan in a
+  different worktree.
+- **It is idempotent** — re-running it on a revision is harmless, so there is no branch
+  to pick between "new plan" and "existing plan".
+- **The deferred-stub case needs no extra step.** Clearing `origin` is what stops a stub
+  being shielded from `approve-plan.sh`'s promotion sweep, and it is a no-op on a plan
+  that was never a stub — so you never have to know which case you are in.
 
-That records the plan as `draft` in a hidden `.state.json` beside it, and re-stamps
-`owner` to THIS worktree too — last-init-wins, so running `init` on a slug another
-worktree minted re-owns it to you (this is also the mechanism `mentor:resuming`
-relies on to re-own a plan being continued in a different worktree). Approval, and
-later `/mentor:track`, read that state to know which plans are built and which are
-pending. It is idempotent, so re-running it on a revision is harmless.
-
-**Fleshing out a deferred stub.** If `$slug` names an existing stub born via
-`/mentor:defer` — you arrived here because `/mentor:track` routed a stub pick to this
-skill, or the user pointed you at one directly — run `claim` right after `init` so the
-stub stops being shielded from `approve-plan.sh`'s promotion sweep:
-
-```bash
-slug="<slug>"   # re-derive: separate Bash call again (see `init` above)
-bash "${CLAUDE_PLUGIN_ROOT}/hooks/plan-state.sh" claim "$slug"
-```
-
-`claim` clears the sidecar's `origin` field; it is a harmless no-op (with a one-line
-notice) when there was nothing to clear, so it costs nothing to run whenever this
-plan slug could plausibly be a stub you are now fleshing out. A brand-new plan with no
-prior stub never needs this line.
+Write the plan at that path with the `Write` tool. Approval, and later `/mentor:track`,
+read the state record to know which plans are built and which are pending.
 
 The path is inside the gate-exempt
 `.mentor/` tree, so the edit gate allows it; `plan-open.sh` auto-opens it for review the first time
@@ -577,8 +559,8 @@ Required sections, in order:
    default** (subagents-driven development: the main thread orchestrates,
    subagents implement — each agent gets one narrow, focused step, and the
    main context stays lean). Before writing this section, invoke
-   `Skill(skill="mentor:dispatch-agents")` (skip the re-invocation if Step 2 already
-   loaded it) and annotate every implementation
+   `Skill(skill="mentor:dispatch-agents")` — this is the skill's FIRST load point in a
+   plan run, since Step 2 needs only the `policy` preflight — and annotate every implementation
    step per its grammar (`[role: … · model: … · effort: …]`, grouped
    `Run in parallel:` / `Sequential:`) — one plan step = one dispatch.
    **Escape hatch:** when the implementation meets the dispatch-agents skill's
@@ -807,19 +789,22 @@ Decide this **before** asking too. Step 0's `CONTEXT:` line is a snapshot from
 before research, domain routing, and decision-resolution ran — precisely the
 steps that grow a session — so a plan that armed clean can still reach this
 question well past the WARN/HANDOFF thresholds with nothing in this skill
-having said so. If "Verify the write" above just ran and nothing happened
-between it and this ask, its `CHECK: context` line already **is** this
-re-check — use that reading. Otherwise (no revision preceded this ask, or
-other steps ran since `verify` was last called), re-run the same check now:
+having said so. Run this immediately before composing the question — **one call, both
+things the ask depends on**:
 
 ```bash
 bash "${CLAUDE_PLUGIN_ROOT}/hooks/plan-state.sh" context
+grep -n -A 8 '^### The option set' "${CLAUDE_PLUGIN_ROOT}/skills/planning/SKILL.md"
 ```
 
-Neither Step 0's line nor an earlier `context-gate.sh` WARN notice from
-mid-session substitutes for this — both are readings from an earlier, smaller
-context, and the row you pick below is decided by *the freshest command
-output*, run right before this ask.
+The `context` half decides which option row you use; the `grep` half re-reads that row's
+table. Both exist for the same reason — a reading taken earlier in the session is stale
+by the time it matters. Neither Step 0's `CONTEXT:` line nor an earlier `context-gate.sh`
+WARN substitutes for the first, and a remembered table does not substitute for the
+second: the option row has been reconstructed incorrectly from memory once already, late
+in a long session, dropping the one button the situation called for. If "Verify the
+write" above just ran with nothing in between, its `CHECK: context` line already **is**
+the context half — you still need the `grep`.
 
 - **`CONTEXT: ASK`** — do not ask the approval question yet. Ask via
   `AskUserQuestion` (header "Context", two options) exactly as the command
@@ -874,22 +859,13 @@ yields **Review** or **Keep planning** should say so plainly ("still want to rev
 or run the consistency check first? just say so"), the same way `CONTEXT: HANDOFF`
 rows already name the critically-large note below — otherwise the user re-types an
 intent that was reachable the whole time.
-Copy the matched row's option list into the `AskUserQuestion` call verbatim —
-don't reconstruct it from memory this late in a long session, where a drifted
-list can silently drop the one button (a `Pause`, a `Split`) the situation
-actually calls for. Under `CONTEXT: HANDOFF`, also note in the question text
-that the session is critically large.
+Under `CONTEXT: HANDOFF`, also note in the question text that the session is
+critically large.
 
-**Re-read this table immediately before calling `AskUserQuestion`, not from a
-reading of it done earlier in the session.** Run `grep -n -A 8 '^### The
-option set' "${CLAUDE_PLUGIN_ROOT}/skills/planning/SKILL.md"` (or `Read` this
-section) right before composing the call — the option-row has already been
-reconstructed incorrectly from memory once, late in a session where reading
-it early wasn't enough to keep the shape accurate by the time it mattered. A
-fresh read right before use costs one call and removes the chance of it
-happening the same way again. Keep the table itself in exactly this one
-file: a copy pasted into `plan-state.sh` or any other script becomes a
-second place for it to drift out of sync with this one.
+Copy the matched row's option list into the call verbatim from the **fresh** read that
+"Re-check context" above just took — never from memory. Keep the table itself in exactly
+this one file: a copy pasted into `plan-state.sh` or any other script becomes a second
+place for it to drift out of sync with this one.
 
 **`/mentor:handoff` stays reachable in every row, including the ones that list no
 handoff option.** It is a command, not an option: it writes a handoff note and never
@@ -907,30 +883,17 @@ the first match; if that silently approves, a fresh agent starts implementing a 
 they never approved, which is the one failure this harness exists to prevent. Naming
 the consequence in the question costs a sentence and removes the guess.
 
-Split leads on an oversized plan because handing one off whole only moves the problem
-to the next session, while the split's authoring cost lands in dispatched agents
-rather than in this thread. **`CONTEXT: HANDOFF` outranks even that**: at that size the
-safest possible act is to write the handoff and stop, and the split can happen in the
-fresh session with room to verify it — which is also why *Split* is the option that
-yields in the oversized **and** `CONTEXT: HANDOFF` row. Review stays visible in the
-oversized-only row because an oversized plan is exactly the kind most worth reviewing;
-*Keep planning* yields instead.
-
-**Why *Keep planning* yields to the new option once a context verdict fires.** Both
-mean "do not approve yet", so listing both wastes one of four slots — and of the two,
-*Keep planning* is the one that needs no button: the user just keeps talking and
-planning continues. "Pause — still drafting" cannot be improvised that way, because it
-has to write the handoff **without** approving, and every other listed option at that
-point releases the gate. *Proceed* and *Deliver plan only* both stay visible in every
-row: the `MODE:` default must always be offered (Step 0), and pushing the option that
-starts implementation into free text would make the highest-consequence answer the
-hardest one to give.
+(Why Split leads on an oversized plan, why `CONTEXT: HANDOFF` outranks it, and why
+*Keep planning* is the option that yields once a context verdict fires:
+`references/rationale.md` → **Step 6 — why the option rows are ordered the way they
+are**. Change the table only after reading it — each row's order encodes a specific
+failure.)
 
 | Label | Description |
 |---|---|
 | Proceed | Validate the plan, release the edit gate, and begin implementation. |
 | Deliver plan only | Validate the plan and release the gate; the plan file is the deliverable — no implementation, no dispatch. (/mentor:handoff can brief a fresh agent afterwards.) |
-| Review the plan (staged) | Run plan-review — a judgment pass (practicality, comprehensiveness) whose edits you verdict one question at a time, then a mechanical pass (cleanliness, consistency) whose safe fixes auto-fold; CRITICAL decision-level findings are asked one at a time, the rest resolved in one batched question. Stays in planning; ends back at this question. |
+| Review the plan (staged) | Run plan-review — a judgment pass (practicality, comprehensiveness) whose CRITICAL and HIGH edits you verdict one question at a time and whose smaller ones resolve in one batch, then a mechanical pass (cleanliness, consistency) whose safe fixes auto-fold; CRITICAL decision-level findings are asked one at a time, the rest resolved in one batched question. Stays in planning; ends back at this question. |
 | Keep planning | Do not release — keep refining, or say what to change. Re-write the plan file and ask again when ready. |
 | Split into multiple plans | Slice this plan into independently buildable sibling plans, each with explicit scope isolation. Stays in planning; asks again afterwards. |
 | Hand off to next agent | Approve and release, then write a handoff doc so a fresh agent implements it — this session is getting large. |
@@ -950,26 +913,21 @@ gate closed, and exits non-zero: fix the plan (re-write per Step 4) and re-ask. 
 success, implement the plan.
 
 **Executing the implementation after approval (SDD):** implementation is
-subagents-first. Invoke `Skill(skill="mentor:dispatch-agents")` first (skip the
-re-invocation only if it is already loaded in this session), then follow its
-"Executing the dispatches" section: read the approved plan file, dispatch each
-`Run in parallel:` group's agents in ONE message (multiple `Agent` calls), run
-`Sequential:` steps one at a time, verify each step's `Done when:` before
-starting the next, and — once the last step passes — execute the plan's
-`## Verification` section per that skill's "Verifying the plan (execution-time)"
-rules. Mark each step done as it passes with `bash
-"${CLAUDE_PLUGIN_ROOT}/hooks/plan-state.sh" tick <slug> <N>` — see
-`mentor:dispatch-agents`' "Track progress in the plan file" for why the tick's
-placement is load-bearing and what `tick` does about it. Keep a step's own body
-on `-` bullets, though: the counter cannot tell a numbered sub-item from a step,
-and an inflated denominator strands a finished plan at `in_progress` forever. Its
-**No busy-wait** rule applies to every wait on this path, dispatched or not.
-The main thread orchestrates and verifies each step's `Done when:` inline; it
-does not re-do or re-read the work it delegated. The plan's end-to-end
-`## Verification` is the one thing it never grades itself — that round is
-dispatched, per the section named above. Only when the plan opens its
-Implementation steps with `Dispatch: skipped — <reason>` does the main thread
-implement directly.
+subagents-first. Invoke `Skill(skill="mentor:dispatch-agents")` (skip only if already
+loaded this session) and follow its **"Executing the dispatches"** section — it owns the
+whole procedure, and restating it here is how the two copies drift apart. Three things
+are specific to arriving from this skill:
+
+- **Keep a step's own body on `-` bullets.** The step counter cannot tell a numbered
+  sub-item from a step, and an inflated denominator strands a finished plan at
+  `in_progress` forever.
+- **The main thread orchestrates and verifies `Done when:` inline** — it never re-does or
+  re-reads the work it delegated.
+- **The plan's end-to-end `## Verification` is the one thing it never grades itself.**
+  That round is dispatched, per that skill's "Verifying the plan (execution-time)".
+
+Only when the plan opens its Implementation steps with `Dispatch: skipped — <reason>`
+does the main thread implement directly.
 
 **Record progress as plan state.** `approve-plan.sh` just marked this session's plans
 `approved`. As implementation runs, move that forward so a later session — or
@@ -1084,7 +1042,7 @@ staged review), prepend instead: *"The user explicitly asked for the
 consistency check alone — skip the Step 2 gate and go straight to
 Stage-2-only mode."* Either way its reviewers are read-only and the gate stays
 closed; the skill itself folds the Stage 1 edits the user accepts at its
-one-question-per-edit fold gate and auto-folds MECHANICAL Stage 2 findings
+severity-gated fold gate and auto-folds MECHANICAL Stage 2 findings
 into the plan file (gate-exempt `.mentor/` writes), walks CRITICAL
 DECISION-REQUIRED findings one verdict question at a time and resolves the
 rest in one batched question (applying only accepted resolutions),
@@ -1152,27 +1110,18 @@ bash "${CLAUDE_PLUGIN_ROOT}/hooks/plan-state.sh" init <slug>   # re-owns to THIS
 Skip this line only when you are certain this is the same worktree that drafted the
 plan — `init` is otherwise harmless to run either way (idempotent, never lowers state).
 
-The `plan-state.sh set <slug> draft` line in the first snippet above is not optional
-either. **Every** approval path — no-arg, `--deliver`, `--handoff` — promotes the
-plan's `.state.json` to `approved` before it exits, and `begin-plan.sh` touches only
-the marker. Re-arm alone therefore leaves a plan recorded as `approved` behind a
-closed gate: `/mentor:track` reads the sidecar, not the marker, so a later session
-sees a green light and dispatches implementation agents into a gate that denies
-their first write.
+The `set <slug> draft` line is not optional: **every** approval path — no-arg,
+`--deliver`, `--handoff` — promotes the sidecar to `approved` before exiting, while
+`begin-plan.sh` touches only the marker. Re-arming alone therefore leaves a plan
+recorded `approved` behind a closed gate, and `/mentor:track` reads the sidecar.
 
-Two consequences to tell the user about while you do it:
-
-- **The plan must be re-written before it can be approved again.** Re-running
-  `begin-plan.sh` resets the marker's mtime, and `approve-plan.sh` refuses any
-  `plan.md` older than the marker. This is the same staleness defense that stops an
-  old plan being resurrected, and here it fires on the plan you just retracted. Any
-  genuine revision (a Rev bump per Step 4) clears it.
-- **Retraction is a pre-implementation act.** Effective state is the *more advanced* of
-  the stored state and what the plan's `✅` step ticks imply, so storing `draft` on a
-  plan that already has ticks is silently outranked — `plan-state.sh` even says so as it
-  writes. If any step is ticked, work has already shipped: surface that to the user as a
-  rollback decision (revert the work, or keep it and re-plan the remainder) instead of
-  quietly writing a state that will not take.
+Two things to tell the user as you do it: **the plan must be re-written before it can be
+approved again** (the re-armed marker's fresh mtime makes `approve-plan.sh` refuse the
+older `plan.md`; any real revision clears it), and **retraction is a pre-implementation
+act** — if any step is already ticked, work has shipped, so surface that as a rollback
+decision rather than writing a `draft` state the tick derivation will outrank anyway.
+(Full mechanics: `references/rationale.md` → **Retracting an approval — why each of the
+three steps is required**.)
 
 The cleaner escape is not to need this: when the user is out of room but not ready to
 approve, "Pause — still drafting" hands off with the gate still armed and nothing to

@@ -572,13 +572,13 @@ reading and that report is exactly the shape `context-gate.sh`'s own WARN tier c
    shipped. Concretely: when you are about to type `git push`, `gh pr create`, or `gh pr merge`, run
    `/mentor:ship` instead — it hands off to `/mentor:merge`, which owns the merge consent gate. And
    when you are about to issue an `Agent()` call — however the note phrased it ("dispatch parallel
-   `Explore` agents", "no single mentor command owns this") — load
-   `Skill(skill="mentor:dispatch-agents")` first, then dispatch through it. Prose describing a
-   fan-out names no command, so it is neither the no-commands branch above nor licence to dispatch
-   raw. That skill appends the standing contract block ("Deliver before idling"), which is the only
-   thing that makes a dispatched agent report instead of signalling idle with nothing delivered; a
-   fan-out issued without it strands the whole group at once and leaves you redoing their work by
-   hand. Going direct rather than through `/mentor:track` is right **only** for a research or
+   `Explore` agents", "no single mentor command owns this") — run
+   `bash "${CLAUDE_PLUGIN_ROOT}/hooks/plan-state.sh" policy` first. Prose describing a fan-out
+   names no command, so it is neither the no-commands branch above nor licence to dispatch without
+   that check: it reports any standing no-subagents instruction, and confirms the standing contract
+   block ("Deliver before idling") will reach your agents — the only thing that makes a dispatched
+   agent report instead of signalling idle with nothing delivered. A fan-out issued without it
+   strands the whole group at once and leaves you redoing their work by hand. Going direct rather than through `/mentor:track` is right **only** for a research or
    analysis fan-out, which has no plan steps to re-enter or tick — a fan-out that *implements* plan
    steps still routes through `/mentor:track` per the bound above. Loading the skill honors the
    note's instruction; it does not expand its scope.

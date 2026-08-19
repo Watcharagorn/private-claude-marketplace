@@ -1,5 +1,10 @@
 #!/usr/bin/env bash
-# test-planning-intent.sh — regression tests for planning-intent.sh
+# test-planning-nudge.sh — regression tests for the PLANNING-INTENT NUDGE, which since
+# v2.34.0 lives as tier 2 of context-gate.sh (the standalone planning-intent.sh hook was
+# retired into it). Every case below is unchanged from that suite; only the script under
+# test moved. The gate half is pinned off via MENTOR_CONTEXT_GATE=off so this suite still
+# measures the nudge alone — which doubles as the proof that the two tiers' kill switches
+# stayed independent through the merge.
 #
 # Drives the hook with UserPromptSubmit JSON under an isolated $HOME (so the
 # once-per-session marker never touches the real machine state) and a real scratch git
@@ -12,7 +17,7 @@
 set -uo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-HOOK="$(dirname "$SCRIPT_DIR")/planning-intent.sh"
+HOOK="$(dirname "$SCRIPT_DIR")/context-gate.sh"   # tier 2 lives here since v2.34.0
 LIB="$(dirname "$SCRIPT_DIR")/lib/state.sh"
 [ -f "$HOOK" ] || { echo "FATAL: hook not found at $HOOK" >&2; exit 1; }
 [ -f "$LIB" ]  || { echo "FATAL: lib not found at $LIB" >&2; exit 1; }
@@ -47,7 +52,7 @@ mkjson() { python3 -c 'import json,sys;print(json.dumps({"prompt":sys.argv[1],"c
 run() {
   local prompt="$1" cwd="$2" sid="$3"; shift 3
   printf '%s' "$(mkjson "$prompt" "$cwd" "$sid")" \
-    | env -i HOME="$FAKE_HOME" PATH="$PATH" "$@" bash "$HOOK" 2>/dev/null
+    | env -i HOME="$FAKE_HOME" PATH="$PATH" MENTOR_CONTEXT_GATE=off "$@" bash "$HOOK" 2>/dev/null
 }
 check_fires() { # desc prompt cwd session_id [env=val ...]
   local desc="$1" prompt="$2" cwd="$3" sid="$4"; shift 4

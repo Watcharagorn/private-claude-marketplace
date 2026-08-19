@@ -111,105 +111,54 @@ skipped one, so an over-claimed skip is how a plan quietly loses all of it at on
 
 The point of SDD: quality through narrow focus, and a lean main thread.
 
-- **The main thread MUST NOT read the implementation files a step delegates** —
-  that context belongs to the dispatched agent. Verify `Done when:` with
-  observable checks instead; the step's `git diff` and a failing command's
-  output are always in-bounds as diagnostics.
-- **Prefer executable pass/fail `Done when:` criteria** (the named test / typecheck /
-  lint command) over presence checks; use grep/ls checks only when no runnable check
-  exists. **When the check itself mutates the artifact it verifies** (an importer, a
-  migration runner, a `--write` formatter, a seed script), running it live means the
-  verification consumes the very thing it was meant to confirm — run it against a
-  `mktemp -d` copy outside the repo instead, diff/compare, then discard. When the check
-  can't run detached (needs live git context, a database, or a running service),
-  snapshot state and restore it after, or point the check at a disposable instance.
-- **A file the step must NOT touch** — a gitignored config, a credentials file,
-  anything `git diff` can never see — is verified by snapshot, not by reading it
-  back. Record `shasum -a 256` (or `sha256sum`) plus the mtime before dispatch and
-  re-compare after: the hash catches a content change, the mtime catches a rewrite
-  that happened to land identical bytes. Reading the file to diff it by hand pulls
-  into the main thread the exact contents — often the exact credential — the step
-  was keeping out of it.
-- **A tool call the step must NOT make** — a mutating MCP call during a
-  dry-run sweep, a deploy, a write against a live API — is disproved by
-  census, not by grep. Each dispatched agent writes its own transcript under
-  this session's directory, so list what the whole fan-out actually called and
-  read the absence off a complete list:
-  ```bash
-  d="$(find "${CLAUDE_CONFIG_DIR:-$HOME/.claude}/projects" -maxdepth 2 -type d \
-       -name "$CLAUDE_CODE_SESSION_ID" | head -1)"
-  jq -r 'select(.type=="assistant") | .message.content[]?
-         | select(.type=="tool_use") | .name' "$d"/subagents/*.jsonl | sort | uniq -c
-  ```
-  Run it once the last agent has delivered; nested spawns land in the same
-  directory, and the sibling `.meta.json` names which agent a file belongs to
-  when a hit needs attributing. Grepping those transcripts for the tool's name
-  instead inverts the evidence — the brief that forbade the call contains the
-  name too, and a zero-hit grep is exactly the not-evidence "Verifying the
-  plan (execution-time)" below warns about (a check must be confirmed working
-  before its silence is trusted). An agent's own "I never called it" is a
-  self-report, not proof; if the census cannot be produced, report the claim
-  as unproven rather than passing the self-report off as verification.
-- **A fan-out of countable per-agent artifacts** (a batch fetch, a multi-repo survey) is
-  verified as a set, once, after the last agent delivers — never as one ad hoc
-  want/got comparison per report as it arrives, which just repeats the same check N
-  times. Derive `want` from the dispatch input (the batch you handed out), never from
-  the agent's own report — a self-reported count checked against itself proves
-  nothing, the same trust-but-verify gap item 4 below exists to close. One pass,
-  one row per unit:
-  ```bash
-  for unit in "${units[@]}"; do
-    want=$(wc -l < "batch-$unit.txt"); got=$(wc -l < "records-$unit.jsonl" 2>/dev/null || echo 0)
-    printf '%s\twant=%s\tgot=%s\t%s\n' "$unit" "$want" "$got" "$([ "$want" = "$got" ] && echo PASS || echo FAIL)"
-  done
-  ```
-  A zero `got` is the same not-evidence case as the census above — confirm the check
-  itself works (right path, no unquoted glob eaten by `nomatch`) before trusting it.
-- **A live secret can arrive by paste.** A step the owner performs by hand exists
-  precisely so a credential never passes through the model — nothing stops the user
-  pasting it into chat anyway, so when you hand such a step over, say where the
-  value goes and that it must not come back through the conversation. If it arrives
-  regardless: proceed with the step, write it to the one file the step names and
-  nowhere else, never echo the value back, and say **once** that it is now in this
-  session's transcript — which persists on disk and `/mentor:handoff` reads back —
-  so rotating it is the only cleanup left. Nothing un-sends a turn.
-- **On a failed `Done when:`**, re-dispatch the same role once with the failure
-  evidence (diff + command output) as inputs. If it fails again, surface to the
-  user — only then may the main thread read the files and take over.
-  **A hand-back is not a failure and does not spend that one re-dispatch.** An agent
-  that delivers partial work plus a remainder brief (the "outgrown this brief" clause
-  in the standing contract block below) did the right thing: verify the delivered part
-  against the clauses it actually claims, then dispatch the same role fresh with the
-  remainder brief as its `Inputs:` — a continuation, not a remediation. The chain is
-  bounded at one: a second hand-back on the same step means the step was mis-scoped
-  rather than unlucky, so stop dispatching continuations and put the re-scope (or a
-  split of the remainder) to the user, rather than letting a badly-sized step
-  slow-bleed across N contexts in place of the one blowup it was meant to prevent.
-- **Track progress in the plan file:** as each step's `Done when:` passes, run
-  `bash "${CLAUDE_PLUGIN_ROOT}/hooks/plan-state.sh" tick <slug> <N>` (N = the
-  step's ordinal, counting either `Step N — …` or numbered-item lines) to append
-  `✅` to that step's own top line. Which line carries the tick is load-bearing,
-  not cosmetic: mentor counts ticks by scanning step lines only, so a `✅` parked
-  on the indented `Done when:` line that just passed, or any other sub-line, is
-  invisible to it and the step reads as never started — `tick` locates the
-  step's own line for you instead of trusting a hand-built `Edit` to land on the
-  right one, and is idempotent (re-ticking an already-ticked step is a no-op) and
-  fails loud on an out-of-range N rather than silently writing nothing useful.
-  These ticks are also what makes plan state self-healing — mentor derives
-  `in_progress` / `implemented` from them, so a forgotten tick costs nothing on
-  its own *while the plan is still open* (a later tick still heals the state),
-  but a plan closed `implemented` with ticks still missing has nothing left to
-  heal it — `plan-track`'s "reconcile the ticks before writing implemented" is
-  the last chance, and `plan-state.sh`'s own post-write warning is a backstop,
-  not a substitute. A tick on the wrong line silently costs the next session its
-  picture of what landed, which is what `tick` exists to prevent.
-- **Don't mirror step tracking into a separate todo list.** `tick` plus the plan
-  file's own `✅` marks are the one source of truth for step-level progress; a
-  parallel todo entry per step is a second ledger to keep honest, read by no one
-  who isn't already looking at `plan.md`. Reserve the todo list for work that
-  falls outside the plan.
-- **Move the plan's state as you go**, so `/mentor:track` can answer "what is
-  built?" in a fresh session without re-reading anything:
+**Verification, without pulling the step's context back in**
+
+- **Never read the implementation files a step delegates** — that context belongs to the
+  dispatched agent. Verify `Done when:` with observable checks; the step's `git diff` and
+  a failing command's output are always in-bounds as diagnostics.
+- **Prefer an executable pass/fail `Done when:`** (the named test / typecheck / lint
+  command) over a presence check; use grep/ls only when nothing runnable exists.
+  **A check that mutates what it verifies** — an importer, a migration runner, a
+  `--write` formatter, a seed script — consumes the very thing it was meant to confirm,
+  so run it against a `mktemp -d` copy outside the repo, compare, discard. When it
+  cannot run detached (live git context, a database, a running service), snapshot state
+  and restore after, or point it at a disposable instance.
+- **A file the step must NOT touch** — a gitignored config, a credentials file, anything
+  `git diff` cannot see — is verified by snapshot: record `shasum -a 256` plus the mtime
+  before dispatch and re-compare after. Reading it back to diff by hand pulls the exact
+  contents, often the exact credential, into the context the step was keeping them out of.
+- **A tool call the step must NOT make**, and **a fan-out of countable per-agent
+  artifacts**, are both proved against a complete list rather than by grepping for
+  absence — see `references/rationale.md` → **Proving a negative**, which carries the
+  two commands and why the obvious alternatives invert the evidence. In both cases a
+  zero result is not evidence until the check itself is confirmed working, and an
+  agent's own "I never called it" is a self-report: if the census cannot be produced,
+  report the claim as **unproven** rather than passing the self-report off as verified.
+- **On a failed `Done when:`**, re-dispatch the same role once with the failure evidence
+  (diff + command output) as inputs. If it fails again, surface to the user — only then
+  may the main thread read the files and take over. **A hand-back is not a failure and
+  does not spend that re-dispatch:** an agent delivering partial work plus a remainder
+  brief did the right thing, so verify what it actually claims and dispatch the same role
+  fresh with the remainder as its `Inputs:`. That chain is bounded at one — a second
+  hand-back means the step was mis-scoped, so put the re-scope to the user instead of
+  letting it slow-bleed across N contexts.
+
+**Recording what happened**
+
+- **Tick each step as its `Done when:` passes:**
+  `bash "${CLAUDE_PLUGIN_ROOT}/hooks/plan-state.sh" tick <slug> <N>` (N = the step's
+  ordinal, counting either `Step N — …` or numbered-item lines). Use `tick`, never a
+  hand-built `Edit`: mentor counts ticks by scanning step lines only, so a `✅` parked on
+  an indented `Done when:` line is invisible and the step reads as never started. It is
+  idempotent and fails loud on an out-of-range N. Ticks are also what makes plan state
+  self-healing, which is why a missing one matters most on a plan about to be closed
+  (`plan-track`'s "reconcile the ticks before writing implemented" is the last chance).
+- **Don't mirror step tracking into a separate todo list.** `tick` plus the plan file's
+  `✅` marks are the one source of truth; a parallel entry per step is a second ledger to
+  keep honest, read by nobody who isn't already looking at `plan.md`. Reserve the todo
+  list for work outside the plan.
+- **Move the plan's state as you go**, so `/mentor:track` can answer "what is built?" in
+  a fresh session without re-reading anything:
   ```bash
   [ -d "${CLAUDE_PLUGIN_ROOT}/hooks" ] || { echo "ERROR: CLAUDE_PLUGIN_ROOT unresolved or stale — do not search the plugin cache or hardcode a version path; ask the user to /reload-plugins or restart" >&2; exit 1; }
   bash "${CLAUDE_PLUGIN_ROOT}/hooks/plan-state.sh" set <slug> in_progress    # before the first dispatch
@@ -217,53 +166,64 @@ The point of SDD: quality through narrow focus, and a lean main thread.
   bash "${CLAUDE_PLUGIN_ROOT}/hooks/plan-state.sh" set <slug> failed --note "<what broke>"
   ```
   `<slug>` is the plan's directory name. Set `failed` wherever verification ends
-  unresolved — the escalate-to-user point after the one remediation re-dispatch has also
-  failed, and a hand-off. That one is worth remembering, because unlike the others it
-  cannot be derived from ticks, and the note is what makes the retry cheap.
+  unresolved — the escalate-to-user point after the one remediation re-dispatch also
+  failed, and a hand-off. That one is worth remembering: unlike the others it cannot be
+  derived from ticks, and the note is what makes the retry cheap.
+
+**Writing the brief, and relaying what comes back**
+
 - **Prompt sketches must be self-contained.** Each agent starts with zero memory of this
   conversation **and no inherited project context — assume it never read CLAUDE.md or
-  your repo's conventions**: give exact file paths, the approved plan path, the
-  distilled facts it needs from research or prior steps (paste result lines, not files),
-  and its `Done when:` verbatim. Do not author the solution-quality line or the standing
-  contract block ("Deliver before idling" below) yourself — `hooks/dispatch-contract.sh`
-  appends both to every `Task`/`Agent` prompt automatically. A `Prompt sketch:` is the
-  *middle* of a prompt, never the whole of it: it ends where the hook's injection begins.
+  your repo's conventions**: give exact file paths, the approved plan path, the distilled
+  facts it needs from research or prior steps (paste result lines, not files), and its
+  `Done when:` verbatim. Do not author the solution-quality line or the standing contract
+  block yourself — `hooks/dispatch-contract.sh` appends both to every `Task`/`Agent`
+  prompt automatically. A `Prompt sketch:` is the *middle* of a prompt, never the whole
+  of it: it ends where the hook's injection begins.
 - **Return contract:** agents return a short summary, file paths touched, and
   verification output — never full file bodies. Verification output must include the
-  exact command(s) that produced it, copy-pasteable — otherwise re-verifying against an
-  API the orchestrator hasn't read means re-deriving the command blind.
+  exact command(s) that produced it, copy-pasteable, or re-verifying means re-deriving
+  the command blind.
 - **Relaying a return to the user strips its ids.** An agent's report is written for
-  **you**: its finding codes, table rows, step numbers, and bare `Location(s)` cells
-  name things the user never read. Carry the finding, not its filing — say what the
-  thing is ("the Argo controller reads cross-tenant Secrets") and leave the code in your
-  notes; if one must survive because the user holds the artifact it indexes, it rides
-  behind the name, never alone. The same holds when the relay becomes a question:
-  **every question stands on its own**, answered from the question screen alone, never
-  sending the user to a file, a report, or an earlier turn to learn what it means.
-- **No nested fan-out:** dispatched agents **can** call the Agent tool — nothing
-  in the runtime stops them, and a chain they spawn is invisible to you and
-  outlives your close-out. Size each step so one agent completes it alone; the
-  contract block below is what actually holds the line.
+  **you**: its finding codes, table rows, and bare `Location(s)` cells name things the
+  user never read. Carry the finding, not its filing — say what the thing is ("the Argo
+  controller reads cross-tenant Secrets") and leave the code in your notes. The same
+  holds when the relay becomes a question: **every question stands on its own**, answered
+  from the question screen alone, never sending the user to a file, a report, or an
+  earlier turn to learn what it means.
+- **A live secret can arrive by paste.** A step the owner performs by hand exists so a
+  credential never passes through the model; nothing stops the user pasting it anyway. On
+  handover, say where the value goes and that it must not come back through the
+  conversation. If it arrives regardless: proceed, write it to the one file the step
+  names and nowhere else, never echo it back, and say **once** that it is now in this
+  session's transcript — which persists on disk and `/mentor:handoff` reads back — so
+  rotating it is the only cleanup left. Nothing un-sends a turn.
+
+**Scope**
+
+- **No nested fan-out.** Dispatched agents **can** call the Agent tool — nothing in the
+  runtime stops them, and a chain they spawn is invisible to you and outlives your
+  close-out. Size each step so one agent completes it alone; the injected contract block
+  is what actually holds the line.
 - **Work discovered mid-flight is carried to the close-out, never parked on your own
-  initiative.** If the orchestrator or a dispatched agent notices real work outside the
+  initiative.** When the orchestrator or a dispatched agent notices real work outside the
   current step's scope, the agent **reports** it and the orchestrator holds it: stamp it
-  the way a verifier would — `[GOAL]` if it leaves one of this plan's `Done when:` bullets
-  unmet, which means it gets remediated in the loop, otherwise `[NON-GOAL]` — and fold it
+  the way a verifier would — `[GOAL]` if it leaves one of this plan's `Done when:`
+  bullets unmet, so it gets remediated in the loop, otherwise `[NON-GOAL]` — and fold it
   into "The non-goal disposition gate" below alongside the round's verifier gaps. Holding
   is not dropping: an aside in a chat message disappears at session end, which is the
-  failure this rule exists to prevent. But nothing gets deferred here on your reading of
-  what matters; deferral is the user's verdict to give.
+  failure this rule exists to prevent. But nothing is deferred on your reading of what
+  matters — deferral is the user's verdict to give.
 
   When a defer **is** the verdict, one question fixes the parent link — **which plan's
   work does this item block from being *really* done?** For a confirmed defect that is the
   plan whose work carries it, not merely whichever plan happened to be active when it
   surfaced:
   - **An already-implemented plan's work** — including the active plan once its own
-    verification passed → `parent` = that plan's slug. A post-completion defect answers
-    "no" to "does it block the *active* plan?", but parking it flat on that answer makes it
+    verification passed → `parent` = that plan's slug. Parking it flat instead makes it
     invisible to every `parent`-walking surface (`query --subtree`, `/mentor:track`'s
-    roll-up, `/mentor:resume`'s drain) while the owning plan reads cleanly `implemented`.
-    Parented, that plan honestly shows "done with open fixes" instead.
+    roll-up, `/mentor:resume`'s drain) while the owning plan reads cleanly `implemented`;
+    parented, that plan honestly shows "done with open fixes".
   - **An unbuilt plan's future scope** → no `parent` (nothing done exists to block);
     record the ordering as `deps` on that plan instead.
   - **Nobody's in particular** (backlog — a refactor idea, tooling, a feature aside) →
@@ -474,7 +434,8 @@ Step 1 instead. A verification round moves the plan with `set`.
   the plan unverified; the defect is theirs to resolve, never yours to skip or fabricate.
 - **Prompt/return contract**: `references/verifier-contract.md` — read before this
   session's first verifier dispatch; paste its "What the verifier must return" block
-  into every verifier prompt verbatim, alongside "Deliver before idling" below. A return
+  into every verifier prompt verbatim. ("Deliver before idling" needs no pasting — the
+  dispatch hook appends it.) A return
   with no `Gaps / Missing:` line is not a verdict yet — ask that same verifier for it
   ("Follow-up vs re-dispatch" below); silence is never `none found`.
 - **Failure loop.** A `FAIL`, or any non-`none found` Gaps line even on a PASS, surfaces
@@ -614,12 +575,13 @@ section). **Keep this roster current when a surface starts dispatching** —
 a reader who checks it and does not find their surface concludes
 the contract does not apply to them, which is exactly how a fan-out goes out raw:
 
-- **Being on this roster is not the same as having loaded it.** A surface can be
-  listed here and still dispatch raw prompts if its own step never calls
-  `Skill(skill="mentor:dispatch-agents")` and pastes "Deliver before idling" verbatim
-  before its first `Agent` call — citing this section for close-out only (as `plan-tour`
-  did before that gap was fixed) does not reach the dispatched agent. When adding a
-  surface to this roster, confirm it also carries its own load point, not just a citation.
+- **Every surface on this roster gets the standing block for free.** Since v2.34.0
+  `hooks/dispatch-contract.sh` injects it into every `Task`/`Agent` prompt, so a surface
+  no longer has to load this skill just to reach it — most on the roster now run
+  `plan-state.sh policy` instead, one call, which also reports whether that injection is
+  actually live. What a surface still owes is that preflight: the hook fail-softs silently
+  when `jq` or the contract file is missing, and `CONTRACT: MISSING` is the only thing
+  that would say so. When adding a surface here, confirm it carries the preflight.
 - **A delegated step's fan-out is still yours.** When a plan step hands its
   work to another plugin's own multi-agent skill, the main thread runs that
   skill — its agents are dispatched from this session and land in this
@@ -633,27 +595,24 @@ the contract does not apply to them, which is exactly how a fan-out goes out raw
   *standing* instruction against subagent use recorded somewhere durable — CLAUDE.md, a
   project rule file, an earlier session's handoff note — as distinct from the user saying
   so live in this session (that case needs no check: honor it directly, per `plan-review`'s
-  "When NOT to use"). Run that search with the shared sweep, which exists because this
-  check is where the old prescription failed live — `.mentor/` is gitignored, so a
-  recursive `grep` rooted at or above it reads nothing there and reports a clean zero
-  that is indistinguishable from "no policy recorded" (`planning` Step 2 has the
-  mechanism):
+  "When NOT to use"). Run the shared preflight — never a `grep` you
+  compose yourself, because `.mentor/` is gitignored and a recursive grep reads nothing
+  there while reporting a clean zero indistinguishable from "no policy recorded":
 
   ```bash
   [ -d "${CLAUDE_PLUGIN_ROOT}/hooks" ] || { echo "ERROR: CLAUDE_PLUGIN_ROOT unresolved or stale — do not search the plugin cache or hardcode a version path; ask the user to /reload-plugins or restart" >&2; exit 1; }
-  bash "${CLAUDE_PLUGIN_ROOT}/hooks/plan-state.sh" sweep 'no subagents' --ignore-case
+  bash "${CLAUDE_PLUGIN_ROOT}/hooks/plan-state.sh" policy
   ```
 
-  Read the **exit code**, not just the output — that is the reason to use this rather than
-  any grep you compose yourself. **0** = a policy IS recorded: stop and ask. **1** = none
-  is, and the `files=` count on the `SWEEP:` line is your evidence that the search really
-  read something. **2** = the check did not run (no root existed, or a usage error), so the
-  policy question is **unresolved** — treat it as such, never as "no policy". Found one →
-  stop before
-  dispatching and ask ONE `AskUserQuestion`, 3 options, **"Keep the work in the main thread
-  instead" first and Recommended** (a standing policy outranks the default path): keep it
-  in the main thread / dispatch as designed anyway / skip the affected step. That tension is
-  the user's to resolve, not yours to resolve silently.
+  It prints its verdict in words, so there is no exit code to interpret. **`POLICY: NONE`**
+  → dispatch as designed. **`POLICY: FOUND`** → stop before dispatching and ask ONE
+  `AskUserQuestion`, 3 options, **"Keep the work in the main thread instead" first and
+  Recommended** (a standing policy outranks the default path): keep it in the main thread /
+  dispatch as designed anyway / skip the affected step. That tension is the user's to
+  resolve, not yours to resolve silently. **`POLICY: UNRESOLVED`** → the check could not
+  run, so the question stays open; never read it as "no policy". The same call's
+  `CONTRACT:` line reports whether the standing block below will actually reach your
+  agents — the one thing no skill can verify by reading itself.
 - **A substitution is disclosed as a substitution.** Any of the shapes above — a
   fan-out that ran with fewer agents than the contract called for, a delegated skill's
   own agents declining or being unavailable, a step the standing policy just above kept
@@ -667,26 +626,18 @@ the contract does not apply to them, which is exactly how a fan-out goes out raw
   thread, `plan-split` never hand-authors a child, and verification's "No escape hatch"
   above has no fallback beyond the one named allowance): there, a solo attempt is a
   contract violation to stop and flag, never a substitution to disclose.
-- **No busy-wait.** Waiting is not work: never chain `sleep`s, fire no-op Bash
-  calls, or reach for `ScheduleWakeup` (that tool is for `/loop` mode, not a
-  dispatch wait — it can fire successfully and still be wrong here: a timer has
-  no idea the dispatch already finished, so it re-enters this session on a
-  superseded brief and forces a stale-wakeup recovery instead of a clean
-  re-invoke) to pass the time. This governs **every** waiting surface in a mentor
-  session, not only dispatched agents — a long build, a background test suite, a
-  deploy. When something else will wake you (a dispatch completing, a backgrounded
-  command exiting), **end the turn** and let the harness re-invoke you. When nothing
-  will, make **one** bounded blocking call — a condition loop such as
-  `until ! pgrep -f <proc>; do sleep 5; done`, or a monitor/wait tool — sized under
-  the Bash timeout ceiling (600s). A chain of short sleeps burns a turn apiece, and
-  the harness blocks bare foreground `sleep` outright, so the chain tends to fail in
-  the middle and leave the wait half-done. One case sits outside this binary: a wait
-  on a live external system the user is watching in the foreground (a cloud deploy
-  settling, a third-party pipeline) with no bounded local completion signal — ask
-  once via `AskUserQuestion` (poll now / hand the check to the next session) before
-  committing to it, rather than starting the poll unasked. The block below carries an
-  agent-shaped copy of this rule — deliberately without "end the turn", which a
-  dispatched agent must never do undelivered.
+- **No busy-wait.** Waiting is not work: never chain `sleep`s, fire no-op Bash calls,
+  or reach for `ScheduleWakeup` to pass the time. This governs **every** waiting surface
+  in a mentor session, not only dispatched agents — a long build, a background test
+  suite, a deploy. When something else will wake you (a dispatch completing, a
+  backgrounded command exiting), **end the turn** and let the harness re-invoke you.
+  When nothing will, make **one** bounded blocking call — `until ! pgrep -f <proc>; do
+  sleep 5; done`, or a monitor/wait tool — sized under the Bash timeout ceiling (600s).
+  One case sits outside that binary: a wait on a live external system the user is
+  watching in the foreground, with no bounded local completion signal — ask once via
+  `AskUserQuestion` (poll now / hand the check to the next session) rather than starting
+  the poll unasked. (Why `ScheduleWakeup` fails here specifically, and why a sleep chain
+  breaks in the middle: `references/rationale.md` → **No busy-wait**.)
 - **A batch dispatched together is joined together.** When one message dispatches N
   agents as one fan-out (a `zoom` combo set, `plan-review`'s reviewer round, any
   parallel batch), the batch isn't done until its **last** agent's signal arrives —
@@ -696,42 +647,32 @@ the contract does not apply to them, which is exactly how a fan-out goes out raw
   wake-up in between gets silently absorbed (per "An echo from an already-stopped
   agent gets no reply and no narration" below) rather than re-entering the
   orchestrator's attention, so a 12-agent round costs one wait, not twelve.
-- **Deliver before idling — the standing prompt contract.** Every dispatched
-  agent needs a fixed set of runtime directives it has no other way to learn:
-  the no-nested-fan-out ban, the no-poll rule, progress-at-phase-boundary
-  reporting, the hand-back-on-overrun clause, mandatory `SendMessage` delivery
-  before going idle, git-index hygiene, and the durable-copy rule for verdicts.
-  Its single source is `hooks/dispatch-contract.txt`; `hooks/dispatch-contract.sh`
-  (`PreToolUse`, matching `Task`/`Agent`) appends it to every dispatch prompt
-  automatically — so **do not paste it by hand**. Paraphrasing it in a prompt
-  sketch is redundant at best: the hook still appends the real block after it,
-  and a hand-typed paraphrase risks silently dropping a directive the agent has
-  no other way to learn. The hook is idempotent — it checks for the block's own
-  first line before injecting — so a surface that still pastes it manually
-  costs nothing extra; the block lands exactly once either way.
-- **Idle-before-report race.** An idle notification can arrive before the
-  agent's actual report — and, when the harness is running several sessions
-  concurrently, a notification can name a task this session never dispatched
-  at all (a sibling session's idle/report leaking into this one's message
-  stream). Check the id against this session's own dispatch tree before
-  reacting: the id-not-found safety net that protects `TaskStop` below does
-  **not** protect a nudge — `SendMessage` to a foreign id succeeds and lands
-  on a stranger's live agent. An unrecognized id gets no reply of any kind,
-  not even the nudge. On idle **with a recognized id** and no report in
-  hand: check the message backlog, then send ONE nudge: "Status check on
-  Step N: send your completed result now — full text, per the return
-  contract. If you are still working, reply with the one thing that's
-  left." Do not restate the step's criteria —
-  the agent's context is warm, and a re-brief invites it to redo finished work.
-  Only if the nudge fails, fall back to independent re-verification — and if
-  that closes the step with no author report ever received, say so plainly in
-  the plan file: that step's `## Verification` topic verifier has no author
-  rationale to weigh against, so its own read of the artifact is the step's
-  only judgment, not a second opinion, and deserves the scrutiny that implies.
-  Never re-run expensive verification (full builds, E2E suites) while the
-  agent's own report may still be in flight. The race also resolves in the other direction:
-  an idle notification arriving from an agent **already** `TaskStop`ped needs no
-  reply at all — the stop already closed it out.
+- **Deliver before idling — the standing prompt contract.** Every dispatched agent
+  needs runtime directives it has no other way to learn: the no-nested-fan-out ban, the
+  no-poll rule, progress-at-phase-boundary reporting, the hand-back-on-overrun clause,
+  mandatory `SendMessage` delivery before going idle, git-index hygiene, and the
+  durable-copy rule for verdicts. Its single source is `hooks/dispatch-contract.txt`,
+  and `hooks/dispatch-contract.sh` (`PreToolUse`, matching `Task`/`Agent`) appends it to
+  every dispatch prompt automatically — so **do not paste it by hand**, and do not
+  paraphrase it in a prompt sketch. Confirm it is live with `plan-state.sh policy`
+  before the session's first dispatch; its `CONTRACT:` line is the only thing that
+  reports the hook's silent fail-soft. (Full text and the injection contract:
+  `references/rationale.md` → **The standing prompt contract**.)
+- **Idle-before-report race.** An idle notification can arrive before the agent's
+  report, and — with several sessions running concurrently — can even name a task this
+  session never dispatched. **Check the id against this session's own dispatch tree
+  before reacting:** `SendMessage` to a foreign id succeeds and lands on a stranger's
+  live agent, with no id-not-found safety net of the kind that protects `TaskStop`. An
+  unrecognized id gets no reply of any kind. On idle **with a recognized id** and no
+  report in hand: check the message backlog, then send ONE nudge — *"Status check on
+  Step N: send your completed result now — full text, per the return contract. If you
+  are still working, reply with the one thing that's left."* Do not restate the step's
+  criteria; the agent's context is warm and a re-brief invites it to redo finished work.
+  Only if the nudge fails, fall back to independent re-verification. Never re-run
+  expensive verification (full builds, E2E suites) while the agent's own report may
+  still be in flight, and an idle arriving from an already-`TaskStop`ped agent needs no
+  reply at all. (What to write in the plan file when a step closes with no author report
+  ever received: `references/rationale.md` → **Idle-before-report race**.)
 - **An echo from an already-stopped agent gets no reply and no narration.** Not a
   nudge, not "Agent X already stopped, ignoring" — nothing. On a dispatch-heavy
   plan the whole batch is worth at most one dismissed-count line at close-out, and

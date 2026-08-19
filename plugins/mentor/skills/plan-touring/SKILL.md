@@ -278,14 +278,24 @@ tour_dir="$(bash "${CLAUDE_PLUGIN_ROOT}/hooks/plan-state.sh" ensure-dir "$state_
 
 `ensure-dir` also locks the path to 700, which is what a local-only artifact wants.
 
-**Load the dispatch contract before the first `Agent` call, not after.** Invoke
-`Skill(skill="mentor:dispatch-agents")` here if it is not already loaded — a
-`/plan-tour` reached directly rather than through `plan` Step 5 has loaded nothing —
-then end every combo prompt with its **"Deliver before idling"** block pasted verbatim,
-as the prompt's final lines after the template below. Step 4's citation of that same
-section covers close-out only; this is the load point. Without it a combo can finish its
-file and still end its turn on a plain final-text reply, indistinguishable from a hang
-until someone notices and sends a manual nudge. The block governs *delivery*, not
+**Run the pre-dispatch preflight before the first `Agent` call, not after.** One call,
+no skill load:
+
+```bash
+[ -d "${CLAUDE_PLUGIN_ROOT}/hooks" ] || { echo "ERROR: CLAUDE_PLUGIN_ROOT unresolved or stale — do not search the plugin cache or hardcode a version path; ask the user to /reload-plugins or restart" >&2; exit 1; }
+bash "${CLAUDE_PLUGIN_ROOT}/hooks/plan-state.sh" policy
+```
+
+`POLICY: FOUND` — a standing no-subagents instruction is on record; stop and ask before
+dispatching. `UNRESOLVED` — the check could not run, which is not a clean result; treat
+the question as open. `NONE` — dispatch. `CONTRACT: active` confirms
+`hooks/dispatch-contract.sh` appends the standing "Deliver before idling" block to every
+dispatch prompt automatically: **do not paste it by hand.** Only on `CONTRACT: MISSING`
+do you paste it yourself, from `dispatch-agents`' own section of that name.
+
+Without that block a combo can finish its file and still end its turn on a plain
+final-text reply, indistinguishable from a hang until someone notices and sends a manual
+nudge — which is what `CONTRACT:` exists to warn about. The block governs *delivery*, not
 contents: "Return ONLY the file path plus one line" below still says what to deliver, and
 the block's durable-copy clause is for verdict-producing agents — a combo's durable
 artifact is the HTML file it already writes, so it still writes nothing outside

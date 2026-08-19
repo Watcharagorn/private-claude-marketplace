@@ -1840,6 +1840,107 @@ out="$(ps relocate "$SRC_PLANS/rl-notaplan")"; rc=$?
 chk "relocate: not a real plan dir → exit 1"   test "$rc" = "1"
 chk "..names the reason"                        has "not a real plan dir" "$out"
 
+echo "== W. start <slug>: ensure-dir + init + claim in ONE call (v2.34.0) =="
+# The contract that matters is stdout purity: callers write
+# `plan_md="$(plan-state.sh start "$slug")"`, so anything init or claim print has to go
+# to stderr or the capture is unusable. Every other assertion here is about the three
+# folded steps actually having run.
+CWD="$REPO"
+out="$(psout start st-fresh --priority high --category feature)"; rc=$?
+chk "start: exit 0"                              test "$rc" = "0"
+chk "start: stdout is EXACTLY one line"          test "$(printf '%s\n' "$out" | grep -c .)" = "1"
+chk "start: stdout is the plan.md path"          has "/.mentor/plans/st-fresh/plan.md$" "$out"
+chk "start: created the plan dir"                test -d "$REPO/.mentor/plans/st-fresh"
+chk "start: dir locked to 700 (ensure-dir ran)"  test "$(stat -f '%Lp' "$REPO/.mentor/plans/st-fresh" 2>/dev/null || stat -c '%a' "$REPO/.mentor/plans/st-fresh")" = "700"
+chk "start: sidecar written (init ran)"          test -f "$REPO/.mentor/plans/st-fresh/.state.json"
+chk "start: init flags forwarded — priority"     test "$(jq -r .priority "$REPO/.mentor/plans/st-fresh/.state.json")" = "high"
+chk "start: init flags forwarded — category"     test "$(jq -r .category "$REPO/.mentor/plans/st-fresh/.state.json")" = "feature"
+chk "start: state is draft"                      test "$(jq -r .state "$REPO/.mentor/plans/st-fresh/.state.json")" = "draft"
+err="$(pserr start st-fresh)"
+chk "start: init summary goes to stderr, not stdout" has "st-fresh: draft" "$err"
+chk "start: no-op claim notice is suppressed"    hasnt "nothing to claim" "$err"
+out2="$(psout start st-fresh)"
+chk "start: idempotent re-run → same path"       test "$out2" = "$out"
+chk "start: idempotent re-run → still draft"     test "$(jq -r .state "$REPO/.mentor/plans/st-fresh/.state.json")" = "draft"
+
+# The claim half is the reason claim is folded in at all: a /mentor:defer stub being
+# fleshed out must stop being shielded from the approval sweep, without the caller
+# having to know which case they are in.
+# ensure-dir first: bare `init` runs require_slug and refuses a dir that does not exist
+# yet — which is precisely the three-step dance `start` exists to fold away.
+ps ensure-dir "$REPO/.mentor/plans/st-stub" >/dev/null
+ps init st-stub --deferred >/dev/null
+chk "start: fixture stub really is deferred"     test "$(jq -r .origin "$REPO/.mentor/plans/st-stub/.state.json")" = "deferred"
+err="$(pserr start st-stub)"
+chk "start: real claim IS surfaced (stderr)"     has "claimed — origin cleared" "$err"
+chk "start: origin cleared on the stub"          test "$(jq -r '.origin // "null"' "$REPO/.mentor/plans/st-stub/.state.json")" = "null"
+
+out="$(ps start)"; rc=$?
+chk "start: no slug → exit 1"                    test "$rc" = "1"
+chk "..names the usage"                          has "start needs <slug>" "$out"
+out="$(ps start --priority high)"; rc=$?
+chk "start: flag in the slug position → exit 1"  test "$rc" = "1"
+CWD="$ROOT"; out="$(ps start outside-a-repo)"; rc=$?
+chk "start: outside a git repo → exit 1"         test "$rc" = "1"
+chk "..names the reason"                         has "Not inside a git repo" "$out"
+CWD="$REPO"
+
+echo "== X. policy: the pre-dispatch preflight — POLICY + CONTRACT in one call (v2.34.0) =="
+# The printed token is the verdict, not the exit code (that is the whole difference from
+# `sweep`, whose grep-shaped codes exist because a bare hit count cannot tell "no match"
+# from "read nothing"). Exit 2 is reserved for the one case the check could NOT run.
+rm -f "$REPO/CLAUDE.md"; rm -rf "$REPO/.claude"
+out="$(ps policy)"; rc=$?
+chk "policy: repo with plans dir, no policy → exit 0" test "$rc" = "0"
+chk "..verdict is NONE"                          has "POLICY: NONE" "$out"
+chk "..reports the denominator"                  has "files=" "$out"
+chk "..CONTRACT line always present"             has "CONTRACT: active" "$out"
+
+printf 'Rules\n\nPlease use no subagents on this project.\n' > "$REPO/CLAUDE.md"
+out="$(ps policy)"; rc=$?
+chk "policy: standing policy recorded → exit 0"  test "$rc" = "0"
+chk "..verdict is FOUND"                         has "POLICY: FOUND" "$out"
+chk "..tells the caller to stop and ask"         has "Stop before dispatching" "$out"
+chk "..prints the hit with its file:line"        has "CLAUDE.md:3:" "$out"
+chk "..case-insensitive by default"              test "$(printf 'Rules\n\nUse NO SUBAGENTS here.\n' > "$REPO/CLAUDE.md"; ps policy | grep -c 'POLICY: FOUND')" = "1"
+rm -f "$REPO/CLAUDE.md"
+
+# roots=0 is a POSITIVE finding, not a failed search: none of the three durable
+# locations exists, so there is nowhere a standing instruction could be recorded. Getting
+# this wrong would stop every dispatch in every repo that has no CLAUDE.md.
+BARE="$ROOT/bare-repo"; git init -q -b main "$BARE" >/dev/null 2>&1
+( cd "$BARE"; git config user.email t@t.co; git config user.name t; echo x > f; git add -A; git commit -q -m init ) >/dev/null 2>&1
+CWD="$BARE"; out="$(ps policy)"; rc=$?
+chk "policy: no durable location exists → exit 0" test "$rc" = "0"
+chk "..verdict is NONE, not UNRESOLVED"          has "POLICY: NONE (roots=0)" "$out"
+chk "..says why it is sound"                     has "nowhere a standing instruction could be recorded" "$out"
+
+# roots>0 with files=0 IS unresolved — an existing but unreadable/empty root is as
+# consistent with a swallowed find error as with an empty dir.
+mkdir -p "$BARE/.claude"
+out="$(ps policy)"; rc=$?
+chk "policy: root exists but no file read → exit 2" test "$rc" = "2"
+chk "..verdict is UNRESOLVED"                    has "POLICY: UNRESOLVED" "$out"
+chk "..refuses to be read as evidence"           has "NOT evidence" "$out"
+rmdir "$BARE/.claude"
+CWD="$REPO"
+
+# CONTRACT is the alarm for dispatch-contract.sh's silent fail-soft. Since no skill
+# pastes the block by hand any more, this line is the only thing that would say so.
+CT="$(dirname "$PLANSTATE")/dispatch-contract.txt"
+cp "$CT" "$ROOT/ct.bak"; : > "$CT"
+out="$(ps policy)"
+chk "policy: empty contract file → CONTRACT MISSING" has "CONTRACT: MISSING" "$out"
+chk "..names the file"                           has "dispatch-contract.txt" "$out"
+chk "..still answers the POLICY half"            has "POLICY: " "$out"
+cp "$ROOT/ct.bak" "$CT"
+out="$(psq_nojq_out policy)"
+chk "policy: no jq on PATH → CONTRACT MISSING"   has "CONTRACT: MISSING" "$out"
+chk "..names jq as the cause"                    has "jq is absent" "$out"
+
+out="$(ps policy extra-arg)"; rc=$?
+chk "policy: takes no arguments → exit 2"        test "$rc" = "2"
+
 echo
 echo "RESULT: PASS=$PASS FAIL=$FAIL"
 [ "$FAIL" = "0" ]
