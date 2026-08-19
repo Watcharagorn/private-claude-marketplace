@@ -84,6 +84,34 @@ chk "status → mode: plan"              sh -c "printf '%s' \"\$0\" | grep -q '^
 out="$(sm bogus)"; rc=$?
 chk "invalid mode → exit 1"            test "$rc" = "1"
 chk "invalid mode → usage printed"     sh -c "printf '%s' \"\$0\" | grep -q 'Usage:'" "$out"
+chk "usage names the dispatch axis"    sh -c "printf '%s' \"\$0\" | grep -q 'verify-only'" "$out"
+
+echo "== A2. the dispatch axis is independent of mode =="
+# Two axes in one config file. The whole reason the write path is shared (write_key) is
+# that a second hand-rolled merge is where one axis silently clobbers the other.
+out="$(sm verify-only)"
+chk "set verify-only → confirmation"   sh -c "printf '%s' \"\$0\" | grep -q 'dispatch set: verify-only'" "$out"
+chk "..promises the question stops"    sh -c "printf '%s' \"\$0\" | grep -q 'POLICY: SET'" "$out"
+chk "config dispatch is verify-only"   test "$(jq -r .dispatch "$CONF")" = "verify-only"
+chk "..mode axis untouched"            test "$(jq -r .mode "$CONF")" = "plan"
+chk "..foreign key still preserved"    test "$(jq -r .custom "$CONF")" = "keep-me"
+
+out="$(sm plan-only)"
+chk "mode change keeps dispatch"       test "$(jq -r .dispatch "$CONF")" = "verify-only"
+out="$(sm solo)"
+chk "dispatch change keeps mode"       test "$(jq -r .mode "$CONF")" = "plan-only"
+chk "solo warns it drops grading"      sh -c "printf '%s' \"\$0\" | grep -q 'independent grader'" "$out"
+
+out="$(sm status)"
+chk "status → both axes reported"      sh -c "printf '%s' \"\$0\" | grep -q '^mode: plan-only' && printf '%s' \"\$0\" | grep -q '^dispatch: solo'" "$out"
+
+# Unset dispatch must read as "no override", never as an answer the user never gave.
+jq 'del(.dispatch)' "$CONF" > "$CONF.tmp" && mv "$CONF.tmp" "$CONF"
+out="$(sm status)"
+chk "dispatch unset → UNSET line"      sh -c "printf '%s' \"\$0\" | grep -q '^dispatch: UNSET'" "$out"
+chk "..names it as no override"        sh -c "printf '%s' \"\$0\" | grep -q 'no override'" "$out"
+chk "..mode line still leads"          sh -c "printf '%s' \"\$0\" | grep -q '^mode: plan-only'" "$out"
+sm plan >/dev/null
 
 rc=0; ( cd "$NONGIT" && HOME="$SANDBOX" bash "$SETMODE" status >/dev/null 2>&1 ) || rc=$?
 chk "non-repo → exit 1"                test "$rc" = "1"

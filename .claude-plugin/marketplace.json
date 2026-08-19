@@ -6,7 +6,7 @@
   "plugins": [
     {
       "name": "mentor",
-      "description": "A lean planning harness for Claude Code: an edit gate keeps the repo read-only until the plan is approved, then implementation and verification both run subagents-first — every verification topic checked by its own fresh single-focus agent.",
+      "description": "A lean planning harness for Claude Code: an edit gate keeps the repo read-only until the plan is approved, then work is routed to where it pays — verification, review and research always to fresh single-focus subagents, implementation only when steps can truly run in parallel.",
       "source": "./plugins/mentor",
       "category": "development"
     },

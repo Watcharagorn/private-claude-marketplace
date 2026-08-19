@@ -575,7 +575,9 @@ reading and that report is exactly the shape `context-gate.sh`'s own WARN tier c
    `Explore` agents", "no single mentor command owns this") — run
    `bash "${CLAUDE_PLUGIN_ROOT}/hooks/plan-state.sh" policy` first. Prose describing a fan-out
    names no command, so it is neither the no-commands branch above nor licence to dispatch without
-   that check: it reports any standing no-subagents instruction, and confirms the standing contract
+   that check: it reports either a dispatch preference the user already recorded for this repo (a
+`POLICY: SET` verdict — honor it and ask nothing) or any standing no-subagents instruction that
+still needs one question, and it confirms the standing contract
    block ("Deliver before idling") will reach your agents — the only thing that makes a dispatched
    agent report instead of signalling idle with nothing delivered. A fan-out issued without it
    strands the whole group at once and leaves you redoing their work by hand. Going direct rather than through `/mentor:track` is right **only** for a research or

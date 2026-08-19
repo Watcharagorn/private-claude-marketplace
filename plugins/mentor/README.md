@@ -13,7 +13,8 @@ implementation, handoff, and review.
 ## Quick start
 
 ```
-/mentor:mode plan-only        # optional: set the approval-gate default (plan | plan-only)
+/mentor:mode plan-only        # optional: approval-gate default (plan | plan-only)
+/mentor:mode verify-only      # optional: dispatch preference (agents | solo | verify-only)
 /mentor:grill <topic>         # optional: sharpen open design decisions before you plan
 /mentor:plan <what you want to build>
 ```
@@ -66,7 +67,7 @@ implementation, handoff, and review.
 |---|---|
 | `/mentor:plan <task>` | The gated plan flow (above). |
 | `/mentor:constitution [principles]` | Create/amend this repo's governing principles at `.mentor/constitution.md` — versioned, committed, and honored by every plan. |
-| `/mentor:mode [plan\|plan-only\|status]` | Get/set the persisted approval-gate default (which approval option is listed first). |
+| `/mentor:mode [plan\|plan-only\|agents\|solo\|verify-only\|status]` | Get/set the two persisted per-repo defaults: the approval-gate default (which approval option is listed first) and the dispatch preference (where implementation and verification run). |
 | `/mentor:ship` | Finish the current branch: clean-check → `/simplify` → optional tests → push + auto-open PR/MR (or push to upstream). Never force-pushes. |
 | `/mentor:merge [PR#]` | The tail `/mentor:ship` leaves off: one bounded `gh pr checks --watch`, then one triage — flake (one rerun max) / regression (stop and report) / already broken on the base branch (don't spend the rerun; parking the rot is offered inside that same question, never captured for you) — then merge only on your explicit choice. GitHub-only. |
 | `/mentor:grill [topic]` | One-question-at-a-time interview that sharpens a design's open decisions before you build. Conversation only, beyond a settled trivial one-file change. |
@@ -79,7 +80,7 @@ implementation, handoff, and review.
 | `/mentor:track [slug\|number\|status]` | Repo-wide remaining-work hierarchy — every plan's state, step progress, cross-plan `deps`, deferred stubs, and live handoffs — with fix children nested under their root and per-root open-descendant counts — then build the one you pick. The way back into a `/plan-split` group. |
 | `plan-split`* | Split an oversized plan into independently buildable sibling plans, each with explicit scope isolation; also offered as **Split into multiple plans** at the approval gate when a plan is oversized. |
 | `plan-review`* | Staged review of the current plan: a judgment pass (practicality, comprehensiveness) with a **fold gate** that walks the **CRITICAL and HIGH** recommended edits one question at a time — each question carries the reviewer's case with the key words bolded — and resolves the rest in **one batched question**; then — against the updated plan — a mechanical pass (cleanliness + spec-kit-`analyze`-style **consistency** across related artifacts) whose safe fixes **auto-fold**; decision-level findings surface as a one-line **digest**, only **CRITICAL** ones asked one at a time and the rest resolved in **one batched question**, applied only on your verdict. The mechanical stage is invocable alone ("check plan consistency"). Also offered as **Review the plan (staged)** at the proceed gate. |
-| `dispatch-agents`* | The **default implementation path** (subagents-driven development): every plan's steps are dispatch-annotated unless the plan states a `Dispatch: skipped` reason, executed as subagent dispatches after approval, then verified by one fresh verifier agent per Verification topic — implementation dispatch may skip, verification dispatch never does on a mentor plan. |
+| `dispatch-agents`* | **Routes each kind of work** between the main thread and subagents, then carries the annotation grammar and the async runtime contract. Verification, review and research always dispatch — an independent grader is the deliverable there, not a speed-up. Implementation earns dispatch only when 2+ file-disjoint steps can run at once, or a single step's context cost would flood the orchestrator; otherwise it stays in the main thread behind a stated `Dispatch: skipped` reason. Verification dispatch never skips on a mentor plan. |
 
 \* skill trigger phrases, not registered slash commands — there is no `/plan-split`,
 `/plan-review`, or `/dispatch-agents` command. They invoke only via
@@ -111,16 +112,30 @@ rule from a session should append the narrative to `references/rationale.md`, no
 
 ## Repo modes (`/mentor:mode`)
 
-The mode persists in `<repo>/.mentor/config.json` (committed — shared with the team)
-and is only the **approval-gate default**: `/mentor:plan`'s final approval question
-always offers both **Proceed** and **Deliver plan only**; the mode just decides
-which is listed first. It is never asked for upfront — an unset mode behaves as
-`plan`, and the real decision is made per task, at approval.
+Two independent defaults persist in `<repo>/.mentor/config.json` (committed — shared
+with the team). Setting one never clears the other.
+
+**Approval-gate default.** `/mentor:plan`'s final approval question always offers both
+**Proceed** and **Deliver plan only**; the mode just decides which is listed first. It is
+never asked for upfront — an unset mode behaves as `plan`, and the real decision is made
+per task, at approval.
 
 | Mode | Approval question |
 |---|---|
 | `plan` (or unset) | **Proceed** listed first — plan, then implement on approval. |
 | `plan-only` | **Deliver plan only** listed first — the plan file is the deliverable. A default, not a lock: picking Proceed still implements. |
+
+**Dispatch preference.** Where implementation and verification run. This exists so a repo
+carrying a standing no-subagents instruction is asked **once** rather than at every
+dispatch surface in every session — `plan-state.sh policy` then reports `POLICY: SET` and
+every surface obeys without a question.
+
+| Dispatch | Effect |
+|---|---|
+| unset | No override — route per `dispatch-agents`' "Where dispatch pays" test. The ordinary state. |
+| `agents` | Route per that test, recorded explicitly. Also silences a false-positive policy hit in a repo that merely *discusses* background agents. |
+| `verify-only` | Implementation in the main thread, verification still dispatched to fresh agents — keeps the independent grader. |
+| `solo` | Implementation *and* verification in the main thread. Gives up independent grading, so a plan closed this way must disclose that in its report. |
 
 State-dir layout (**project-scoped** — `<repo>/.mentor/`; per-plan-topic dirs since
 v2.2.0, handoffs inside them since v2.10.0):
@@ -128,7 +143,7 @@ v2.2.0, handoffs inside them since v2.10.0):
 ```
 <repo>/.mentor/
 ├── .gitignore       # commits config.json + constitution.md; ignores the rest
-├── config.json      # {"mode": "plan|plan-only", + context-gate keys}   ← committed
+├── config.json      # {"mode": …, "dispatch": …, + context-gate keys}   ← committed
 ├── constitution.md  # governing principles (/mentor:constitution)        ← committed
 ├── plans/           # one .planning.<wt-id> gate marker PER WORKTREE (v2.23.0) +
 │                    #   one dir per plan topic, SHARED across every worktree;
@@ -574,6 +589,68 @@ extra deliverable. Instruction-only — no hooks.
 | `plan-domain-architecture` | Structural change — services, containers, datastores, queues, integrations, data flows (not pure content/config/doc/style/refactor) | Diff-highlighted C4-style Mermaid flowcharts, only the levels that change; a provenance list for any changed datastore field. |
 | `plan-domain-dynamic` | No registered domain matched, and no already-available project/plugin skill names the technology (fallback) | A dispatched domain-definer names the domain and returns a best-practices brief; the plan gains a practice→step mapping. A substituted available skill can supply the brief instead. |
 
+## Changes in v2.35.0
+
+**Implementation dispatch is no longer the default — it has to earn itself.**
+`dispatch-agents` used to declare subagent implementation "the DEFAULT for every mentor
+plan," with a narrow escape hatch. That framing was never checked against either the
+published evidence or mentor's own telemetry, and both disagree with it. Anthropic's
+multi-agent writeup is explicit that "most coding tasks involve fewer truly parallelizable
+tasks than research," and that domains needing shared context or carrying many
+inter-agent dependencies "are not a good fit for multi-agent systems today" — which
+describes plan implementation exactly. Measured across 2,545 mentor subagent transcripts,
+**63% of dispatches ran exactly one agent at a time**, collecting the context-isolation
+benefit while paying for a parallelism benefit they never received.
+
+The new **"Where dispatch pays"** routing test replaces the escape hatch:
+
+- **Verification, review and research always dispatch** — no test, no escape hatch. There
+  an independent context *is* the deliverable, and research is the read-heavy shape where
+  the median dispatch ingests ~247k tokens and returns ~630 (a ~390× compression).
+- **Implementation dispatches only when all three hold:** two or more steps can be in
+  flight at once, those steps are file-disjoint and mint no shared-sequence value, and
+  each brief stands alone without the conversation.
+- **The context-cost override:** a single step whose `Done when:` needs a service brought
+  up or a browser driven, or whose `Inputs:` pull in whole large files, dispatches alone —
+  isolation bought deliberately, and it must say so in its annotation so a reviewer can
+  tell it from a reflex.
+- Otherwise the work stays in the main thread behind the same visible
+  `Dispatch: skipped — <reason>` line, which now names *which test failed*.
+  `plan-review`'s consistency pass checks both directions: an unnamed skip reason, and
+  `[role:` annotations on strictly sequential same-file steps with no override stated.
+
+Evidence, numbers and citations live in `skills/dispatch-agents/references/rationale.md`
+→ **Where dispatch pays**, per this repo's rule that narrative belongs outside `SKILL.md`.
+
+**The no-subagents question is asked once per repo, not once per plan.** A new `dispatch`
+key in `.mentor/config.json` (`agents` | `solo` | `verify-only`) records the answer, and
+`plan-state.sh policy` reads it *first*, printing `POLICY: SET` and telling every surface
+to ask nothing. Set it directly with `/mentor:mode agents|solo|verify-only` — a second,
+independent axis alongside `plan`/`plan-only`. This was measured, not guessed: **46 mentor
+sessions asked the user where the work should run, under 16 different question headers**
+(`Subagents`, `Dispatch grant`, `Execution`, `Verify how`, `Inventory`, …), and no answer
+outlived its session. Repos under such a policy had started writing "do not re-litigate"
+into their own handoff notes to compensate.
+
+**The policy sweep sees what people actually write.** It matched one literal string,
+`no subagents`, over `CLAUDE.md` + `.claude/` + `.mentor/plans`. Two fixes: **`AGENTS.md`
+is now its own root** (a `CLAUDE.md` that is just `@AGENTS.md` kept every real rule in the
+imported file, so the sweep read the pointer and reported a clean zero — measured in the
+wild against a policy living at `AGENTS.md:119`), and the pattern is now an ERE covering
+the real phrasings — "solo in-thread", "background agents/teammates", "do not use the
+Agent tool", "never dispatch subagents", "no fan-out". Printed evidence is **capped at 5
+hits** with a total count: one real repo produced 68, and the verdict is already on the
+line above. `mentor_sweep` grew an optional `ere` argument for this; existing callers are
+unchanged, because flipping them all to `-E` would silently reinterpret `+`, `?` and `{}`.
+
+**One premise not worth inheriting.** Standing no-subagents policies often justify
+themselves with a reliability claim — that dispatched agents go idle without delivering.
+Across **2,495 orchestrator-side dispatches: zero never returned**, and all 16 errors were
+environmental or user-initiated (interrupts, rejections, a machine sleeping mid-response,
+one malformed `isolation` argument). The cost argument for staying in-thread holds; the
+reliability one did not survive measurement, and the skill now tells the model not to
+repeat it back to the user as established fact.
+
 ## Changes in v2.34.0
 
 A trimming release: same gates, same guarantees, less work to get through them.
@@ -588,7 +665,8 @@ no longer drags that skill into context at all.
 
 **New `plan-state.sh policy`** — the one pre-dispatch preflight, replacing the skill load.
 It answers both questions a surface must settle before its first dispatch: `POLICY:
-NONE|FOUND|UNRESOLVED` (is a standing no-subagents instruction recorded?) and `CONTRACT:
+SET|NONE|FOUND|UNRESOLVED` (has the user recorded a dispatch preference, and failing that,
+is a standing no-subagents instruction on record? — `SET` added in v2.35.0) and `CONTRACT:
 active|MISSING` (can the hook actually inject?). That second line is new coverage — the
 hook fail-softs silently when `jq` or the contract file is missing, and with nobody
 pasting by hand any more, nothing else would have said so.
@@ -1386,9 +1464,12 @@ nothing is hook-enforced:
   `mentor:dispatch-agents` and annotates every implementation step (one step =
   one dispatch). Skipping requires the plan to open its Implementation steps
   with `Dispatch: skipped — <reason>` — visible and reviewable at approval.
+  *(Superseded in v2.35.0 — implementation dispatch is no longer the default;
+  see the routing test in that release's notes.)*
 - **Escape hatch:** trivial work (roughly ≤ ~20 changed lines, nothing new to
   read) or work needing tight user back-and-forth may skip; if a skipped task
   turns out non-trivial mid-flight, stop and dispatch normally.
+  *(Superseded in v2.35.0.)*
 - **Orchestrator contract:** the main thread never reads delegated files —
   it verifies via executable `Done when:` checks, `git diff`, and failing
   command output; one remediation re-dispatch, then escalate to the user.

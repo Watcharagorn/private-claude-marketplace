@@ -321,6 +321,24 @@ mentor_get_mode() {
   mentor_config_get "${1:-}" "mode"
 }
 
+# mentor_get_dispatch <repo_root> — echo the persisted DISPATCH preference
+# (agents|solo|verify-only) or empty when unset.
+#
+# This is a different axis from `mode` and lives in the same config.json. It answers,
+# once per repo, the question a standing no-subagents instruction would otherwise raise
+# at every dispatch surface in every session: does the user want mentor's routing test to
+# run as designed, or is it overridden here? Unset is the ordinary state and means "no
+# override — route per dispatch-agents' 'Where dispatch pays'". The values:
+#   agents      route per the skill (verification/review/research dispatch, implementation
+#               earns it) — an explicit opt-in, useful for silencing a false-positive
+#               policy hit in a repo that merely *discusses* background agents
+#   solo        keep implementation in the main thread regardless of the routing test
+#   verify-only implementation in the main thread, verification still dispatched — the
+#               split that preserves independent grading, which `solo` gives up
+mentor_get_dispatch() {
+  mentor_config_get "${1:-}" "dispatch"
+}
+
 # mentor_cwd <input_json> — echo the hook cwd ($PWD fallback).
 mentor_cwd() {
   local cwd
@@ -1395,6 +1413,12 @@ mentor_sweep_roots() {
   case "$set_name" in
     policy)
       if [ -n "$toplevel" ] && [ -f "${toplevel}/CLAUDE.md" ]; then echo "${toplevel}/CLAUDE.md"; fi
+      # AGENTS.md is a first-class root, not a nicety: a repo whose CLAUDE.md is a
+      # one-line `@AGENTS.md` import keeps every actual rule in the imported file, so a
+      # root set without it reads the pointer and reports a clean zero — the exact
+      # false-negative this set exists to prevent (measured in the wild: a standing
+      # policy against background agents lived at AGENTS.md:119 while this sweep passed).
+      if [ -n "$toplevel" ] && [ -f "${toplevel}/AGENTS.md" ]; then echo "${toplevel}/AGENTS.md"; fi
       if [ -n "$toplevel" ] && [ -d "${toplevel}/.claude" ]; then echo "${toplevel}/.claude"; fi
       if [ -n "$plans" ] && [ -d "$plans" ]; then echo "$plans"; fi
       ;;
@@ -1408,7 +1432,7 @@ mentor_sweep_roots() {
   return 0
 }
 
-# mentor_sweep <cwd> <set> <pattern> [ignore_case] — search <pattern> across the named
+# mentor_sweep <cwd> <set> <pattern> [ignore_case] [ere] — search <pattern> across the named
 # root set. Echoes ONE counts line first:
 #
 #     <roots> <files> <hits>
@@ -1421,7 +1445,7 @@ mentor_sweep_roots() {
 # no hits -> 1, files==0 -> 2). This function is fail-soft and always returns 0, per the
 # CONTRACT at the top of this file.
 mentor_sweep() {
-  local cwd="${1:-$PWD}" set_name="${2:-policy}" pattern="${3:-}" icase="${4:-}"
+  local cwd="${1:-$PWD}" set_name="${2:-policy}" pattern="${3:-}" icase="${4:-}" ere="${5:-}"
   local roots r root_count files out hits
   local -a root_args find_args grep_args
   roots="$(mentor_sweep_roots "$cwd" "$set_name")"
@@ -1454,6 +1478,10 @@ mentor_sweep() {
 
   grep_args=(-I -H -n)
   if [ -n "$icase" ]; then grep_args+=(-i); fi
+  # -E only when the caller asks. BRE alternation is `\|` on GNU grep and unsupported on
+  # BSD's, so a portable multi-phrasing pattern has to be ERE — but flipping every caller
+  # to -E would silently reinterpret an existing pattern's `+`, `?` and `{}`.
+  if [ -n "$ere" ]; then grep_args+=(-E); fi
   # `-e` guards a pattern beginning with `-`; the trailing `--` guards a FILENAME
   # beginning with `-` (xargs appends the file operands after it).
   out="$(find "${find_args[@]}" 2>/dev/null \

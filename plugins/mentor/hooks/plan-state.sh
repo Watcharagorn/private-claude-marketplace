@@ -369,9 +369,12 @@ Usage: plan-state.sh <subcommand>
                                          worktree minus .git/. find walks so grep never
                                          applies .gitignore — gitignored .mentor/ IS reached
   policy                                the pre-dispatch preflight, one call, no skill load:
-                                         POLICY: NONE|FOUND|UNRESOLVED (standing
-                                         no-subagents instruction?) + CONTRACT: active|MISSING
-                                         (can dispatch-contract.sh inject?). The printed
+                                         POLICY: SET|NONE|FOUND|UNRESOLVED + CONTRACT:
+                                         active|MISSING (can dispatch-contract.sh inject?).
+                                         SET means .mentor/config.json recorded a dispatch
+                                         preference (agents|solo|verify-only) — honor it and
+                                         ask NOTHING; the other three answer "is a standing
+                                         no-subagents instruction on record?" The printed
                                          token is the verdict; exit 2 iff the check
                                          could not run
   context                               CONTEXT: ASK|HANDOFF|WARN|OK|UNKNOWN (~N tokens)
@@ -938,7 +941,9 @@ fi
 # Agent/Task dispatch — so no skill has to load mentor:dispatch-agents (~16k tokens)
 # just to reach them:
 #
-#   POLICY:    is a STANDING no-subagents instruction recorded anywhere durable —
+#   POLICY:    SET first — a `dispatch` value in .mentor/config.json is the user's own
+#              answer, recorded once, and it ends the question outright. Otherwise: is a
+#              STANDING no-subagents instruction recorded anywhere durable —
 #              this worktree's CLAUDE.md, its .claude/ tree, or the main repo's
 #              .mentor/plans handoff notes? Runs exactly the sweep the prescription
 #              always meant (`--roots policy --ignore-case`), so gitignored .mentor/
@@ -979,7 +984,45 @@ if [ "$sub" = "policy" ]; then
     pol_contract="active — dispatch prompts are injected automatically; do NOT paste the block by hand."
   fi
 
-  pol_out="$(mentor_sweep "$(pwd)" policy 'no subagents' 1)"
+  # --- a recorded preference ends the question -------------------------------
+  # Without this branch the sweep below is re-run at every dispatch surface, in every
+  # session, forever — and since no file sweep can see an instruction that lives in the
+  # session's own system prompt, a NONE verdict never stopped the model asking anyway.
+  # Measured before this existed: 46 mentor sessions asked the user where the work should
+  # run, under 16 different question headers, none of the answers outliving its session.
+  # One recorded value answers all seven call sites at once, for good.
+  pol_repo="$(mentor_repo_root "$(pwd)")"
+  pol_pref=""
+  if [ -n "$pol_repo" ]; then pol_pref="$(mentor_get_dispatch "$pol_repo")"; fi
+  case "$pol_pref" in
+    agents)
+      echo "POLICY: SET (dispatch=agents) — the user recorded that mentor should route per dispatch-agents' \"Where dispatch pays\" test. Do NOT ask; route and dispatch as the skill prescribes."
+      echo "CONTRACT: ${pol_contract}"
+      exit 0
+      ;;
+    solo)
+      echo "POLICY: SET (dispatch=solo) — the user recorded that implementation AND verification stay in the main thread here. Do NOT ask. Honor it, and disclose in the report that the plan carries no independent verification (dispatch-agents, \"A substitution is disclosed as a substitution\")."
+      echo "CONTRACT: ${pol_contract}"
+      exit 0
+      ;;
+    verify-only)
+      echo "POLICY: SET (dispatch=verify-only) — the user recorded that implementation stays in the main thread and verification still dispatches. Do NOT ask; implement in-thread, then dispatch the Verification topics normally."
+      echo "CONTRACT: ${pol_contract}"
+      exit 0
+      ;;
+    "") ;;
+    *)
+      echo "POLICY: UNRESOLVED (dispatch=\"${pol_pref}\") — .mentor/config.json carries a \"dispatch\" value that is not agents|solo|verify-only, so what the user wanted cannot be read off it. Treat the question as open; fix the value with /mentor:mode agents|solo|verify-only."
+      echo "CONTRACT: ${pol_contract}"
+      exit 2
+      ;;
+  esac
+
+  # No recorded preference — look for a standing instruction in the durable locations.
+  # ERE, because one literal ('no subagents') matched almost nothing people actually
+  # write: the measured real-world wording was "Default to solo in-thread review over
+  # dispatching background agents", which that literal missed completely.
+  pol_out="$(mentor_sweep "$(pwd)" policy 'no[- ]?sub-?agents|without sub-?agents|(do not|do NOT|don'"'"'t|never|not to) (use|call|dispatch|spawn) [^.]{0,24}(sub-?agents?|agent[- ]?tool|background agents)|solo in-?thread|background (agents|teammates)|no fan-?out' 1 1)"
   pol_roots=0; pol_files=0; pol_hits=0
   read -r pol_roots pol_files pol_hits <<<"$(printf '%s\n' "$pol_out" | head -1)" || true
 
@@ -1007,9 +1050,17 @@ if [ "$sub" = "policy" ]; then
     exit 2
   fi
   if [ "${pol_hits:-0}" -gt 0 ]; then
-    echo "POLICY: FOUND (files=${pol_files} hits=${pol_hits}) — a standing no-subagents instruction is recorded. Stop before dispatching and ask the user (see mentor:dispatch-agents, \"Standing no-subagents policy\")."
+    echo "POLICY: FOUND (files=${pol_files} hits=${pol_hits}) — a standing no-subagents instruction is recorded. Ask the user ONCE (see mentor:dispatch-agents, \"Standing no-subagents policy\") and record the answer with set-mode.sh so this never has to be asked again."
     echo "CONTRACT: ${pol_contract}"
-    printf '%s\n' "$pol_out" | tail -n +2
+    # Evidence is CAPPED. A repo that has lived under such a policy accumulates the
+    # phrase in every handoff note it ever wrote — 68 hits measured in one real repo —
+    # and the verdict is already in the line above, so printing them all buys nothing
+    # and costs the orchestrator context on a preflight that runs before every fan-out.
+    # A few concrete lines are what makes the verdict checkable; the rest is volume.
+    printf '%s\n' "$pol_out" | tail -n +2 | head -5
+    if [ "${pol_hits:-0}" -gt 5 ]; then
+      echo "  … ${pol_hits} hits total; the 5 above are a sample. Re-run with \`sweep\` if you need the full list."
+    fi
     exit 0
   fi
   echo "POLICY: NONE (files=${pol_files}) — no standing no-subagents instruction recorded; dispatch as designed."

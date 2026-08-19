@@ -104,7 +104,7 @@ chk "fresh plan → exit 0"              test "$rc" = "0"
 chk "fresh plan → marker gone"         test ! -f "$MARKER"
 chk "fresh plan → APPROVED message"    sh -c "printf '%s' \"\$0\" | grep -q 'Plan APPROVED'" "$out"
 chk "fresh plan → plan path printed"   sh -c "printf '%s' \"\$0\" | grep -q 'fixture-plan/plan.md'" "$out"
-chk "fresh plan → SDD directive"       sh -c "printf '%s' \"\$0\" | grep -q 'subagents-first'" "$out"
+chk "fresh plan → routing directive"   sh -c "printf '%s' \"\$0\" | grep -q 'routing verdict'" "$out"
 
 echo "== D2. Legacy flat <slug>.md is ignored by the resolver =="
 sleep 1; arm                                                # marker now NEWER than the nested plan
@@ -119,7 +119,7 @@ echo "== E. Idempotency: gate already open → exit 0, directives still print ==
 out="$(ap)"; rc=$?
 chk "already open → exit 0"            test "$rc" = "0"
 chk "already open → notice"            sh -c "printf '%s' \"\$0\" | grep -q 'already open'" "$out"
-chk "already open → SDD directive"     sh -c "printf '%s' \"\$0\" | grep -q 'subagents-first'" "$out"
+chk "already open → routing directive" sh -c "printf '%s' \"\$0\" | grep -q 'routing verdict'" "$out"
 # A re-run of a no-implementation flag must never lose its directive.
 out="$(ap --deliver)"; rc=$?
 chk "open + --deliver → exit 0"        test "$rc" = "0"

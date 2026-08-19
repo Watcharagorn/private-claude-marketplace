@@ -1900,10 +1900,75 @@ printf 'Rules\n\nPlease use no subagents on this project.\n' > "$REPO/CLAUDE.md"
 out="$(ps policy)"; rc=$?
 chk "policy: standing policy recorded → exit 0"  test "$rc" = "0"
 chk "..verdict is FOUND"                         has "POLICY: FOUND" "$out"
-chk "..tells the caller to stop and ask"         has "Stop before dispatching" "$out"
+chk "..tells the caller to ask ONCE"             has "Ask the user ONCE" "$out"
+chk "..points at recording the answer"           has "set-mode.sh" "$out"
 chk "..prints the hit with its file:line"        has "CLAUDE.md:3:" "$out"
 chk "..case-insensitive by default"              test "$(printf 'Rules\n\nUse NO SUBAGENTS here.\n' > "$REPO/CLAUDE.md"; ps policy | grep -c 'POLICY: FOUND')" = "1"
 rm -f "$REPO/CLAUDE.md"
+
+# The pattern is ERE over the phrasings people actually write. The single literal this
+# replaced ('no subagents') missed every one of these but the first — including the real
+# wording measured in the wild, "Default to solo in-thread review over dispatching
+# background agents", which is why a repo could carry a policy and still sweep clean.
+for phrasing in \
+  'No subagents by default.' \
+  'Default to solo in-thread review over dispatching background agents.' \
+  'Do not use the Agent tool here.' \
+  'Never dispatch subagents in this repo.' \
+  'Prefer no fan-out.' \
+  'Background teammates are barred here.' \
+  'Please use no sub-agents.' ; do
+  printf 'Rules\n\n%s\n' "$phrasing" > "$REPO/CLAUDE.md"
+  chk "policy: matches phrasing → FOUND [${phrasing:0:34}]" has "POLICY: FOUND" "$(ps policy)"
+done
+rm -f "$REPO/CLAUDE.md"
+
+# AGENTS.md is its own root. A CLAUDE.md that is just `@AGENTS.md` keeps every real rule
+# in the imported file, so a root set without it reads the pointer and reports a clean zero.
+printf '@AGENTS.md\n' > "$REPO/CLAUDE.md"
+printf '# Charter\n\nDefault to solo in-thread review over dispatching background agents.\n' > "$REPO/AGENTS.md"
+out="$(ps policy)"
+chk "policy: AGENTS.md is swept"                 has "POLICY: FOUND" "$out"
+chk "..the hit names AGENTS.md, not the pointer" has "AGENTS.md:3:" "$out"
+
+# Evidence is capped: a repo that lived under such a policy accumulates the phrase in
+# every handoff note, and an uncapped list costs the orchestrator context on a preflight
+# that runs before every fan-out.
+printf '# Charter\n\n%s\n' "$(for i in 1 2 3 4 5 6 7 8; do echo "No subagents rule $i."; done)" > "$REPO/AGENTS.md"
+out="$(ps policy)"
+chk "policy: >5 hits → sample line shown"        has "hits total; the 5 above are a sample" "$out"
+chk "..evidence really is capped at 5"           test "$(printf '%s\n' "$out" | grep -c 'AGENTS.md:')" = "5"
+
+# --- POLICY: SET — a recorded preference ends the question outright ------------
+# This is the branch the whole key exists for: it must win even while a standing
+# instruction IS on record, because that instruction is what the user already answered.
+# set-mode.sh is per-repo like plan-state.sh, so it has to run from the same cwd ps() uses.
+sm() { ( cd "${CWD:-$REPO}" && _env bash "$(dirname "$PLANSTATE")/set-mode.sh" "$@" 2>&1 ); }
+for v in agents solo verify-only; do
+  sm "$v" >/dev/null 2>&1
+  out="$(ps policy)"; rc=$?
+  chk "policy: dispatch=$v → exit 0"             test "$rc" = "0"
+  chk "..verdict is SET (dispatch=$v)"           has "POLICY: SET (dispatch=$v)" "$out"
+  chk "..SET outranks a recorded policy"         sh -c '! printf "%s" "$1" | grep -q "POLICY: FOUND"' _ "$out"
+  chk "..tells the caller not to ask [$v]"       has "Do NOT ask" "$out"
+  chk "..CONTRACT still reported [$v]"           has "CONTRACT:" "$out"
+done
+# solo gives up independent grading, so the verdict has to say the report must disclose it
+sm solo >/dev/null 2>&1
+chk "policy: solo names the disclosure duty"     has "no independent verification" "$(ps policy)"
+
+# An unrecognized value must never launder into "no policy" — the user meant something.
+python3 - "$REPO/.mentor/config.json" <<'PY' 2>/dev/null || python3 -c "import json,sys;p=sys.argv[1];d=json.load(open(p));d['dispatch']='sometimes';json.dump(d,open(p,'w'))" "$REPO/.mentor/config.json"
+import json,sys
+p=sys.argv[1]; d=json.load(open(p)); d['dispatch']='sometimes'; json.dump(d,open(p,'w'))
+PY
+out="$(ps policy)"; rc=$?
+chk "policy: bad dispatch value → exit 2"        test "$rc" = "2"
+chk "..verdict is UNRESOLVED, not NONE"          has "POLICY: UNRESOLVED" "$out"
+chk "..names the offending value"                has 'dispatch="sometimes"' "$out"
+chk "..names the fix"                            has "/mentor:mode" "$out"
+python3 -c "import json,sys;p=sys.argv[1];d=json.load(open(p));d.pop('dispatch',None);json.dump(d,open(p,'w'))" "$REPO/.mentor/config.json"
+rm -f "$REPO/CLAUDE.md" "$REPO/AGENTS.md"
 
 # roots=0 is a POSITIVE finding, not a failed search: none of the three durable
 # locations exists, so there is nowhere a standing instruction could be recorded. Getting

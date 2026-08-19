@@ -11,9 +11,88 @@ itself is in question.
 
 ## Contents
 
+- **Where dispatch pays** — the measurements and published findings behind the routing
+  test: why verification/review/research dispatch unconditionally, why implementation has
+  to earn it, and why a lone sequential dispatch is usually the worst of both worlds.
 - **Proving a negative** — verifying that a forbidden tool call never happened, and that
   a fan-out produced every artifact it was supposed to. Both are cases where the obvious
   check inverts the evidence.
+
+## Where dispatch pays
+
+This section exists because the rule it backs reversed a long-standing default. Mentor
+used to declare subagent implementation "the DEFAULT for every mentor plan," with a
+narrow escape hatch for trivial or interactive work. That framing survived a long time
+without anyone checking it against either the published evidence or mentor's own
+telemetry. Both say the same thing, and neither says "dispatch everything."
+
+**Dispatch buys two separable goods, and they have different price tags.**
+
+*Context isolation* is the reliable one, and it is large. Measured across 2,545 mentor
+subagent transcripts, the median dispatched agent ingested roughly **247,000 unique
+input tokens** and returned about **630 tokens** to the orchestrator — a compression
+factor near 390×. The corpus an agent reads to answer a question is 2–3 orders of
+magnitude bigger than the answer, and that entire difference is context the main thread
+never has to hold. Anthropic's own research system reports the same shape: a subagent
+"might explore extensively, using tens of thousands of tokens or more, but returns only
+a condensed, distilled summary of its work (often 1,000-2,000 tokens)."
+
+*Parallelism* is the conditional one. The often-quoted headline — a multi-agent system
+outperforming single-agent Claude Opus 4 by **90.2%**, and cutting research time "by up
+to 90% for complex queries" — is measured on a **breadth-first research eval** and
+attributed specifically to "spawning 3–5 subagents in parallel." It is not a general
+claim about delegation. In mentor's own telemetry, grouping `Task` calls by the API
+response that issued them, **1,352 of 1,742 dispatch responses (63%) carried exactly one
+agent**, and only 212 reached the 3-or-more shape the latency finding depends on. Most
+of mentor's dispatching had therefore been collecting the isolation benefit while paying
+for a benefit it never received.
+
+**Why that matters rather than merely being wasteful.** Under *equal* thinking-token
+budgets, single-agent extended reasoning has been shown to beat multi-agent systems on
+multi-hop reasoning, with the overhead going to inter-agent communication, redundant
+reasoning, and integrating separately-produced outputs. So a lone dispatch is not a
+neutral choice with an idle upside — the tokens it spends re-establishing context are
+tokens not spent reasoning. It wins only when the isolation itself is what you needed.
+
+**Why implementation specifically is the weak case.** Anthropic's writeup is explicit:
+"some domains that require all agents to share the same context or involve many
+dependencies between agents are not a good fit for multi-agent systems today. For
+instance, most coding tasks involve fewer truly parallelizable tasks than research, and
+LLM agents are not yet great at coordinating and delegating to other agents in real
+time." The failure mode is observable at larger scale too: in multi-agent experiments on
+shared codebases, "a very low fraction of these PRs were merged, which suggests a lack
+of coordination," and one model generation "solved" the conflict problem by "hardly
+working together at all." Implementation is where a plan's steps most often share files,
+share a sequence, and depend on decisions still live in the conversation — all three of
+which are the named anti-patterns.
+
+**Why verification, review, and research keep an unconditional mandate.** For those, the
+isolation *is* the deliverable rather than a saving. A verifier's value is that it never
+saw the implementation reasoning — the guidance is to have "a fresh model try to refute
+the result, so the agent doing the work isn't the one grading it." Research is the
+read-heavy shape the compression number above is drawn from. And review lenses are
+mutually independent by construction, which is the one condition under which parallel
+agents reliably beat one: coordinating swarms working on complementary slices found
+**266 vulnerabilities against 21** for independent agents on the same problem.
+
+**The context-cost override, and why it is not a loophole.** A single step whose own
+context cost would flood the orchestrator — a live multi-service `Done when:`, a browser
+run, several whole large files in `Inputs:` — dispatches alone and sequentially. This is
+isolation bought on purpose, and it is the one honest reason to run one agent by itself.
+It is separated out and required to state itself in the annotation precisely because it
+is the shape a reflexive dispatch would also produce; a reviewer needs to be able to
+tell a deliberate purchase from a habit.
+
+**One premise worth not inheriting.** Repositories sometimes record a standing policy
+against background agents on the grounds that dispatched agents go idle without
+delivering. That specific claim did not survive measurement here: across 2,495
+orchestrator-side dispatches, **zero** never returned a result, and all 16 errors were
+environmental or user-initiated (interrupts, rejections, a machine sleeping mid-response,
+one malformed `isolation` argument). Thin returns were overwhelmingly correct empty
+answers. A standing policy is still the user's to keep — but the cost argument above is
+the one that holds up, not the reliability one, and a question that quotes a false
+premise back at the user is worse than no question. See **Standing no-subagents policy**
+in `SKILL.md` for how such a policy is honored once rather than re-litigated per plan.
 
 ## Proving a negative
 

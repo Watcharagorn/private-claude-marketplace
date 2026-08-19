@@ -418,9 +418,10 @@ fi
 # mirroring the idempotent-directive rule for the flags above).
 cat <<EOF
 
-Implementation is subagents-first (SDD) — execute the plan's dispatch
-annotations per Skill(skill="mentor:dispatch-agents"); implement directly in
-the main thread only if the plan states "Dispatch: skipped".
+Execute the plan's own routing verdict per Skill(skill="mentor:dispatch-agents"):
+run the dispatch annotations where the steps carry them, and implement directly in
+the main thread where the plan states "Dispatch: skipped". Verification dispatches
+either way — it has no main-thread form.
 EOF
 
 exit 0

@@ -87,8 +87,9 @@ domain detection — the full pass always reviews these same four dimensions.
 - The user explicitly asked, live in this session, NOT to invoke sub-agents — honor it
   directly and skip this skill. A **standing** policy found in the repo rather than said
   live (CLAUDE.md, a project rule file, an earlier handoff note) is not this bullet: it is
-  `dispatch-agents`' pre-dispatch **Standing no-subagents policy** check, which asks rather
-  than silently skipping.
+  `dispatch-agents`' pre-dispatch **Standing no-subagents policy** check, which asks once,
+  records the answer for the repo, and thereafter honors it rather than silently skipping
+  or re-asking.
 
 ## Step 1 — Resolve the plan file(s)
 
@@ -195,9 +196,11 @@ no skill load:
 bash "${CLAUDE_PLUGIN_ROOT}/hooks/plan-state.sh" policy
 ```
 
-`POLICY: FOUND` — a standing no-subagents instruction is on record; stop and ask before
-dispatching. `UNRESOLVED` — the check could not run, which is not a clean result; treat
-the question as open. `NONE` — dispatch. `CONTRACT: active` confirms
+`POLICY: SET (dispatch=…)` — the user already recorded where work runs in this repo;
+honor it and ask nothing. `FOUND` — a standing no-subagents instruction is on record; ask
+ONCE and record the answer, per `dispatch-agents`' **Standing no-subagents policy** (the
+recording is what stops every later surface re-asking). `UNRESOLVED` — the check could not
+run, which is not a clean result; treat the question as open. `NONE` — dispatch. `CONTRACT: active` confirms
 `hooks/dispatch-contract.sh` appends the standing "Deliver before idling" block to every
 dispatch prompt automatically: **do not paste it by hand.** Only on `CONTRACT: MISSING`
 do you paste it yourself, from `dispatch-agents`' own section of that name.
@@ -562,13 +565,17 @@ must contain:
      `coverage-gap` stays DECISION-REQUIRED rather than auto-folding a new number in;
      an `## Implementation steps` section carrying none of `[role:` dispatch
      annotations, `[delegated:` annotations, or a `Dispatch: skipped —`
-     opening line (plans are dispatch-annotated by default — a plan with none
-     of the three made no explicit choice);
-     a `Dispatch: skipped —` line whose stated reason matches neither of
-     `dispatch-agents`' two sanctioned escape-hatch branches (**Trivial**: roughly
-     ≤ ~20 changed lines with nothing new to read; **Interactive**: needs tight
-     mid-implementation back-and-forth) — an unsanctioned reason is an unreviewed
-     skip wearing a disclosed one;
+     opening line (every plan routes its implementation one way or the other — a
+     plan with none of the three made no explicit choice);
+     a `Dispatch: skipped —` line whose stated reason does not name a failed leg of
+     `dispatch-agents`' **"Where dispatch pays"** test — no two steps concurrently
+     runnable, the concurrent ones not file-disjoint, a brief that can't stand alone,
+     or work needing tight mid-implementation back-and-forth with the user. An
+     unnamed reason is an unreviewed routing verdict wearing a disclosed one. The
+     inverse is a finding too: a plan carrying `[role:` annotations on steps that are
+     strictly sequential and share files has dispatched a lone agent for no stated
+     reason — legitimate only under the context-cost override, which the annotation
+     has to say out loud;
      a missing or empty `## Verification` section, or one whose topics don't carry
      the `Topic N —` / `Focus:` / `Checks:` / `Pass when:` structure (execution
      dispatches one fresh verifier per topic — free-form prose or a malformed

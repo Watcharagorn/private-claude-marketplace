@@ -575,11 +575,13 @@ here rather than straight from `mentor:planning`:
   `/mentor:ship` pointer) exactly as the dispatch path does it.
   Arriving here does not make that path unowned — and on a resumed plan the skip
   line is a claim about the plan as it stood when someone last checked it, not as
-  it stands now: if it now carries more than about two steps, or any step whose
-  `Done when:` needs a service brought up, a browser driven, or a screenshot
-  compared, it no longer clears the escape-hatch bar (`mentor:dispatch-agents`,
-  "Escape hatch — when a plan may skip annotation") — re-annotate the remaining
-  steps as dispatches and execute them normally from here. A skipped plan usually
+  it stands now. Re-run the routing test (`mentor:dispatch-agents`, "Where dispatch
+  pays") over the steps that remain: if two or more of them are now file-disjoint and
+  concurrently runnable, or any one of them now needs a service brought up, a browser
+  driven, or a screenshot compared — the context-cost override — re-annotate those
+  steps as dispatches and execute them normally from here. Steps that still fail the
+  test stay in the main thread; a stale skip line is a reason to re-route, not a reason
+  to dispatch everything. A skipped plan usually
   writes its steps as plain numbered items rather than `Step N — …` lines — `bash
   "${CLAUDE_PLUGIN_ROOT}/hooks/plan-state.sh" tick <slug> <N>` counts either form
   by ordinal, so ticking works the same way regardless of which one this plan uses.

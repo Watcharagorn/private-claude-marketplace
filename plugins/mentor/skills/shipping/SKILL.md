@@ -165,7 +165,7 @@ silently: ask once, in one line, whether to let simplify run its review. Either 
 a solo diff review is reported **as** a solo diff review — reporting the substitute
 as though this step ran is what turns a judgment call into a false green.
 
-Mentor is subagents-first for *implementation*, which makes wrapping this call in an
+Mentor dispatches freely for *review*, which makes wrapping this call in an
 `Agent` dispatch a tempting read — but it is the one thing that breaks the step. Simplify
 already runs its own agents, so the wrapper adds no parallelism; what it does add is a
 delegate that commits its own result and returns "done". Everything numbered below then

@@ -286,9 +286,11 @@ no skill load:
 bash "${CLAUDE_PLUGIN_ROOT}/hooks/plan-state.sh" policy
 ```
 
-`POLICY: FOUND` — a standing no-subagents instruction is on record; stop and ask before
-dispatching. `UNRESOLVED` — the check could not run, which is not a clean result; treat
-the question as open. `NONE` — dispatch. `CONTRACT: active` confirms
+`POLICY: SET (dispatch=…)` — the user already recorded where work runs in this repo;
+honor it and ask nothing. `FOUND` — a standing no-subagents instruction is on record; ask
+ONCE and record the answer, per `dispatch-agents`' **Standing no-subagents policy** (the
+recording is what stops every later surface re-asking). `UNRESOLVED` — the check could not
+run, which is not a clean result; treat the question as open. `NONE` — dispatch. `CONTRACT: active` confirms
 `hooks/dispatch-contract.sh` appends the standing "Deliver before idling" block to every
 dispatch prompt automatically: **do not paste it by hand.** Only on `CONTRACT: MISSING`
 do you paste it yourself, from `dispatch-agents`' own section of that name.

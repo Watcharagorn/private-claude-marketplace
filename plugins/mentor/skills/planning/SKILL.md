@@ -19,7 +19,7 @@ with the user → write the Markdown plan
 (with a Constitution Check when a constitution exists) → (optional
 topic × perspective HTML zooms via `mentor:zooming`, or a plan tour via
 `mentor:plan-touring`, on request) → approve & release →
-subagents-first implementation (dispatch-agents).
+routed implementation (dispatch-agents decides main thread vs subagents).
 
 While this worktree's `.planning.<wt-id>` marker is armed — or the legacy,
 repo-global `.planning` marker, which blocks every worktree at once —
@@ -149,10 +149,12 @@ skill load:
 bash "${CLAUDE_PLUGIN_ROOT}/hooks/plan-state.sh" policy
 ```
 
-`POLICY: FOUND` means a standing no-subagents instruction is recorded somewhere durable
-— stop and ask before dispatching (`dispatch-agents`' **Standing no-subagents policy**
-has the three-option question). `UNRESOLVED` means the check could not run, which is not
-the same as a clean result: treat the question as open. `NONE` clears you to dispatch.
+`POLICY: SET (dispatch=…)` means the user already recorded where work runs in this repo —
+honor it and ask nothing. `FOUND` means a standing no-subagents instruction is recorded
+somewhere durable: ask ONCE and record the answer (`dispatch-agents`' **Standing
+no-subagents policy** has the exact question and the `set-mode.sh` call that makes it the
+last time anyone is asked). `UNRESOLVED` means the check could not run, which is not the
+same as a clean result: treat the question as open. `NONE` clears you to dispatch.
 `CONTRACT: active` confirms `hooks/dispatch-contract.sh` will append the standing
 "Deliver before idling" block — the no-nested-fan-out ban, the no-poll rule, mandatory
 `SendMessage` delivery — to every dispatch prompt automatically. **Do not paste that
@@ -555,17 +557,20 @@ Required sections, in order:
    A ✅/➖ verdict that rests on a repo search finding nothing names the
    gitignore-bypassed command it ran (Step 2's caveat) — a verdict resting on an
    unqualified `grep -r` is not yet earned.
-6. `## Implementation steps` — numbered, concrete, and **dispatch-annotated by
-   default** (subagents-driven development: the main thread orchestrates,
-   subagents implement — each agent gets one narrow, focused step, and the
-   main context stays lean). Before writing this section, invoke
+6. `## Implementation steps` — numbered, concrete, and **routed before they are
+   annotated**. Before writing this section, invoke
    `Skill(skill="mentor:dispatch-agents")` — this is the skill's FIRST load point in a
-   plan run, since Step 2 needs only the `policy` preflight — and annotate every implementation
-   step per its grammar (`[role: … · model: … · effort: …]`, grouped
-   `Run in parallel:` / `Sequential:`) — one plan step = one dispatch.
-   **Escape hatch:** when the implementation meets the dispatch-agents skill's
-   skip rule, omit the annotations, but the section MUST then open with one
-   line: `Dispatch: skipped — <reason>`. No line, no skip.
+   plan run, since Step 2 needs only the `policy` preflight — and run its
+   **"Where dispatch pays"** test over the steps you are about to write. That test, not
+   a default, decides the routing: implementation dispatches when two or more
+   file-disjoint steps can be in flight at once and each brief stands alone, or when a
+   single step's own context cost would flood the main thread; otherwise it runs in the
+   main thread. Dispatched steps get the full grammar (`[role: … · model: … ·
+   effort: …]`, grouped `Run in parallel:` / `Sequential:`) — one plan step = one
+   dispatch. **Main-thread routing:** omit the annotations, but the section MUST then
+   open with one line naming which test failed: `Dispatch: skipped — <reason>`. No
+   line, no skip — and the line covers the *dispatch* only, never the plan's
+   `## Verification` fan-out, which has no main-thread form.
    **Size each step as you write it:** run every step past the dispatch-agents
    rubric's **"Budget each step to one agent's context"** item — a dispatched
    agent never compacts, so an oversized step burns its context on reconnaissance
@@ -912,9 +917,10 @@ worktree (repo-wide, in legacy_mode). On failure it prints the problem, keeps th
 gate closed, and exits non-zero: fix the plan (re-write per Step 4) and re-ask. On
 success, implement the plan.
 
-**Executing the implementation after approval (SDD):** implementation is
-subagents-first. Invoke `Skill(skill="mentor:dispatch-agents")` (skip only if already
-loaded this session) and follow its **"Executing the dispatches"** section — it owns the
+**Executing the implementation after approval:** the plan already recorded its routing at
+Step 4 — dispatch annotations on the steps, or a `Dispatch: skipped` line. Invoke
+`Skill(skill="mentor:dispatch-agents")` (skip only if already loaded this session) and
+follow its **"Executing the dispatches"** section — it owns the
 whole procedure, and restating it here is how the two copies drift apart. Three things
 are specific to arriving from this skill:
 
@@ -926,8 +932,9 @@ are specific to arriving from this skill:
 - **The plan's end-to-end `## Verification` is the one thing it never grades itself.**
   That round is dispatched, per that skill's "Verifying the plan (execution-time)".
 
-Only when the plan opens its Implementation steps with `Dispatch: skipped — <reason>`
-does the main thread implement directly.
+When the plan opens its Implementation steps with `Dispatch: skipped — <reason>`, the
+main thread implements directly — that is a routing verdict the plan already recorded,
+not a fallback, so carry it out rather than re-litigating it here.
 
 **Record progress as plan state.** `approve-plan.sh` just marked this session's plans
 `approved`. As implementation runs, move that forward so a later session — or

@@ -1,29 +1,38 @@
 ---
 name: dispatch-agents
 description: >
-  The default implementation path for mentor plans (subagents-driven
-  development) — annotate every plan's implementation steps as subagent
-  dispatches, execute them after approval, and verify the result with one
-  fresh verifier agent per Verification topic; the main thread orchestrates,
-  subagents implement and verify. Invoked by plan Steps 4 and 6, or when the
-  user says "dispatch agents" / "fan out" / "parallelize". Trivial work may
-  skip implementation dispatch with a stated `Dispatch: skipped` reason —
-  verification dispatch has no skip on a mentor plan.
+  How a mentor plan routes work between the main thread and subagents, plus the
+  annotation grammar and async runtime contract that govern every dispatch.
+  Verification, review, and research always dispatch — an independent grader is
+  the product there, not an optimization. Implementation has to earn it: dispatch
+  only when two or more file-disjoint steps can be in flight at once, otherwise
+  keep it in the main thread with a stated `Dispatch: skipped` reason. Invoked by
+  plan Steps 4 and 6, or when the user says "dispatch agents" / "fan out" /
+  "parallelize". Verification dispatch has no skip on a mentor plan.
 ---
 
 # Dispatch Agents
 
-This skill defines the annotation grammar for plan steps that fan out to
-subagents, and how to execute them. It is the default implementation path for
-mentor plans, used by `plan` (Step 4 annotation, Step 6 execution) and
-referenced by `plan-review` and `handoff`.
+This skill decides **where each kind of work runs** — main thread or dispatched
+subagent — and then carries the annotation grammar for the steps that do fan out and
+the contract for executing them. Used by `plan` (Step 4 routing + annotation, Step 6
+execution) and referenced by `plan-review` and `handoff`.
 
 ## When to use
 
-This is the DEFAULT for every mentor plan: `plan` Step 4 invokes this skill to
-annotate the implementation steps, and Step 6 invokes it again to execute them
-after approval. Also invoked when the user explicitly says "dispatch agents",
-"fan out", "use subagents", "parallelize this".
+Every mentor plan comes through here: `plan` Step 4 invokes this skill to route and
+annotate the implementation steps, and Step 6 invokes it again to execute them after
+approval. Also invoked when the user explicitly says "dispatch agents", "fan out",
+"use subagents", "parallelize this".
+
+**The routing answer differs by kind of work, and that is the point of the skill.**
+Verification, review, and research dispatch unconditionally — there an independent
+context is the product, not a speed-up. Implementation has to earn dispatch against
+the test in "Where dispatch pays" below, because implementation is where the case for
+subagents is weakest: it is write-heavy rather than read-heavy, its steps usually
+depend on each other, and the brief has to reconstruct context the main thread already
+holds. Reading this skill as "dispatch everything" is the most expensive way to
+misread it.
 
 **Also load it for any ad hoc fan-out that is not plan implementation** — a research
 sweep, a multi-repo survey, an architecture-gap audit, a fact-check of the plan's own
@@ -74,38 +83,76 @@ that could responsibly park work on the user's behalf. Three rules hold on this 
 
 If this work should be gated, mentor should own the plan: `/mentor:plan`.
 
-## Escape hatch — when a plan may skip annotation
+## Where dispatch pays — the routing test
 
-Skip dispatch annotation ONLY when one of these branches holds:
+Dispatch buys two separable things. It buys **context isolation** — an agent reads a
+hundred files and hands back a paragraph, so the corpus never enters the orchestrator's
+window — and it buys **parallelism**, but only while several agents are actually in
+flight. Isolation on its own earns its keep when the work is read-heavy, when an
+independent grader is the whole point, or when one step's context cost would otherwise
+flood the main thread. It does **not** earn its keep when a lone agent works on
+something whose context the main thread already holds: there the brief is a lossy copy
+of what you already know, and the same tokens spent reasoning in-thread go further.
+(The measurements and published findings behind this: `references/rationale.md` →
+**Where dispatch pays**.)
 
-- **Trivial:** the whole implementation is a small mechanical change (roughly
-  ≤ ~20 changed lines) AND the main thread already holds everything needed
-  from planning — implementing requires no new file reading; or
-- **Interactive:** the work needs tight mid-implementation back-and-forth with
-  the user.
+So route by the kind of work, not by a blanket default.
 
-**Delegating a step to another plugin's own multi-agent skill is not a third
-branch.** That step is still annotated, just not as an `Agent` dispatch
-("Per-step output shape" below), and the plan stays on the dispatch path — it
-keeps its ticks, its closing checklist, and its verification fan-out.
+**These always dispatch — no test, no escape hatch:**
 
-A skipping plan MUST open its `## Implementation steps` section with one line —
-`Dispatch: skipped — <one-line reason>` — so the skip is visible and reviewable
-at approval. No line, no skip. If a skipped implementation turns out
-non-trivial mid-flight, stop and dispatch normally per this skill.
+- **Verification** of a `## Verification` topic. The context that built the thing is its
+  weakest grader, so an independent one is the deliverable rather than an optimization.
+- **Review** — `plan-review`'s lenses, adversarial passes, a diff review. Same
+  independence argument, and each lens is genuinely disjoint from the others.
+- **Research** — codebase sweeps, multi-repo surveys, fact-checks against a live source.
+  Read-heavy by nature, which is exactly the shape where an agent ingests the most and
+  returns the least.
 
-**The skip never covers Verification** — `## Verification` still gets fresh verifiers
-after the last step ("Verifying the plan (execution-time)" below; a skipped plan with
-≤2 topics gets the lite-verify allowance, never a self-check).
+**Implementation has to earn it.** Annotate implementation steps as `Agent` dispatches
+when **all three** of these hold:
 
-**Check the skip against the plan you actually wrote.** The step count is the cheapest
-honest test: a plan carrying more than about two steps, or any step whose `Done when:`
-needs a service brought up, a browser driven, or a screenshot compared, is not "a small
-mechanical change" however mechanical each individual edit looks — re-annotate it. The
-reason to be strict here is that this line is load-bearing far beyond dispatch:
-everything downstream of it — step ticks, `/simplify`, the closing checklist, the
-acceptance pass — is written once for the dispatch path and only *restated* for the
-skipped one, so an over-claimed skip is how a plan quietly loses all of it at once.
+1. **Two or more steps can be in flight at the same time.** One agent alone buys
+   isolation but no speed, while still paying full price to brief a context that starts
+   blind.
+2. **Those concurrent steps are file-disjoint**, and none of them mints a value from a
+   shared sequence — migration numbers, ports, generated ids, an append-only registry.
+   This is the same test as the decomposition rubric's item 3, and colliding parallel
+   edits are the failure mode here that costs the most to unwind.
+3. **Each brief stands on its own.** A step that needs the conversation to make sense —
+   a decision's reasoning, a convention still being settled, the user's live corrections
+   — loses the part that mattered when you write it down for a stranger.
+
+**The context-cost override.** A step fails test 1 and still dispatches, alone and
+sequentially, when running it in-thread would wreck the orchestrator: its `Done when:`
+needs a service brought up, a browser driven, or a screenshot compared, or its `Inputs:`
+pull in several whole large files. That is isolation bought deliberately, and it is the
+one honest reason to dispatch a single agent. Say so in the annotation's reason so a
+reviewer can tell it apart from a reflex.
+
+**When any of the three fails and the override doesn't apply, the work stays in the main
+thread**, and the plan opens its `## Implementation steps` section with one visible line:
+
+```
+Dispatch: skipped — <one-line reason naming which test failed>
+```
+
+No line, no skip — the line is what makes the routing reviewable at approval rather
+than a silent choice. "Skipped" names the *dispatch* and nothing else: the plan keeps
+every other obligation, and a main-thread implementation that turns out to need
+concurrency mid-flight stops and re-routes per this skill.
+
+**Delegating a step to another plugin's own multi-agent skill is not a third route.**
+That step is still annotated, just not as an `Agent` dispatch ("Per-step output shape"
+below), and the plan keeps its ticks, its closing checklist, and its verification
+fan-out.
+
+**The routing never touches Verification** — `## Verification` still gets fresh
+verifiers after the last step ("Verifying the plan (execution-time)" below; a
+main-thread plan with ≤2 topics gets the lite-verify allowance, never a self-check).
+This is the line to hold hardest, because everything downstream of the routing verdict
+— step ticks, `/simplify`, the closing checklist, the acceptance pass — is written once
+for the dispatch path and only *restated* for the main-thread one, so a routing verdict
+claimed carelessly is how a plan quietly loses all of it at once.
 
 ## Context efficiency — the orchestrator contract
 
@@ -604,15 +651,42 @@ the contract does not apply to them, which is exactly how a fan-out goes out raw
   bash "${CLAUDE_PLUGIN_ROOT}/hooks/plan-state.sh" policy
   ```
 
-  It prints its verdict in words, so there is no exit code to interpret. **`POLICY: NONE`**
-  → dispatch as designed. **`POLICY: FOUND`** → stop before dispatching and ask ONE
-  `AskUserQuestion`, 3 options, **"Keep the work in the main thread instead" first and
-  Recommended** (a standing policy outranks the default path): keep it in the main thread /
-  dispatch as designed anyway / skip the affected step. That tension is the user's to
-  resolve, not yours to resolve silently. **`POLICY: UNRESOLVED`** → the check could not
-  run, so the question stays open; never read it as "no policy". The same call's
-  `CONTRACT:` line reports whether the standing block below will actually reach your
-  agents — the one thing no skill can verify by reading itself.
+  It prints its verdict in words, so there is no exit code to interpret.
+
+  - **`POLICY: SET (dispatch=…)`** → the user already answered this, for this repo. Honor
+    it and **ask nothing** — `agents` routes per "Where dispatch pays", `verify-only`
+    implements in-thread and still dispatches verification, `solo` keeps both in-thread
+    and owes the report a disclosure that the plan carries no independent grader. Nothing
+    here is re-litigated per plan or per session; that re-litigation is the whole reason
+    the key exists.
+  - **`POLICY: NONE`** → route per "Where dispatch pays".
+  - **`POLICY: FOUND`** → a standing instruction is on record and it conflicts with the
+    routing test. Ask **once**, then **record the answer** so no later surface in this or
+    any future session asks again:
+
+    ```bash
+    bash "${CLAUDE_PLUGIN_ROOT}/hooks/set-mode.sh" <agents|solo|verify-only>
+    ```
+
+    One `AskUserQuestion`, header `Dispatch`, these three options in this order:
+    **"Main thread, but still verify independently (Recommended)"** → `verify-only` /
+    **"Keep everything in the main thread"** → `solo` / **"Route per the plan's own
+    test"** → `agents`. `verify-only` leads because it honors the policy where the policy
+    has a real argument — implementation — while keeping the fresh grader, which is the
+    part a plan cannot replace. Say in the question that the answer is remembered for this
+    repo and changeable with `/mentor:mode`.
+
+    **Quote the policy, not a premise you did not check.** Standing instructions of this
+    kind often justify themselves with a reliability claim — that dispatched agents go
+    idle without delivering. Measured across 2,495 dispatches in this user's own repos,
+    none failed that way (`references/rationale.md` → **Where dispatch pays**). Present
+    the decision on its cost, and if the recorded reason is a reliability one, say plainly
+    that it is worth re-checking rather than repeating it back as established fact.
+  - **`POLICY: UNRESOLVED`** → the check could not run, so the question stays open; never
+    read it as "no policy".
+
+  The same call's `CONTRACT:` line reports whether the standing block below will actually
+  reach your agents — the one thing no skill can verify by reading itself.
 - **A substitution is disclosed as a substitution.** Any of the shapes above — a
   fan-out that ran with fewer agents than the contract called for, a delegated skill's
   own agents declining or being unavailable, a step the standing policy just above kept
