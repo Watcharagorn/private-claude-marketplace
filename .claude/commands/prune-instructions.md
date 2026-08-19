@@ -25,10 +25,8 @@ did not touch.
 
 ## Where it sits
 
-1. `/prune-instructions [plugin]` — semantic cleanup; **edits** files.
-2. `/verify-plugin-edits <plugin>` — mechanical validation of the result (`plugins/<name>/` only; a
-   root-only change has no automated step 2 — see `CLAUDE.md` → **Instruction hygiene gate**).
-3. `git commit` / `/loom:publish-plugin`.
+`CLAUDE.md` → **Instruction hygiene gate** owns the chain and its ordering; the skill restates it at
+the point of use. Don't re-derive it here.
 
 This command never stages or commits. It hands the working tree back for the release flow to stage
 narrowly.
