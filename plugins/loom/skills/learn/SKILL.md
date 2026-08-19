@@ -337,9 +337,9 @@ untouched.
 
 ## Step 6 — Publish when the backlog drains
 
-The per-session commits (Step 5 item 4) are the durability layer; the publish — version bump,
-manifest/README sync, push — is the release layer, and it fires **at most once per invocation**,
-only when there is nothing left to wait for:
+The per-session commits (Step 5 item 4) are the durability layer; the publish — instruction-hygiene
+gate (when present), then version bump, manifest/README sync, push — is the release layer, and it
+fires **at most once per invocation**, only when there is nothing left to wait for:
 
 - **Interactive batch:** after the loop, if ≥1 session committed anything → publish via **§J**. One
   bump covers every commit this run made (they ride along in the push).

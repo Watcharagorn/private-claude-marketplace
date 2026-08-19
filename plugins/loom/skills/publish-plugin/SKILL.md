@@ -1,13 +1,14 @@
 ---
 name: publish-plugin
 description: >
-  Publish (release) a plugin inside this marketplace repo. Bumps the plugin's semver,
+  Publish (release) a plugin inside this marketplace repo. Runs the repo's instruction-hygiene
+  prune first when one is installed, then bumps the plugin's semver,
   syncs the version + description into the plugin manifest, the marketplace manifest, and the
   plugin README (keeping manifest descriptions short and meaningful — trimming bloat on sight, never
   changelogs), validates the JSON, then commits and pushes to the repo's default branch.
   Invoke when the user says "publish the plugin", "release <plugin>", "pump/bump version and push",
   "ship the marketplace plugin", or "/publish-plugin". Repo-scoped to this marketplace.
-version: 1.2.2
+version: 1.3.0
 ---
 
 # Publish Plugin (marketplace repo)
@@ -32,6 +33,35 @@ repo — bump the version, keep the manifests and git in sync, and record releas
 The catalog of shipping plugins is `.claude-plugin/marketplace.json` — read it rather than assuming.
 
 ## Procedure
+
+### 0. Instruction-hygiene gate (before anything else)
+
+A release is the last moment the instruction debt this change created is cheap to remove, so run
+that pass first — before the bump, before validation, before the commit:
+
+```bash
+ih="$(find .claude/skills -type d -name instruction-hygiene 2>/dev/null | head -1)"
+echo "${ih:-NO_INSTRUCTION_HYGIENE}"
+```
+
+- **Resolved** → invoke `Skill(skill="instruction-hygiene")` and let it finish. It anchors on the
+  diff, prunes what went stale/duplicate/conflicting/over-instructed, asks before deleting any
+  rule, and leaves its edits unstaged for step 7 to commit. Don't re-derive its work here, and
+  don't skip it because the change "is only text" — text is what this repo ships.
+- **`NO_INSTRUCTION_HYGIENE`** (this plugin installed in a repo that has no such skill) → say so
+  in one line and continue. The gate is this marketplace's rule, not a hard dependency of
+  publishing.
+- Its edits land *before* step 6's validation on purpose: run the other way round and the
+  hygiene pass's own edits reach the commit unvalidated.
+- **Headless / unattended callers** (`learn --headless` via §J, the daily runner) → run the pass
+  but never let it prompt: it applies its safe mechanical fixes and lists everything that needs a
+  decision, unapplied, for the commit body. Same reason step 2 never pauses on an ambiguous bump —
+  an unattended fire that stops for an answer is a lost release, and applying a rule deletion
+  nobody approved is worse.
+- Its edits to **root** files (`.claude/**`, `CLAUDE.md`) are not staged by step 7, which stages only
+  `plugins/<name>/` plus the marketplace manifest — commit those separately.
+- Exception, matching the repo's other gates: a pure version-number bump or typo-only fix with no
+  behavior change may skip it.
 
 ### 1. Identify the target plugin and what changed
 
@@ -157,6 +187,8 @@ git -C . push origin HEAD
 
 ## Rules
 
+- **Instruction hygiene runs first** (step 0), and its edits ride in this release's commit — a
+  release that ships a change but leaves the debt it created is only half a release.
 - **Keep the surfaces in sync**: plugin.json `version`, and — only when purpose/surface changed —
   the plugin.json + marketplace.json `description`. A version bumped in only one place is a bug.
 - The `description` fields are **brief, meaningful, one-sentence summaries** (plugin.json ≤ ~220

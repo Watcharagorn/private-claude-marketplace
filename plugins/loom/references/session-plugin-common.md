@@ -193,7 +193,8 @@ materialized", create/change nothing, do **not** publish. This is a valid no-op 
 **Publish exactly once per handoff**, via `Skill(skill="publish-plugin")`, passing the plugin and the
 bump as **INTENT** — e.g. "release `<plugin>` as a **minor** bump: new <artifacts> that remove
 <redundancy>" (or "**patch**: fixes <bugs>", or for a first release "first release at 0.1.0 — do not
-bump"). `publish-plugin` has **no positional parser** — it classifies the bump itself (new artifact
+bump"). `publish-plugin` has **no positional parser** — it runs this repo's instruction-hygiene gate
+first (when the marketplace ships one), then classifies the bump itself (new artifact
 surface → **minor**; bug-only → **patch**; breaking → **major**), syncs manifests + README, validates
 JSON, checks hook paths, and commits + pushes to the repo's default branch. Let it own that; let the
 commit body enumerate the changes. Report the **new version** and the `old..new` push line, and advise

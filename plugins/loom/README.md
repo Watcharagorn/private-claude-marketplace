@@ -47,7 +47,7 @@ enabled plugin ships a same-named command.
 | `automate` | 0.5.0 | Daily scheduled headless run (launchd/cron): harvest configured projects + concurrent learn rounds per tracked plugin, unattended; per-config-dir schedule isolation; optional `notify.email` → end-of-run summary email |
 | `daily-report` | 0.1.0 | Compose + email one day's automation summary (what changed, per artifact "use it when/how", failures) to `notify.email` via the Gmail MCP; fired by the runner after every real run; `--dry-run` / `--date` for manual use |
 | `onboard` | 0.1.2 | Guided, resumable loom setup walkthrough — delegates to `track`/`automate`, ends with a verification dry-run |
-| `publish-plugin` | 1.2.2 | Release: semver bump, manifest + README sync, validation, commit + push |
+| `publish-plugin` | 1.3.0 | Release: instruction-hygiene gate first (when present), semver bump, manifest + README sync, validation, commit + push |
 
 Skill frontmatter versions are independent of the plugin version (publish-plugin's own rule). The AUDIT
 and ENHANCE analysis briefs are shared by `audit-plugin` and `learn` via
