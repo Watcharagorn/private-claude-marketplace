@@ -780,11 +780,15 @@ mentor_plan_live_handoffs() {
 # (write, below) both match against this exact string — a second, drifting copy
 # in either direction would let a written tick land on a line the counter doesn't
 # see, or vice versa, silently breaking the "ratio and verdict never disagree"
-# guarantee both functions depend on. `[*][*]` (not `\*\*`): passed as a dynamic
-# regex via awk -v, a backslash-escaped literal is undefined behavior on some awk
-# implementations (confirmed failing on macOS's awk 20200816) — a bracket
-# expression is the portable way to mean "one literal asterisk" in both a static
-# `/…/` literal and a dynamic string. `(#{3,4}[[:space:]]+)?`: real plans mentor
+# guarantee both functions depend on. `[*][*]` (not `\*\*`) and the numbered-branch
+# delimiter `[.]` (not `\.`): passed as a dynamic regex via awk -v, a
+# backslash-escaped literal is undefined behavior on some awk implementations
+# (confirmed failing on macOS's awk 20200816, where `\.` matches ANY character) — a
+# bracket expression is the portable way to mean one literal character in both a
+# static `/…/` literal and a dynamic string. Never reintroduce a backslash escape
+# here: the `\.` form shipped until v2.36.0 and counted any wrapped prose line
+# beginning `48, ` or `7) ` as its own step, inflating `query`'s denominator and
+# shifting where `tick`'s positional write lands. `(#{3,4}[[:space:]]+)?`: real plans mentor
 # itself writes commonly use `### N. Title` step headings, not just bare `N.` —
 # without this branch those steps are invisible to both functions, which
 # silently report 0 ticked/total instead of erroring. `###`/`####` never collide
@@ -801,7 +805,7 @@ mentor_plan_live_handoffs() {
 # `tick`'s positional write lands ✅ on. Every existing heading form mentor itself
 # writes (`1. Title`, `### 1. Title`, `**1.** Title`, `Step 3 — Title`) already
 # carries this delimiter naturally, so nothing legitimate loses coverage.
-MENTOR_STEP_LINE_PATTERN='^[[:space:]]*(-[[:space:]]+)?([*][*])?(#{3,4}[[:space:]]+)?([0-9]+([.][0-9]+)*\.([[:space:]]|[*]|$)|[Ss]tep[[:space:]]+[0-9]+([.][0-9]+)*([[:space:]]|:|[*]|[.][[:space:]]|[.]$|$))'
+MENTOR_STEP_LINE_PATTERN='^[[:space:]]*(-[[:space:]]+)?([*][*])?(#{3,4}[[:space:]]+)?([0-9]+([.][0-9]+)*[.]([[:space:]]|[*]|$)|[Ss]tep[[:space:]]+[0-9]+([.][0-9]+)*([[:space:]]|:|[*]|[.][[:space:]]|[.]$|$))'
 
 # mentor_plan_tick_counts <plan_md> — echo "<ticked> <total>" step-line counts from
 # the `## Implementation steps` section, ticked when a step line contains ✅.

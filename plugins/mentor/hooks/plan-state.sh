@@ -328,9 +328,10 @@ Usage: plan-state.sh <subcommand>
                                          keeps category/priority/deferred_from/parent
   tick <slug> <N>                       append ✅ to step N in plan.md (idempotent, fails loud)
   verify <slug>                         plan.md structural checks (fence balance, table pipe-count,
-                                         Rev-note order) + a folded CONTEXT read, as CHECK: lines;
-                                         exit 1 iff a structural check fails (context/Rev-order are
-                                         informational only)
+                                         step bodies each carrying a Done when:, Rev-note order,
+                                         stray ✅ / ### inside the steps section) + a folded CONTEXT
+                                         read, as CHECK: lines; exit 1 iff a GATING check fails
+                                         (Rev-order, context, stray ✅ and ### are informational)
   list [--group G] [--owners] [--parent]
                                          every plan with its effective state (--owners adds OWNER,
                                          --parent adds PARENT; both compose)
@@ -2525,9 +2526,12 @@ case "$sub" in
   # above: a script call cannot exhibit a partial-copy failure the way a
   # freshly-typed one-liner can.
   #
-  # Two DETERMINISTIC checks gate the exit code (fence balance, table pipe-count
-  # uniformity) — both already mandated in SKILL.md:447-460 prose, backed by nothing
-  # until now. Two more print as informational CHECK: lines and never fail verify:
+  # Three DETERMINISTIC checks gate the exit code (fence balance, table pipe-count
+  # uniformity, every step body carrying a `Done when:`) — the first two already
+  # mandated in SKILL.md:447-460 prose, backed by nothing until now; the third is
+  # documented at its implementation below. The rest print as informational CHECK:
+  # lines and never fail verify (a stray ✅ and an `###` inside the steps section,
+  # both documented below, plus):
   # Rev-note order (the plugin's content spec does not mandate a Rev-note changelog
   # at all, so flagging its ABSENCE would be a false-positive machine; when Rev
   # lines DO exist this only reports a non-monotonic sequence, it never blocks) and
@@ -2584,6 +2588,51 @@ case "$sub" in
       echo "CHECK: table pipe-count MISMATCH:"
       printf '%s\n' "$v_bad_tables" | sed 's/^/  /'
       v_fail=1
+    fi
+
+    # Step-structure checks (v2.36.0), sharing MENTOR_STEP_LINE_PATTERN so verify can
+    # never disagree with tick/query about what a step is. Only the first GATES: every
+    # step body carrying a `Done when:` holds across all 14 step-bearing plans in this
+    # repo with zero exceptions, and its ABSENCE is the direct symptom of a body
+    # truncated by a phantom step line — the class the `[.]` delimiter fix in
+    # lib/state.sh closed. The other two only report, because both fire on legitimate
+    # authoring: a ✅ off a step line is a stray tick about half the time and the rest
+    # of the time is prose quoting the character (a `Prompt sketch:` describing tick
+    # state), and an `###` inside the section is a real subsection that step-body
+    # extraction nonetheless glues onto the step above.
+    v_steps="$(awk -v p="$MENTOR_STEP_LINE_PATTERN" '
+      /^## Implementation steps/ { s = 1; next }
+      /^## / { if (s) { if (cur && !dw) printf "nodw %d %s\n", curline, curtitle; s = 0 } }
+      s {
+        if ($0 ~ p) {
+          if (cur && !dw) printf "nodw %d %s\n", curline, curtitle
+          n++; cur = 1; dw = 0; curline = NR; curtitle = substr($0, 1, 60)
+          next
+        }
+        if (index($0, "✅")) printf "tick %d\n", NR
+        if ($0 ~ /^###[[:space:]]/) printf "glue %d\n", NR
+        if (index($0, "Done when:")) dw = 1
+      }
+      END { if (cur && !dw) printf "nodw %d %s\n", curline, curtitle; printf "total %d\n", n + 0 }
+    ' "$plan_md" || true)"
+    v_total="$(printf '%s\n' "$v_steps" | awk '$1 == "total" { print $2 }' || true)"
+    v_nodw="$(printf '%s\n' "$v_steps" | sed -n 's/^nodw //p' || true)"
+    if [ "${v_total:-0}" -eq 0 ]; then
+      echo "CHECK: no ## Implementation steps section (deferred stub, or not yet fleshed out)"
+    elif [ -z "$v_nodw" ]; then
+      echo "CHECK: step bodies complete (${v_total} step(s), each carrying a Done when:)"
+    else
+      echo "CHECK: step body INCOMPLETE — no Done when: under:"
+      printf '%s\n' "$v_nodw" | sed 's/^/  line /'
+      v_fail=1
+    fi
+    v_tick="$(printf '%s\n' "$v_steps" | sed -n 's/^tick //p' | paste -sd, - || true)"
+    if [ -n "$v_tick" ]; then
+      echo "CHECK: ✅ on a non-step line inside ## Implementation steps (line ${v_tick}) — the tick counter cannot see it (informational only)"
+    fi
+    v_glue="$(printf '%s\n' "$v_steps" | sed -n 's/^glue //p' | paste -sd, - || true)"
+    if [ -n "$v_glue" ]; then
+      echo "CHECK: ### heading inside ## Implementation steps (line ${v_glue}) — step-body extraction glues it onto the step above (informational only)"
     fi
 
     v_revseq="$(sed '/^##/q' "$plan_md" | grep -oE '^Rev [0-9]+' | grep -oE '[0-9]+' || true)"

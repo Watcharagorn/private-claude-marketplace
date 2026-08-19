@@ -516,14 +516,17 @@ when this happens. After such a revision, run:
 bash "${CLAUDE_PLUGIN_ROOT}/hooks/plan-state.sh" verify <slug>
 ```
 
-before moving on — one call for fence balance and table pipe-count
-uniformity (a session was observed hand-rebuilding a different grep/awk
-one-liner for this on 5 consecutive revisions, never the same check twice,
-and the one revision that dropped the table half is exactly where a
-table-adjacent defect landed). A non-zero exit means a fence or a table
-broke — fix it before moving on. Its `CHECK: Rev-note order` and
-`CHECK: context` lines are informational only and never fail the call; the
-latter is the same reading "Re-check context" below asks for, so if nothing
+before moving on — one call for the three checks that gate its exit code:
+fence balance, table pipe-count uniformity, and every step in
+`## Implementation steps` carrying a `Done when:` (a session was observed
+hand-rebuilding a different grep/awk one-liner for this on 5 consecutive
+revisions, never the same check twice, and the one revision that dropped the
+table half is exactly where a table-adjacent defect landed). A non-zero exit
+names the failing check on its own `CHECK:` line — read that line rather than
+guessing which one broke, since a step missing its `Done when:` is also what a
+body truncated by a mis-parsed step line looks like. Every other `CHECK:` line
+it prints is informational and never fails the call, `CHECK: context` included;
+that one is the same reading "Re-check context" below asks for, so if nothing
 else ran between this call and the approval ask, that reading already
 satisfies it — no second `context` call needed. Prefer replacing a whole
 table/fenced block in one edit over splicing a single row into it.
@@ -567,7 +570,10 @@ Required sections, in order:
    single step's own context cost would flood the main thread; otherwise it runs in the
    main thread. Dispatched steps get the full grammar (`[role: … · model: … ·
    effort: …]`, grouped `Run in parallel:` / `Sequential:`) — one plan step = one
-   dispatch. **Main-thread routing:** omit the annotations, but the section MUST then
+   dispatch. **Main-thread routing:** omit the `[role: … · model: … · effort: …]`
+   bracket and the `Run in parallel:` / `Sequential:` grouping — never the step body.
+   `Goal:`, `Inputs:` and `Done when:` stay on every step whichever way it routes, and
+   `verify` fails a step with no `Done when:` under it. The section MUST then
    open with one line naming which test failed: `Dispatch: skipped — <reason>`. No
    line, no skip — and the line covers the *dispatch* only, never the plan's
    `## Verification` fan-out, which has no main-thread form.

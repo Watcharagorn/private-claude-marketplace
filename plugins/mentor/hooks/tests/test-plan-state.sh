@@ -1034,6 +1034,42 @@ chk "verify (no Rev lines at all) → exit 0"         test "$rc" = "0"
 chk "..prints no Rev-note CHECK line (never a false positive on an unspec'd format)" \
   hasnt "Rev-note order" "$out"
 
+echo "== L3b. verify <slug>: step-structure checks (Done when: GATES; stray ✅ / ### report) =="
+plan vf-steps '# t' '## Implementation steps' '' 'Step 1 — one' '  Done when: `true` exits 0' '' 'Step 2 — two' '  Done when: `true` exits 0' '' '## Verification'
+out="$(ps verify vf-steps)"; rc=$?
+chk "verify (every step body carries a Done when:) → exit 0" test "$rc" = "0"
+chk "..reports the step count"                      has "CHECK: step bodies complete (2 step(s)" "$out"
+
+plan vf-nodw '# t' '## Implementation steps' '' 'Step 1 — one' '  Done when: `true` exits 0' '' 'Step 2 — no criterion at all' '  Goal: something' '' '## Verification'
+out="$(ps verify vf-nodw)"; rc=$?
+chk "verify (a step body with no Done when:) → exit 1" test "$rc" = "1"
+chk "..flags it as INCOMPLETE"                      has "CHECK: step body INCOMPLETE" "$out"
+chk "..names the offending step, not just a count"  has "Step 2 — no criterion at all" "$out"
+
+plan vf-nosteps '# t' '## Goal' 'A deferred stub carries no Implementation steps section.'
+out="$(ps verify vf-nosteps)"; rc=$?
+chk "verify (deferred stub, no steps section) → exit 0" test "$rc" = "0"
+chk "..says so rather than reporting zero steps"    has "no ## Implementation steps section" "$out"
+
+plan vf-stray '# t' '## Implementation steps' '' 'Step 1 — one' '  Inputs: Step 0 output. ✅' '  Done when: `true` exits 0' '' '## Verification'
+out="$(ps verify vf-stray)"; rc=$?
+chk "verify (✅ on a non-step line) → exit 0, informational only" test "$rc" = "0"
+chk "..reports the tick the counter cannot see"     has "✅ on a non-step line" "$out"
+
+plan vf-glue '# t' '## Implementation steps' '' 'Step 1 — one' '  Done when: `true` exits 0' '' '### Release' '- ship it' '' '## Verification'
+out="$(ps verify vf-glue)"; rc=$?
+chk "verify (### inside the steps section) → exit 0, informational only" test "$rc" = "0"
+chk "..reports the heading that gets glued on"      has "### heading inside ## Implementation steps" "$out"
+
+# Ties verify to lib/state.sh's `[.]` delimiter (v2.36.0): a wrapped `Inputs:` line
+# beginning `48, ` must not read as its own step — under the old `\.` form it did,
+# which both inflated the count and stranded the real step's Done when: beneath a
+# phantom successor.
+plan vf-wrapped '# t' '## Implementation steps' '' 'Step 1 — one' '  Inputs: rows 7, 17, 42,' '    48, 55, 61, 66); final descriptions.' '  Done when: `true` exits 0' '' '## Verification'
+out="$(ps verify vf-wrapped)"; rc=$?
+chk "verify (wrapped '48, ' continuation) → exit 0" test "$rc" = "0"
+chk "..counts one step, not two"                    has "CHECK: step bodies complete (1 step(s)" "$out"
+
 out="$(ps verify)"; rc=$?
 chk "verify with no slug → exit 1"                  test "$rc" = "1"
 chk "..names the required argument"                 has "a <slug> is required" "$out"

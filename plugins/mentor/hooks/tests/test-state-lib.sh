@@ -278,6 +278,11 @@ printf '# t\n## Implementation steps\n1. Parent step\nStep 4.1 — Sub-step titl
 chk "real 'Step N.M —' and 'N.M.' sub-step headings still count" \
   test "$(libsh "mentor_plan_tick_counts '$PLANS/dotted/plan.md'")" = "0 4"
 rm -rf "$PLANS"
+mkdir -p "$PLANS/wrapped"
+printf '# t\n## Implementation steps\n1. Real step one\nInputs: existing rows: 7, 17, 42,\n    48, 55, 61, 66, 121, 126, 234, 241, 246, 247); final descriptions from Steps 3-6.\n2. Real step two\n7) an enumerated prose item, not a heading\n3. Real step three\n' > "$PLANS/wrapped/plan.md"
+chk "wrapped '48, ' continuation and '7) ' prose don't count as steps" \
+  test "$(libsh "mentor_plan_tick_counts '$PLANS/wrapped/plan.md'")" = "0 3"
+rm -rf "$PLANS"
 
 echo "== B10. mentor_plan_tick_step — the write-side counterpart, sharing B9's pattern =="
 mkdir -p "$PLANS/ts"
@@ -304,6 +309,13 @@ printf '# t\n## Implementation steps\n1. one\nStep 4.1'"'"'s design output is re
 chk "tick step 2 → status line" test "$(libsh "mentor_plan_tick_step '$PLANS/ord/plan.md' 2")" = "ticked 2 2"
 chk "tick step 2 → the ✅ landed on the real '2. two' line" \
   bash -c "sed -n '5p' '$PLANS/ord/plan.md' | grep -qF '2. two ✅'"
+rm -rf "$PLANS"
+mkdir -p "$PLANS/ord2"
+printf '# t\n## Implementation steps\n1. one\nInputs: rows 7, 17, 42,\n    48, 55, 61, 66); final descriptions.\n2. two\n' > "$PLANS/ord2/plan.md"
+chk "tick step 2 → status line (the wrapped '48, ' line is not a step)" \
+  test "$(libsh "mentor_plan_tick_step '$PLANS/ord2/plan.md' 2")" = "ticked 2 2"
+chk "tick step 2 → the ✅ landed on '2. two', not the wrapped prose" \
+  bash -c "sed -n '6p' '$PLANS/ord2/plan.md' | grep -qF '2. two ✅'"
 rm -rf "$PLANS"
 
 echo "== B10b. mentor_plan_tick_step — H3-heading step format, sharing B9b's pattern =="
