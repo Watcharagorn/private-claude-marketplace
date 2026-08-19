@@ -15,6 +15,16 @@
             "timeout": 5
           }
         ]
+      },
+      {
+        "matcher": "Bash|Skill",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash \"$CLAUDE_PROJECT_DIR/.claude/hooks/instruction-hygiene-gate.sh\"",
+            "timeout": 5
+          }
+        ]
       }
     ],
     "PostToolUse": [
@@ -23,7 +33,12 @@
         "hooks": [
           {
             "type": "command",
-            "command": "bash \"$CLAUDE_PROJECT_DIR/.claude/hooks/skill-creator-gate-mark.sh\"",
+            "command": "bash \"$CLAUDE_PROJECT_DIR/.claude/hooks/skill-invoked-mark.sh\" skill-creator skill-creator-gate",
+            "timeout": 5
+          },
+          {
+            "type": "command",
+            "command": "bash \"$CLAUDE_PROJECT_DIR/.claude/hooks/skill-invoked-mark.sh\" instruction-hygiene instruction-hygiene-gate",
             "timeout": 5
           }
         ]

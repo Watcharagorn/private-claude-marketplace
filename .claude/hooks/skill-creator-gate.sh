@@ -15,8 +15,9 @@
 # block, which this isn't; the CLAUDE.md gate already carves out exceptions
 # for version-bump/typo-only edits, and this hook can't tell those apart from
 # a real one, so it nags instead of refusing). Silenced for the rest of the
-# session once the skill-creator-gate-mark.sh companion (PostToolUse on
-# Skill) sees skill-creator actually get invoked.
+# session once the generic skill-invoked-mark.sh companion (PostToolUse on
+# Skill, invoked with `skill-creator skill-creator-gate`) sees skill-creator
+# actually get invoked.
 #
 # Fail-soft: no jq / unparsable input / no file path → exit 0. Never brick a
 # session over a reminder.
