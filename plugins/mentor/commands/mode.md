@@ -1,13 +1,13 @@
 ---
-description: get or set the persisted per-repo mentor defaults — the approval-gate default (plan | plan-only) and the dispatch preference (agents | solo | verify-only)
-argument-hint: "[plan | plan-only | agents | solo | verify-only | status]"
+description: get or set the persisted per-repo mentor defaults — the approval-gate default (plan | plan-only), the dispatch preference (agents | solo | verify-only), and unattended continuation (instant-on | instant-off)
+argument-hint: "[plan | plan-only | agents | solo | verify-only | instant-on | instant-off | status]"
 allowed-tools: [Bash, Read, Skill, AskUserQuestion]
 ---
 
 # mentor — repo mode
 
-Two independent defaults persist per repo in `<repo>/.mentor/config.json`.
-Setting one never clears the other.
+Three independent defaults persist per repo in `<repo>/.mentor/config.json`.
+Setting one never clears the others.
 
 **Axis 1 — approval-gate default.** Decides which option `/mentor:plan`'s final
 approval question lists first; both outcomes are always offered there:
@@ -29,15 +29,29 @@ instead of at every dispatch surface in every session:
   dispatched to fresh agents. Keeps the independent grader.
 - **solo** — implementation *and* verification in the main thread. Gives up
   independent grading, so a plan closed this way must disclose that in its report.
+  An instant run's per-step loop still dispatches its one prose-criterion verifier
+  (`dispatch-agents` → "Unattended continuation", user-ruled), disclosed.
 
 Unset means "no override — route per the test", which is the ordinary state.
 Once set, `plan-state.sh policy` reports `POLICY: SET` and no surface asks again.
+
+**Axis 3 — unattended continuation** (`instant`). May `dispatch-agents`' per-step
+loop run a granted plan to completion without a human in the turn?
+
+- **instant-on** — the loop runs whenever `plan-state.sh instant` answers GO:
+  per-plan branch, end-of-run auto-commit on that branch; push/PR stay questions.
+- **instant-off** — the attended flow end to end.
+
+Unset behaves as **on** — the loop's own condition ladder is the safety, not the
+axis (see `dispatch-agents` → "Unattended continuation"). `--confirm` on a
+`/mentor:resume` prompt overrides it for one run without recording anything.
 
 Do these in order:
 
 1. **Run the mode script with the mode word only.** Take only the **first
    whitespace-delimited token** of the arguments as the mode word (`plan` |
-   `plan-only` | `agents` | `solo` | `verify-only` | `status`; empty → `status`)
+   `plan-only` | `agents` | `solo` | `verify-only` | `instant-on` | `instant-off` |
+   `status`; empty → `status`)
    and run:
 
    ```bash
@@ -48,9 +62,10 @@ Do these in order:
    The raw arguments were: `$ARGUMENTS`
 
 2. **Report the resulting mode verbatim** (the script's confirmation lines).
-   `UNSET` is a fully functional state on both axes — `mode` defaults to `plan`,
-   and an unset `dispatch` means the routing test decides. Report it as such; do
-   **not** ask the user to pick either one.
+   `UNSET` is a fully functional state on all three axes — `mode` defaults to
+   `plan`, an unset `dispatch` means the routing test decides, and an unset
+   `instant` behaves as `on`. Report it as such; do **not** ask the user to pick
+   any of them.
 
 If a feature/task request was passed in the SAME prompt as this command (anything
 beyond the first mode-word token), it did **not** start the plan harness. After

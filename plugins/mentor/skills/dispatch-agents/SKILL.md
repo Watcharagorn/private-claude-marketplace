@@ -8,7 +8,9 @@ description: >
   only when two or more file-disjoint steps can be in flight at once, otherwise
   keep it in the main thread with a stated `Dispatch: skipped` reason. Invoked by
   plan Steps 4 and 6, or when the user says "dispatch agents" / "fan out" /
-  "parallelize". Verification dispatch has no skip on a mentor plan.
+  "parallelize". Verification dispatch has no skip on a mentor plan. Also owns
+  "Unattended continuation" — the per-step loop that runs a granted plan to
+  completion without a human in the turn, gated per step by plan-state.sh instant.
 ---
 
 # Dispatch Agents
@@ -447,7 +449,10 @@ before issuing `Agent` calls. Then:
      `mentor:shipping` Step 3's silent auto-commit: that allowance is scoped to
      files `simplify` itself just created, not to a whole implementation run.
      Skip this bullet only when the tree is clean and nothing was flagged as
-     absorbed.
+     absorbed. One scoped exception: an **instant** run (below) replaces this
+     question with its end-of-run auto-commit on the run's own plan branch — a
+     user-ruled trade that never touches the branch you were on;
+     the question stays for every attended run.
    - **Point at `/mentor:ship`** — one line: once the ticks above are verified and
      the tree is committed (above), the next move is `/mentor:ship` (it hands off
      to `/mentor:merge`'s bounded watch) — not a hand-rolled `git push`, `gh pr
@@ -456,6 +461,115 @@ before issuing `Agent` calls. Then:
      work — that abort is real, not a formality it will paraphrase past.
 
 Do NOT paraphrase the plan or summarize what you're about to do. Dispatch immediately.
+
+## Unattended continuation (the per-step loop)
+
+The elaboration of items 1–5 above for a plan that already holds a standing grant: run
+it to completion without a human in the turn, asking `plan-state.sh instant` before
+every dispatch and every tick, and stopping the moment the script or the evidence says
+stop. **On by default** — the `instant` config axis unset behaves as `on`;
+`set-mode.sh instant-off`, or `--confirm` on the resume prompt, restores the attended
+flow end to end. Why the loop refuses more than it runs, and the measurements behind
+the three-way verify route: `references/rationale.md` → **Why the loop refuses more
+than it runs**.
+
+Let `PS="${CLAUDE_PLUGIN_ROOT}/hooks/plan-state.sh"` throughout.
+
+**Pre-flight, once per plan.** `bash "$PS" instant <slug>` — line 1 is the verdict;
+branch on it by string equality:
+
+- `UNRESOLVED` (exit 2) — re-run with `--verbose`, report `reason=`, STOP. Never read
+  it as GO, and never as HOLD either: "unknown" is "ask", not "unsafe".
+- `HOLD` — report `--verbose` and STOP; no dispatch, no tick. `gate-armed`/`gate-stale`
+  → plan-track Step 3's ARMED prose (do NOT run approve-plan.sh to clear it — it takes
+  no slug); `structure` → run `plan-state.sh verify <slug>`, fix what it names, re-enter.
+- `ASK` — AskUserQuestion headed by `reason=`, STOP until answered: `swept-in` →
+  plan-track's `approved`-row mandatory confirm; `draft`/`no-grant-on-record` →
+  plan-track's "Approving a draft plan here"; `failed` → plan-track's `failed` row;
+  `stored-implemented-ticks-open` → the sidecar says done and the ticks say otherwise —
+  the user reconciles, never the loop; `context` → `plan-state.sh context`'s own ASK
+  block (handoff recommended / bypass-context.sh).
+- `NO_STEPS` — a step-less stub is planning work, not loop work: route to
+  `Skill(mentor:planning)` (on `origin=deferred`, plan-track's claim path first). STOP.
+- `DONE` — nothing left to run; skip to "Verifying the plan (execution-time)".
+- `GO` — continue below.
+
+**Enter the plan branch** (user-ruled). The run's commits belong to a
+branch of their own, cut from whatever is checked out now: `mentor/<slug>`, or
+`mentor/<group>/<slug>` when the sidecar carries a group. Already on it → proceed;
+it exists from an earlier handoff → check it out; otherwise `git checkout -b`. When
+another unattended run is already active in this working tree (its plan branch is
+checked out with a fresh `instant-run-*.md` on a different slug), take a
+`git worktree add` sibling instead — one tree, one run. A dirty tree does NOT block
+entry (ruled); record every pre-existing dirty path as a `NOTE:` line in the run
+record so the end-of-run commit can prove it staged none of them.
+
+**Open the run record** — `.mentor/plans/<slug>/instant-run-<ts>.md` (the
+`topic-N-verify.md` convention). Every per-step verdict, `NOTE:` line, and route
+decision below is appended there as it happens: an aside in a chat message disappears
+at session end, which is the failure this file exists to prevent.
+
+**Per step**, starting at `next_step=` from the pre-flight `--verbose`:
+
+1. `v="$(bash "$PS" instant <slug> N)"` — the WHOLE ladder re-runs per step: gate and
+   context are re-read each iteration, which is what closes the blind spot between
+   human turns. `UNRESOLVED`/`HOLD` → record, `set <slug> failed --note "<token>:
+   <reason=>"`, STOP. `ASK` → record, ask; on "stop", write the `failed --note` before
+   ending. `DONE` → the step is already ticked; `N=N+1`, continue. `DEFER`/`GO` → run it.
+2. Capture `header_crc=` from `instant <slug> N --verbose` **now** — this is the header
+   the tick must land on later.
+3. Pull the brief (item 1 above) and dispatch per items 2–3, honoring
+   `Run in parallel:`/`Sequential:` exactly as written.
+4. **Verify the `Done when:` — the three-way route the script deliberately does not
+   pick** (it reports facts; the route is judgment):
+   - the criterion is one bounded command and nothing else → run it yourself; tick on
+     its output;
+   - a prose conjunct remains, or prose only → dispatch ONE fresh verifier per
+     `references/verifier-contract.md` and tick on its `Verdict:` — **and under
+     `dispatch: solo` this verifier is dispatched anyway** (user-ruled: solo's
+     no-agents intent is overridden for verification only). Disclose each such
+     dispatch in the run record (`NOTE: solo-override verifier — step N`); never
+     self-grade a criterion the same thread just implemented;
+   - the criterion turns on a physical or manual event → ask the human. No stand-in
+     counts.
+   A failed criterion spends the ONE re-dispatch of the orchestrator contract (with
+   the diff and failing output as inputs); a hand-back spends nothing. A second
+   failure → `set <slug> failed --note`, surface, STOP. A partial mid-step failure
+   leaves no rollback: record every file the step wrote in the run record and do NOT
+   advance.
+5. On `GO`: re-run `instant <slug> N --verbose` and abort the tick unless
+   `header_crc=` still equals the value from item 2 (the tick writes positionally
+   into an unversioned file — a moved header means it would land on the wrong line).
+   Then `bash "$PS" tick <slug> N`. On `DEFER`: dispatch and verify but do NOT tick;
+   note `N:defer_until=` for the drain below.
+6. Append the step's verdict to the run record, `N=N+1`, and loop while
+   `bash "$PS" instant <slug>` is not `DONE`.
+
+**Mid-run context.** The `context-checkpoint.sh` hook (PostToolBatch) injects
+`[mentor] CONTEXT CHECKPOINT` advisories between tool batches — advisory only, by
+ruling; nothing forces a stop. Obey the ASK-tier directive when it arrives: finish
+ONLY the current step, record its outcome, write the handoff, end the turn.
+
+**Drain the deferred list.** For each held step whose `defer_until=` is now ticked:
+re-verify its `Done when:`, then tick. Still unsatisfied → `set <slug> failed --note
+"step N: forward ref unmet"` and surface.
+
+**Ending an instant run.** `instant <slug>` now reads `DONE` (the grant reads the
+STORED state, so it survives its own last tick — that is what authorizes the
+`## Verification` remediation). Run "Verifying the plan (execution-time)" and "The
+non-goal disposition gate" unchanged — including under `dispatch: solo`, where the
+round's fresh verifiers still dispatch per the same user-ruled override as item 4,
+disclosed in the run record — then the CLOSING CHECKLIST with ONE substitution
+(user-ruled): instead of the commit **question**, commit the run's work
+automatically — once, at end of run, on the plan branch. Stage narrowly (only paths
+the steps' return contracts name — never `git add -A`, never a whole directory; the
+pre-existing dirty paths in the run record must not appear in `git diff --cached`),
+run the repo's own mandated pre-commit checks in their headless form first (apply
+safe fixes; defer every ask-first decision into the commit body unapplied), and
+record the commit sha in the run record. No mid-run commits — real plans carry
+`Done when:` criteria that read the pre-change `HEAD`. The branch stays **local**:
+push, PR, and merge remain hard stops, so "Offer `/mentor:tour`" and "Point at
+`/mentor:ship`" close the run exactly as written above.
 
 ## Verifying the plan (execution-time)
 
@@ -494,7 +608,8 @@ Step 1 instead. A verification round moves the plan with `set`.
     `bash "${CLAUDE_PLUGIN_ROOT}/hooks/plan-state.sh" context` fresh rather than trusting
     an earlier reading. A verification round runs mostly on harness-synthetic prompts
     (inbound agent reports), which `context-gate.sh`'s own WARN tier deliberately skips,
-    so a round can grow well past WARN with nothing having said so. This is a **context
+    so a round can grow well past WARN with only `context-checkpoint.sh`'s rate-limited
+    advisories having said so. This is a **context
     guard, not a disposition question**: at `WARN`, `ASK`, or `HANDOFF`, ask the one
     question the round gets — **remediate now, or hand off to a fresh session?** — and at
     `ASK` answer it with the two-option directive `context` prints itself rather than
@@ -656,7 +771,10 @@ the contract does not apply to them, which is exactly how a fan-out goes out raw
   - **`POLICY: SET (dispatch=…)`** → the user already answered this, for this repo. Honor
     it and **ask nothing** — `agents` routes per "Where dispatch pays", `verify-only`
     implements in-thread and still dispatches verification, `solo` keeps both in-thread
-    and owes the report a disclosure that the plan carries no independent grader. Nothing
+    and owes the report a disclosure that the plan carries no independent grader —
+    except inside an instant run, where the per-step loop still dispatches its one
+    fresh prose-criterion verifier ("Unattended continuation" item 4, user-ruled),
+    disclosed in the run record. Nothing
     here is re-litigated per plan or per session; that re-litigation is the whole reason
     the key exists.
   - **`POLICY: NONE`** → route per "Where dispatch pays".
@@ -828,8 +946,9 @@ the contract does not apply to them, which is exactly how a fan-out goes out raw
   harness-synthetic prompts, which `context-gate.sh`'s own WARN tier
   deliberately skips, and an all-PASS round never enters the failure loop at
   all — so a clean round can walk straight into the final report with
-  whatever context reading it last took, if any, the same silent gap the
-  gate has for any long autonomous stretch between prompts. `CONTEXT: WARN`
+  whatever context reading it last took, if any. `context-checkpoint.sh`'s
+  between-batch advisories (v2.37.0) narrow that gap but are rate-limited
+  and easy to sail past, so this deliberate re-check stays. `CONTEXT: WARN`
   or higher belongs in the final report itself (a line naming
   `/mentor:handoff`), not silently absorbed.
 - **A live `Monitor` watch is not a dispatch — it has no stop tool.** A CI run, a

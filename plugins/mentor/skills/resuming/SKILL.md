@@ -271,6 +271,12 @@ rename it into the canonical pattern using the file's **mtime** for the timestam
 (`mv "$f" "$(dirname "$f")/$(date -r "$f" +%Y%m%d-%H%M%S)-<slug>.md"` — an invented "now"
 timestamp would mis-sort the note permanently) and re-list. Only on their explicit request.
 
+**Strip recognized flags from the argument before resolving anything.** `--confirm` (run the
+selected work attended, overriding the `instant` default) is a flag, not a selector: remove it
+from `$ARGUMENTS` first and remember it for Step 5 / the drain. Matching it as text would make
+`/mentor:resume <slug> --confirm` match nothing, re-print the picker, and silently drop the one
+thing the user asked for.
+
 Then resolve a selection:
 
 - **From the argument** (`$ARGUMENTS`) or from an `AskUserQuestion` "Other" free-text answer:
@@ -336,7 +342,11 @@ genuinely different topics or slugs — this carve-out is only for the same-topi
   left") rather than restating the slug in prose.
 - If there is **exactly one** note, skip the picker and ask a simple **Continue / Cancel**. If there
   are **zero** notes but **exactly one** drain entry (a root or a group) total, the same shortcut
-  applies to it — skip the picker and ask Continue / Cancel for that one entry instead.
+  applies to it — skip the picker and ask Continue / Cancel for that one entry instead. When the
+  `instant` axis is on (unset behaves as on — `set-mode.sh status`) and `--confirm` was not passed,
+  even that question is skipped: announce the unique selection in one line ("Resuming <slug> — the
+  only live entry") and proceed. The announcement is not optional — an auto-selection the user never
+  saw is how the wrong work gets continued silently.
 
 ## Step 5 — Load & continue
 
@@ -350,7 +360,9 @@ nothing upstream of this step has measured context yet, and a resumed note can l
 substantial work (an implementation via `/mentor:track`, a dispatch fan-out via
 `mentor:dispatch-agents`, or open-ended research/analysis with no command of its own — Step 6's
 "research or analysis fan-out" case runs entirely without `/mentor:track`'s or
-`mentor:dispatch-agents`'s own context checks, so this is the only gate it gets):
+`mentor:dispatch-agents`'s own context checks, so this is the only deterministic
+reading it gets — mid-stretch, only `context-checkpoint.sh`'s rate-limited advisories
+fire):
 
 ```bash
 bash "${CLAUDE_PLUGIN_ROOT}/hooks/plan-state.sh" context
@@ -369,7 +381,8 @@ For work with no further mentor-command checkpoint of its own (the research/anal
 above), re-run this same check immediately before delivering the final report or summary,
 mirroring `mentor:dispatch-agents`'s close-out re-check — a long autonomous stretch between this
 reading and that report is exactly the shape `context-gate.sh`'s own WARN tier cannot catch
-(`UserPromptSubmit`-only; nothing re-invokes it between prompts).
+(`UserPromptSubmit`-only; between prompts only `context-checkpoint.sh`'s advisory
+checkpoints fire, and they speak only above the warn threshold).
 
 1. `Read` the chosen note in full.
 2. **Scan for secrets first.** Before surfacing any section, scan the content for secret patterns —
@@ -383,7 +396,10 @@ reading and that report is exactly the shape `context-gate.sh`'s own WARN tier c
    this topic — it is a constraint, not a suggestion, and it does not expire with the session
    that wrote it. **This narration is its own turn, before the note's first action of any kind —
    read-only ones included** — folding it silently into a later wrap-up, or skipping straight into
-   the note's action steps, does not satisfy this step. Do **not** stamp the note yet — loading is
+   the note's action steps, does not satisfy this step. On an instant auto-selected resume
+   (Step 4's announced unique-entry path) the narration still leads, in full, but the turn does
+   not end on it — the announcement is the visibility the stop existed to buy; attended resumes
+   keep the hard stop. Do **not** stamp the note yet — loading is
    not finishing; if this session stalls, the note must still be listed for the next one.
 4. **Reference artifacts by their paths** — the plan file, PRDs/ADRs, issue/PR URLs, commit SHAs as
    the note lists them. Do **not** paste their contents; open/read them only as needed to act.
@@ -761,7 +777,9 @@ re-enters that command's own body per item — it is not a shortcut around it:
    child's `origin` is `"deferred"` — `mentor:deferring` owns what that capture wrote and why),
    fleshes it out with the user, and asks its own approval question (`{#approve}`).
 3. Only on that item's approval does resume proceed to build it, via the same `mentor:dispatch-agents`
-   implementation flow any freshly approved plan gets.
+   implementation flow any freshly approved plan gets — including its **Unattended continuation**
+   per-step loop when the `instant` axis allows it (and the attended flow when `--confirm` was
+   passed or the axis is off).
 
 **Consent stays per item.** One approval never covers the rest of the queue — a 4-item subtree is 4
 separate approval questions, not one "approve everything" ask up front: each item is its own plan
@@ -787,9 +805,11 @@ queue (post-order): fix-retry-loop, fix-auth-timeout
   skipped non-conforming files were named in the user-facing list, not just in bash output.
 - The user's selection was resolved unambiguously (argument or interactive) across both axes —
   note, root, or split group — never auto-picked on an ambiguous/no match, except the deterministic
-  note-first resolution for a topic that matches on both axes at once.
+  note-first resolution for a topic that matches on both axes at once, and the announced
+  unique-entry auto-select when the `instant` axis is on and `--confirm` was not passed (Step 4).
 - **If the selection was a note:** it was loaded, scanned for secrets, its focus + current state +
-  open questions surfaced as their own turn before acting, and the work continued via the note's
+  open questions surfaced in full before acting (as their own turn on an attended resume; leading
+  the continuing turn on an instant auto-selected one), and the work continued via the note's
   recommended command(s) — mentor's own or another tracked plugin's, exactly as listed — and nothing
   beyond them. The session still **ended through a listed command** — a mentor command
   (`/mentor:ship` → `/mentor:merge`, `/mentor:handoff`, or `/mentor:defer`) or a cross-plugin command

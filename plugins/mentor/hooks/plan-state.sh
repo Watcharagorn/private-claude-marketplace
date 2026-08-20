@@ -271,6 +271,151 @@
 #                          age_min=<n>` line per live sibling marker, nothing else.
 #         STALE/RELEASED  bare token only — there is no "owner" to report.
 #
+#   instant <slug> [<step-n>] [--verbose]
+#       GO|DEFER|ASK|HOLD|DONE|NO_STEPS|UNRESOLVED — exactly one BARE token on stdout
+#       (line 1, always — bare `instant` and `instant --verbose` alike), answering
+#       "may dispatch-agents' unattended loop run this plan / this step right now,
+#       without a human in the turn?"
+#
+#       READ-ONLY, and more strictly than `brief`: it never ticks, never writes a
+#       sidecar, never touches a marker, and never writes the run record
+#       (.mentor/plans/<slug>/instant-run-<ts>.md is the LOOP's artifact — see
+#       dispatch-agents). It is called once per step inside a loop whose every other
+#       call mutates something, so the one call that only reads has to be provably so.
+#
+#       The BARE-token shape is `gate`'s, not `policy`/`context`'s prefixed one, and
+#       for `gate`'s reason: the loop branches on line 1 by string equality
+#       (`[ "$(… instant "$slug" "$n")" = "GO" ]`) once per step, so line 1 carries
+#       ONE token and nothing else. Everything a reader wants is behind --verbose.
+#
+#       THE PRINTED TOKEN IS THE VERDICT, not the exit code — same split `policy`
+#       spells out. 0 = the check RAN (any of the six real tokens); 2 = the check
+#       could NOT run (UNRESOLVED; never read it as GO, and never as HOLD either —
+#       "unknown" is not "unsafe", it is "ask"); 1 = a usage error (unknown slug, no
+#       plan.md, <step-n> not a positive integer or out of range) exactly as `brief`
+#       and `verify` already treat those.
+#
+#       NO-REPO FALLBACK, deliberately unlike `gate`/`dir`/`context`: those answer
+#       from ~/.claude/mentor/_no-repo because a marker path and a token budget are
+#       still meaningful there. A standing grant is not — there is no plans dir, no
+#       sidecar and no approve-plan.sh sweep to be safe from — so outside a repo (and
+#       with no plans dir, or without jq) this prints UNRESOLVED and exits 2 rather
+#       than fabricating a RELEASED-shaped clean answer.
+#
+#       The tokens, in the order the ladder decides them (first match wins):
+#         UNRESOLVED  the environment could not answer: no git repo, no plans dir, no
+#                      jq (the sidecar note is unreadable, so the swept-in refusal
+#                      below would silently pass — the exact failure it exists to
+#                      prevent), or `git rev-parse` cannot yield a worktree id. Exit 2.
+#         HOLD        a mechanical blocker no question clears: `gate` reads ARMED or
+#                      STALE, the structural scan fails, or a preceding step is
+#                      unticked with no forward reference to excuse it. Stop; do not
+#                      dispatch, do not tick.
+#         ASK         a condition only the USER can clear: the sidecar note says the
+#                      approval was swept in by approve-plan.sh; no grant on record;
+#                      stored `draft`/`failed`; stored `implemented` with ticks still
+#                      open; `context` reads ASK; a non-negated outward action in the
+#                      step body; a `Done when:` that is ambiguous AS A COMMAND. Stop
+#                      and ask the named question.
+#         NO_STEPS    the plan has no `## Implementation steps` step lines at all —
+#                      25 of 39 plans in this repo are step-less deferred stubs. There
+#                      is nothing to loop over; route to mentor:planning (or, on
+#                      origin=deferred, plan-track's claim path). Never HOLD: a stub
+#                      is not a failure.
+#         DONE        nothing left for the loop here — every step ticked (plan arity),
+#                      or this step already carries its ✅ (step arity). On the plan
+#                      arity this is ALSO the authorization to run the `## Verification`
+#                      remediation: see "the last tick" below.
+#         DEFER       (step arity only) dispatch this step now, do NOT tick it — its
+#                      own `Done when:` forward-references a LATER step, so ticking on
+#                      the evidence available now would be false. Real: plan-tour's
+#                      Step 6, "zero unaddressed HIGH findings after Step 7". Re-call
+#                      `instant <slug> N` once `defer_until=` is ticked.
+#         GO          every mechanical condition holds. Dispatch, verify, tick.
+#
+#       WHY `gate` STALE IS A HARD STOP AND ARMED_ELSEWHERE IS NOT. This is the whole
+#       point of the subcommand, so it is spelled out rather than left to the caller:
+#       mentor_plan_tick_step (lib/state.sh) ends in `mv`, which bumps plan.md's
+#       mtime, and mentor_newly_planned is `find -newer <marker>` and IS
+#       approve-plan.sh's promotion set. approve-plan.sh resolves THIS worktree's
+#       own marker with NO staleness test — so any own/legacy marker FILE still on
+#       disk, live or stale, makes every plan this loop ticks a promotion candidate,
+#       manufacturing the very "swept in by approve-plan.sh… not necessarily reviewed"
+#       case plan-track's `approved` row carries a mandatory confirm for. A stale
+#       marker is the WORSE of the two: being older, its `find -newer` set is larger.
+#       ARMED_ELSEWHERE is different in kind, not in degree: no own or legacy marker
+#       exists, so approve-plan.sh run here resolves no marker and sweeps nothing, and
+#       the sibling's own run goes strict, where strict mode excludes exactly the
+#       unowned and foreign-owned candidates a tick here could produce. It also does
+#       not block a write here at all (see `gate` above). So ARMED_ELSEWHERE proceeds
+#       as RELEASED does — it is only reported, in `gate=`.
+#
+#       WHY THE GRANT READS THE STORED STATE, NEVER THE EFFECTIVE ONE. Ticking the
+#       LAST step makes mentor_plan_tick_state return `implemented` (rank 4), which
+#       outranks both `in_progress` (3) and `approved` (2), so
+#       mentor_plan_effective_state flips to `implemented` the instant the loop
+#       finishes — and a grant keyed on the effective state would become unsatisfiable
+#       at exactly the moment the `## Verification` remediation needs it. So the grant
+#       reads mentor_plan_state_stored, which a tick cannot move (tick_step writes
+#       plan.md only, never the sidecar), and the tick counts are used ONLY to pick
+#       the entry step and to distinguish DONE from GO. The effective state is still
+#       reported, in `effective=`, and is never decisive.
+#
+#       --verbose is strictly additive and the per-token field contract below is
+#       NORMATIVE — exactly these fields, in this order, nothing else. Every token
+#       except UNRESOLVED carries the PLAN BLOCK; step arity appends the STEP BLOCK;
+#       NOTE: lines come last.
+#
+#         PLAN BLOCK (every token but UNRESOLVED)
+#           reason=<kebab-case cause>   slug=   plan_dir=
+#           stored=<state|->            effective=<state|unknown>
+#           ticked=<n>  total=<n>       next_step=<n|->
+#           gate=<ARMED|STALE|ARMED_ELSEWHERE|RELEASED>
+#           note_swept=<0|1>            structure=<OK|FAIL[:reason]>
+#           context=<OK|WARN|HANDOFF|ASK|UNKNOWN>
+#         STEP BLOCK (only when <step-n> was given)
+#           step=<n>  step_ticked=<0|1>
+#           header_line=<n>  header_crc=<cksum>  header=<the step line, verbatim>
+#           body=<first>-<last>         body_glue_from=<n|->
+#           prev_unticked=<n,n|->       prev_deferred=<n,n|->
+#           dw_lines=<n>  dw_code_spans=<n>
+#           dw_ellipsis=<0|1>  dw_unclosed_span=<0|1>
+#           dw_inverted=<0|1>  dw_slash_only=<0|1>
+#           dw_forward_refs=<n,n|->     defer_until=<n|->
+#           outward=<kind@line,…|->     outward_negated=<kind@line,…|->
+#           outward_prose=<kind@line,…|->
+#         UNRESOLVED
+#           reason=<no-repo|no-plans-dir|no-jq|no-worktree-id> and nothing else —
+#           there is no plan to report fields about.
+#         NOTE: lines (step arity + --verbose only, AFTER the fields)
+#           NOTE: inputs-missing=<path,…>       — paths named in `Inputs:` that do not
+#                                                  exist. REPORT ONLY, never a token:
+#                                                  measured 29/92 absent, of which 2
+#                                                  were real drift, and 24 of 68 steps
+#                                                  name no path at all.
+#           NOTE: critical-files-unlisted=<path,…> — `Inputs:` paths absent from
+#                                                  `## Critical files`. REPORT ONLY:
+#                                                  25 of 39 plans have no such section,
+#                                                  it was never specified as a write
+#                                                  allowlist (planning's Content spec),
+#                                                  and plan-review already treats a
+#                                                  mismatch as a routine finding.
+#                                                  Emitted only when the section exists.
+#
+#       WHAT THIS SUBCOMMAND DOES NOT DECIDE. It never classifies a `Done when:` into
+#       "runnable / needs a verifier / needs a human". Measured across 72 parseable
+#       blocks in this repo, only 14 (19%) are settled by a bounded command alone; 19
+#       carry a command AND a prose conjunct that still decides it; 33 are judgment
+#       only. A lexical test cannot separate those, and a boolean "has a runnable
+#       check" gate would auto-tick 19 steps on evidence that proves a fraction of
+#       them. So the script reports the five ambiguity FACTS above (dw_ellipsis,
+#       dw_unclosed_span, dw_inverted, dw_slash_only, dw_code_spans) — each one
+#       mechanically decidable — refuses outright when any ambiguity fact fires, and
+#       leaves the three-way route to the model, per dispatch-agents' "Unattended
+#       continuation" section. Tiebreak, the loop's own: unsure a condition holds →
+#       it does not hold. (Deliberately NOT verifier-contract.md's stamp tiebreaks,
+#       which resolve the other way, toward the user's verdict.)
+#
 # EFFECTIVE state (see lib/state.sh): the more advanced of the stored state and the
 # state derived from plan.md's ✅ step ticks. A forgotten `set` therefore costs
 # nothing, and a pre-2.4.0 plan dir with no sidecar reads `unknown` — never `draft`.
@@ -378,6 +523,14 @@ Usage: plan-state.sh <subcommand>
                                          no-subagents instruction on record?" The printed
                                          token is the verdict; exit 2 iff the check
                                          could not run
+  instant <slug> [<step-n>]             may the unattended loop run this plan/step now?
+                                         GO|DEFER|ASK|HOLD|DONE|NO_STEPS|UNRESOLVED — one
+                                         BARE token on stdout (line 1, always), read-only:
+                                         never ticks, never writes. --verbose adds a
+                                         normative per-token field set (see the instant doc
+                                         comment above). The printed token is the verdict;
+                                         exit 2 iff the check could not run. Consumed only
+                                         by mentor:dispatch-agents' per-step loop
   context                               CONTEXT: ASK|HANDOFF|WARN|OK|UNKNOWN (~N tokens)
   dir [--plans]                         the repo-scoped mentor dir (or its plans dir)
   gate [--verbose]                      ARMED|STALE|ARMED_ELSEWHERE|RELEASED — read-only marker
@@ -1002,7 +1155,7 @@ if [ "$sub" = "policy" ]; then
       exit 0
       ;;
     solo)
-      echo "POLICY: SET (dispatch=solo) — the user recorded that implementation AND verification stay in the main thread here. Do NOT ask. Honor it, and disclose in the report that the plan carries no independent verification (dispatch-agents, \"A substitution is disclosed as a substitution\")."
+      echo "POLICY: SET (dispatch=solo) — the user recorded that implementation AND verification stay in the main thread here. Do NOT ask. Honor it, and disclose in the report that the plan carries no independent verification (dispatch-agents, \"A substitution is disclosed as a substitution\"). One user-ruled exception: an instant run's per-step loop still dispatches its one fresh prose-criterion verifier, disclosed in the run record (dispatch-agents, \"Unattended continuation\")."
       echo "CONTRACT: ${pol_contract}"
       exit 0
       ;;
@@ -1066,6 +1219,385 @@ if [ "$sub" = "policy" ]; then
   fi
   echo "POLICY: NONE (files=${pol_files}) — no standing no-subagents instruction recorded; dispatch as designed."
   echo "CONTRACT: ${pol_contract}"
+  exit 0
+fi
+
+# --- instant <slug> [<step-n>] [--verbose]: may the unattended loop run this now? ---
+# The full token/field/exit contract lives in the `instant` doc block near the top of
+# this file — read it before changing anything here. An EARLY handler (like policy/
+# gate/context) so it must derive repo_root/plans_dir itself; require_slug and the
+# shared guards below it are not defined yet when this block runs.
+if [ "$sub" = "instant" ]; then
+  in_slug=""; in_step=""; in_verbose=0
+  while [ "$#" -gt 0 ]; do
+    case "$1" in
+      --verbose) in_verbose=1 ;;
+      -*) echo "[mentor plan-state] instant: unknown flag '${1}'." >&2; usage >&2; exit 1 ;;
+      *)
+        if [ -z "$in_slug" ]; then in_slug="$1"
+        elif [ -z "$in_step" ]; then in_step="$1"
+        else
+          echo "[mentor plan-state] instant: unexpected argument '${1}'." >&2
+          usage >&2; exit 1
+        fi ;;
+    esac
+    shift
+  done
+  if [ -z "$in_slug" ]; then
+    echo "[mentor plan-state] instant: a <slug> is required." >&2
+    usage >&2; exit 1
+  fi
+  if [ -n "$in_step" ]; then
+    case "$in_step" in
+      *[!0-9]*|0)
+        echo "[mentor plan-state] instant: <step-n> must be a positive integer; got '${in_step}'." >&2
+        exit 1 ;;
+    esac
+  fi
+
+  # E1 — environment. UNRESOLVED (exit 2) carries reason= alone: there is no plan to
+  # report fields about. Deliberately NO _no-repo fallback — see the doc block.
+  in_repo="$(mentor_repo_root "$(pwd)")"
+  if [ -z "$in_repo" ]; then
+    echo UNRESOLVED
+    [ "$in_verbose" -eq 1 ] && echo "reason=no-repo"
+    exit 2
+  fi
+  in_plans="$(mentor_plans_dir "$in_repo")"
+  if [ -z "$in_plans" ] || [ ! -d "$in_plans" ]; then
+    echo UNRESOLVED
+    [ "$in_verbose" -eq 1 ] && echo "reason=no-plans-dir"
+    exit 2
+  fi
+  if ! command -v jq >/dev/null 2>&1; then
+    echo UNRESOLVED
+    [ "$in_verbose" -eq 1 ] && echo "reason=no-jq"
+    exit 2
+  fi
+  in_wt="$(mentor_worktree_id "$(pwd)")"
+  if [ -z "$in_wt" ]; then
+    echo UNRESOLVED
+    [ "$in_verbose" -eq 1 ] && echo "reason=no-worktree-id"
+    exit 2
+  fi
+
+  # E0 disk half — unknown slug / missing plan.md are usage errors (exit 1), matching
+  # brief/verify. Inlined require_slug: that function is defined below this handler.
+  in_dir="${in_plans}/${in_slug}"
+  if [ ! -d "$in_dir" ]; then
+    echo "[mentor plan-state] No such plan: ${in_dir}" >&2
+    echo "Run 'plan-state.sh list' to see the slugs that exist." >&2
+    exit 1
+  fi
+  in_md="${in_dir}/plan.md"
+  if [ ! -f "$in_md" ]; then
+    echo "[mentor plan-state] instant: no plan.md at ${in_md}." >&2
+    exit 1
+  fi
+
+  # --- gather every fact first, decide the token second: --verbose must print the
+  # full PLAN BLOCK whatever the verdict, so nothing here can short-circuit. `|| true`
+  # on every substitution — a legitimate zero-match exits non-zero under this file's
+  # `set -euo pipefail` and would abort before line 1 prints (verify documents the
+  # same trap).
+  in_scan="$(mentor_plan_step_scan "$in_md" || true)"
+  in_total="$(printf '%s\n' "$in_scan" | awk -F'\t' '$1 == "TOTAL" { print $2 }' || true)"
+  in_total="${in_total:-0}"
+  in_ticked="$(printf '%s\n' "$in_scan" | awk -F'\t' '$1 == "STEP" && $5 == 1 { n++ } END { print n + 0 }' || true)"
+  in_next="$(printf '%s\n' "$in_scan" | awk -F'\t' '$1 == "STEP" && $5 == 0 { print $2; exit }' || true)"
+
+  if [ -n "$in_step" ] && [ "$in_step" -gt "$in_total" ]; then
+    echo "[mentor plan-state] instant: step ${in_step} is out of range (plan has ${in_total} step(s))." >&2
+    exit 1
+  fi
+
+  # Gate token, inline with the same helpers `gate` uses — never `bash "$0" gate`,
+  # which would fork and re-derive the repo root once per loop step.
+  in_own="$(mentor_plan_marker "$in_plans" "$in_wt")"
+  in_legacy="$(mentor_plan_marker "$in_plans" "")"
+  in_own_exists=0; in_own_live=0
+  [ -e "$in_own" ] && in_own_exists=1
+  if [ "$in_own_exists" -eq 1 ] && ! mentor_marker_stale "$in_own"; then in_own_live=1; fi
+  in_leg_exists=0; in_leg_live=0
+  if [ -n "$in_wt" ]; then
+    [ -e "$in_legacy" ] && in_leg_exists=1
+    if [ "$in_leg_exists" -eq 1 ] && ! mentor_marker_stale "$in_legacy"; then in_leg_live=1; fi
+  fi
+  in_gate=RELEASED
+  if [ "$in_own_live" -eq 1 ] || [ "$in_leg_live" -eq 1 ]; then in_gate=ARMED
+  elif [ "$in_own_exists" -eq 1 ] || [ "$in_leg_exists" -eq 1 ]; then in_gate=STALE
+  elif [ -n "$(mentor_live_markers "$in_plans")" ]; then in_gate=ARMED_ELSEWHERE
+  fi
+
+  in_stored="$(mentor_plan_state_stored "$in_dir")"
+  in_eff="$(mentor_plan_effective_state "$in_dir")"
+  in_note="$(mentor_plan_state_field "$in_dir" note)"
+  in_swept=0
+  case "$in_note" in *"swept in by approve-plan.sh"*) in_swept=1 ;; esac
+
+  # Structure — the same two facts that GATE verify's exit code: every step body
+  # carries a Done when:, and fences balance. The informational facts (stray ✅,
+  # ### glue) are verify's to report, not a stop here.
+  in_fences="$(grep -c '^```' "$in_md" || true)"
+  in_nodw_line="$(printf '%s\n' "$in_scan" | awk -F'\t' '$1 == "STEP" && $6 == 0 { print $3; exit }' || true)"
+  in_structure=OK
+  if [ -n "$in_nodw_line" ]; then in_structure="FAIL:nodw@${in_nodw_line}"
+  elif [ $(( ${in_fences:-0} % 2 )) -ne 0 ]; then in_structure="FAIL:fences"
+  fi
+
+  in_ctx_raw="$(mentor_context_verdict "$in_repo" "$(pwd)" || true)"
+  in_ctx="${in_ctx_raw%% *}"
+  [ -n "$in_ctx" ] || in_ctx=UNKNOWN
+
+  # Per-step Done-when / outward facts, one awk pass. DWF rows carry every step's
+  # conjunct facts (the ordering excuse in E10 needs the predecessors', not just the
+  # target's); OUT/OUTN/OUTP and INP rows are scoped to the target step's body. The
+  # conjunct runs from the `Done when:` line to the end of the body, stopping early
+  # at the next field label. Forward refs keep only ordinals > the step's own — that
+  # single filter is what silences the backward/self-referring dispatch-group headers
+  # (`after Steps 2-5`) without giving up the real forward reference.
+  in_facts="$(awk -v pat="$MENTOR_STEP_LINE_PATTERN" \
+                  -v cmdpat="$MENTOR_OUTWARD_CMD_PATTERN" \
+                  -v prosepat="$MENTOR_OUTWARD_PROSE_PATTERN" \
+                  -v negpat="$MENTOR_NEGATION_CUE_PATTERN" \
+                  -v target="${in_step:-0}" '
+    function flushdw() {
+      if (ord > 0)
+        printf "DWF\t%d\t%d\t%d\t%d\t%d\t%d\t%d\t%s\n", ord, dwl, spans, ell, uncl, inv, \
+               (spans > 0 && slashy == spans) ? 1 : 0, (refs == "") ? "-" : refs
+    }
+    /^##[[:space:]]/ {
+      h = tolower($0)
+      if (insec) flushdw()
+      ord = (insec) ? 0 : ord
+      insec = (h ~ /^##[[:space:]]+implementation[[:space:]]+steps/) ? 1 : 0
+      next
+    }
+    !insec { next }
+    $0 ~ pat {
+      flushdw()
+      ord++; indw = 0; ininp = 0
+      dwl = 0; spans = 0; ell = 0; uncl = 0; inv = 0; slashy = 0; refs = ""
+      next
+    }
+    {
+      if (target > 0 && ord == target) {
+        low = tolower($0)
+        neg = (low ~ negpat) ? 1 : 0
+        rest = $0
+        while (match(rest, cmdpat)) {
+          m = substr(rest, RSTART, RLENGTH)
+          gsub(/[[:space:]]+/, "-", m)
+          if (neg) printf "OUTN\t%s@%d\n", m, NR
+          else     printf "OUT\t%s@%d\n",  m, NR
+          rest = substr(rest, RSTART + RLENGTH)
+        }
+        if (match(low, prosepat)) {
+          pm = substr(low, RSTART, RLENGTH)
+          gsub(/[[:space:]]+/, "-", pm)
+          printf "OUTP\t%s@%d\n", pm, NR
+        }
+        if ($0 ~ /^[[:space:]]*[-*]?[[:space:]]*[*]{0,2}Inputs[*]{0,2}:/) ininp = 1
+        else if ($0 ~ /^[[:space:]]*[-*]?[[:space:]]*[*]{0,2}(Goal|Prompt sketch|Dispatch|Role|Done when)[*]{0,2}:/) ininp = 0
+        if (ininp) {
+          r2 = $0
+          while (match(r2, /`[^`]+`/)) {
+            sp = substr(r2, RSTART + 1, RLENGTH - 2)
+            if (sp ~ /\// && sp !~ /[[:space:]{*?]/) printf "INP\t%s\n", sp
+            r2 = substr(r2, RSTART + RLENGTH)
+          }
+        }
+      }
+      if (indw && $0 ~ /^[[:space:]]*[-*]?[[:space:]]*[*]{0,2}(Goal|Inputs|Prompt sketch|Dispatch|Role)[*]{0,2}:/) indw = 0
+      if (!indw && $0 ~ /[Dd]one when:/) indw = 1
+      if (indw) {
+        dwl++
+        c = $0
+        nb = gsub(/`/, "`", c)
+        spans += int(nb / 2)
+        if (nb % 2 == 1) uncl = 1
+        if ($0 ~ /`[^`]*(\.\.\.|…)[^`]*`/) ell = 1
+        if ($0 ~ /FAILS|must[[:space:]]+fail|expected[[:space:]]+to[[:space:]]+fail|fails[[:space:]]+against|non-?zero[[:space:]]+exit/) inv = 1
+        r3 = $0
+        while (match(r3, /`[^`]+`/)) {
+          s3 = substr(r3, RSTART + 1, RLENGTH - 2)
+          if (s3 ~ /^\/[A-Za-z0-9_-]+:[A-Za-z0-9_-]+/ || s3 ~ /^Skill\(skill=/) slashy++
+          r3 = substr(r3, RSTART + RLENGTH)
+        }
+        r4 = $0
+        gsub(/–/, "-", r4)
+        while (match(r4, /[Ss]teps?[[:space:]]+[0-9]+(-[0-9]+)?/)) {
+          m4 = substr(r4, RSTART, RLENGTH)
+          r4 = substr(r4, RSTART + RLENGTH)
+          gsub(/[Ss]teps?[[:space:]]+/, "", m4)
+          k = split(m4, a4, "-")
+          lo = a4[1] + 0; hi = (k > 1) ? a4[k] + 0 : lo
+          for (v = lo; v <= hi && v <= lo + 30; v++)
+            if (v > ord) refs = refs ((refs == "") ? "" : ",") v
+        }
+      }
+    }
+    END { if (insec) flushdw() }
+  ' "$in_md" 2>/dev/null || true)"
+
+  # --- the ladder — first match wins; E9-E14 only when <step-n> was given ---------
+  in_token=""; in_reason=""
+  if [ "$in_gate" = "ARMED" ]; then in_token=HOLD; in_reason=gate-armed
+  elif [ "$in_gate" = "STALE" ]; then in_token=HOLD; in_reason=gate-stale
+  elif [ "$in_swept" -eq 1 ]; then in_token=ASK; in_reason=swept-in
+  else
+    case "$in_stored" in
+      approved|in_progress) ;;
+      "") in_token=ASK; in_reason=no-grant-on-record ;;
+      draft) in_token=ASK; in_reason=draft ;;
+      failed) in_token=ASK; in_reason=failed ;;
+      superseded) in_token=HOLD; in_reason=superseded ;;
+      implemented)
+        if [ "$in_total" -gt 0 ] && [ "$in_ticked" -eq "$in_total" ]; then
+          in_token=DONE; in_reason=closed
+        else
+          in_token=ASK; in_reason=stored-implemented-ticks-open
+        fi ;;
+      *) in_token=ASK; in_reason=no-grant-on-record ;;
+    esac
+  fi
+  if [ -z "$in_token" ] && [ "$in_total" -eq 0 ]; then
+    in_token=NO_STEPS; in_reason=stub
+    if [ "$(mentor_plan_origin "$in_dir")" = "deferred" ]; then in_reason=deferred-stub; fi
+  fi
+  if [ -z "$in_token" ] && [ "$in_structure" != "OK" ]; then in_token=HOLD; in_reason=structure; fi
+  if [ -z "$in_token" ] && [ "$in_ctx" = "ASK" ]; then in_token=ASK; in_reason=context; fi
+  if [ -z "$in_token" ] && [ "$in_ticked" -eq "$in_total" ]; then in_token=DONE; in_reason=all-ticked; fi
+  if [ -z "$in_step" ] && [ -z "$in_token" ]; then in_token=GO; in_reason=next-step; fi
+
+  # Step-scope facts — computed whenever <step-n> was given (the STEP BLOCK prints on
+  # every token, not just the step-decided ones), decided only when the plan scope
+  # left the token open.
+  in_st_ticked=""; in_hdr_line=""; in_body_end=""; in_glue=""; in_header=""
+  in_prev_unticked=""; in_prev_deferred=""; in_dwf=""; in_refs="-"
+  in_out=""; in_outn=""; in_outp=""
+  if [ -n "$in_step" ]; then
+    in_row="$(printf '%s\n' "$in_scan" | awk -F'\t' -v n="$in_step" '$1 == "STEP" && $2 == n { print; exit }' || true)"
+    in_hdr_line="$(printf '%s\n' "$in_row" | cut -f3)"
+    in_body_end="$(printf '%s\n' "$in_row" | cut -f4)"
+    in_st_ticked="$(printf '%s\n' "$in_row" | cut -f5)"
+    in_glue="$(printf '%s\n' "$in_row" | cut -f7)"
+    in_header="$(printf '%s\n' "$in_row" | cut -f8-)"
+    in_dwf="$(printf '%s\n' "$in_facts" | awk -F'\t' -v n="$in_step" '$1 == "DWF" && $2 == n { print; exit }' || true)"
+    in_refs="$(printf '%s\n' "$in_dwf" | cut -f9)"
+    in_refs="${in_refs:--}"
+    in_out="$(printf '%s\n' "$in_facts" | awk -F'\t' '$1 == "OUT" { print $2 }' | paste -sd, - || true)"
+    in_outn="$(printf '%s\n' "$in_facts" | awk -F'\t' '$1 == "OUTN" { print $2 }' | paste -sd, - || true)"
+    in_outp="$(printf '%s\n' "$in_facts" | awk -F'\t' '$1 == "OUTP" { print $2 }' | paste -sd, - || true)"
+
+    # E10 inputs: an unticked predecessor is EXCUSED when its own Done when: forward-
+    # references a step >= the one requested now (plan-tour's step 6 vs 7 deadlock).
+    while IFS=$'\t' read -r _ in_p_ord _ _ in_p_tick _ _ _; do
+      [ -n "$in_p_ord" ] || continue
+      [ "$in_p_ord" -lt "$in_step" ] || continue
+      [ "$in_p_tick" -eq 0 ] || continue
+      in_p_refs="$(printf '%s\n' "$in_facts" | awk -F'\t' -v n="$in_p_ord" '$1 == "DWF" && $2 == n { print $9; exit }' || true)"
+      in_excused=0
+      if [ -n "$in_p_refs" ] && [ "$in_p_refs" != "-" ]; then
+        for in_r in $(printf '%s' "$in_p_refs" | tr ',' ' '); do
+          if [ "$in_r" -ge "$in_step" ]; then in_excused=1; fi
+        done
+      fi
+      if [ "$in_excused" -eq 1 ]; then
+        in_prev_deferred="${in_prev_deferred}${in_prev_deferred:+,}${in_p_ord}"
+      else
+        in_prev_unticked="${in_prev_unticked}${in_prev_unticked:+,}${in_p_ord}"
+      fi
+    done <<EOF_STEPS
+$(printf '%s\n' "$in_scan" | awk -F'\t' '$1 == "STEP"' || true)
+EOF_STEPS
+
+    if [ -z "$in_token" ]; then
+      if [ "${in_st_ticked:-0}" -eq 1 ]; then in_token=DONE; in_reason=step-ticked
+      elif [ -n "$in_prev_unticked" ]; then in_token=HOLD; in_reason=ordering
+      elif [ -n "$in_out" ]; then in_token=ASK; in_reason=outward-action
+      else
+        in_ell="$(printf '%s\n' "$in_dwf" | cut -f5)"; in_uncl="$(printf '%s\n' "$in_dwf" | cut -f6)"
+        in_inv="$(printf '%s\n' "$in_dwf" | cut -f7)"; in_slash="$(printf '%s\n' "$in_dwf" | cut -f8)"
+        if [ "${in_ell:-0}" -eq 1 ] || [ "${in_uncl:-0}" -eq 1 ] || [ "${in_inv:-0}" -eq 1 ] || [ "${in_slash:-0}" -eq 1 ]; then
+          in_token=ASK; in_reason=done-when-ambiguous
+        elif [ "$in_refs" != "-" ]; then
+          in_token=DEFER; in_reason=forward-ref
+        else
+          in_token=GO; in_reason=clear
+        fi
+      fi
+    fi
+  fi
+
+  echo "$in_token"
+  if [ "$in_verbose" -eq 1 ]; then
+    echo "reason=${in_reason}"
+    echo "slug=${in_slug}"
+    echo "plan_dir=${in_dir}"
+    echo "stored=${in_stored:--}"
+    echo "effective=${in_eff:-unknown}"
+    echo "ticked=${in_ticked}"
+    echo "total=${in_total}"
+    echo "next_step=${in_next:--}"
+    echo "gate=${in_gate}"
+    echo "note_swept=${in_swept}"
+    echo "structure=${in_structure}"
+    echo "context=${in_ctx}"
+    if [ -n "$in_step" ]; then
+      in_crc="$(printf '%s\n' "$in_header" | cksum | cut -d' ' -f1 || true)"
+      in_defer_until="-"
+      if [ "$in_refs" != "-" ]; then
+        in_defer_until="$(printf '%s' "$in_refs" | tr ',' '\n' | sort -n | tail -1 || true)"
+      fi
+      echo "step=${in_step}"
+      echo "step_ticked=${in_st_ticked:-0}"
+      echo "header_line=${in_hdr_line:--}"
+      echo "header_crc=${in_crc}"
+      echo "header=${in_header}"
+      echo "body=${in_hdr_line:-0}-${in_body_end:-0}"
+      if [ "${in_glue:-0}" -gt 0 ]; then echo "body_glue_from=${in_glue}"; else echo "body_glue_from=-"; fi
+      echo "prev_unticked=${in_prev_unticked:--}"
+      echo "prev_deferred=${in_prev_deferred:--}"
+      echo "dw_lines=$(printf '%s\n' "$in_dwf" | cut -f3)"
+      echo "dw_code_spans=$(printf '%s\n' "$in_dwf" | cut -f4)"
+      echo "dw_ellipsis=$(printf '%s\n' "$in_dwf" | cut -f5)"
+      echo "dw_unclosed_span=$(printf '%s\n' "$in_dwf" | cut -f6)"
+      echo "dw_inverted=$(printf '%s\n' "$in_dwf" | cut -f7)"
+      echo "dw_slash_only=$(printf '%s\n' "$in_dwf" | cut -f8)"
+      echo "dw_forward_refs=${in_refs}"
+      echo "defer_until=${in_defer_until}"
+      echo "outward=${in_out:--}"
+      echo "outward_negated=${in_outn:--}"
+      echo "outward_prose=${in_outp:--}"
+      # NOTE: lines — report-only drift signals (never a token; see the doc block).
+      in_inputs="$(printf '%s\n' "$in_facts" | awk -F'\t' '$1 == "INP" { print $2 }' | sort -u || true)"
+      if [ -n "$in_inputs" ]; then
+        in_missing=""
+        while IFS= read -r in_p; do
+          [ -n "$in_p" ] || continue
+          case "$in_p" in /*) in_abs="$in_p" ;; *) in_abs="${in_repo}/${in_p}" ;; esac
+          if [ ! -e "$in_abs" ] && [ ! -e "$in_p" ]; then
+            in_missing="${in_missing}${in_missing:+,}${in_p}"
+          fi
+        done <<EOF_INP
+$in_inputs
+EOF_INP
+        [ -n "$in_missing" ] && echo "NOTE: inputs-missing=${in_missing}"
+        if grep -q '^## Critical files' "$in_md" 2>/dev/null; then
+          in_cf="$(awk '/^## Critical files/ { s = 1; next } /^## / { s = 0 } s' "$in_md" || true)"
+          in_unlisted=""
+          while IFS= read -r in_p; do
+            [ -n "$in_p" ] || continue
+            case "$in_cf" in *"$in_p"*) ;; *) in_unlisted="${in_unlisted}${in_unlisted:+,}${in_p}" ;; esac
+          done <<EOF_INP2
+$in_inputs
+EOF_INP2
+          [ -n "$in_unlisted" ] && echo "NOTE: critical-files-unlisted=${in_unlisted}"
+        fi
+      fi
+    fi
+  fi
   exit 0
 fi
 
@@ -2590,33 +3122,24 @@ case "$sub" in
       v_fail=1
     fi
 
-    # Step-structure checks (v2.36.0), sharing MENTOR_STEP_LINE_PATTERN so verify can
-    # never disagree with tick/query about what a step is. Only the first GATES: every
-    # step body carrying a `Done when:` holds across all 14 step-bearing plans in this
-    # repo with zero exceptions, and its ABSENCE is the direct symptom of a body
-    # truncated by a phantom step line — the class the `[.]` delimiter fix in
-    # lib/state.sh closed. The other two only report, because both fire on legitimate
-    # authoring: a ✅ off a step line is a stray tick about half the time and the rest
-    # of the time is prose quoting the character (a `Prompt sketch:` describing tick
-    # state), and an `###` inside the section is a real subsection that step-body
-    # extraction nonetheless glues onto the step above.
-    v_steps="$(awk -v p="$MENTOR_STEP_LINE_PATTERN" '
-      /^## Implementation steps/ { s = 1; next }
-      /^## / { if (s) { if (cur && !dw) printf "nodw %d %s\n", curline, curtitle; s = 0 } }
-      s {
-        if ($0 ~ p) {
-          if (cur && !dw) printf "nodw %d %s\n", curline, curtitle
-          n++; cur = 1; dw = 0; curline = NR; curtitle = substr($0, 1, 60)
-          next
-        }
-        if (index($0, "✅")) printf "tick %d\n", NR
-        if ($0 ~ /^###[[:space:]]/) printf "glue %d\n", NR
-        if (index($0, "Done when:")) dw = 1
-      }
-      END { if (cur && !dw) printf "nodw %d %s\n", curline, curtitle; printf "total %d\n", n + 0 }
-    ' "$plan_md" || true)"
-    v_total="$(printf '%s\n' "$v_steps" | awk '$1 == "total" { print $2 }' || true)"
-    v_nodw="$(printf '%s\n' "$v_steps" | sed -n 's/^nodw //p' || true)"
+    # Step-structure checks (v2.36.0), reading mentor_plan_step_scan (lib/state.sh) —
+    # the ONE derivation `instant` also consumes, so verify can never disagree with
+    # tick/query/instant about what a step is. Only the first GATES: every step body
+    # carrying a `Done when:` holds across all 14 step-bearing plans in this repo with
+    # zero exceptions, and its ABSENCE is the direct symptom of a body truncated by a
+    # phantom step line — the class the `[.]` delimiter fix in lib/state.sh closed.
+    # The other two only report, because both fire on legitimate authoring: a ✅ off a
+    # step line is a stray tick about half the time and the rest of the time is prose
+    # quoting the character (a `Prompt sketch:` describing tick state), and an `###`
+    # inside the section is a real subsection that step-body extraction nonetheless
+    # glues onto the step above.
+    v_scan="$(mentor_plan_step_scan "$plan_md" || true)"
+    v_total="$(printf '%s\n' "$v_scan" | awk -F'\t' '$1 == "TOTAL" { print $2 }' || true)"
+    v_nodw="$(printf '%s\n' "$v_scan" | awk -F'\t' '
+      $1 == "STEP" && $6 == 0 {
+        h = $8; for (i = 9; i <= NF; i++) h = h "\t" $i
+        printf "%d %s\n", $3, substr(h, 1, 60)
+      }' || true)"
     if [ "${v_total:-0}" -eq 0 ]; then
       echo "CHECK: no ## Implementation steps section (deferred stub, or not yet fleshed out)"
     elif [ -z "$v_nodw" ]; then
@@ -2626,11 +3149,11 @@ case "$sub" in
       printf '%s\n' "$v_nodw" | sed 's/^/  line /'
       v_fail=1
     fi
-    v_tick="$(printf '%s\n' "$v_steps" | sed -n 's/^tick //p' | paste -sd, - || true)"
+    v_tick="$(printf '%s\n' "$v_scan" | awk -F'\t' '$1 == "XTICK" { print $2 }' | paste -sd, - || true)"
     if [ -n "$v_tick" ]; then
       echo "CHECK: ✅ on a non-step line inside ## Implementation steps (line ${v_tick}) — the tick counter cannot see it (informational only)"
     fi
-    v_glue="$(printf '%s\n' "$v_steps" | sed -n 's/^glue //p' | paste -sd, - || true)"
+    v_glue="$(printf '%s\n' "$v_scan" | awk -F'\t' '$1 == "GLUE" { print $2 }' | paste -sd, - || true)"
     if [ -n "$v_glue" ]; then
       echo "CHECK: ### heading inside ## Implementation steps (line ${v_glue}) — step-body extraction glues it onto the step above (informational only)"
     fi

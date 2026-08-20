@@ -25,7 +25,11 @@ via `mentor:deferring`'s parent-aware capture.
 
 The argument below is **optional** and pre-selects an entry — a list number (1-based, newest note
 first, drain entries after), a plan-topic name (e.g. `console-remove-animation`), a root plan's own
-slug, a split-group's name, or a case-insensitive substring against any of those. If it is empty or
-matches nothing unambiguously, the skill lists everything and asks:
+slug, a split-group's name, or a case-insensitive substring against any of those. A `--confirm`
+flag anywhere in the argument is stripped before matching and runs the selected work **attended**
+(step-by-step, every question intact), overriding the repo's `instant` default for this run only.
+If what remains is empty or matches nothing unambiguously, the skill lists everything and asks —
+except a single live entry with the `instant` axis on (and no `--confirm`), which is announced in
+one line and continued directly:
 
 $ARGUMENTS

@@ -87,8 +87,8 @@ chk "invalid mode → usage printed"     sh -c "printf '%s' \"\$0\" | grep -q 'U
 chk "usage names the dispatch axis"    sh -c "printf '%s' \"\$0\" | grep -q 'verify-only'" "$out"
 
 echo "== A2. the dispatch axis is independent of mode =="
-# Two axes in one config file. The whole reason the write path is shared (write_key) is
-# that a second hand-rolled merge is where one axis silently clobbers the other.
+# Three axes in one config file. The whole reason the write path is shared (write_key) is
+# that a second hand-rolled merge is where one axis silently clobbers another.
 out="$(sm verify-only)"
 chk "set verify-only → confirmation"   sh -c "printf '%s' \"\$0\" | grep -q 'dispatch set: verify-only'" "$out"
 chk "..promises the question stops"    sh -c "printf '%s' \"\$0\" | grep -q 'POLICY: SET'" "$out"
@@ -112,6 +112,25 @@ chk "dispatch unset → UNSET line"      sh -c "printf '%s' \"\$0\" | grep -q '^
 chk "..names it as no override"        sh -c "printf '%s' \"\$0\" | grep -q 'no override'" "$out"
 chk "..mode line still leads"          sh -c "printf '%s' \"\$0\" | grep -q '^mode: plan-only'" "$out"
 sm plan >/dev/null
+
+echo "== A2b. the instant axis (v2.37.0) is independent of both =="
+out="$(sm instant-off)"
+chk "set instant-off → confirmation"   sh -c "printf '%s' \"\$0\" | grep -q 'instant set: off'" "$out"
+chk "config instant is off"            test "$(jq -r .instant "$CONF")" = "off"
+chk "..mode axis untouched"            test "$(jq -r .mode "$CONF")" = "plan"
+chk "..foreign key still preserved"    test "$(jq -r .custom "$CONF")" = "keep-me"
+out="$(sm instant-on)"
+chk "set instant-on → confirmation"    sh -c "printf '%s' \"\$0\" | grep -q 'instant set: on'" "$out"
+chk "config instant is on"             test "$(jq -r .instant "$CONF")" = "on"
+out="$(sm status)"
+chk "status → instant reported"        sh -c "printf '%s' \"\$0\" | grep -q '^instant: on'" "$out"
+# Unset instant must read as "behaves as on" — never a question, never off.
+jq 'del(.instant)' "$CONF" > "$CONF.tmp" && mv "$CONF.tmp" "$CONF"
+out="$(sm status)"
+chk "instant unset → UNSET line"       sh -c "printf '%s' \"\$0\" | grep -q '^instant: UNSET'" "$out"
+chk "..names the on default"           sh -c "printf '%s' \"\$0\" | grep -q 'behaves as on'" "$out"
+out="$(sm bogus || true)"
+chk "usage names the instant axis"     sh -c "printf '%s' \"\$0\" | grep -q 'instant-on'" "$out"
 
 rc=0; ( cd "$NONGIT" && HOME="$SANDBOX" bash "$SETMODE" status >/dev/null 2>&1 ) || rc=$?
 chk "non-repo → exit 1"                test "$rc" = "1"

@@ -7,7 +7,9 @@
 # lifecycle-state sidecar live inside it):
 #   <repo_root>/.mentor/
 #   ├── .gitignore        # commit config.json + constitution.md; ignore transient state
-#   ├── config.json       # {"mode": "plan|plan-only", "context_gate", "context_*_tokens", "test_command" ...}
+#   ├── config.json       # {"mode": "plan|plan-only", "dispatch": "agents|solo|verify-only",
+#   │                     #   "instant": "on|off" (v2.37.0 — unattended continuation),
+#   │                     #   "context_gate", "context_*_tokens", "test_command" ...}
 #   ├── constitution.md   # governing principles (committed; managed by /mentor:constitution)
 #   ├── plans/            # one .planning.<wt-id> gate marker PER WORKTREE (v2.23.0,
 #   │                     #   mentor_worktree_id/mentor_plan_marker below) + one <slug>/
@@ -337,6 +339,22 @@ mentor_get_mode() {
 #               split that preserves independent grading, which `solo` gives up
 mentor_get_dispatch() {
   mentor_config_get "${1:-}" "dispatch"
+}
+
+# mentor_get_instant <repo_root> — echo the persisted UNATTENDED-CONTINUATION
+# preference (on|off) or empty when unset.
+#
+# The third axis (v2.37.0), same config.json. It answers: when a plan already holds a
+# standing grant, may dispatch-agents' per-step loop run it to completion without a
+# human in the turn? UNSET MEANS ON — unattended continuation is only worth having if
+# nobody has to be present to opt in; what keeps that default safe is that the loop
+# runs nothing until `plan-state.sh instant` answers GO, and every stop it can hit
+# fails toward a question (ASK) or a halt (HOLD), never toward work. `off` restores
+# the attended flow end to end: no per-plan branch, no end-of-run auto-commit, every
+# closing question intact. Callers must treat any OTHER value as `off` — an
+# unparseable preference degrades toward MORE attendance, never less.
+mentor_get_instant() {
+  mentor_config_get "${1:-}" "instant"
 }
 
 # mentor_cwd <input_json> — echo the hook cwd ($PWD fallback).
@@ -807,6 +825,25 @@ mentor_plan_live_handoffs() {
 # carries this delimiter naturally, so nothing legitimate loses coverage.
 MENTOR_STEP_LINE_PATTERN='^[[:space:]]*(-[[:space:]]+)?([*][*])?(#{3,4}[[:space:]]+)?([0-9]+([.][0-9]+)*[.]([[:space:]]|[*]|$)|[Ss]tep[[:space:]]+[0-9]+([.][0-9]+)*([[:space:]]|:|[*]|[.][[:space:]]|[.]$|$))'
 
+# Outward-action patterns (v2.37.0) — matched by `plan-state.sh instant` against a
+# step's body to enforce dispatch-agents' unconditional "no outward action" stop.
+# Bracket expressions only, never a backslash escape: these are passed to awk -v as
+# dynamic regexes — the same undefined-behavior trap documented above for `[.]` and
+# `[*][*]`.
+#
+# Two tiers, deliberately. The COMMAND tier is high-precision (a literal push /
+# publish / merge invocation) and a non-negated hit is a stop; the PROSE tier
+# ("pull request", "pushes to") is REPORTED only — validated against the four real
+# fixture plans, the command tier scores 3 hits with zero false positives, while
+# promoting the prose tier to a stop would false-stop plans that merely DISCUSS
+# releases. Negation cues are LINE-scoped (POSIX awk has no sentence splitter; line
+# scope is what makes it testable): a line that both names an action and negates it
+# ("never `git push` by hand") lands in outward_negated=, not outward=, and the
+# caller reads both lists.
+MENTOR_OUTWARD_CMD_PATTERN='git[[:space:]]+(push|merge|tag)|gh[[:space:]]+(pr[[:space:]]+(create|merge)|release)|(npm|yarn|pnpm|cargo)[[:space:]]+publish|twine[[:space:]]+upload|publish-plugin|mentor:(ship|merge)'
+MENTOR_OUTWARD_PROSE_PATTERN='pull[[:space:]]+request|release[[:space:]]+commit|push(es|ed|ing)?[[:space:]]+(to|the)|open[[:space:]]+a[[:space:]]+PR|default[[:space:]]+branch'
+MENTOR_NEGATION_CUE_PATTERN="never|not[[:space:]]|n[']t|instead[[:space:]]+of|rather[[:space:]]+than|must[[:space:]]+not|forbid|without|hand-rolled"
+
 # mentor_plan_tick_counts <plan_md> — echo "<ticked> <total>" step-line counts from
 # the `## Implementation steps` section, ticked when a step line contains ✅.
 # "0 0" when no plan.md or no recognizable step lines. The one parsing
@@ -830,6 +867,56 @@ mentor_plan_tick_counts() {
     }
     END { printf "%d %d\n", ticked+0, total+0 }
   ' "$md" 2>/dev/null || echo "0 0"
+  return 0
+}
+
+# mentor_plan_step_scan <plan_md> — one awk pass over `## Implementation steps`,
+# emitting the TSV facts both `plan-state.sh verify` and `plan-state.sh instant`
+# consume. ONE derivation, deliberately: two independent scanners would be a second
+# copy of the step-body boundary rule, which is exactly how a reader and a writer
+# come to disagree about what a step is (the guarantee MENTOR_STEP_LINE_PATTERN's
+# comment above exists to protect). Rows:
+#   STEP<TAB>ord<TAB>hdr_line<TAB>body_end<TAB>ticked<TAB>has_dw<TAB>glue_line<TAB>header_text
+#   XTICK<TAB>line   — ✅ on a NON-step line inside the section (the tick counter
+#                      cannot see it; verify reports it, informational)
+#   GLUE<TAB>line    — an `### ` heading inside the section (step-body extraction
+#                      glues it onto the step above; a STEP row's glue_line is the
+#                      FIRST such line inside that step's own body, 0 when none)
+#   TOTAL<TAB>n      — always last, even for a missing file or step-less plan
+# The body boundary is mentor_plan_tick_step's and brief's: a body runs from its own
+# step line through, but NOT including, the next step line or the next `^## `
+# heading. header_text is the step line VERBATIM and is the LAST field — read it
+# with `cut -f8-` so an embedded tab cannot shear it.
+mentor_plan_step_scan() {
+  local md="${1:-}"
+  if [ -z "$md" ] || [ ! -f "$md" ]; then printf 'TOTAL\t0\n'; return 0; fi
+  awk -v pat="$MENTOR_STEP_LINE_PATTERN" '
+    function emit() {
+      printf "STEP\t%d\t%d\t%d\t%d\t%d\t%d\t%s\n", ord, hdr, last, tk, dw, glue, htext
+    }
+    /^##[[:space:]]/ {
+      h = tolower($0)
+      if (insec && cur) { emit(); cur = 0 }
+      insec = (h ~ /^##[[:space:]]+implementation[[:space:]]+steps/) ? 1 : 0
+      next
+    }
+    !insec { next }
+    $0 ~ pat {
+      if (cur) emit()
+      ord++; cur = 1
+      hdr = NR; last = NR
+      tk = (index($0, "✅") > 0) ? 1 : 0
+      dw = 0; glue = 0; htext = $0
+      next
+    }
+    {
+      last = NR
+      if (index($0, "✅") > 0) printf "XTICK\t%d\n", NR
+      if ($0 ~ /^###[[:space:]]/) { printf "GLUE\t%d\n", NR; if (cur && glue == 0) glue = NR }
+      if (cur && index($0, "Done when:") > 0) dw = 1
+    }
+    END { if (cur) emit(); printf "TOTAL\t%d\n", ord + 0 }
+  ' "$md" 2>/dev/null || printf 'TOTAL\t0\n'
   return 0
 }
 

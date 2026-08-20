@@ -17,6 +17,9 @@ itself is in question.
 - **Proving a negative** — verifying that a forbidden tool call never happened, and that
   a fan-out produced every artifact it was supposed to. Both are cases where the obvious
   check inverts the evidence.
+- **Why the loop refuses more than it runs** — the measurements behind unattended
+  continuation (v2.37.0): why the verify route is three-way instead of a boolean, why
+  ARMED_ELSEWHERE is not a stop, and which trade-offs were user-ruled rather than derived.
 
 ## Where dispatch pays
 
@@ -205,3 +208,72 @@ single-line `grep` against a claim that wraps. This is the same not-evidence sta
   agent's own report may still be in flight. The race also resolves in the other direction:
   an idle notification arriving from an agent **already** `TaskStop`ped needs no
   reply at all — the stop already closed it out.
+
+## Why the loop refuses more than it runs
+
+The unattended loop (v2.37.0) was almost built as a confirmation-remover. Three
+adversarial reviews measured the premise and found the loop already ran unattended:
+"Executing the dispatches" has had zero per-step questions since it was written, so the
+total harvestable friction on the resume path was roughly ONE conditional answer — the
+closing commit question. What the reviews found instead was the gap worth closing:
+context-gate.sh is UserPromptSubmit-only, so a run that collapses N human turns into one
+receives zero context readings in between. One real session grew ~247,465 tokens between
+two readings with nothing said. That is why `context-checkpoint.sh` (PostToolBatch)
+exists, and why the loop's per-step `instant` call re-reads gate AND context every
+iteration rather than trusting the pre-flight.
+
+**Why the verify route is three-way, not a boolean.** Measured across 72 parseable
+`Done when:` blocks in this repo: 14 (19%) are settled by a bounded command alone, 19
+carry a command plus a prose conjunct that still decides it, 33 are judgment only. A
+"has a runnable check" boolean would auto-tick the 19 on evidence that proves a fraction
+of them — `fix-plans-under-root` step 7 has exactly one code span and a prose conjunct
+that actually decides it. So the script reports five mechanically-decidable ambiguity
+facts and refuses when any fires; the model picks the route. Tiebreak, the loop's own:
+unsure a condition holds → it does not hold. (`references/verifier-contract.md`'s stamp
+tiebreaks resolve the other way — unsure `[GOAL]` → `[NON-GOAL]` — because a misfiled
+gap reaches the user for a verdict, while a false tick here reaches no one.)
+
+**Why ARMED_ELSEWHERE proceeds and STALE stops.** `mentor_plan_tick_step` ends in `mv`,
+which bumps plan.md's mtime; `mentor_newly_planned` is `find -newer <marker>` and IS
+approve-plan.sh's promotion set; approve-plan.sh resolves this worktree's own marker
+with no staleness test. So any own/legacy marker file on disk — live or stale — makes
+every plan the loop ticks a promotion candidate, manufacturing the exact "swept in by
+approve-plan.sh… not necessarily reviewed" case plan-track's `approved` row carries a
+mandatory confirm for. A STALE marker is the worse of the two: being older, its
+`find -newer` set is larger. A sibling worktree's marker is different in kind: no own
+or legacy marker exists here, approve-plan.sh run here resolves nothing, and the
+sibling's own run goes strict, excluding foreign-owned candidates. It also does not
+block writes here at all.
+
+**Which trades were user-ruled (2026-08-20), not derived** — recorded so a later
+reader knows which side of each to argue with:
+
+- *Context checkpoint is advisory-only, all tiers.* On PostToolBatch, exit 2 stops the
+  agentic loop dead — mid-step, half-edited tree, no handoff note, no `failed --note`.
+  The ruling chose "never blind" over "forced stop": exhaustion stays possible if a run
+  ignores the directive.
+- *Under `dispatch: solo`, the prose-criterion verifier dispatches anyway.* The
+  alternatives were refusing to run unattended (making on-by-default inert in the very
+  repo that uses mentor most) or self-grading (uncalibrated self-assessment written as
+  positional ticks into an unversioned file — the artifact the v2.36.0 parser fix just
+  proved can be silently corrupted). Solo's no-agents intent is overridden for
+  verification only, disclosed per dispatch in the run record.
+- *Auto-commit happens once, at end of run, on a per-plan branch.* Per-step commits
+  move HEAD mid-run and real plans carry criteria that read the pre-change HEAD ("the
+  suite runs and FAILS against current HEAD"); committing nothing leaves hours of work
+  exposed to directory-wide staging by concurrent automation (this repo's loom swallowed
+  unrelated in-flight edits once — commit d54fde9). The branch (`mentor/<group>/<slug>`,
+  cut from the active branch) keeps the commit off the user's branch entirely; a
+  worktree is taken only when a second run is already active in the same tree, because
+  an unattended `git checkout` under a user's feet was judged worse than sharing the
+  tree with one run. Push/PR/merge stay hard stops — the branch is local until a human
+  says otherwise.
+- *A dirty tree does not block branch entry.* Ruled; the mitigation is disclosure (the
+  run record's `NOTE:` lines) plus narrow staging proven against them at commit time.
+- *The end-of-run Verification round dispatches under `dispatch: solo` too* (ruled
+  2026-08-20, hygiene pass): the per-step override's unstated boundary, resolved toward
+  dispatch — the round exists precisely to independently grade the whole run.
+- *An instant auto-selected resume narrates in full but does not end the turn on it*
+  (ruled 2026-08-20, hygiene pass): resuming Step 5's own-turn stop is attended-only;
+  the announcement is the visibility the stop existed to buy.
+

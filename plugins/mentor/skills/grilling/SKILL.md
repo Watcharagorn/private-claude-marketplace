@@ -79,7 +79,7 @@ If there is genuinely nothing to grill, say so in one line and stop.
 
 ## Step 2 — The interview protocol
 
-**Check the context before committing to the interview.** A grill runs mostly on `AskUserQuestion` round-trips, not fresh prompts, and those supply nothing for `context-gate.sh`'s WARN tier to re-fire on (`UserPromptSubmit`-only); the one prompt shape an interview does generate on its own — a dispatched `Explore` agent's inbound report, from the codebase-research bullet below — is `SYNTHETIC=1`, which `context-gate.sh`'s own WARN tier deliberately skips. So a long grill gets at most the one nudge that landed before it started, then silence for the rest of the interview:
+**Check the context before committing to the interview.** A grill runs mostly on `AskUserQuestion` round-trips, not fresh prompts, and those supply nothing for `context-gate.sh`'s WARN tier to re-fire on (`UserPromptSubmit`-only); the one prompt shape an interview does generate on its own — a dispatched `Explore` agent's inbound report, from the codebase-research bullet below — is `SYNTHETIC=1`, which `context-gate.sh`'s own WARN tier deliberately skips. So a long grill gets at most the one nudge that landed before it started, plus whatever rate-limited `context-checkpoint.sh` advisories land between rounds (v2.37.0) — nothing that stops and asks:
 
 ```bash
 bash "${CLAUDE_PLUGIN_ROOT}/hooks/plan-state.sh" context
@@ -92,7 +92,7 @@ Same tiers as `mentor:resuming` Step 5 / `mentor:plan-track` Step 0:
 - **`CONTEXT: WARN`** — surface it, then continue.
 - **`CONTEXT: OK` / `UNKNOWN`** — continue.
 
-Re-run the same check at Step 3's Close, before the recap — the interview itself supplies no further checkpoint.
+Re-run the same check at Step 3's Close, before the recap — nothing in the interview itself stops and asks.
 
 Interview the user relentlessly about every aspect of this plan until you reach a shared understanding. Walk down each branch of the design tree, resolving dependencies between decisions one-by-one. For each question, provide your **recommended answer** — the most practical and clean solution, never trade maintainability or reliability for implementation speed.
 
