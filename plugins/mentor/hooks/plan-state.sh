@@ -199,9 +199,14 @@
 #                                   one pass over the parent graph. This is what makes
 #                                   a whole-repo roll-up one process instead of one per
 #                                   root.
-#       output   --format json|table|slug|count|tsv   (json default, so migrating a
-#                                   caller off the retired `overview --json` is a
+#       output   --format json|table|slug|count|tsv|tree   (json default, so migrating
+#                                   a caller off the retired `overview --json` is a
 #                                   rename and nothing else)
+#                --format tree     the finished /mentor:track hierarchy, ready to print
+#                                   verbatim: glyphs, tier/category columns, depth-first
+#                                   ordinals, group blocks, parent nesting, the
+#                                   done-with-open-descendants warn and the unparented-fix
+#                                   clause. Pair with --open-counts; --fields is ignored.
 #                --fields a,b      dot paths (steps.total, parent.slug); tsv/table
 #                                   render null as `-`
 #                --sort F --limit N
@@ -495,7 +500,9 @@ Usage: plan-state.sh <subcommand>
              --owner W --unowned --has-handoff --deps-missing --match GLOB
              (AND-combined; a comma-separated value ORs within that one flag)
     enrich   --open-counts        adds `open_descendants` to every entry, one pass for all
-    output   --format json|table|slug|count|tsv   (default json)
+    output   --format json|table|slug|count|tsv|tree   (default json; `tree` renders
+                                         the finished /mentor:track hierarchy — pair it
+                                         with --open-counts)
              --fields a,b         dot paths, e.g. steps.total, parent.slug
              --sort F --limit N
   brief <slug> [--step N]               scope-complete envelope for one plan: title, CONTEXT
@@ -2025,6 +2032,129 @@ _descendant_lines() {
   return 0
 }
 
+# _query_tree_program — the jq that renders `query`'s entry array as the plan
+# hierarchy `/mentor:track` prints. It lives here, not in the skill, because every
+# line of it is mechanical: glyphs, tier/category columns, depth-first numbering,
+# the roll-up warn, group blocks and parent nesting are all derivable from fields
+# `query` already carries. Rendering it in prose cost ~2.8k tokens of instruction on
+# every invocation AND re-derived the layout each session, so two runs of the same
+# repo could disagree about what "done" looked like. A script cannot drift that way.
+#
+# Two inputs the entry array itself cannot supply, both passed as --arg:
+#   $wt   this worktree's id, for the ` [worktree: …]` tag on a plan another worktree
+#         owns. Empty when underivable — an absent tag beats a wrong one.
+#   $excl space-joined slugs whose sidecar `note` records the dispatch non-goal gate
+#         disposition. They are deliberately NOT counted as unparented fixes: flat is
+#         the answer the user already gave there, and re-flagging it every session
+#         would tell them to undo a decision they made on purpose.
+_query_tree_program() {
+  cat <<'MENTOR_TREE_JQ'
+# Renders `query`'s entry array as the plan hierarchy /mentor:track shows.
+#   $wt   — this worktree's id ("" when underivable: print no tag rather than a wrong one)
+#   $excl — space-joined slugs whose sidecar note reads `gate: left uncontained`
+def prilbl: {"critical":"crit","high":"high","medium":"med","low":"low","noise":"noise"}[. // ""] // "";
+def catlbl: {"feature":"feat","fix":"fix","refactor":"refac","docs":"docs","tooling":"tool"}[. // ""] // "";
+def glyph:
+    if . == "implemented"  then "●"
+  elif . == "in_progress"  then "◐"
+  elif . == "draft" or . == "approved" then "○"
+  elif . == "failed"       then "✕"
+  else "⊘" end;
+def isopen: . != "implemented" and . != "superseded";
+def pad($n): . + ((" " * ($n - length)) // "");
+def tag($w): (if . == "" then "" else "[" + . + "]" end) | pad($w);
+
+. as $all
+| [ $all[] | select(.kind == "plan") ]            as $plans
+| [ $all[] | select(.kind == "no_plan_topic") ]   as $topics
+| [ $all[] | select(.kind == "legacy_handoffs") ] as $legacy
+| ($excl | split(" ") | map(select(length > 0)))  as $EX
+| ($plans | INDEX(.slug))                         as $BY
+# Lineage without containment: an OPEN fix that names a plan through `deferred_from`
+# but was never parented to it. `open_descendants` walks `parent` only, so without
+# this a root whose every defect was parked flat reads perfectly clean — the wrong
+# answer to "any fixes left under this plan?". Stubs the user dispositioned at the
+# non-goal gate are excluded: flat is the answer they already gave.
+| ( reduce ($plans[] | select(
+      .category == "fix" and .parent == null and .deferred_from != null
+      and (.state | isopen) and ((.slug | IN($EX[])) | not)
+    )) as $f ({}; .[$f.deferred_from.slug] = ((.[$f.deferred_from.slug] // 0) + 1)) ) as $UNP
+| ( reduce ($plans[] | select(.parent != null and ((.parent.missing // false) | not)))
+      as $c ({}; .[$c.parent.slug] = ((.[$c.parent.slug] // []) + [$c.slug])) ) as $KIDS
+| [ $plans[] | select(.parent == null or (.parent.missing // false)) ] as $roots
+# Active states first, then group (an ungrouped plan sorts on its own slug, so it lands
+# where its name would), then order, then slug — the order the retired `list` table used.
+| def sortkey: [ (if .state == "superseded" or .state == "unknown" then 1 else 0 end),
+                 (.group // .slug), (.order // 999999), .slug ];
+# Widths are measured, not guessed, so the tier/category columns stay scannable whatever
+# this repo's longest slug happens to be. +3 leaves room for both brackets and a space.
+  ([ $plans[] | (.priority | prilbl) | length ] + [0] | max) as $wPri
+| ([ $plans[] | (.category | catlbl) | length ] + [0] | max) as $wCat
+| ([ $plans[] | .slug | length ] + [ $topics[] | .slug | length ] + [0] | max) as $wSlug
+| def body($e):
+    ($e.open_descendants // 0) as $od
+    | ($e.state == "implemented" and $od > 0) as $notdone
+    | ($UNP[$e.slug] // 0) as $unp
+    # The warn marker is a fixed 2-char slot, so flagging a root never shifts the
+    # columns of every line beside it out of alignment.
+    | ((if $notdone then "⚠ " else "  " end)
+       + ($e.state | glyph) + " "
+       + (if $wPri > 0 then ($e.priority | prilbl | tag($wPri + 3)) else "" end)
+       + (if $wCat > 0 then ($e.category | catlbl | tag($wCat + 3)) else "" end)
+       + ($e.slug | pad($wSlug + 2))
+       + $e.state
+       + ( [ (if $e.parent != null then "fix child" else empty end),
+             (if $e.origin == "deferred" then
+                ("deferred" + (if $e.deferred_from != null
+                   then ", from: " + $e.deferred_from.slug
+                        + (if $e.deferred_from.missing then " (missing)" else "" end)
+                   else "" end))
+              else empty end) ]
+           | if length > 0 then " (" + join(", ") + ")" else "" end )
+       + (if ($e.parent.missing // false) then " (parent: " + $e.parent.slug + " missing)" else "" end)
+       + (if ($e.steps.total // 0) > 0 then " (\($e.steps.ticked)/\($e.steps.total) steps)" else "" end)
+       + (if ($e.deps | length) > 0 then " — deps: "
+            + ([ $e.deps[] | .slug + (if .missing then " (missing)" else "" end) ] | join(", ")) else "" end)
+       + (if $notdone then " — not really done, \($od) open descendant(s)"
+          elif $e.parent == null and $od > 0 then " — \($od) open descendant(s)" else "" end)
+       + (if $unp > 0 then " — ⚠ \($unp) unparented open fix(es) trace here" else "" end)
+       + (if $wt != "" and $e.owner != null and $e.owner != $wt
+          then " [worktree: \($e.owner)]" else "" end));
+  def emit($slug; $depth):
+    $BY[$slug] as $e
+    | [ { t: "n", depth: $depth, s: body($e) } ]
+      + [ $e.handoffs[]? | { t: "s", depth: $depth, s: ("└ handoff: " + . + " (live)") } ]
+      + (if ($e.goal // "") != "" then [ { t: "s", depth: $depth, s: ("└ goal: " + $e.goal) } ] else [] end)
+      + ((($KIDS[$slug] // []) | map($BY[.]) | sort_by(sortkey) | map(emit(.slug; $depth + 1)) | add) // []);
+  ( reduce ($roots | sort_by(sortkey))[] as $r ({ prev: null, out: [] };
+      .out += (if $r.group != null and $r.group != .prev
+               then [ { t: "h", depth: 0, s: ("▸ group: " + $r.group) } ] else [] end)
+              + emit($r.slug; (if $r.group != null then 1 else 0 end))
+      | .prev = $r.group ) | .out ) as $planItems
+| ( $topics | sort_by(.slug) | map(
+      [ { t: "n", depth: 0, s: ("  ▷ " + (.slug | pad($wSlug + 2)) + "no plan yet") } ]
+      + [ .handoffs[]? | { t: "s", depth: 0, s: ("└ handoff: " + . + " (live)") } ] ) | add // [] ) as $topicItems
+| ( $legacy | map({ t: "h", depth: 0, s: ("▽ (untracked) legacy handoffs: "
+                    + (.handoffs | join(", ")) + " — .mentor/handoffs/, no topic") }) ) as $legacyItems
+| ($planItems + $topicItems + $legacyItems) as $items
+# Ordinals land only on actionable entries, depth-first — group headers, handoff/goal
+# sublines and the footer never consume one, because Step 2 resolves the user's pick
+# against exactly these numbers. Padding them to a common width keeps the glyph column
+# straight once the list runs past nine entries.
+| ([ $items[] | select(.t == "n") ] | length | tostring | length + 1) as $wOrd
+| ( reduce $items[] as $it ({ n: 0, out: [] };
+      if $it.t == "n"
+      then .n += 1
+           | .out += [ ("  " * $it.depth) + ("\(.n)." | pad($wOrd)) + " " + $it.s ]
+      elif $it.t == "h" then .out += [ ("  " * $it.depth) + $it.s ]
+      else .out += [ ("  " * $it.depth) + (" " * ($wOrd + 1)) + $it.s ] end ) | .out ) as $lines
+| ($lines + (if ([ $UNP[] ] | add // 0) > 0
+    then [ "", "unparented fixes exist — adopt with: plan-state.sh set-parent <stub-slug> <owning-plan>" ]
+    else [] end))
+| .[]
+MENTOR_TREE_JQ
+}
+
 # --- query engine: phase-1 scan ------------------------------------------------
 # The `query` subcommand replaced `overview --json` + `subtree` (both retired in
 # v2.33.0) with one filterable
@@ -2853,9 +2983,9 @@ case "$sub" in
       exit 1
     fi
     case "$q_format" in
-      json|table|slug|count|tsv) ;;
+      json|table|slug|count|tsv|tree) ;;
       *)
-        echo "[mentor plan-state] query: --format must be one of json|table|slug|count|tsv (got: ${q_format})." >&2
+        echo "[mentor plan-state] query: --format must be one of json|table|slug|count|tsv|tree (got: ${q_format})." >&2
         exit 1
         ;;
     esac
@@ -2994,6 +3124,19 @@ case "$sub" in
         # all, and inventing a placeholder here would put a non-slug into a list whose
         # entire purpose is to be fed back in as `--slug`/`--subtree` arguments.
         printf '%s' "$q_out" | jq -r '.[] | .slug // empty'
+        ;;
+      tree)
+        # The rendered hierarchy, ready to print verbatim. `--fields` is meaningless
+        # here (the layout picks its own columns) and is ignored rather than erroring,
+        # so a caller that sets it globally still gets a usable tree.
+        q_wt="$(mentor_worktree_id "$(pwd)" 2>/dev/null)" || q_wt=""
+        # `query`'s projection drops `note`, so re-read the sidecars for the one field
+        # the exclusion needs — one jq spawn, the same helper phase 1 used.
+        q_excl="$(_query_sidecars | jq -r '
+          (.map // {}) | to_entries[]
+          | select(((.value.note // "") | contains("gate: left uncontained")))
+          | .key' 2>/dev/null | tr '\n' ' ')" || q_excl=""
+        printf '%s' "$q_out" | jq -r --arg wt "$q_wt" --arg excl "$q_excl" "$(_query_tree_program)"
         ;;
       json)
         if [ -n "$q_fields" ]; then

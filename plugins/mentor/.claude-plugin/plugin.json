@@ -1,7 +1,7 @@
 {
   "name": "mentor",
   "description": "A lean planning harness for Claude Code: an edit gate keeps the repo read-only until the plan is approved, then work is routed to where it pays \u2014 verification, review and research always to fresh single-focus subagents, implementation only when steps can truly run in parallel.",
-  "version": "2.37.0",
+  "version": "2.38.0",
   "author": {
     "name": "NTBX"
   }

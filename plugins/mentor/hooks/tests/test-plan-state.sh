@@ -2042,6 +2042,107 @@ chk "..names jq as the cause"                    has "jq is absent" "$out"
 out="$(ps policy extra-arg)"; rc=$?
 chk "policy: takes no arguments → exit 2"        test "$rc" = "2"
 
+# --- query --format tree: the rendered hierarchy (v2.38.0) --------------------
+# The layout /mentor:track prints used to live as ~9.5KB of prose in the skill,
+# re-derived by the model on every run. These assertions are what stops it drifting
+# back: they pin the numbering contract Step 2's ordinal selection resolves against,
+# and the two roll-up clauses that are the whole reason the view is trusted for
+# "is this really done?".
+echo; echo "== query --format tree =="
+TREE="$ROOT/tree-repo"
+git init -q -b main "$TREE" >/dev/null 2>&1
+( cd "$TREE"; git config user.email t@t.co; git config user.name t; echo x > f; git add -A; git commit -q -m init ) >/dev/null 2>&1
+TPLANS="$TREE/.mentor/plans"
+tplan() { # <slug> [--steps N ticked] — a plan dir with a plan.md carrying N step lines
+  mkdir -p "$TPLANS/$1"
+  printf '# %s\n\n## Context\n\nctx\n\n## Implementation steps\n\n' "$1" > "$TPLANS/$1/plan.md"
+  local n="${2:-0}" tick="${3:-0}" i=1
+  while [ "$i" -le "$n" ]; do
+    if [ "$i" -le "$tick" ]; then printf '### %s. step ✅\n\nDone when: ok\n\n' "$i" >> "$TPLANS/$1/plan.md"
+    else printf '### %s. step\n\nDone when: ok\n\n' "$i" >> "$TPLANS/$1/plan.md"; fi
+    i=$((i+1))
+  done
+}
+tps() { ( cd "$TREE" && _env bash "$PLANSTATE" "$@" 2>/dev/null ); }
+# grep -F: the rendered line is full of [brackets] that a BRE would read as classes.
+hasF()  { printf '%s' "$2" | grep -qF -- "$1"; }
+hasntF(){ ! printf '%s' "$2" | grep -qF -- "$1"; }
+
+tplan root-plan 2 2;        tps init root-plan --priority high --category feature >/dev/null
+tplan fix-auth 1 0;         tps init fix-auth --parent root-plan --category fix --deferred --from root-plan --priority critical >/dev/null
+tplan fix-retry 1 0;        tps init fix-retry --parent fix-auth --category fix >/dev/null
+tplan split-a 4 1;          tps init split-a --group gfeat --order 1 >/dev/null
+tplan split-b 1 0;          tps init split-b --group gfeat --order 2 >/dev/null
+tplan flat-fix 1 0;         tps init flat-fix --category fix --deferred --from root-plan >/dev/null
+tplan gated-fix 1 0;        tps init gated-fix --category fix --deferred --from root-plan >/dev/null
+tplan dep-plan 1 0;         tps init dep-plan --deps ghost-plan >/dev/null
+tps set split-a in_progress >/dev/null
+tps set gated-fix draft --note 'gate: left uncontained' >/dev/null
+mkdir -p "$TPLANS/topic-only/handoffs"; printf '# h\n' > "$TPLANS/topic-only/handoffs/20260801-000000-explore.md"
+mkdir -p "$TREE/.mentor/handoffs"; printf '# old\n' > "$TREE/.mentor/handoffs/20260701-000000-legacy.md"
+TOUT="$(tps query --open-counts --format tree)"
+
+chk "tree: --format tree is accepted"        test -n "$TOUT"
+out="$( cd "$TREE" && _env bash "$PLANSTATE" query --format bogus 2>&1 >/dev/null )"
+chk "tree: bad --format names tree as valid" has "json|table|slug|count|tsv|tree" "$out"
+
+chk "tree: implemented glyph"                hasF "● [high]" "$TOUT"
+chk "tree: in_progress glyph"                hasF "◐" "$TOUT"
+chk "tree: draft glyph"                      hasF "○" "$TOUT"
+chk "tree: step counts render"               hasF "(1/4 steps)" "$TOUT"
+chk "tree: deferred names its source"        hasF "(deferred, from: root-plan)" "$TOUT"
+chk "tree: fix child is labelled"            hasF "(fix child" "$TOUT"
+chk "tree: missing dep marked"               hasF "deps: ghost-plan (missing)" "$TOUT"
+
+# Blank padding, never an invented tag: nobody judged these, which is a different
+# fact from judging them medium/feature.
+chk "tree: no tier invented when null"       hasntF "[med]" "$TOUT"
+chk "tree: no category invented when null"   hasntF "[tool]" "$TOUT"
+
+chk "tree: group header rendered"            hasF "▸ group: gfeat" "$TOUT"
+chk "tree: group members indented"           has "^  [0-9]*\. .*split-a" "$TOUT"
+
+# A root already reading implemented while fixes stay open is the single answer this
+# view exists to get right — nothing re-checks it after the write-time warn.
+chk "tree: done-with-open-descendants warns" hasF "⚠ ●" "$TOUT"
+chk "tree: ..and says not really done"       hasF "not really done, 2 open descendant(s)" "$TOUT"
+
+# flat-fix counts (lineage, no containment); gated-fix does not (the user already
+# said flat was the answer at the non-goal gate).
+chk "tree: unparented fix counted"           hasF "⚠ 1 unparented open fix(es) trace here" "$TOUT"
+chk "tree: gate-dispositioned stub excluded" hasntF "⚠ 2 unparented open fix(es)" "$TOUT"
+chk "tree: repair hint follows the clause"   hasF "set-parent <stub-slug> <owning-plan>" "$TOUT"
+
+chk "tree: no_plan_topic uses its own kind"  hasF "▷ topic-only" "$TOUT"
+chk "tree: ..labelled no plan yet"           hasF "no plan yet" "$TOUT"
+chk "tree: live handoff rendered as subline" hasF "└ handoff: 20260801-000000-explore.md (live)" "$TOUT"
+chk "tree: legacy handoffs render last"      test "$(printf '%s' "$TOUT" | grep -c '^▽ (untracked) legacy handoffs:')" = "1"
+
+# Ordinals are the selection surface: a header or subline stealing one would make
+# "build number 4" resolve to a different plan than the user pointed at.
+tree_ords() { printf '%s' "$TOUT" | sed -n 's/^ *\([0-9][0-9]*\)\..*/\1/p' | tr '\n' ' '; }
+chk "tree: ordinals are dense and in order"  test "$(tree_ords)" = "1 2 3 4 5 6 7 8 9 "
+chk "tree: group header takes no ordinal"    hasnt "^ *[0-9][0-9]*\. *▸" "$TOUT"
+chk "tree: handoff subline takes no ordinal" hasnt "^ *[0-9][0-9]*\. *└" "$TOUT"
+# Depth-first: a root's fixes number immediately after it, before the next top-level
+# entry, so the ordinal a user reads off the tree is the one Step 2 resolves.
+chk "tree: fix child numbers under its root" test \
+  "$(printf '%s' "$TOUT" | grep -n 'fix-auth' | cut -d: -f1)" \
+  -gt "$(printf '%s' "$TOUT" | grep -n 'root-plan  *implemented' | cut -d: -f1)"
+chk "tree: grandchild nests one level deeper" has "^    [0-9]*\. .*fix-retry" "$TOUT"
+
+# An absent tag beats a wrong one: with no owner recorded there is nothing to compare.
+chk "tree: own/unowned plans carry no worktree tag" hasntF "[worktree:" "$TOUT"
+jq '.owner = "some-other-wt"' "$TPLANS/dep-plan/.state.json" > "$TPLANS/dep-plan/.tmp" && mv "$TPLANS/dep-plan/.tmp" "$TPLANS/dep-plan/.state.json"
+chk "tree: a foreign owner IS tagged"        hasF "[worktree: some-other-wt]" "$(tps query --open-counts --format tree)"
+
+chk "tree: repo that never planned prints nothing" test -z "$( cd "$BARE" && _env bash "$PLANSTATE" query --format tree 2>/dev/null )"
+chk "tree: no jq on PATH is fail-soft"       test -z "$( cd "$TREE" && _env PATH="$NOJQ_DIR" "$BASH_BIN" "$PLANSTATE" query --format tree 2>/dev/null )"
+
+# The point of the format: the model prints this instead of re-rendering JSON.
+chk "tree: renders smaller than the JSON it replaces" test \
+  "$(printf '%s' "$TOUT" | wc -c)" -lt "$(tps query --open-counts | wc -c)"
+
 echo
 echo "RESULT: PASS=$PASS FAIL=$FAIL"
 [ "$FAIL" = "0" ]

@@ -76,40 +76,59 @@ having no check at all.
 ## Step 1 — See the hierarchy
 
 ```bash
-bash "${CLAUDE_PLUGIN_ROOT}/hooks/plan-state.sh" query --open-counts
+bash "${CLAUDE_PLUGIN_ROOT}/hooks/plan-state.sh" query --open-counts --format tree
 ```
 
-This is the ONE call that answers "what's remaining?" — a JSON array covering every plan dir with
-a `plan.md` (slug, effective state, group, order, `priority`, `deps` — each marked `missing` when
-no such plan dir exists, `origin`, live handoffs, `✅` step counts), plus topic dirs holding a live
-handoff but no plan yet, plus the legacy flat `.mentor/handoffs/*.md` dir. It replaces the old
-`list` table — `list` still exists and is byte-compatible, but `query` is the only call that
-also carries deps, origin, priority, and step counts, so it is Step 1 now. Whenever it prints anything, that output is valid JSON
-(`jq .` parses it); see the hook script's header comment for the exact per-entry shape
-(`kind: "plan" | "no_plan_topic" | "legacy_handoffs"`). Plan files live at `PLANS_DIR/<PLAN>/plan.md`.
+This is the ONE call that answers "what's remaining?", and it returns the **finished view** —
+glyphs, tier and category columns, depth-first ordinals, group blocks, fix children nested under
+their parents, live handoffs, deferred goals, the done-with-open-descendants warn and the
+unparented-fix clause, already laid out.
 
-`--open-counts` is what makes this **one** call rather than one plus a per-root walk: it adds
-`open_descendants` to every entry from a single pass over the parent graph, which is exactly the
-number the roll-up clause below renders. Historically (before v2.33.0 retired it) the same figure
-took one `subtree` call per root — 32 subprocesses and about 5 seconds on this repo before anything
-was drawn.
+**Print it verbatim.** Don't re-render, re-sort, re-number, or tidy it. The ordinals down its left
+edge are exactly what Step 2 resolves the user's pick against, so a second layout is a second
+numbering — and the user's "build 4" quietly stops meaning the line they were looking at. It also
+covers topic dirs holding a live handoff but no plan yet (`▷`), and the legacy flat
+`.mentor/handoffs/` dir (`▽`), so nothing in the repo goes unrepresented.
 
-`query` also takes filters, so an ask narrower than the whole hierarchy does not have to pull the
-whole hierarchy and sift it in `jq`: `--open`, `--state`, `--category`, `--priority`, `--parent`,
-`--no-parent`, `--deferred-from`, `--match`, and friends AND-combine, and `--format
-json|table|slug|count|tsv` with `--fields a,b` shapes what comes back. The full flag set is in
-`plan-state.sh`'s usage block. Step 1 itself stays unfiltered on purpose — this view is the
-inventory of what is left, and a filtered inventory is a different (and easily misleading) answer.
+`--open-counts` is what makes this **one** call rather than one plus a per-root walk: it adds the
+open-descendant figure to every entry from a single pass over the parent graph, which is what keeps
+a whole-repo roll-up to a single process (`references/rationale.md` → **Why `--open-counts`
+replaced the per-root walk**).
+
+Two clauses in the output are worth acting on rather than just relaying:
+
+- **`⚠ … — not really done, N open descendant(s)`** on a root that reads `implemented`. Nothing
+  re-checks a root after the write-time warn fires, so this render is the only place that
+  contradiction ever resurfaces. Surface it; never block on it. When the user wants *which* ones
+  rather than how many, `query --subtree <root-slug>` returns those entries — "open" keeps
+  `query`'s own definition (effective state ∉ `implemented`/`superseded`), never one re-derived
+  here.
+- **`— ⚠ N unparented open fix(es) trace here`**, with the `set-parent` hint in the footer. These
+  are open fixes that name the plan through `deferred_from` but were never parented to it, which
+  the descendant count is structurally blind to. Offer the repair; don't run it unasked.
+
+Both are advisory — this skill warns and moves on. Draining a root's open descendants in order is
+`/mentor:resume <root>`'s job, not this one's; here you only ever see the count. (`references/rationale.md` →
+**Why `gate: left uncontained` is excluded from the unparented-fix count** for the exclusion, and
+**Why the hierarchy is rendered by the script, not by prose** for why this view is a script call.)
+
+**Need fields rather than a view?** Drop `--format tree` for the JSON array — same entries, same
+filters, one object per plan. Narrow it with `--open`, `--state`, `--category`, `--priority`,
+`--parent`, `--no-parent`, `--deferred-from`, `--match` (they AND-combine), and shape it with
+`--fields a,b`; the full flag set is in `plan-state.sh`'s usage block. Step 1 itself stays
+unfiltered on purpose — this view is the inventory of what is left, and a filtered inventory is a
+different, and easily misleading, answer. When Step 3 needs a single plan's fields, query that one
+slug rather than re-pulling the whole set.
 
 **It can also print nothing at all** — stdout empty, exit 0, one stderr line saying which case it
 hit: **no git repo** (mentor keeps no plan registry outside a repo), or **no `.mentor/plans` dir
-yet** (nothing has ever been planned here). Don't feed that to `jq` and don't render an empty
-hierarchy — say it in one line and stop. Say what the emptiness means and no more: mentor tracks
-only its own plans, so "no mentor plans in this repo" is never a claim that the repo has no work
-in flight — planning may simply live somewhere else.
+yet** (nothing has ever been planned here). Don't render an empty hierarchy — say it in one line
+and stop. Say what the emptiness means and no more: mentor tracks only its own plans, so "no mentor
+plans in this repo" is never a claim that the repo has no work in flight — planning may simply live
+somewhere else.
 
 If `$ARGUMENTS` is `status` (case-insensitive) or contains any whitespace — a full sentence or
-multi-word survey ask, rather than a single ordinal/slug token — render the hierarchy below and
+multi-word survey ask, rather than a single ordinal/slug token — print the hierarchy from Step 1 and
 stop; the user asked to look, not to build. This is a mechanical check, not a judgment call: a bare
 ordinal and a bare slug never contain whitespace, so only a genuinely single-token argument (or no
 argument at all, which Step 2's own no-argument branch already handles safely via
@@ -121,187 +140,6 @@ any surrounding prose stops at Step 1 instead, on purpose, because a survey-shap
 silently resolve into a build. Name the plan directly — by ordinal or bare slug alone — to act on
 it.
 
-### Render it as a hierarchy, not a flat dump
-
-Use a distinct glyph/label per resource **kind** — a plan, a deferred stub, and a handoff must
-never read as the same kind of thing at a glance:
-
-| Glyph | Meaning (a bucket — the state word printed after the slug says exactly which) |
-|---|---|
-| `●` | `implemented` |
-| `◐` | `in_progress` |
-| `○` | `draft` or `approved` (not yet building) |
-| `✕` | `failed` |
-| `⊘` | `superseded` / `unknown` — render last, and only when the user is browsing everything |
-| `▷` | `kind: "no_plan_topic"` — a topic with a live handoff but no plan yet |
-
-Number **actionable** entries only (`kind: "plan"` or `"no_plan_topic"`) 1..N in render order —
-group headers and `handoff:` sub-lines never consume a number, because that numbering is exactly
-what Step 2's ordinal selection resolves against:
-
-```
-1. ● [high]          recommended-first-clean   implemented (3/3 steps)
-2. ○ [crit]          oauth-refactor            draft (deferred) — deps: fix-gate-msg-typo
-3. ○ [noise]         fix-gate-msg-typo         draft (deferred)
-4. ◐                 some-feature              in_progress (1/4 steps)
-     └ handoff: 20260801-224510-implement.md (live)
-5. ○ [med]   [fix]   claim-order-tiebreak      draft (deferred, from: loom-automation)
-     └ goal: `claim_order()` in `plugins/loom/scripts/automate/daily-run.sh` orders…
-```
-
-Per plan entry: `<glyph> [<tier>] [<cat>] <slug>   <state>[ (fix child)][ (deferred[, from: <slug>[ (missing)]])]
-[(<ticked>/<total> steps)][ — deps: <a>[, <b> (missing)]][ — N open descendant(s)]`, with an optional
-`     └ goal: <text>` subline beneath a deferred entry.
-
-- the **tier tag** carries the entry's `priority` — one of `critical`, `high`, `medium`, `low`,
-  `noise`, abbreviated to fit one padded column (`crit`/`high`/`med`/`low`/`noise`). An entry whose
-  `priority` is `null` gets **blank padding, not a tag** — nobody has judged that plan's impact,
-  which is a different fact from judging it `medium`, and inventing a default here would launder a
-  guess into something that reads like a record. Keep the column aligned so a scan down it answers
-  "what actually matters" without reading a single slug — that separation is the whole reason the
-  field exists.
-- the **category tag** carries the entry's `category` — one of `feature`, `fix`, `refactor`,
-  `docs`, `tooling`, abbreviated to fit one padded column (`feat`/`fix`/`refac`/`docs`/`tool`),
-  rendered right after the tier column. An entry whose `category` is `null` gets **blank padding,
-  not a tag** — same philosophy as the tier: nobody has categorized that work, which is different
-  from having categorized it, and inventing a default here would launder a guess into something
-  that reads like a record.
-- **Never sort or filter on the tier or category.** The sort below stays exactly as it was, and a
-  `noise` plan (or an uncategorized one) still renders in its usual place: `/mentor:track` is the
-  inventory of what's left, and a view that quietly dropped the low tiers or hid a category would
-  make "what's remaining?" a lie in the one place a user goes to trust it. The tags are there to let
-  a reader *skip* the noise, not to decide for them. When the user's ask is explicitly about impact
-  ("what actually matters here?"), say which entries sit in the top tiers in a sentence after the
-  hierarchy — that answers the question without reshuffling a view the rest of this skill's steps
-  index into by ordinal.
-- `(deferred)` only when `origin == "deferred"` — the tag that marks an unclaimed `/mentor:defer`
-  stub, so it is never mistaken for a plan someone drafted by hand and left in `draft`.
-- `(fix child)` only when `parent` is set — a structural fact read straight from `parent`, never
-  to be confused with the bracketed `[fix]` *category* tag above (a manual judgment on what kind
-  of work this is, set by `set-category`). Comma-joins the parenthetical when `(deferred)` also
-  applies — `(fix child, deferred)` is an unclaimed parked stub; `(fix child)` alone is a claimed
-  fix already being built in its own right.
-- `from: <slug>` joins that parenthetical on a deferred entry whose `deferred_from` is set — e.g.
-  `(deferred, from: loom-automation)`, reading `deferred_from.slug`. When `deferred_from.missing`
-  is true, render `from: <slug> (missing)` instead — a deleted source plan must never silently
-  dangle in the very view built for triage trust (parity with the `deps` `(missing)` marker below).
-  The field carries `{slug, missing}` directly, the same shape `deps[]` has always had, so there is
-  nothing to re-resolve here: this used to mean scanning the array for a matching entry at render
-  time, and two renderers checking a dangle by hand is two chances to check it differently.
-- step counts only when `steps.total > 0`.
-- the `deps` clause only when `deps` is non-empty; a dep entry with `missing: true` gets
-  ` (missing)` appended — named as a dependency, but no such plan dir exists yet.
-- the `— N open descendant(s)` clause only on a **true root** — an entry with no `parent` of its
-  own — and only when N > 0; an internal fix's own count would just repeat what the next line
-  down already shows. N is the entry's own `open_descendants`, already in hand from Step 1's
-  `--open-counts` — never a hand-rolled walk, and no longer a call per root. When the LIST is
-  wanted too (the user asks which ones), `plan-state.sh query --subtree <root-slug>` returns those
-  entries. "Open" stays `query`'s own definition (effective state ∉ `implemented`/`superseded`),
-  not one to re-derive here. A `parent` whose `missing` is true falls the entry back to the top
-  level with `(parent: <slug> missing)` appended — parity with the `deps` and `from:` markers
-  above, and read off the field rather than re-resolved against the array.
-- a `— ⚠ N unparented open fix(es) trace here` clause when N > 0 open (effective state ∉
-  `implemented`/`superseded`) `category: "fix"` entries in this same `query` output
-  carry `deferred_from` = this entry's slug but no `parent` of their own — lineage without
-  containment, which `--subtree` and the descendant roll-up above are structurally blind to
-  (a fix the user parked as backlog rather than as a child, or a legacy stub captured before
-  the owning-plan routing rule existed). The stubs themselves still render flat at the top level — structure stays
-  `parent`-only — but without this clause an `implemented` plan whose confirmed defects were
-  all captured lineage-only reads completely clean, which is exactly the wrong answer to "any
-  fixes left under this plan?". The filter keys on `category: "fix"` for precision, so a legacy
-  defect stub captured with no category stays uncounted — `set-category <slug> fix` repairs
-  that first.
-
-  **One exclusion, and it is load-bearing:** a stub whose sidecar `note` reads
-  `gate: left uncontained` was deferred by the user at `mentor:dispatch-agents`' non-goal
-  disposition gate, where flat *is* the answer they gave — the finding was judged not to block
-  the plan's goal, which is precisely why it isn't a fix child. Counting it here and then
-  printing a hint telling the reader to adopt it instructs them to undo a decision they already
-  made, every session, forever. `query` does not carry `note`, so resolve the exclusion set
-  once before rendering:
-
-  ```bash
-  plans_dir="$(bash "${CLAUDE_PLUGIN_ROOT}/hooks/plan-state.sh" dir --plans)"
-  grep -l 'gate: left uncontained' "$plans_dir"/*/.state.json 2>/dev/null \
-    | sed 's|.*/\([^/]*\)/\.state\.json|\1|'
-  ```
-
-  Those slugs render as ordinary flat stubs: no ⚠ count, no repair hint.
-
-  Whenever at least one such clause rendered after the exclusion, close the hierarchy with a
-  single repair hint line — unnumbered, never consuming an ordinal (Step 2's selection resolves
-  against this render):
-  `unparented fixes exist — adopt with: bash "${CLAUDE_PLUGIN_ROOT}/hooks/plan-state.sh" set-parent <stub-slug> <owning-plan>`.
-- ` [worktree: <id>]` appended when the entry's `owner` (an additive field on every `query`
-  plan entry, v2.23.0) is set AND differs from the worktree you're running in. Derive
-  your own id once, before rendering, by reusing the same helper the hooks use rather than
-  re-deriving the recipe by hand:
-
-  ```bash
-  [ -d "${CLAUDE_PLUGIN_ROOT}/hooks" ] || { echo "ERROR: CLAUDE_PLUGIN_ROOT unresolved or stale — do not search the plugin cache or hardcode a version path; ask the user to /reload-plugins or restart" >&2; exit 1; }
-  this_wt="$(. "${CLAUDE_PLUGIN_ROOT}/hooks/lib/state.sh"; mentor_worktree_id "$(pwd)")"
-  ```
-
-  An entry with no `owner` (a pre-2.23.0 plan, or one no worktree has claimed) gets no tag — only
-  a KNOWN different owner does. This is what lets a reader spot a sibling worktree's draft before
-  Step 2's selection or the dispatch that follows it, without waiting for Step 3's gate check to
-  say so.
-- each entry's **live** handoffs (its `handoffs` array — `query` already excludes `resolved/`)
-  render as one indented line beneath it: `     └ handoff: <name> (live)`.
-- a deferred entry's `goal` (non-null only when `origin == "deferred"`) renders as one indented
-  line beneath it, at the same indent the `handoff:` line above uses: `     └ goal: <text>` —
-  straight from `query`'s `goal` key; the render never re-opens the plan file.
-
-Split-group siblings (`group` set) stay contiguous, ordered by `order`; on the group's first
-sibling, print a one-line header `▸ group: <group-slug>` and indent the members two spaces under
-it — same grouping `list` sorted by, just rendered instead of tabulated.
-
-### Fix children nest under their parent, not the top level
-
-Walk `query`'s `parent` field exactly as the paragraph above walks `group`: an entry
-with `parent` set never renders at the top level, but directly beneath its parent's line, indented
-two spaces deeper than it — recursively, so a fix parked under a fix (a grandchild of the root)
-sits two spaces deeper again, however far the chain runs. This composes with the group block: a
-split sibling with its own parked fix nests the fix one level deeper under the sibling's own line,
-inside the `▸ group:` block.
-
-A worked example, three levels deep — `fix-retry-loop`'s `parent` is `fix-auth-timeout`, whose own
-`parent` is `root-plan`; the chain, never physical nesting on disk, produces the indent:
-
-```
-1. ⚠ ● root-plan              implemented — not really done, 2 open descendant(s)
-  2. ○   fix-auth-timeout       draft (fix child, deferred)
-    3. ○   fix-retry-loop         draft (fix child, deferred)
-4. ○ [noise] other-stub        draft (deferred)
-```
-
-`root-plan` carries the roll-up because it has no `parent` of its own; neither fix line repeats
-it. A root whose own effective state already reads `implemented` while `query --subtree` still reports
-open descendants — the CLI's warn on `set … implemented` fired once at write time, but nothing
-re-checks it later — surfaces the same warning here: prefix the line `⚠ ` and swap the tail to
-`— not really done, N open descendant(s)`, exactly as `root-plan` does above.
-
-Numbering stays depth-first and still actionable-entries-only, exactly like the group block: a
-root's fixes number immediately after it and before the next top-level entry, so Step 2's ordinal
-selection resolves against fix children exactly as it does everything else in this render.
-
-`deps`, `group`/`order`, and `parent` are three separate axes and this render never blurs them:
-`deps` means "should happen before, elsewhere" (the `— deps:` clause); `group`/`order` means
-"sibling of a split, same rank" (the `▸ group:` header); `parent` means "must close before its
-container reads done" (tree position, the root's count, and the warn). Draining a root's open
-descendants in order is `/mentor:resume <root>`'s job, not this skill's — it walks the same
-descendants; here you only ever see the count and the warn.
-
-`kind: "no_plan_topic"` entries use `▷` and the literal state text `no plan yet`, followed by their
-`handoff:` line(s) — a topic that only has conversation history, never a plan.
-
-`kind: "legacy_handoffs"` (topic-less, at most one entry) renders last if present:
-`▽ (untracked) legacy handoffs: <name>, <name> — .mentor/handoffs/, no topic`.
-
-Sort `kind: "plan"` entries the same way the old `list` table did: active states first
-(`superseded`/`unknown` last), then by group (an ungrouped plan sorts on its own slug), then
-`order`, then slug — so a reader who knew the old table still recognizes the order.
-
 ### On a broader ask than the hierarchy (a scope/goal digest)
 
 The hierarchy above is deliberately just state + progress — `query`'s `goal` field is
@@ -311,8 +149,7 @@ function's own comment). When a survey-shaped ask (the gate above) wants more th
 hierarchy — a one-line synopsis of what each plan actually covers — do **not** hand-roll ad hoc
 `grep`/heading patterns against `plan.md`: plans don't share one heading convention (one `plan-
 split` child may use `### N. Title`, another may not), so an improvised pattern will silently miss
-some. Instead, call the shared extractor per plan you're summarizing, same recipe as the worktree-id
-lookup above:
+some. Instead, call the shared extractor per plan you're summarizing:
 
 ```bash
 [ -d "${CLAUDE_PLUGIN_ROOT}/hooks" ] || { echo "ERROR: CLAUDE_PLUGIN_ROOT unresolved or stale — do not search the plugin cache or hardcode a version path; ask the user to /reload-plugins or restart" >&2; exit 1; }
@@ -341,6 +178,13 @@ having written nothing, so a batch that tags several plans should check each cal
 assume the last one landed. When the user hands you a judgment in their own words ("this is just
 cleanup"), map it to the nearest tier or category and say which one you picked — don't invent a
 sixth.
+
+**Never re-sort or filter the view on these tags.** `/mentor:track` is the inventory of what's
+left, and a view that quietly dropped the low tiers or hid a category would make "what's
+remaining?" a lie in the one place a user goes to trust it — and it would renumber the ordinals
+Step 2 resolves against. The tags let a reader *skip* the noise, not the view decide for them. When
+the ask is explicitly about impact ("what actually matters here?"), say which entries sit in the
+top tiers in a sentence after the hierarchy.
 
 ## Step 2 — Select a plan
 
