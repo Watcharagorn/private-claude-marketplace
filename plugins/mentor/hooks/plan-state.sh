@@ -1134,7 +1134,7 @@ if [ "$sub" = "policy" ]; then
   pol_txt="${hook_dir}/dispatch-contract.txt"
   pol_sh="${hook_dir}/dispatch-contract.sh"
   if ! command -v jq >/dev/null 2>&1; then
-    pol_contract="MISSING — jq is absent, so dispatch-contract.sh fail-softs and injects nothing. Paste the \"Deliver before idling\" block from skills/dispatch-agents/SKILL.md by hand until jq is installed."
+    pol_contract="MISSING — jq is absent, so dispatch-contract.sh fail-softs and injects nothing. Paste the contents of hooks/dispatch-contract.txt into each dispatch prompt by hand until jq is installed."
   elif [ ! -s "$pol_txt" ]; then
     pol_contract="MISSING — hooks/dispatch-contract.txt is absent or empty; nothing can be injected."
   elif [ -z "$(head -n 1 "$pol_txt" 2>/dev/null || true)" ]; then

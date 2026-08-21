@@ -17,9 +17,26 @@ itself is in question.
 - **Proving a negative** — verifying that a forbidden tool call never happened, and that
   a fan-out produced every artifact it was supposed to. Both are cases where the obvious
   check inverts the evidence.
+- **No busy-wait** — why `ScheduleWakeup` fails for a dispatched agent specifically, and
+  why a sleep chain breaks in the middle.
+- **The standing prompt contract** — what the injected block carries and why it ships
+  through a hook instead of being pasted.
+- **Idle-before-report race** — why a foreign task id is dangerous, why a re-brief
+  backfires, and what to write when no author report ever arrives.
 - **Why the loop refuses more than it runs** — the measurements behind unattended
   continuation (v2.37.0): why the verify route is three-way instead of a boolean, why
   ARMED_ELSEWHERE is not a stop, and which trade-offs were user-ruled rather than derived.
+- **Sizing a step to one agent's context** — the measured cost of an oversized step, and
+  why the rubric lists smells instead of a tool-call number.
+- **Why a resolved command is pasted, not described** — what goes wrong when a fresh
+  agent re-derives a test invocation, and why a freelance checker drifts unnoticed.
+- **Who commits an implementation run's work** — the concurrent automation run that
+  absorbed a step's paths mid-session, and why the closing checklist checks the inverse
+  of a dirty tree.
+- **When a step goes dark** — why a stalled step tempts the orchestrator into
+  hand-debugging, and what that costs the rest of the session.
+- **Why a gate-routed stub is flat on purpose** — why `priority` is left unset and why
+  the `gate: left uncontained` note exists.
 
 ## Where dispatch pays
 
@@ -172,8 +189,10 @@ single-line `grep` against a claim that wraps. This is the same not-evidence sta
 - **Deliver before idling — the standing prompt contract.** Every dispatched
   agent needs a fixed set of runtime directives it has no other way to learn:
   the no-nested-fan-out ban, the no-poll rule, progress-at-phase-boundary
-  reporting, the hand-back-on-overrun clause, mandatory `SendMessage` delivery
-  before going idle, git-index hygiene, and the durable-copy rule for verdicts.
+  reporting, the hand-back-on-overrun clause, applying a mid-run correction before
+  returning, mandatory `SendMessage` delivery before going idle with the exact
+  verification commands copy-pasteable, git-index hygiene, and the durable-copy rule
+  for verdicts.
   Its single source is `hooks/dispatch-contract.txt`; `hooks/dispatch-contract.sh`
   (`PreToolUse`, matching `Task`/`Agent`) appends it to every dispatch prompt
   automatically — so **do not paste it by hand**. Paraphrasing it in a prompt
@@ -261,8 +280,8 @@ reader knows which side of each to argue with:
 - *Auto-commit happens once, at end of run, on a per-plan branch.* Per-step commits
   move HEAD mid-run and real plans carry criteria that read the pre-change HEAD ("the
   suite runs and FAILS against current HEAD"); committing nothing leaves hours of work
-  exposed to directory-wide staging by concurrent automation (this repo's loom swallowed
-  unrelated in-flight edits once — commit d54fde9). The branch (`mentor/<group>/<slug>`,
+  exposed to directory-wide staging by concurrent automation (**Who commits an
+  implementation run's work** below). The branch (`mentor/<group>/<slug>`,
   cut from the active branch) keeps the commit off the user's branch entirely; a
   worktree is taken only when a second run is already active in the same tree, because
   an unattended `git checkout` under a user's feet was judged worse than sharing the
@@ -277,3 +296,87 @@ reader knows which side of each to argue with:
   (ruled 2026-08-20, hygiene pass): resuming Step 5's own-turn stop is attended-only;
   the announcement is the visibility the stop existed to buy.
 
+
+## Sizing a step to one agent's context
+
+A step scoped as a feature slice — proto + server + worker + UI, proved end-to-end — has
+been measured at **350–420 tool calls and 500–750k tokens** in one such context. Raw file
+reads were **~40% of that blowup**, which is why the `Inputs:` smell in the rubric is
+listed as the costliest one: a step can read narrow and still be oversized purely from
+what it has to ingest before it can start.
+
+## Why a resolved command is pasted, not described
+
+A fresh agent told to "run the tests" has no memory of earlier steps, so it re-derives the
+invocation independently — and re-derivation is not idempotent. It may pick a different
+runner, a different config, or a subset that passes for reasons the real suite would not.
+Each dispatch that re-derives is an independent chance to derive it wrong, and nothing in
+the return contract would surface the difference: the agent reports that tests passed, and
+they did — just not the ones the plan meant.
+
+A copy-pasteable string is the only thing that survives a context boundary intact.
+
+The same reasoning extends to *checkers*. When the repo already ships a validator for the
+kind of artifact a step produces, an agent left to write its own equivalent produces a
+second, unverified implementation of a check that already exists. The freelance version
+can fail in ways the real one does not — a missing dependency, a stale assumption about
+the format — and because both report "valid", nothing reveals that the two have drifted
+apart until something downstream breaks on an artifact the real checker would have
+rejected.
+
+## Who commits an implementation run's work
+
+The closing checklist asks the orchestrator to check the *inverse* of a dirty tree —
+paths a step touched that are now absent from `git status --porcelain` — because a clean
+tree is not proof the work is committed. It can equally mean something else committed it.
+
+This is not hypothetical. A `loom` automation run, executing in the same working tree
+mid-session, stages whole directories (`git add "plugins/<plugin>/"` —
+`plugins/loom/skills/learn/SKILL.md:274,283`) and commits everything under them: commit
+`d54fde9` absorbed in-flight edits to `plugins/mentor/skills/planning/SKILL.md` that
+belonged to a concurrent session (root `CLAUDE.md` → "Git staging safety around loom
+automation"). A dispatched step's just-written files sit in exactly that position. The
+plan's ticks would still be correct — the work was done and the `Done when:` had passed —
+but the session's own closing commit shows an empty diff for a step that genuinely
+changed files, and the attribution is wrong with nothing to flag it.
+
+Hence the rule's shape: `git log -1` per absent path distinguishes a no-op step (no
+commit at all) from an absorbed one (a commit this session did not make), and whichever
+way the question resolves, the split is recorded in the closing commit message. The ticks
+stand; only the attribution needs stating.
+
+## When a step goes dark
+
+A step that produces no output, no idle signal, and no death notification has nothing
+that will wake the orchestrator. The wake-up is usually the user asking why it is taking
+so long — which arrives with social pressure to produce an answer immediately.
+
+That pressure is what makes hand-debugging tempting, and hand-debugging is the escape
+hatch reserved for a *second* failed `Done when:`. Reaching for it early has a specific
+cost: the main thread inherits a debugging session it has no context for. It guesses
+column names it never read, follows dead ends the step's own agent had already ruled out,
+and spends the orchestrator's context — the scarcest thing in the session — on one step's
+interior. The orchestrator ends up worse equipped to run the remaining steps than before
+it started helping.
+
+Handing a warm diagnosis to a fresh agent is what actually closes these steps.
+
+## Why a gate-routed stub is flat on purpose
+
+Two settings on a gate-routed capture look like omissions and are not.
+
+**`priority` left unset.** The only "conversation" a gate-routed capture can read is the
+verifier's digest, which is thick with severity words by construction — a verifier writes
+about what is wrong. A capture that reads that register naturally lands on `critical`, and
+a `critical` tier floats a stub to the top of `/mentor:track`'s build queue. A finding the
+user has *explicitly* judged non-goal must not arrive there ahead of work they asked for.
+
+**`parent` = none, plus the `gate: left uncontained` note.** A `category: fix` stub
+carrying `deferred_from` but no `parent` matches `/mentor:track`'s "lineage without
+containment" alarm exactly. Without the note, both `/mentor:track` and `/mentor:resume`
+would read it as an orphaned fix and spend every future session offering to adopt it —
+asking the user to reverse a decision they already made at this gate. The note is what
+tells the rest of the harness the flatness is a verdict, not an accident.
+
+The exception is a defect in an already-implemented plan's shipped work: that genuinely
+has a parent, is contained, and needs no note.

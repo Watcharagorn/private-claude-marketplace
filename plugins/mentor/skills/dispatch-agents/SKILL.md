@@ -87,15 +87,13 @@ If this work should be gated, mentor should own the plan: `/mentor:plan`.
 
 ## Where dispatch pays — the routing test
 
-Dispatch buys two separable things. It buys **context isolation** — an agent reads a
-hundred files and hands back a paragraph, so the corpus never enters the orchestrator's
-window — and it buys **parallelism**, but only while several agents are actually in
-flight. Isolation on its own earns its keep when the work is read-heavy, when an
-independent grader is the whole point, or when one step's context cost would otherwise
-flood the main thread. It does **not** earn its keep when a lone agent works on
-something whose context the main thread already holds: there the brief is a lossy copy
-of what you already know, and the same tokens spent reasoning in-thread go further.
-(The measurements and published findings behind this: `references/rationale.md` →
+Dispatch buys two separable things: **context isolation** — an agent reads a hundred
+files and hands back a paragraph, so the corpus never enters the orchestrator's window —
+and **parallelism**, but only while several agents are actually in flight. Isolation
+alone earns its keep when the work is read-heavy, when an independent grader is the
+point, or when one step's context cost would otherwise flood the main thread; it does
+**not** when a lone agent works on context the main thread already holds. (The
+measurements and published findings behind this: `references/rationale.md` →
 **Where dispatch pays**.)
 
 So route by the kind of work, not by a blanket default.
@@ -342,30 +340,29 @@ Effort and model are independent levers: a `low`-effort `opus` step is fine, and
 2. **Find the critical path.** Which steps must finish before others can start? Those are sequential.
 3. **Find independent steps.** Disjoint files/areas, separate research questions, parallel verifications — group these for fan-out. Disjoint files are not enough: steps that each mint a value from a **shared sequence** (migration numbers, ports, generated ids, an append-only registry) collide even in separate files — pre-assign the concrete values in each step's `Inputs:`, or make them `Sequential:`.
 4. **Collapse small dependent steps.** Adjacent `Sequential:` steps that are individually small (combined ≤ ~40 changed lines) and suit the same role/model collapse into ONE dispatch — don't pay agent startup per tiny step.
-5. **Budget each step to one agent's context.** A dispatched agent never compacts:
+5. **Budget each step to one agent's context.** A dispatched agent never compacts, so
    every tool result and every thinking block it emits stays in its context until the
-   step ends. A step scoped as a feature slice — proto + server + worker + UI, proved
-   end-to-end — has been measured at 350–420 tool calls and 500–750k tokens in one
-   such context. Nobody can count those calls while authoring, so size by smells
+   step ends. Nobody can count those calls while authoring, so size by smells
    instead; a step showing any of these is oversized and gets split:
    - it spans more than one service or layer;
    - it touches more than ~10 files across distinct areas;
    - its `Done when:` needs a live multi-service stack driven end-to-end (that proof
      belongs to a `## Verification` topic — see **State done-when** below);
    - its `Inputs:`, or the reconnaissance it implies, pull in several whole large
-     files (tens of KB each) — raw file reads were ~40% of the measured blowup, so a
-     narrow-sounding step that must ingest them is oversized in the way that costs;
+     files (tens of KB each) — the costliest smell by measure, and the one a
+     narrow-sounding step hides best;
    - its prompt sketch reads like a project brief rather than a task.
 
    Split an oversized step into **sequential steps, one dispatch each, handing off by
    report** — each later step takes the prior step's report as its `Inputs:`. *Collapse small
    dependent steps* above bounds the opposite end (collapse tiny steps, split giant
    ones), and if splitting pushes the plan past ~12 steps that is `/plan-split`'s
-   threshold doing its job, not a reason to re-merge.
+   threshold doing its job, not a reason to re-merge. (The measured blowup behind these
+   smells: `references/rationale.md` → **Sizing a step to one agent's context**.)
 6. **Assign roles.** Smallest specialist that covers the work.
 7. **Assign models.** Default `sonnet`; upgrade only with a reason.
 8. **Assign effort.** Default `medium`; upgrade for design/cross-cutting, downgrade for trivial.
-9. **Write prompt sketches.** Each agent has zero memory of this conversation — the brief must stand alone. If a `Done when:` is a long test suite, brief the agent to iterate on a filtered subset and run the suite whole only as the final gate. When any step's `Done when:` runs tests, resolve the repo's test invocation **once per session** — `mentor:shipping` Step 4's own order (`.mentor/config.json`'s `test_command` first, else auto-detect, confirmed once it actually runs) — and paste that literal command into every prompt sketch that needs it. A fresh agent told to "run the tests" with no memory of earlier steps will re-derive (or mis-derive) the invocation independently each time; a copy-pasteable string is the only thing that transfers. The same rule covers any other repeatedly-launched tool a `Done when:` needs (a browser/E2E runner, a dev server): resolve the working invocation the first time it's needed and reuse that exact command in every later prompt sketch — no `.mentor/config.json` key exists for these, so state the resolved command directly rather than pointing at one. When the proof that tool serves is the live multi-service kind, item 10 sends the proof itself to a `## Verification` topic — the invocation is still resolved once, but it is handed to that topic's verifier (`references/verifier-contract.md` → "What to hand the verifier") instead of repeated across prompt sketches. It also covers *checkers*, not just invocations: when the repo or environment already ships a validator for the kind of artifact a step produces, name that command in the step's `Done when:` rather than leaving the agent to write its own equivalent — a freelance check is a second, unverified implementation of one that already exists, and can fail in ways the real one doesn't (a missing dependency, a stale assumption about the format) without anyone noticing the two have drifted apart.
+9. **Write prompt sketches.** Each agent has zero memory of this conversation — the brief must stand alone. If a `Done when:` is a long test suite, brief the agent to iterate on a filtered subset and run the suite whole only as the final gate. When any step's `Done when:` runs tests, resolve the repo's test invocation **once per session** — `mentor:shipping` Step 4's own order (`.mentor/config.json`'s `test_command` first, else auto-detect, confirmed once it actually runs) — and paste that literal command into every prompt sketch that needs it, because a copy-pasteable string is the only thing that transfers to a context that never saw the earlier steps. The same rule covers any other repeatedly-launched tool a `Done when:` needs (a browser/E2E runner, a dev server): resolve the working invocation the first time it's needed and reuse that exact command in every later prompt sketch — no `.mentor/config.json` key exists for these, so state the resolved command directly rather than pointing at one. When the proof that tool serves is the live multi-service kind, item 10 sends the proof itself to a `## Verification` topic — the invocation is still resolved once, but it is handed to that topic's verifier (`references/verifier-contract.md` → "What to hand the verifier") instead of repeated across prompt sketches. It also covers *checkers*, not just invocations: when the repo or environment already ships a validator for the kind of artifact a step produces, name that command in the step's `Done when:` rather than leaving the agent to write its own equivalent — a freelance check is a second, unverified implementation that can drift from the real one unnoticed. (Why the command is pasted rather than described, and how a freelance checker fails: `references/rationale.md` → **Why a resolved command is pasted, not described**.)
 10. **State done-when.** Observable, verifiable, no "looks good" — and provable by the
     implementer with **bounded commands**: build, typecheck, unit tests, a targeted
     integration check. Live end-to-end proof across a running multi-service stack
@@ -439,12 +436,12 @@ before issuing `Agent` calls. Then:
      absent from the porcelain output, `git log -1 --format='%h %an %s' -- <path>`
      — no commit at all means a no-op step (nothing to flag), but a commit this
      session didn't make means a concurrent process silently absorbed that path
-     mid-dispatch (this has happened: a `loom` automation run committing into a
-     shared working tree mid-session). Fold that into the same question (name the
-     absorbing commit) and, however it resolves, record the split in this
-     session's own closing commit message — the plan's ✅ ticks still stand, only
-     the attribution needs stating. The orchestrator is the only legal committer
-     here — the standing contract above already bars dispatched agents from
+     mid-dispatch. Fold that into the same question (name the absorbing commit)
+     and, however it resolves, record the split in this session's own closing
+     commit message — the plan's ✅ ticks still stand, only the attribution needs
+     stating. (The run that made this real: `references/rationale.md` →
+     **Who commits an implementation run's work**.) The orchestrator is the only
+     legal committer here — the standing contract above bars dispatched agents from
      touching the index — and this is deliberately a **question**, never
      `mentor:shipping` Step 3's silent auto-commit: that allowance is scoped to
      files `simplify` itself just created, not to a whole implementation run.
@@ -694,11 +691,9 @@ above); if it comes back unstamped again, or there is no verifier to ask, treat 
    user to retype `/mentor:defer`. Invoke `Skill(skill="mentor:deferring")` and state the
    routing as a prose preamble, the shape `planning` already uses when it prepends "The
    user selected …" ahead of a skill load: `from` = this plan, `parent` = **none**,
-   `category` = the verifier's judgement, and **`priority` left unset**. That last one
-   matters — the only "conversation" a gate-routed capture can read is the verifier's
-   digest, which is thick with severity words, and a `critical` tier floats a stub to the
-   top of `/mentor:track`'s build queue. An explicitly non-goal finding must not land
-   there. The single exception to `parent` = none: a defect in an **already-implemented**
+   `category` = the verifier's judgement, and **`priority` left unset** — an explicitly
+   non-goal finding must not float to the top of `/mentor:track`'s build queue. The
+   single exception to `parent` = none: a defect in an **already-implemented**
    plan's shipped work parks under *that* plan, which it genuinely blocks. If `deferring`
    refuses the item under its own scope rule, **record it left open and say so** — a
    verdict the user gave must not evaporate because the capture bounced.
@@ -709,12 +704,12 @@ above); if it comes back unstamped again, or there is no verifier to ask, treat 
    bash "${CLAUDE_PLUGIN_ROOT}/hooks/plan-state.sh" set <stub-slug> draft --note "gate: left uncontained"
    ```
 
-   That note is what tells the rest of the harness this stub is flat **on purpose**.
-   Without it, a `category: fix` stub carrying `deferred_from` but no `parent` matches
-   `/mentor:track`'s "lineage without containment" alarm exactly, and both `/mentor:track`
-   and `/mentor:resume` would spend every future session offering to adopt it — asking the
-   user to reverse a decision they already made here. Skip the stamp on the
+   That note is what tells the rest of the harness this stub is flat **on purpose**;
+   without it, every future `/mentor:track` and `/mentor:resume` would offer to adopt it,
+   asking the user to reverse a decision they already made here. Skip the stamp on the
    already-implemented exception above: that stub has a `parent` and is contained.
+   (Why an unstamped flat stub trips the lineage alarm, and why an unset `priority`
+   matters: `references/rationale.md` → **Why a gate-routed stub is flat on purpose**.)
 6. **Report three groups**, by handle: fixed, deferred (with their stub slugs), and left
    open — plus the verifiers' `Notes:` lines as context, unverdicted. The left-open group
    is exactly what the `implemented` write records as `--note "open: …"`.
@@ -842,14 +837,16 @@ the contract does not apply to them, which is exactly how a fan-out goes out raw
 - **Deliver before idling — the standing prompt contract.** Every dispatched agent
   needs runtime directives it has no other way to learn: the no-nested-fan-out ban, the
   no-poll rule, progress-at-phase-boundary reporting, the hand-back-on-overrun clause,
-  mandatory `SendMessage` delivery before going idle, git-index hygiene, and the
-  durable-copy rule for verdicts. Its single source is `hooks/dispatch-contract.txt`,
+  applying a mid-run correction before returning, mandatory `SendMessage` delivery
+  before going idle with the exact verification commands copy-pasteable, git-index
+  hygiene, and the durable-copy rule for verdicts. Its single source is `hooks/dispatch-contract.txt`,
   and `hooks/dispatch-contract.sh` (`PreToolUse`, matching `Task`/`Agent`) appends it to
   every dispatch prompt automatically — so **do not paste it by hand**, and do not
   paraphrase it in a prompt sketch. Confirm it is live with `plan-state.sh policy`
   before the session's first dispatch; its `CONTRACT:` line is the only thing that
-  reports the hook's silent fail-soft. (Full text and the injection contract:
-  `references/rationale.md` → **The standing prompt contract**.)
+  reports the hook's silent fail-soft. (Why it is injected rather than pasted:
+  `references/rationale.md` → **The standing prompt contract**. The block's text
+  itself is only in `hooks/dispatch-contract.txt`.)
 - **Idle-before-report race.** An idle notification can arrive before the agent's
   report, and — with several sessions running concurrently — can even name a task this
   session never dispatched. **Check the id against this session's own dispatch tree
@@ -903,12 +900,11 @@ the contract does not apply to them, which is exactly how a fan-out goes out raw
   unverified.
 - **Step stalled / the user interrupts it.** A step that goes dark — no output, no idle
   signal, no death — has no notification coming, so the wake-up is usually the user
-  asking why it is taking so long. The temptation then is to start debugging the step's
-  subject matter by hand: container logs, database queries, reading the artifacts. That
-  is the escape hatch reserved above for a *second* failed `Done when:`, and reaching for
-  it early means the main thread inherits a debugging session it has no context for —
-  guessed column names, dead ends, and a context window spent on someone else's step.
-  Stay orchestrator-shaped instead:
+  asking why it is taking so long. Debugging the step's subject matter by hand is the
+  escape hatch reserved above for a *second* failed `Done when:`, and reaching for it
+  early leaves the main thread owning a debugging session it has no context for. Stay
+  orchestrator-shaped instead (what that costs when ignored:
+  `references/rationale.md` → **When a step goes dark**):
   1. **Snapshot observable state only** — `git log --oneline -5`, `git status --short`,
      `git diff --stat`, a listing of the step's artifact dir. Kill processes the step
      leaked (a browser runner, a stray container) so the re-dispatch starts clean.

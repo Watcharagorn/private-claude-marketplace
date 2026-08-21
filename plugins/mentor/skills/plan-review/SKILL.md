@@ -203,7 +203,10 @@ recording is what stops every later surface re-asking). `UNRESOLVED` — the che
 run, which is not a clean result; treat the question as open. `NONE` — dispatch. `CONTRACT: active` confirms
 `hooks/dispatch-contract.sh` appends the standing "Deliver before idling" block to every
 dispatch prompt automatically: **do not paste it by hand.** Only on `CONTRACT: MISSING`
-do you paste it yourself, from `dispatch-agents`' own section of that name.
+do you paste it yourself, from `hooks/dispatch-contract.txt` — the block's only copy. If
+the `MISSING` reason names that file (absent, empty, or no first line), there is nothing
+left to paste: stop and tell the user the mentor install is damaged rather than
+reconstructing the block from memory.
 
 Reviewer dispatches are governed by `dispatch-agents`' **"Async runtime & lifecycle"**
 rules, which the injected block delivers to the agent without this skill having to load
@@ -500,7 +503,8 @@ constitution, gitignore caveat) with these lane specifics:
   `## Verification` topic, so a step carrying it makes the implementer prove it in
   the session's most expensive context and a fresh verifier re-prove the same
   ground. Paste that rubric item's smell list into the prompt rather than
-  paraphrasing it (this step already loads the skill for the standing block), so
+  paraphrasing it — read the five smells out of `dispatch-agents/SKILL.md`'s
+  **Decomposition rubric** item 5, since this skill does not load that one — so
   the check cannot drift from the rule it enforces. Both findings are
   `[DECISION-REQUIRED]`: splitting a step, or moving its acceptance into
   `## Verification`, reshapes the plan and must never auto-fold.

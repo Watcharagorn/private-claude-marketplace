@@ -5,11 +5,10 @@
 # solution-quality line, then the "Deliver before idling" block — into every
 # Task/Agent dispatch, so delivery no longer depends on the orchestrator
 # remembering to paste ~2.3KB of directives into each of the 9–15 dispatches a
-# typical plan run makes. Source of truth: dispatch-contract.txt (sibling
-# file), extracted byte-identical from skills/dispatch-agents/SKILL.md's
-# "Deliver before idling — the standing prompt contract" fence. That SKILL.md
-# copy stays the canonical *documentation* of the contract (skills read it to
-# know what dispatched agents receive); this file is what actually ships it.
+# typical plan run makes. Sole source of truth: dispatch-contract.txt (sibling
+# file) — the block's text lives there and nowhere else. dispatch-agents'
+# SKILL.md only *describes* what the block carries; it holds no copy, so there
+# is nothing to keep byte-identical and nothing to paste from.
 #
 # Idempotent: skipped when tool_input.prompt already contains the block's
 # sentinel (its first line, "Do not call the Agent/Task tool") — so a prompt

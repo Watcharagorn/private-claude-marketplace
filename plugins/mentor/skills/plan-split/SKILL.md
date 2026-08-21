@@ -209,7 +209,10 @@ recording is what stops every later surface re-asking). `UNRESOLVED` — the che
 run, which is not a clean result; treat the question as open. `NONE` — dispatch. `CONTRACT: active` confirms
 `hooks/dispatch-contract.sh` appends the standing "Deliver before idling" block to every
 dispatch prompt automatically: **do not paste it by hand.** Only on `CONTRACT: MISSING`
-do you paste it yourself, from `dispatch-agents`' own section of that name.
+do you paste it yourself, from `hooks/dispatch-contract.txt` — the block's only copy. If
+the `MISSING` reason names that file (absent, empty, or no first line), there is nothing
+left to paste: stop and tell the user the mentor install is damaged rather than
+reconstructing the block from memory.
 
 ## Step 5 — The isolation header
 

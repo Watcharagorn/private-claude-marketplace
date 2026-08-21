@@ -160,7 +160,10 @@ same as a clean result: treat the question as open. `NONE` clears you to dispatc
 `SendMessage` delivery — to every dispatch prompt automatically. **Do not paste that
 block by hand**; the hook is idempotent and a hand-typed paraphrase only risks dropping
 a directive the agent has no other way to learn. `CONTRACT: MISSING` is the one case
-where you paste it yourself, from `dispatch-agents`' own "Deliver before idling" section.
+where you paste it yourself, from `hooks/dispatch-contract.txt` — the block's only copy. If
+the `MISSING` reason names that file (absent, empty, or no first line), there is nothing
+left to paste: stop and tell the user the mentor install is damaged rather than
+reconstructing the block from memory.
 
 One nudge on a silent idle; close each agent out once its findings are consumed
 (`dispatch-agents`' "Async runtime & lifecycle", which governs these dispatches without
