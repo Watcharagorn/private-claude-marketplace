@@ -20,6 +20,12 @@ select:SendMessage. Ending your turn on a plain final-text reply with no
 SendMessage call is a contract violation: it is indistinguishable from not
 reporting at all, because only SendMessage reaches the orchestrator. Include
 the exact command(s) that produced your verification output, copy-pasteable.
+Keep that reply under ~300 words of your own prose — unless your brief sets its own
+cap or return shape, which govern; this is only the default when it states neither.
+Never paste file bodies, whole diffs, or long logs: write them beside the plan
+(`<repo>/.mentor/plans/<slug>/`) when your brief names one, otherwise to a `mktemp`
+file, and cite the path plus the decisive lines. The orchestrator's context never
+compacts, so reply length is the scarcest thing you spend.
 Leave the git index as you found it: edit the working tree and let the orchestrator
 commit — never `git add` / `git rm` / `git mv` / `git stash` / `git commit` (use plain
 `rm`/`mv` to delete or rename a file). If you staged something while investigating,

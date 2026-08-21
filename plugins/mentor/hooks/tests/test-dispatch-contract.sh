@@ -93,6 +93,14 @@ chk "Agent → hookEventName is PreToolUse"  field_eq "$OUT" '.hookSpecificOutpu
 chk "Agent → prompt carries the sentinel"  prompt_contains "$OUT" "$SENTINEL"
 chk "Agent → original prompt text kept"    prompt_contains "$OUT" "do the thing"
 chk "Agent → quality line present"         prompt_contains "$OUT" "Implement the most practical and clean solution"
+# The inbound-report ceiling is what keeps a dispatch-heavy run from spending the
+# orchestrator's context on replies. It only binds if it actually reaches the agent.
+chk "Agent → return ceiling reaches the agent"   prompt_contains "$OUT" "under ~300 words"
+chk "Agent → ceiling names the durable path"     prompt_contains "$OUT" ".mentor/plans/"
+chk "Agent → ceiling forbids pasted file bodies" prompt_contains "$OUT" "Never paste file bodies"
+# The cap must never override a prescribed return shape — a verifier's mandated
+# block (verdict + per-check evidence + stamped gaps + notes) does not fit 300 words.
+chk "Agent → ceiling yields to the brief's own cap"  prompt_contains "$OUT" "unless your brief sets its own"
 
 echo "== B. Injection: tool_name=Task =="
 run "$(mkinput Task "do another thing")"

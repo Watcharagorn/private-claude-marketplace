@@ -1,6 +1,7 @@
 # Verifier prompt and return contract
 
-Read this when dispatching a plan's Verification topics (execution step 5 in
+Read this when dispatching a plan's Verification topics ("Executing the dispatches"
+→ **Execute the plan's Verification section** in
 `dispatch-agents/SKILL.md` → "Verifying the plan (execution-time)"). Paste
 the fenced block under "What the verifier must return" into every verifier's
 prompt verbatim. The standing "Deliver before idling" block is NOT pasted —
@@ -26,7 +27,8 @@ confirm-instead-of-check failure this contract exists to prevent.
   path), say so in the brief and ask for 5+ independent runs before a PASS —
   one clean run is not evidence for a race condition.
 - The safe-check-idiom rule from `dispatch-agents/SKILL.md` → "Executing the
-  dispatches" item 4: a zero-hit or empty result from a check is not evidence
+  dispatches" → **Verify each `Done when:` criterion**: a zero-hit or empty result
+  from a check is not evidence
   until you've confirmed the check itself works. A verifier's own evidence
   commands are exposed to the same false negatives as the orchestrator's —
   a single-line `grep` missing a claim that wraps across lines, an unquoted
@@ -43,7 +45,7 @@ check as any other, which is the point of deriving rather than self-checking.
 ## What the verifier must return
 
 ```
-Verdict: PASS | FAIL
+Verdict: PASS | FAIL | HANDBACK
 <evidence per check — the exact command run and its output, or a file:line citation>
 
 Gaps / Missing:
@@ -59,6 +61,16 @@ Cross-topic:
 <a finding that belongs to a DIFFERENT topic's Focus:/Checks: — name the sibling
 topic and the finding in one line, or the literal word "none">
 ```
+
+**`HANDBACK` is not a verdict on the topic — it is a verdict on the brief.** Use it
+when the topic has clearly outgrown what you were given (the standing contract's
+hand-back clause): report the checks you *did* complete under the evidence line,
+stamp whatever gaps you found, and list the remainder concretely. Never stamp `PASS`
+or `FAIL` on a topic you only half-checked — a forced `FAIL` spends the round's one
+remediation on work nobody attempted, and a forced `PASS` closes the plan on evidence
+that was never gathered. A `HANDBACK` costs the round none of its remediation
+(`dispatch-agents/SKILL.md` → **Failure loop**); the orchestrator re-dispatches the
+topic fresh with your remainder as its inputs.
 
 Every gap line carries stamps, because what happens to a gap turns entirely on
 them, and the reader downstream is the orchestrator — the context that just
@@ -85,8 +97,9 @@ a stamp takes the judgment away from it and gives it to you, who checked.
 finding existed; a misfiled `[NON-GOAL]` reaches them as a question they answer
 in one keystroke. Only the second mistake is recoverable.
 
-`Verdict:` follows from the stamps: **`FAIL` iff at least one `[GOAL]` gap
-exists.** `[NON-GOAL]` gaps never produce a `FAIL` — they are reported, not
+`Verdict:` follows from the stamps whenever you checked the topic through: **`FAIL`
+iff at least one `[GOAL]` gap exists** (`HANDBACK` above is the one case where the
+stamps do not decide it, because the checking is incomplete by construction). `[NON-GOAL]` gaps never produce a `FAIL` — they are reported, not
 failed on. A topic whose only gap is cosmetic has to be able to reach PASS, or
 it sits in a loop that by design will not remediate it and the plan can reach
 no terminal state at all.

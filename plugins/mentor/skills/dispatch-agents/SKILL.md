@@ -116,8 +116,8 @@ when **all three** of these hold:
    blind.
 2. **Those concurrent steps are file-disjoint**, and none of them mints a value from a
    shared sequence — migration numbers, ports, generated ids, an append-only registry.
-   This is the same test as the decomposition rubric's item 3, and colliding parallel
-   edits are the failure mode here that costs the most to unwind.
+   This is the same test as the decomposition rubric's **Find independent steps**, and
+   colliding parallel edits are the failure mode here that costs the most to unwind.
 3. **Each brief stands on its own.** A step that needs the conversation to make sense —
    a decision's reasoning, a convention still being settled, the user's live corrections
    — loses the part that mattered when you write it down for a stranger.
@@ -184,11 +184,14 @@ The point of SDD: quality through narrow focus, and a lean main thread.
 - **On a failed `Done when:`**, re-dispatch the same role once with the failure evidence
   (diff + command output) as inputs. If it fails again, surface to the user — only then
   may the main thread read the files and take over. **A hand-back is not a failure and
-  does not spend that re-dispatch:** an agent delivering partial work plus a remainder
-  brief did the right thing, so verify what it actually claims and dispatch the same role
-  fresh with the remainder as its `Inputs:`. That chain is bounded at one — a second
-  hand-back means the step was mis-scoped, so put the re-scope to the user instead of
-  letting it slow-bleed across N contexts.
+  does not spend that re-dispatch:** any dispatched agent — implementer, verifier,
+  reviewer, a `zoom` combo or a `plan-split` child author — that delivers partial work
+  plus a remainder brief did what the standing contract asks of it, so verify what it
+  actually claims and dispatch the same role fresh with the remainder as its `Inputs:`.
+  This holds wherever the return lands, the verification failure loop below included.
+  That chain is bounded at one — a second hand-back means the step
+  was mis-scoped, so put the re-scope to the user instead of letting it slow-bleed across
+  N contexts.
 
 **Recording what happened**
 
@@ -227,10 +230,17 @@ The point of SDD: quality through narrow focus, and a lean main thread.
   block yourself — `hooks/dispatch-contract.sh` appends both to every `Task`/`Agent`
   prompt automatically. A `Prompt sketch:` is the *middle* of a prompt, never the whole
   of it: it ends where the hook's injection begins.
-- **Return contract:** agents return a short summary, file paths touched, and
-  verification output — never full file bodies. Verification output must include the
-  exact command(s) that produced it, copy-pasteable, or re-verifying means re-deriving
-  the command blind.
+- **Return contract:** agents return a summary under ~300 words, file paths touched, and
+  verification output — never full file bodies, whole diffs, or long logs, which go to a
+  file beside the plan and cited in the reply instead. The cap is a default, not an
+  override: a brief that sets its own cap or return shape governs — `plan-review`'s
+  600-word reviewer, `touring`'s uncapped manifest, and a verifier's
+  `references/verifier-contract.md` block all ship in full. Verification output must
+  include the exact command(s) that produced it, copy-pasteable, or re-verifying means
+  re-deriving the command blind. The ceiling ships to agents in
+  `hooks/dispatch-contract.txt`; **adjudicate detail from the durable copy, not by asking
+  for a longer reply** — a dispatch-heavy plan pays this cost 9–15 times, and the
+  orchestrator's context is the one thing in the session that never compacts.
 - **Relaying a return to the user strips its ids.** An agent's report is written for
   **you**: its finding codes, table rows, and bare `Location(s)` cells name things the
   user never read. Carry the finding, not its filing — say what the thing is ("the Argo
@@ -288,9 +298,8 @@ Step N — <short title>  [role: <subagent_type> · model: <opus|sonnet|haiku> �
   Done when: <observable acceptance criterion>
 ```
 
-Nothing is ticked at authoring time. Later, when a step's `Done when:` passes,
-the `✅` from the tracking rule above is appended to that step's `Step N —` line —
-the top line of the block, never one of the indented fields under it.
+Nothing is ticked at authoring time — ticking happens at execution, per
+**Recording what happened** above, which states where the `✅` lands and why.
 
 Group steps that have no dependencies under a **"Run in parallel:"** header so they dispatch in a single message. Dependent steps go under **"Sequential:"**.
 
@@ -339,7 +348,7 @@ Effort and model are independent levers: a `low`-effort `opus` step is fine, and
 1. **List the work.** Write the bare task list before assigning roles.
 2. **Find the critical path.** Which steps must finish before others can start? Those are sequential.
 3. **Find independent steps.** Disjoint files/areas, separate research questions, parallel verifications — group these for fan-out. Disjoint files are not enough: steps that each mint a value from a **shared sequence** (migration numbers, ports, generated ids, an append-only registry) collide even in separate files — pre-assign the concrete values in each step's `Inputs:`, or make them `Sequential:`.
-4. **Collapse small dependent steps.** Adjacent `Sequential:` steps that are individually small (combined ≤ ~40 changed lines) and suit the same role/model collapse into ONE dispatch — don't pay agent startup per tiny step.
+4. **Collapse small dependent steps.** Adjacent `Sequential:` steps that are individually small (combined ≤ ~40 changed lines) and suit the same role/model merge into ONE step, and so into one dispatch — `one plan step = one dispatch` holds in both directions, which is why **Budget each step to one agent's context** below splits an oversized step into steps rather than into dispatches. Don't pay agent startup per tiny step.
 5. **Budget each step to one agent's context.** A dispatched agent never compacts, so
    every tool result and every thinking block it emits stays in its context until the
    step ends. Nobody can count those calls while authoring, so size by smells
@@ -362,7 +371,7 @@ Effort and model are independent levers: a `low`-effort `opus` step is fine, and
 6. **Assign roles.** Smallest specialist that covers the work.
 7. **Assign models.** Default `sonnet`; upgrade only with a reason.
 8. **Assign effort.** Default `medium`; upgrade for design/cross-cutting, downgrade for trivial.
-9. **Write prompt sketches.** Each agent has zero memory of this conversation — the brief must stand alone. If a `Done when:` is a long test suite, brief the agent to iterate on a filtered subset and run the suite whole only as the final gate. When any step's `Done when:` runs tests, resolve the repo's test invocation **once per session** — `mentor:shipping` Step 4's own order (`.mentor/config.json`'s `test_command` first, else auto-detect, confirmed once it actually runs) — and paste that literal command into every prompt sketch that needs it, because a copy-pasteable string is the only thing that transfers to a context that never saw the earlier steps. The same rule covers any other repeatedly-launched tool a `Done when:` needs (a browser/E2E runner, a dev server): resolve the working invocation the first time it's needed and reuse that exact command in every later prompt sketch — no `.mentor/config.json` key exists for these, so state the resolved command directly rather than pointing at one. When the proof that tool serves is the live multi-service kind, item 10 sends the proof itself to a `## Verification` topic — the invocation is still resolved once, but it is handed to that topic's verifier (`references/verifier-contract.md` → "What to hand the verifier") instead of repeated across prompt sketches. It also covers *checkers*, not just invocations: when the repo or environment already ships a validator for the kind of artifact a step produces, name that command in the step's `Done when:` rather than leaving the agent to write its own equivalent — a freelance check is a second, unverified implementation that can drift from the real one unnoticed. (Why the command is pasted rather than described, and how a freelance checker fails: `references/rationale.md` → **Why a resolved command is pasted, not described**.)
+9. **Write prompt sketches.** Each agent has zero memory of this conversation — the brief must stand alone. If a `Done when:` is a long test suite, brief the agent to iterate on a filtered subset and run the suite whole only as the final gate. When any step's `Done when:` runs tests, resolve the repo's test invocation **once per session** — `mentor:shipping` Step 4's own order (`.mentor/config.json`'s `test_command` first, else auto-detect, confirmed once it actually runs) — and paste that literal command into every prompt sketch that needs it, because a copy-pasteable string is the only thing that transfers to a context that never saw the earlier steps. The same rule covers any other repeatedly-launched tool a `Done when:` needs (a browser/E2E runner, a dev server): resolve the working invocation the first time it's needed and reuse that exact command in every later prompt sketch — no `.mentor/config.json` key exists for these, so state the resolved command directly rather than pointing at one. When the proof that tool serves is the live multi-service kind, **State done-when** sends the proof itself to a `## Verification` topic — the invocation is still resolved once, but it is handed to that topic's verifier (`references/verifier-contract.md` → "What to hand the verifier") instead of repeated across prompt sketches. It also covers *checkers*, not just invocations: when the repo or environment already ships a validator for the kind of artifact a step produces, name that command in the step's `Done when:` rather than leaving the agent to write its own equivalent — a freelance check is a second, unverified implementation that can drift from the real one unnoticed. (Why the command is pasted rather than described, and how a freelance checker fails: `references/rationale.md` → **Why a resolved command is pasted, not described**.)
 10. **State done-when.** Observable, verifiable, no "looks good" — and provable by the
     implementer with **bounded commands**: build, typecheck, unit tests, a targeted
     integration check. Live end-to-end proof across a running multi-service stack
@@ -392,7 +401,7 @@ Sequential:
     Goal: apply the refactor.
     Inputs: Step 2 plan.
     Prompt sketch: Execute the plan from Step 2. Run typecheck and unit tests after each file. Stop and report if a test fails.
-    Done when: typecheck + tests pass; diff posted.
+    Done when: typecheck + tests pass; `git diff --stat` reported with the touched paths.
 ```
 
 ## Executing the dispatches (after plan approval)
@@ -406,18 +415,15 @@ before issuing `Agent` calls. Then:
 2. **Dispatch "Run in parallel:" groups** — issue ALL `Agent()` calls for each parallel group in a **single message** so they run concurrently. The solution-quality line and the standing contract block ("Deliver before idling," "Async runtime & lifecycle" below) reach every prompt automatically via the dispatch hook, so there is nothing to paste by hand — but the block's directives, including the no-nested-fan-out ban, are non-negotiable regardless of how the prompt sketch itself reads. After dispatching, apply **No busy-wait**: stop and let the harness re-invoke you when agents complete.
 3. **Dispatch "Sequential:" steps one at a time** — wait for the prior step's result before issuing the next call.
 4. **Verify each `Done when:` criterion** before moving to the next step — agents describe what they intended; trust but verify. On a concurrency- or timing-sensitive criterion, one clean run is not evidence — re-run it yourself 5+ times before accepting a PASS; an agent's self-reported `PASS=N/FAIL=0` from a single run proves nothing about a race. A zero-hit or empty result from your own check is likewise not evidence the criterion failed until you've confirmed the check itself works — a single-line `grep` can miss a claim that wraps across lines, an unquoted glob aborts outright under zsh's `nomatch`, and ERE alternation is `|`, not `\|`; when a check comes back empty, narrow it to one line or run it against a known-positive before trusting the negative. A step that hands back partial work plus a remainder brief has not failed its criterion — verify what it actually claims, then continue it per the hand-back addendum under "On a failed `Done when:`" above.
-5. **Execute the plan's Verification section** — dispatch one fresh verifier per `Topic N —` block, all in a single message, even when the plan opened `Dispatch: skipped`. Full contract in "Verifying the plan (execution-time)" below. A plan's own implementation step titled "Verification pass" or similar is not this step; it's ordinary self-graded work covered by item 4 above, never a substitute for this dispatch.
+5. **Execute the plan's Verification section** — dispatch one fresh verifier per `Topic N —` block, all in a single message, even when the plan opened `Dispatch: skipped`. Full contract in "Verifying the plan (execution-time)" below. A plan's own implementation step titled "Verification pass" or similar is not this step; it's ordinary self-graded work covered by **Verify each `Done when:` criterion** above, never a substitute for this dispatch.
 6. **CLOSING CHECKLIST — always, whatever Verification returned** (on a `failed` or handed-off plan the first two items still run; hold the tour and ship offers, which speak for work that was accepted)**:**
    - **Close out finished agents** — enumerate live tasks with `TaskList` and diff
      against this session's own dispatch tree, nested spawns included, before
-     `TaskStop`ping only what traces to that tree. Skipping straight to `TaskStop`
-     by remembered name doesn't just risk missing a nested spawn — when the harness
-     runs several sessions concurrently, a remembered name can belong to a
-     **different session's** live agent (its idle notification leaked into this
-     session's message stream). The runtime rejecting an unrecognized id is a
-     safety net, not a substitute for enumerate-then-diff (see "Async runtime &
-     lifecycle" below for the full rule, including the matching ownership check
-     before *nudging* on idle — that path has no id-rejection safety net at all).
+     `TaskStop`ping only what traces to that tree. A remembered name can belong to
+     a **different session's** live agent, and the runtime's id rejection is a
+     safety net, not a substitute for enumerate-then-diff (full rule, including
+     the ownership check before *nudging* on idle — which has no such net:
+     "Async runtime & lifecycle" below).
    - **Offer `/mentor:tour`** — one line: a hands-on acceptance pass building an editable guided-tour review artifact (pass/not-pass scenarios) of what shipped. Do not auto-run it.
    - **Sweep the report you're about to write** — every follow-up, gap, or known-broken
      item in it is **named** there, in plain terms, so nothing survives only as an aside
@@ -461,8 +467,8 @@ Do NOT paraphrase the plan or summarize what you're about to do. Dispatch immedi
 
 ## Unattended continuation (the per-step loop)
 
-The elaboration of items 1–5 above for a plan that already holds a standing grant: run
-it to completion without a human in the turn, asking `plan-state.sh instant` before
+The elaboration of "Executing the dispatches" above for a plan that already holds a
+standing grant: run it to completion without a human in the turn, asking `plan-state.sh instant` before
 every dispatch and every tick, and stopping the moment the script or the evidence says
 stop. **On by default** — the `instant` config axis unset behaves as `on`;
 `set-mode.sh instant-off`, or `--confirm` on the resume prompt, restores the attended
@@ -513,9 +519,10 @@ at session end, which is the failure this file exists to prevent.
    human turns. `UNRESOLVED`/`HOLD` → record, `set <slug> failed --note "<token>:
    <reason=>"`, STOP. `ASK` → record, ask; on "stop", write the `failed --note` before
    ending. `DONE` → the step is already ticked; `N=N+1`, continue. `DEFER`/`GO` → run it.
-2. Capture `header_crc=` from `instant <slug> N --verbose` **now** — this is the header
+2. **Capture the header CRC** from `instant <slug> N --verbose` **now** — this is the header
    the tick must land on later.
-3. Pull the brief (item 1 above) and dispatch per items 2–3, honoring
+3. Pull the brief and dispatch it per "Executing the dispatches" → **Pull each step's
+   brief**, **Dispatch "Run in parallel:" groups** and **Dispatch "Sequential:" steps**, honoring
    `Run in parallel:`/`Sequential:` exactly as written.
 4. **Verify the `Done when:` — the three-way route the script deliberately does not
    pick** (it reports facts; the route is judgment):
@@ -535,7 +542,7 @@ at session end, which is the failure this file exists to prevent.
    leaves no rollback: record every file the step wrote in the run record and do NOT
    advance.
 5. On `GO`: re-run `instant <slug> N --verbose` and abort the tick unless
-   `header_crc=` still equals the value from item 2 (the tick writes positionally
+   `header_crc=` still equals the value from **Capture the header CRC** (the tick writes positionally
    into an unversioned file — a moved header means it would land on the wrong line).
    Then `bash "$PS" tick <slug> N`. On `DEFER`: dispatch and verify but do NOT tick;
    note `N:defer_until=` for the drain below.
@@ -555,8 +562,9 @@ re-verify its `Done when:`, then tick. Still unsatisfied → `set <slug> failed 
 STORED state, so it survives its own last tick — that is what authorizes the
 `## Verification` remediation). Run "Verifying the plan (execution-time)" and "The
 non-goal disposition gate" unchanged — including under `dispatch: solo`, where the
-round's fresh verifiers still dispatch per the same user-ruled override as item 4,
-disclosed in the run record — then the CLOSING CHECKLIST with ONE substitution
+round's fresh verifiers still dispatch per the same user-ruled override as
+**Verify the `Done when:`** above, disclosed in the run record — then the CLOSING
+CHECKLIST with ONE substitution
 (user-ruled): instead of the commit **question**, commit the run's work
 automatically — once, at end of run, on the plan branch. Stage narrowly (only paths
 the steps' return contracts name — never `git add -A`, never a whole directory; the
@@ -595,12 +603,17 @@ Step 1 instead. A verification round moves the plan with `set`.
   into every verifier prompt verbatim. ("Deliver before idling" needs no pasting — the
   dispatch hook appends it.) A return
   with no `Gaps / Missing:` line is not a verdict yet — ask that same verifier for it
-  ("Follow-up vs re-dispatch" below); silence is never `none found`.
+  ("Follow-up vs re-dispatch" below); silence is never `none found`. A
+  `Verdict: HANDBACK` is exempt: it is a complete answer about an incomplete
+  check, so re-asking it just spends the round-trip the hand-back saved.
 - **Failure loop.** A `FAIL`, or any non-`none found` Gaps line even on a PASS, surfaces
   the round's gaps. Split them on the contract's stamp and **work every `[GOAL]` gap to a
   fixed point before assembling anything for the user** — a remediation dispatch routinely
   turns up more gaps, so a digest built while the set is still growing is stale before it
-  is read.
+  is read. **`Verdict: HANDBACK` is not a `FAIL`** — the topic outgrew its brief, so it
+  routes to "On a failed `Done when:`" above and costs this round none of its one
+  remediation: re-dispatch the topic fresh with the verifier's remainder as its inputs.
+  Read it as a `FAIL` and the topic burns its retry on work nobody attempted.
   - **Re-check context first** — the same move as `planning`'s "Re-check context": run
     `bash "${CLAUDE_PLUGIN_ROOT}/hooks/plan-state.sh" context` fresh rather than trusting
     an earlier reading. A verification round runs mostly on harness-synthetic prompts
@@ -736,9 +749,8 @@ the contract does not apply to them, which is exactly how a fan-out goes out raw
   `hooks/dispatch-contract.sh` injects it into every `Task`/`Agent` prompt, so a surface
   no longer has to load this skill just to reach it — most on the roster now run
   `plan-state.sh policy` instead, one call, which also reports whether that injection is
-  actually live. What a surface still owes is that preflight: the hook fail-softs silently
-  when `jq` or the contract file is missing, and `CONTRACT: MISSING` is the only thing
-  that would say so. When adding a surface here, confirm it carries the preflight.
+  actually live. What a surface still owes is that preflight. When adding a surface
+  here, confirm it carries it.
 - **A delegated step's fan-out is still yours.** When a plan step hands its
   work to another plugin's own multi-agent skill, the main thread runs that
   skill — its agents are dispatched from this session and land in this
@@ -768,8 +780,8 @@ the contract does not apply to them, which is exactly how a fan-out goes out raw
     implements in-thread and still dispatches verification, `solo` keeps both in-thread
     and owes the report a disclosure that the plan carries no independent grader —
     except inside an instant run, where the per-step loop still dispatches its one
-    fresh prose-criterion verifier ("Unattended continuation" item 4, user-ruled),
-    disclosed in the run record. Nothing
+    fresh prose-criterion verifier ("Unattended continuation" → **Verify the
+    `Done when:`**, user-ruled), disclosed in the run record. Nothing
     here is re-litigated per plan or per session; that re-litigation is the whole reason
     the key exists.
   - **`POLICY: NONE`** → route per "Where dispatch pays".
@@ -843,8 +855,7 @@ the contract does not apply to them, which is exactly how a fan-out goes out raw
   and `hooks/dispatch-contract.sh` (`PreToolUse`, matching `Task`/`Agent`) appends it to
   every dispatch prompt automatically — so **do not paste it by hand**, and do not
   paraphrase it in a prompt sketch. Confirm it is live with `plan-state.sh policy`
-  before the session's first dispatch; its `CONTRACT:` line is the only thing that
-  reports the hook's silent fail-soft. (Why it is injected rather than pasted:
+  before the session's first dispatch. (Why it is injected rather than pasted:
   `references/rationale.md` → **The standing prompt contract**. The block's text
   itself is only in `hooks/dispatch-contract.txt`.)
 - **Idle-before-report race.** An idle notification can arrive before the agent's
@@ -938,14 +949,12 @@ the contract does not apply to them, which is exactly how a fan-out goes out raw
   background work. **The same checkpoints are also the right moment to
   re-check context** — run `bash "${CLAUDE_PLUGIN_ROOT}/hooks/plan-state.sh"
   context` here too, not only on the failure loop's remediation path
-  ("Verifying the plan" above). A verification round runs mostly on
-  harness-synthetic prompts, which `context-gate.sh`'s own WARN tier
-  deliberately skips, and an all-PASS round never enters the failure loop at
-  all — so a clean round can walk straight into the final report with
-  whatever context reading it last took, if any. `context-checkpoint.sh`'s
-  between-batch advisories (v2.37.0) narrow that gap but are rate-limited
-  and easy to sail past, so this deliberate re-check stays. `CONTEXT: WARN`
-  or higher belongs in the final report itself (a line naming
+  ("Verifying the plan (execution-time)" above, which carries the reason). Its
+  remediate-or-hand-off question does not apply here — there is nothing left to
+  remediate. This second site exists because an all-PASS
+  round never enters that loop at all, so a clean round can walk straight into
+  the final report on whatever context reading it last took, if any.
+  `CONTEXT: WARN` or higher belongs in the final report itself (a line naming
   `/mentor:handoff`), not silently absorbed.
 - **A live `Monitor` watch is not a dispatch — it has no stop tool.** A CI run, a
   deploy, or a long build tracked via `Monitor` should usually keep running

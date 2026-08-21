@@ -504,7 +504,8 @@ constitution, gitignore caveat) with these lane specifics:
   the session's most expensive context and a fresh verifier re-prove the same
   ground. Paste that rubric item's smell list into the prompt rather than
   paraphrasing it — read the five smells out of `dispatch-agents/SKILL.md`'s
-  **Decomposition rubric** item 5, since this skill does not load that one — so
+  **Decomposition rubric** → **Budget each step to one agent's context**, since this
+  skill does not load that one — so
   the check cannot drift from the rule it enforces. Both findings are
   `[DECISION-REQUIRED]`: splitting a step, or moving its acceptance into
   `## Verification`, reshapes the plan and must never auto-fold.

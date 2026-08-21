@@ -145,7 +145,8 @@ for the reason each bullet gives.
   want/got comparison per report as it arrives, which just repeats the same check N
   times. Derive `want` from the dispatch input (the batch you handed out), never from
   the agent's own report — a self-reported count checked against itself proves
-  nothing, the same trust-but-verify gap item 4 below exists to close. One pass,
+  nothing, the same trust-but-verify gap `SKILL.md`'s **Verify each `Done when:`
+  criterion** exists to close. One pass,
   one row per unit:
   ```bash
   for unit in "${units[@]}"; do
@@ -153,8 +154,7 @@ for the reason each bullet gives.
     printf '%s\twant=%s\tgot=%s\t%s\n' "$unit" "$want" "$got" "$([ "$want" = "$got" ] && echo PASS || echo FAIL)"
   done
   ```
-  A zero `got` is the same not-evidence case as the census above — confirm the check
-  itself works (right path, no unquoted glob eaten by `nomatch`) before trusting it.
+  A zero `got` is the same not-evidence case as the census above.
 
 **The shared rule underneath both.** A zero result is not evidence until the check that
 produced it is confirmed working — right path, no unquoted glob eaten by `nomatch`, no
