@@ -204,29 +204,27 @@ single-line `grep` against a claim that wraps. This is the same not-evidence sta
 
 ## Idle-before-report race — why a foreign id is dangerous and a re-brief backfires
 
-- **Idle-before-report race.** An idle notification can arrive before the
-  agent's actual report — and, when the harness is running several sessions
-  concurrently, a notification can name a task this session never dispatched
-  at all (a sibling session's idle/report leaking into this one's message
-  stream). Check the id against this session's own dispatch tree before
-  reacting: the id-not-found safety net that protects `TaskStop` below does
-  **not** protect a nudge — `SendMessage` to a foreign id succeeds and lands
-  on a stranger's live agent. An unrecognized id gets no reply of any kind,
-  not even the nudge. On idle **with a recognized id** and no report in
-  hand: check the message backlog, then send ONE nudge: "Status check on
-  Step N: send your completed result now — full text, per the return
-  contract. If you are still working, reply with the one thing that's
-  left." Do not restate the step's criteria —
-  the agent's context is warm, and a re-brief invites it to redo finished work.
-  Only if the nudge fails, fall back to independent re-verification — and if
-  that closes the step with no author report ever received, say so plainly in
-  the plan file: that step's `## Verification` topic verifier has no author
-  rationale to weigh against, so its own read of the artifact is the step's
-  only judgment, not a second opinion, and deserves the scrutiny that implies.
-  Never re-run expensive verification (full builds, E2E suites) while the
-  agent's own report may still be in flight. The race also resolves in the other direction:
-  an idle notification arriving from an agent **already** `TaskStop`ped needs no
-  reply at all — the stop already closed it out.
+The procedure itself is `references/dispatch-recovery.md` → **Idle before the report**,
+and the guard that fires first is in `SKILL.md` → "Async runtime & lifecycle". Three
+things only this file carries.
+
+**Why a foreign id reaches you at all.** When the harness is running several sessions
+concurrently, a notification can name a task this session never dispatched — a sibling
+session's idle or report leaking into this one's message stream. Nothing about the
+notification marks it as foreign.
+
+**Why acting on one is dangerous.** The id-not-found safety net that protects `TaskStop`
+does **not** protect a nudge: `SendMessage` to a foreign id succeeds and lands on a
+stranger's live agent, mid-run, with no error and no way to retract it.
+
+**Why a re-brief backfires.** The agent's context is still warm. Restating the step's
+criteria reads as a new assignment and invites it to redo work it had already finished.
+
+**When no author report ever arrives.** If the nudge fails and independent
+re-verification closes the step, say so plainly in the plan file: that step's
+`## Verification` topic verifier has no author rationale to weigh against, so its own
+read of the artifact is the step's only judgment, not a second opinion, and deserves the
+scrutiny that implies.
 
 ## Why the loop refuses more than it runs
 
@@ -347,19 +345,17 @@ stand; only the attribution needs stating.
 
 ## When a step goes dark
 
-A step that produces no output, no idle signal, and no death notification has nothing
-that will wake the orchestrator. The wake-up is usually the user asking why it is taking
-so long — which arrives with social pressure to produce an answer immediately.
+The route out is `references/dispatch-recovery.md` → **A step that goes dark**. What this
+file adds is why the tempting alternative is so expensive.
 
-That pressure is what makes hand-debugging tempting, and hand-debugging is the escape
+The user asking why a step is taking so long arrives with social pressure to produce an
+answer immediately. That pressure is what makes hand-debugging tempting, and it is the escape
 hatch reserved for a *second* failed `Done when:`. Reaching for it early has a specific
 cost: the main thread inherits a debugging session it has no context for. It guesses
 column names it never read, follows dead ends the step's own agent had already ruled out,
 and spends the orchestrator's context — the scarcest thing in the session — on one step's
 interior. The orchestrator ends up worse equipped to run the remaining steps than before
 it started helping.
-
-Handing a warm diagnosis to a fresh agent is what actually closes these steps.
 
 ## Why a gate-routed stub is flat on purpose
 

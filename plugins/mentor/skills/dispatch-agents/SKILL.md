@@ -64,24 +64,9 @@ already ran; carry on.
 
 Work already planned elsewhere (spec-kit's `tasks.md`, a Jira epic): do not author a
 mentor plan or run an approval question over it (`plan-track`, "When NOT to use").
-Annotate that framework's phase with the grammar below and execute — every `plan.md`
-mechanic here (approved-plan read, ✅ ticks, `plan-state.sh`, the gate, `## Verification`
-dispatch) has no counterpart and is skipped, and `/mentor:defer` redirects: a follow-up
-belonging to that framework's backlog goes there, not into a mentor stub. Repo work
-outside its scope is **named in your report** and `/mentor:defer` offered — this path is
-self-graded, with no verifier and no disposition gate behind it, so there is nothing here
-that could responsibly park work on the user's behalf. Three rules hold on this path:
-
-- Copy `Goal:`/`Done when:` **verbatim from the task's own text** and verify the
-  delivery against that text — your brief is a lossy transcription of it. You self-grade
-  here: the weakest-grader rationale in "Verifying the plan (execution-time)" does not
-  reach this path, because that framework owns its own verification.
-- Never let the record **drift from the work**: the orchestrator, not the agent, lands
-  each check-off in the same commit as that task's own work — never batched, never
-  left dirty for a later task to sweep in.
-- Write that progress line and **nothing else** in the framework's files. A spec
-  conflict blocking a `Done when:` goes to that framework's own amend command — mentor
-  never edits another framework's artifact of record.
+Annotate that framework's phase with the grammar below and execute. What that path skips,
+why it is self-graded, and its three rules for touching that framework's files are in
+`references/other-framework-path.md` — read it before the first dispatch on such a phase.
 
 If this work should be gated, mentor should own the plan: `/mentor:plan`.
 
@@ -272,19 +257,10 @@ The point of SDD: quality through narrow focus, and a lean main thread.
   failure this rule exists to prevent. But nothing is deferred on your reading of what
   matters — deferral is the user's verdict to give.
 
-  When a defer **is** the verdict, one question fixes the parent link — **which plan's
-  work does this item block from being *really* done?** For a confirmed defect that is the
-  plan whose work carries it, not merely whichever plan happened to be active when it
-  surfaced:
-  - **An already-implemented plan's work** — including the active plan once its own
-    verification passed → `parent` = that plan's slug. Parking it flat instead makes it
-    invisible to every `parent`-walking surface (`query --subtree`, `/mentor:track`'s
-    roll-up, `/mentor:resume`'s drain) while the owning plan reads cleanly `implemented`;
-    parented, that plan honestly shows "done with open fixes".
-  - **An unbuilt plan's future scope** → no `parent` (nothing done exists to block);
-    record the ordering as `deps` on that plan instead.
-  - **Nobody's in particular** (backlog — a refactor idea, tooling, a feature aside) →
-    flat, no `parent`. This is also what a gate verdict routes by default.
+  When a defer **is** the verdict, `deferring` fixes the parent link from one question —
+  which plan's work does this item block from being *really* done? — and this skill states
+  no competing answer (`mentor:deferring` → **blocking vs backlog**). The gate's own
+  default of flat is in `references/non-goal-gate.md`.
 
 ## Per-step output shape
 
@@ -382,27 +358,9 @@ Effort and model are independent levers: a `low`-effort `opus` step is fine, and
 
 ## Example
 
-```
-Run in parallel:
-  Step 1 — Locate all payment-method touchpoints  [role: Explore · model: sonnet · effort: low]
-    Goal: list every file that reads/writes payment method state.
-    Inputs: src/features/checkout/**, src/db/atomicSale.ts
-    Prompt sketch: Find every file referencing `paymentMethod`, `payments` table, or `Payment` types. Group by feature folder. Report under 200 words.
-    Done when: file list returned with one-line purpose per file.
-
-Sequential:
-  Step 2 — Design refactor  [role: Plan · model: opus · effort: high]
-    Goal: implementation plan for unifying payment dispatch.
-    Inputs: output of Step 1.
-    Prompt sketch: Given these touchpoints, design a refactor that consolidates payment handling behind a single dispatcher. Surface tradeoffs and migration risk.
-    Done when: stepwise plan with file-level changes and risks. (Opus — cross-cutting judgment.)
-
-  Step 3 — Implement  [role: general-purpose · model: sonnet · effort: medium]
-    Goal: apply the refactor.
-    Inputs: Step 2 plan.
-    Prompt sketch: Execute the plan from Step 2. Run typecheck and unit tests after each file. Stop and report if a test fails.
-    Done when: typecheck + tests pass; `git diff --stat` reported with the touched paths.
-```
+A worked three-step example of the grammar above — one parallel `Explore` step, then two
+sequential ones — is in `references/annotation-example.md`. Read it when authoring a
+plan's annotations; execution never needs it.
 
 ## Executing the dispatches (after plan approval)
 
@@ -603,7 +561,8 @@ Step 1 instead. A verification round moves the plan with `set`.
   into every verifier prompt verbatim. ("Deliver before idling" needs no pasting — the
   dispatch hook appends it.) A return
   with no `Gaps / Missing:` line is not a verdict yet — ask that same verifier for it
-  ("Follow-up vs re-dispatch" below); silence is never `none found`. A
+  (`references/dispatch-recovery.md` → **Follow-up vs re-dispatch**); silence is
+  never `none found`. A
   `Verdict: HANDBACK` is exempt: it is a complete answer about an incomplete
   check, so re-asking it just spends the round-trip the hand-back saved.
 - **Failure loop.** A `FAIL`, or any non-`none found` Gaps line even on a PASS, surfaces
@@ -647,7 +606,8 @@ Step 1 instead. A verification round moves the plan with `set`.
     unresolvable *verification topic* always exits this way, never as a stub.
 
   Remediations run **sequentially, never in parallel** — parallel fixes on shared files
-  race — and that covers the gate's "Fix it now" dispatches below too. One asymmetry there
+  race — and that covers the fix-now dispatches "The non-goal disposition gate"
+  below can produce too. One asymmetry there
   is deliberate: a fix that fails on a `[NON-GOAL]` finding **never** sets `failed`, it
   records as left open. Electing to fix a cosmetic finding must not leave the plan worse
   off than declining to.
@@ -671,65 +631,14 @@ reading of what matters. Run this gate once, after remediation has settled and b
 
 **A stamp the verifier set stands — never re-grade it.** You are the context that built
 the thing and wants the plan to close, which is exactly the pressure that re-reads a
-`[GOAL]` gap as `[NON-GOAL]` and quietly buries it. **Unstamped** gaps are real and have
-their own route: a verifier that ignored the contract, a `Cross-topic:` finding you
-promoted to a round gap (those carry no stamp by construction), or work a dispatched
-implementation agent reported from outside its step's scope. Ask that verifier for the
-stamp, exactly as a missing `Gaps / Missing:` line is re-asked ("Verifying the plan"
-above); if it comes back unstamped again, or there is no verifier to ask, treat it as
-`[NON-GOAL]` and it rides through this gate with the rest.
+`[GOAL]` gap as `[NON-GOAL]` and quietly buries it. **Unstamped** gaps are a different
+thing from non-goal ones and have their own route:
+`references/non-goal-gate.md` → **Unstamped gaps have their own route**.
 
-1. **Digest.** One line per `[NON-GOAL]` finding, `[LARGE]` first: a 2–4 word handle, the
-   size, half a sentence of what it is, and the verifier's `fix:` clause. Empty set → skip
-   the gate and go straight to the report. **Size, not severity, drives the split below** —
-   the opposite of how `plan-review` walks its findings, and worth holding onto if that
-   skill is also in context. Severity was already spent on the `[GOAL]`/`[NON-GOAL]` call;
-   what is left to decide is whether the user wants to spend a session on the fix.
-2. **Walk the `[LARGE]` ones** — one `AskUserQuestion` each, the handle as its header, a
-   `(<k> of <n>)` prefix, opening with one plain sentence naming the decision. In practice
-   a round produces none to two of these. Options: **"Defer as its own plan"** /
-   **"Fix it now in this session"** / **"Leave open"** / **"Skip the rest"** — the last
-   leaves this finding and **every** remaining one open, batched ones included, so offer it
-   only while findings still remain anywhere in the gate. Say in the question text that a
-   narrower resolution is reachable through "Other".
-3. **Batch the `[SMALL]` ones into ONE question.** Header `"Remaining <N>"`. Restate each
-   finding as its own line *inside the question text* — the digest may have scrolled away,
-   and a question that points back at earlier output is one the user has to leave the
-   screen to answer. Three options: **"Fix them all now (Recommended)"** /
-   **"Defer them all"** / **"Leave all open"**. Exactly one remaining finding collapses to
-   a normal per-finding question instead.
-4. **Apply the verdicts once they are all in**, in a single pass. Remediation dispatches
-   stay sequential, per the failure loop above.
-5. **A Defer verdict is itself the invocation** — run the capture rather than telling the
-   user to retype `/mentor:defer`. Invoke `Skill(skill="mentor:deferring")` and state the
-   routing as a prose preamble, the shape `planning` already uses when it prepends "The
-   user selected …" ahead of a skill load: `from` = this plan, `parent` = **none**,
-   `category` = the verifier's judgement, and **`priority` left unset** — an explicitly
-   non-goal finding must not float to the top of `/mentor:track`'s build queue. The
-   single exception to `parent` = none: a defect in an **already-implemented**
-   plan's shipped work parks under *that* plan, which it genuinely blocks. If `deferring`
-   refuses the item under its own scope rule, **record it left open and say so** — a
-   verdict the user gave must not evaporate because the capture bounced.
-
-   Then stamp each flat stub the capture created, using the slug it reported back:
-
-   ```bash
-   bash "${CLAUDE_PLUGIN_ROOT}/hooks/plan-state.sh" set <stub-slug> draft --note "gate: left uncontained"
-   ```
-
-   That note is what tells the rest of the harness this stub is flat **on purpose**;
-   without it, every future `/mentor:track` and `/mentor:resume` would offer to adopt it,
-   asking the user to reverse a decision they already made here. Skip the stamp on the
-   already-implemented exception above: that stub has a `parent` and is contained.
-   (Why an unstamped flat stub trips the lineage alarm, and why an unset `priority`
-   matters: `references/rationale.md` → **Why a gate-routed stub is flat on purpose**.)
-6. **Report three groups**, by handle: fixed, deferred (with their stub slugs), and left
-   open — plus the verifiers' `Notes:` lines as context, unverdicted. The left-open group
-   is exactly what the `implemented` write records as `--note "open: …"`.
-
-Each question follows the relay rule in "Context efficiency — the orchestrator contract"
-above: strip the agent-side ids, carry the finding rather than its filing, and let the
-question stand on its own.
+The gate's six steps are in `references/non-goal-gate.md`. Read it when the round has any
+open finding the user has not ruled on — stamped `[NON-GOAL]` or not. Routing the unstamped
+ones is what decides whether the set is empty, so the empty-set skip is that file's step 1,
+never a reason to stay out of the file.
 
 ## Async runtime & lifecycle
 
@@ -843,8 +752,8 @@ the contract does not apply to them, which is exactly how a fan-out goes out raw
   don't act on or narrate the batch after its first, third, or ninth idle/report
   while others are still outstanding. This is the same single **end the turn** from
   **No busy-wait** above, just applied to N outstanding signals instead of one: each
-  wake-up in between gets silently absorbed (per "An echo from an already-stopped
-  agent gets no reply and no narration" below) rather than re-entering the
+  wake-up in between gets silently absorbed (per `references/dispatch-recovery.md`
+  → **An echo from an already-stopped agent**) rather than re-entering the
   orchestrator's attention, so a 12-agent round costs one wait, not twelve.
 - **Deliver before idling — the standing prompt contract.** Every dispatched agent
   needs runtime directives it has no other way to learn: the no-nested-fan-out ban, the
@@ -858,78 +767,17 @@ the contract does not apply to them, which is exactly how a fan-out goes out raw
   before the session's first dispatch. (Why it is injected rather than pasted:
   `references/rationale.md` → **The standing prompt contract**. The block's text
   itself is only in `hooks/dispatch-contract.txt`.)
-- **Idle-before-report race.** An idle notification can arrive before the agent's
-  report, and — with several sessions running concurrently — can even name a task this
-  session never dispatched. **Check the id against this session's own dispatch tree
-  before reacting:** `SendMessage` to a foreign id succeeds and lands on a stranger's
-  live agent, with no id-not-found safety net of the kind that protects `TaskStop`. An
-  unrecognized id gets no reply of any kind. On idle **with a recognized id** and no
-  report in hand: check the message backlog, then send ONE nudge — *"Status check on
-  Step N: send your completed result now — full text, per the return contract. If you
-  are still working, reply with the one thing that's left."* Do not restate the step's
-  criteria; the agent's context is warm and a re-brief invites it to redo finished work.
-  Only if the nudge fails, fall back to independent re-verification. Never re-run
-  expensive verification (full builds, E2E suites) while the agent's own report may
-  still be in flight, and an idle arriving from an already-`TaskStop`ped agent needs no
-  reply at all. (What to write in the plan file when a step closes with no author report
-  ever received: `references/rationale.md` → **Idle-before-report race**.)
-- **An echo from an already-stopped agent gets no reply and no narration.** Not a
-  nudge, not "Agent X already stopped, ignoring" — nothing. On a dispatch-heavy
-  plan the whole batch is worth at most one dismissed-count line at close-out, and
-  only if it earns one. An echo arriving *after* the plan was announced
-  `implemented` is the same non-event: it reopens nothing, and narrating it reads
-  to the user as new activity — which is how a finished plan collects a second
-  "mark it done" round-trip.
-- **Agent died (infra/API error).** Don't reinvent recovery glue: wait with
-  escalating patience (minutes-scale, roughly doubling — this sanctioned wait
-  for a *dead* agent is not the busy-polling of a healthy one forbidden
-  above), then send a resume message: "You died on an infra error mid-step.
-  Resume Step N where you left off. Already applied: <paste state>. Your
-  `Done when:` <verbatim>." Two failed resumes → fresh re-dispatch of the role.
-  **A failure string naming a reset time** ("hit your session limit · resets
-  2:50pm") is a quota wall, not an infra blip: don't wait it out, don't
-  resume-message. Snapshot what each dead agent already landed, report the
-  reset time, and end the turn.
-- **Follow-up vs re-dispatch.** A small fix or clarification on work an agent
-  already owns — idle **or still running** → send ONE message to that same
-  agent (its context is warm; use your runtime's agent-messaging tool — in
-  Claude Code that is `SendMessage`, which — like `TaskList`/`TaskStop` below —
-  may need fetching via `ToolSearch` first; `select:SendMessage,TaskList,TaskStop`
-  in one call loads all three async-lifecycle tools together, so whichever of
-  them you reach for first primes the rest). State that the correction must be applied before
-  the agent returns. This matters most when something you learn *after*
-  dispatching invalidates part of a brief already in flight — a reviewer's
-  finding landing while a writer works from the superseded version. Correcting
-  it in place beats both alternatives: letting a known-wrong artifact land, or
-  re-dispatching a whole combo that was 90% right. A failed `Done when:`
-  needing a clean rebrief → re-dispatch the role once (per the orchestrator
-  contract above). **Verify the correction landed.** Sending the message is not
-  the same as it taking effect, and unlike a step's own delivery this has no
-  `Done when:` to re-check it against — apply the same trust-but-verify rule by
-  hand: re-read or grep the target artifact for the exact text you asked for
-  once the agent reports, and treat a reply that only *describes* the fix as
-  unverified.
-- **Step stalled / the user interrupts it.** A step that goes dark — no output, no idle
-  signal, no death — has no notification coming, so the wake-up is usually the user
-  asking why it is taking so long. Debugging the step's subject matter by hand is the
-  escape hatch reserved above for a *second* failed `Done when:`, and reaching for it
-  early leaves the main thread owning a debugging session it has no context for. Stay
-  orchestrator-shaped instead (what that costs when ignored:
-  `references/rationale.md` → **When a step goes dark**):
-  1. **Snapshot observable state only** — `git log --oneline -5`, `git status --short`,
-     `git diff --stat`, a listing of the step's artifact dir. Kill processes the step
-     leaked (a browser runner, a stray container) so the re-dispatch starts clean.
-  2. **Delegate the diagnosis** — dispatch ONE read-only `Explore` agent pointed at the
-     artifact paths and the failing command, and let it return a cause.
-  3. **Re-dispatch the role with that diagnosis attached**, counted against the
-     one-remediation budget above. Handing a warm diagnosis to a fresh agent is what
-     actually closes these steps.
-
-  Keep secrets out of the snapshot: commands that print a process or container
-  environment (`docker inspect` over `.Config.Env`, `printenv`, `env`) dump live API keys
-  straight into the transcript, and the transcript outlives the turn — `/mentor:handoff`
-  reads it back, and so does anyone reviewing the session. Name the one variable you
-  need, or check a value's *presence* rather than printing it.
+- **A dispatch that goes wrong — idle races, echoes, agent death, follow-ups, stalls.**
+  Two guards fire before there is time to read anything, so they stay here. **Check a
+  notification's id against this session's own dispatch tree before reacting:**
+  `SendMessage` to a foreign id succeeds and lands on a stranger's live agent — with
+  several sessions running concurrently an idle can name a task this session never
+  dispatched, and there is no id-not-found safety net of the kind that protects
+  `TaskStop`. An unrecognized id gets no reply of any kind. And **hand-debugging a
+  stalled step's subject matter is the escape hatch reserved above for a *second* failed
+  `Done when:`** — reaching for it early leaves the main thread owning a debugging
+  session it has no context for. The recovery procedure for each is in
+  `references/dispatch-recovery.md`. Read it the moment one of the five happens.
 - **Close out.** Once a dispatch's output is consumed and its `Done when:`
   verified, stop/release the agent — finished agents left idling interrupt
   the session with stray notifications and pile up until manually killed.
@@ -941,8 +789,8 @@ the contract does not apply to them, which is exactly how a fan-out goes out raw
   (stage-1 reviewers, then a stage-2 fan-out; a plan-review pass followed by a
   zoom pass) makes each intermediate closure claim as real a checkpoint as the
   session's last one — enumerate live tasks: in Claude Code that is `TaskList`
-  (see the `SendMessage` note above for the one combined `ToolSearch` fetch
-  that covers this too), diffed against this session's own dispatch tree,
+  (`select:SendMessage,TaskList,TaskStop` in one `ToolSearch` call loads all
+  three async-lifecycle tools together), diffed against this session's own dispatch tree,
   nested spawns included. Stop only what traces to that tree with
   `TaskStop`; note anything else in the one-line report rather than
   stopping it, since it may belong to a sibling session or the user's own

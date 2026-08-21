@@ -609,6 +609,72 @@ extra deliverable. Instruction-only — no hooks.
 | `plan-domain-architecture` | Structural change — services, containers, datastores, queues, integrations, data flows (not pure content/config/doc/style/refactor) | Diff-highlighted C4-style Mermaid flowcharts, only the levels that change; a provenance list for any changed datastore field. |
 | `plan-domain-dynamic` | No registered domain matched, and no already-available project/plugin skill names the technology (fallback) | A dispatched domain-definer names the domain and returns a best-practices brief; the plan gains a practice→step mapping. A substituted available skill can supply the brief instead. |
 
+## Changes in v2.39.0
+
+**`dispatch-agents` costs less to load, and the standing contract now caps what comes back.**
+The skill loads into main context on every plan execution and had grown to 71.4KB (~21k
+tokens) — the largest single item on the `/mentor:track` → build path. Three commits cut it
+without dropping a rule.
+
+- **Inbound agent reports are capped.** `hooks/dispatch-contract.txt` — the block the
+  dispatch hook appends to every prompt — now asks for a reply under ~300 words, with file
+  bodies, whole diffs and long logs written beside the plan (or to a `mktemp` file when the
+  brief names none) and cited by path. **The cap yields to the brief's own cap or return
+  shape**, so `plan-review`'s 600-word reviewer, `touring`'s deliberately uncapped manifest
+  and every verifier's `verifier-contract.md` block still ship in full. Four new assertions
+  in `test-dispatch-contract.sh` pin the clause through injection. Honest arithmetic: it
+  costs ~1.1–1.8k tokens per run to ship (474 b × 9–15 dispatches) against a 2.7–7.5k
+  inbound saving — net ~0.9–6.4k, narrower than the headline.
+- **New `Verdict: HANDBACK`** in `dispatch-agents/references/verifier-contract.md`. The
+  hand-back rule — *the topic outgrew its brief* — was previously unobeyable: `Verdict:` was
+  a closed `PASS | FAIL` binary, so a hand-back had to be mis-stamped as one of them, and a
+  `FAIL` spends the topic's one remediation on work nobody attempted. `HANDBACK` costs the
+  round nothing and routes the topic to a fresh dispatch with the verifier's remainder as
+  its inputs.
+- **Four conditionally-read blocks moved out of `SKILL.md`**, each behind a short
+  on-trigger pointer, and every `## ` heading kept so existing citations still resolve:
+  - the five dispatch-recovery bullets → new `references/dispatch-recovery.md`, read when
+    an agent idles early, echoes after being stopped, dies, goes dark, or needs a
+    correction applied to a brief already in flight;
+  - the non-goal gate's six steps → new `references/non-goal-gate.md`, read when a round
+    has any open finding the user has not ruled on;
+  - the "another framework owns the plan of record" detail → new
+    `references/other-framework-path.md`, read only on a spec-kit/Jira phase, never on a
+    mentor plan;
+  - the worked annotation example → new `references/annotation-example.md`, read when
+    authoring a plan, never when running one.
+
+  **The guards that fire before anyone could open a reference stay inline** — the
+  foreign-id `SendMessage` check, the ban on hand-debugging a stalled step early, and the
+  gate's user's-call and never-re-grade-a-stamp rules. Six pointers inside `SKILL.md` that
+  named the moved text positionally ("above", "below") were repointed by heading name.
+- **The parent-link taxonomy is stated once.** `dispatch-agents` had restated `deferring`'s
+  three-way blocking/backlog split — the rule eval id 54 exercises — so a defer verdict had
+  two sources that could drift. It now points at `mentor:deferring` → **blocking vs
+  backlog** and states no competing answer.
+- **`Unattended continuation` was deliberately NOT moved**, though it is now the largest
+  remaining block. The `instant` axis is on by default and `plan-track` enters that loop on
+  nearly every build run, so deferring it would move the cost into a reference read rather
+  than remove it.
+- **The dead "Deliver before idling" pointers are gone.** `hooks/plan-state.sh` printed
+  "paste the block from `skills/dispatch-agents/SKILL.md`" on the `CONTRACT: MISSING` path —
+  a file that has held no such block since v2.34.0, and the message fires exactly when `jq`
+  is missing and the user is already stuck. That advice, and the same stale instruction in
+  `planning`, `plan-review`, `plan-split`, `plan-touring` and `zooming`, now names
+  `hooks/dispatch-contract.txt` and treats a missing file as a damaged install rather than
+  something to retype by hand.
+- **Narrative moved to `references/rationale.md`** per the repo's SKILL-prose convention —
+  five new headings — and every by-number cross-reference in the skill was converted to name
+  form, so a renumbered step can no longer silently redirect a citation. Two `rationale.md`
+  sections that had been written as verbatim copies of the `SKILL.md` bullets they explain
+  were trimmed to what only that file carries: once the procedures moved into a sibling
+  reference, both copies sat in the same load class with a pointer between them, so a reader
+  following it re-read eighteen lines to reach three new ones.
+
+**Net: `dispatch-agents/SKILL.md` 71,435 → 60,897 bytes (−14.8%)**, roughly 3.1k tokens off
+every plan execution, with all four moved blocks still one read away when they are actually
+needed. `Unattended continuation` remains the largest block in the file by design.
+
 ## Changes in v2.38.0
 
 **The `/mentor:track` hierarchy is rendered by the script, not by prose.** `plan-track`'s
