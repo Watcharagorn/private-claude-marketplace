@@ -196,17 +196,8 @@ no skill load:
 bash "${CLAUDE_PLUGIN_ROOT}/hooks/plan-state.sh" policy
 ```
 
-`POLICY: SET (dispatch=…)` — the user already recorded where work runs in this repo;
-honor it and ask nothing. `FOUND` — a standing no-subagents instruction is on record; ask
-ONCE and record the answer, per `dispatch-agents`' **Standing no-subagents policy** (the
-recording is what stops every later surface re-asking). `UNRESOLVED` — the check could not
-run, which is not a clean result; treat the question as open. `NONE` — dispatch. `CONTRACT: active` confirms
-`hooks/dispatch-contract.sh` appends the standing "Deliver before idling" block to every
-dispatch prompt automatically: **do not paste it by hand.** Only on `CONTRACT: MISSING`
-do you paste it yourself, from `hooks/dispatch-contract.txt` — the block's only copy. If
-the `MISSING` reason names that file (absent, empty, or no first line), there is nothing
-left to paste: stop and tell the user the mentor install is damaged rather than
-reconstructing the block from memory.
+Follow its printed guidance verbatim — it states the verdict, what to ask (or not ask),
+and whether the standing dispatch block is actually reaching your agents.
 
 Reviewer dispatches are governed by `dispatch-agents`' **"Async runtime & lifecycle"**
 rules, which the injected block delivers to the agent without this skill having to load
@@ -497,16 +488,14 @@ constitution, gitignore caveat) with these lane specifics:
   `Is the resulting design simple, maintainable, and reuse-aware?`
 - One lane-specific check, since step size is a maintainability property of the
   plan itself: have the reviewer flag any implementation step showing the
-  oversized smells from `mentor:dispatch-agents`' **"Budget each step to one
-  agent's context"** rubric item, and any step whose `Done when:` requires a live
-  multi-service stack driven end-to-end — that proof belongs to a
-  `## Verification` topic, so a step carrying it makes the implementer prove it in
-  the session's most expensive context and a fresh verifier re-prove the same
-  ground. Paste that rubric item's smell list into the prompt rather than
-  paraphrasing it — read the five smells out of `dispatch-agents/SKILL.md`'s
-  **Decomposition rubric** → **Budget each step to one agent's context**, since this
-  skill does not load that one — so
-  the check cannot drift from the rule it enforces. Both findings are
+  oversized smells listed in
+  `mentor:dispatch-agents`' `references/decomposition-smells.md`, and any step whose
+  `Done when:` requires a live multi-service stack driven end-to-end — that proof
+  belongs to a `## Verification` topic, so a step carrying it makes the implementer
+  prove it in the session's most expensive context and a fresh verifier re-prove the
+  same ground. Read that reference and paste its five smells into the prompt rather
+  than paraphrasing them: it is the single copy, so the check cannot drift from the
+  rule it enforces. Both findings are
   `[DECISION-REQUIRED]`: splitting a step, or moving its acceptance into
   `## Verification`, reshapes the plan and must never auto-fold.
 - Required structured output: the `Strengths/Risks/Gaps/Recommended plan
@@ -772,28 +761,28 @@ verdict-accepted resolutions), **left open** (findings the user left open or
 skipped, plus the consistency reviewer's coverage map + metrics as-is), and
 **dead lanes** (if any reviewer died). If the Step 5 fold or either Step 7
 pass touched content covered by an existing `$zoom_dir/*.html`, add a reminder
-that those zooms need re-dispatch — re-zooming is `mentor:zooming`'s re-zoom rule
-(entered via `plan` Step 5's delegation), never done from inside this skill.
+that those zooms need re-dispatch — re-zooming belongs to `mentor:zooming`, never
+done from inside this skill.
 
-Then return to the approval question when invoked from `plan` Step 6. When
-invoked standalone, show the report first — always, even when the underlying
-goal was "just get approval", and a resumed session re-asking an interrupted
-approval is still standalone. It is the only place the
-applied/left-open/dead-lane summary ever reaches the user.
+**Show the report.** Always — even when the underlying goal was "just get
+approval", and even on a resumed session re-asking an interrupted approval. It is
+the only place the applied/left-open/dead-lane summary ever reaches the user.
 
-If that standalone caller's goal is to obtain (or re-obtain) plan approval,
-route it to `plan` Step 6 (`{#approve}`) rather than hand-rolling a question:
-that block owns the `plan-state.sh context` re-check, the full option table
-including "Hand off to next agent", and the "only a returned answer approves"
-rule for re-asking an interrupted one — a freshly-invented option set drops
-all three silently. Invoke `Skill(skill="mentor:planning")` first (standalone,
-it usually is not loaded) and run its Step 0 armed-gate check before entering
-Step 6: a resumed session's marker is often `STALE`, `RELEASED`, or
-`ARMED_ELSEWHERE` (armed in a different worktree — this worktree isn't blocked,
-but the plan may need re-owning via `/mentor:plan <slug>` before it can be
-approved here), and `approve-plan.sh` on a missing marker reports success while
-approving and promoting nothing. Control passes there — the "do not run
-`approve-plan.sh`" rule below binds this skill, not the one you handed off to.
+**Approval is not this skill's to grant.** Review never releases the gate, and it
+never hand-rolls an approval question either — a freshly-invented option set drops
+the context re-check, the handoff option, and the re-ask rule that a real approval
+gate carries. Where to send the user depends on whether a gate is already open:
+
+- **Entered from a live approval gate** (the plan was drafted this session and the
+  marker is still `ARMED`) — hand the report back to that gate and let it re-ask.
+  Do **not** route through `/mentor:plan` again: re-arming stamps the marker with a
+  fresh mtime, and approval then refuses the plan as older than the marker
+  ("Newest plan predates this planning session"), stranding a finished plan
+  unapprovable for a reason nobody connects back to the review.
+- **Standalone, with no gate open** — `/mentor:plan <slug>` owns the gate. Say why it
+  matters on a resumed plan: the marker is often `STALE`, `RELEASED`, or
+  `ARMED_ELSEWHERE`, and an approval attempted against a missing marker reports
+  success while approving nothing.
 
 ## Stage-2-only mode
 
@@ -814,13 +803,11 @@ not to change.
 
 **Only this session's live gate choice is exempt.** The carve-out above is for
 the Step 2 gate choice specifically — a choice made *now*, by *this* session's
-user, from a description that announced the auto-fold. Every other entry into
-this mode asks the write-confirm, including a `Skill()` call whose args were
-pre-baked by a prior session's handoff note ("auto-fold explicitly authorized
-in the note") — the shape `resuming` Step 6 produces when a note names
-`mentor:plan-review`. A stale note cannot stand in for a live verdict, and
-resuming's "invoke the command exactly as the note states" bound limits
-*scope*; it is never licence to skip the invoked skill's own gates.
+user, from a description that announced the auto-fold. Every other entry into this
+mode asks the write-confirm, including a `Skill()` call whose args arrive pre-baked
+with the authorization ("auto-fold explicitly authorized in the note"). A recorded
+authorization from an earlier session cannot stand in for a live verdict: it says
+what someone wanted then, not what this plan looks like now.
 
 ### Do NOT
 

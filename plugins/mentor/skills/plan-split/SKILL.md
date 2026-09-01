@@ -4,16 +4,13 @@ description: |
   Split one oversized mentor plan into several SEPARATE sibling plan files, each
   small enough to build in its own session. Trigger phrases: `/plan-split`, "split
   this plan into separate plans", "break this plan up", "this plan is too big for one
-  pass", "make these into their own plans" — and it is offered as the leading option
-  at the `mentor:planning` approval step whenever a plan is oversized. Use this whenever a
-  written plan has more work in it than one implementation pass can carry, even if the
+  pass", "make these into their own plans" — or whenever a plan is judged oversized.
+  Use it whenever a
+  written plan has more work than one implementation pass can carry, even if the
   user only says the plan feels unwieldy. Not for reorganizing one plan's steps into
-  phases or stages inside a single document — that is a `/mentor:plan` re-write; this
-  skill produces N independently buildable plan files. It dispatches one agent per
-  slice to author full
-  plan-grade children with explicit scope isolation — every child names the sibling
-  that owns each area it does NOT touch — then marks the parent superseded. It never
-  arms or releases the edit gate. This skill also owns retiring a superseded plan's
+  phases or stages inside a single document — that is a `/mentor:plan` re-write.
+  Children carry explicit scope isolation; the parent is marked superseded. It never
+  arms or releases the edit gate. It also owns retiring a superseded plan's
   directory once its children have taken over — use it too for "delete this superseded
   plan", "clean up the old parent plan directory", "can I remove plan X now that it's
   split", or any ask to delete/retire a `superseded` plan, even in a later session that
@@ -202,17 +199,8 @@ no skill load:
 bash "${CLAUDE_PLUGIN_ROOT}/hooks/plan-state.sh" policy
 ```
 
-`POLICY: SET (dispatch=…)` — the user already recorded where work runs in this repo;
-honor it and ask nothing. `FOUND` — a standing no-subagents instruction is on record; ask
-ONCE and record the answer, per `dispatch-agents`' **Standing no-subagents policy** (the
-recording is what stops every later surface re-asking). `UNRESOLVED` — the check could not
-run, which is not a clean result; treat the question as open. `NONE` — dispatch. `CONTRACT: active` confirms
-`hooks/dispatch-contract.sh` appends the standing "Deliver before idling" block to every
-dispatch prompt automatically: **do not paste it by hand.** Only on `CONTRACT: MISSING`
-do you paste it yourself, from `hooks/dispatch-contract.txt` — the block's only copy. If
-the `MISSING` reason names that file (absent, empty, or no first line), there is nothing
-left to paste: stop and tell the user the mentor install is damaged rather than
-reconstructing the block from memory.
+Follow its printed guidance verbatim — it states the verdict, what to ask (or not
+ask), and whether the standing dispatch block is actually reaching your agents.
 
 ## Step 5 — The isolation header
 
@@ -314,20 +302,22 @@ citation sweep from **"Retiring a superseded plan later"** below now, for `<pare
 those citations repoint while the split is still fresh in context; skipping it here just moves
 the same work to whoever notices the stale citation later, with less context to fix it.
 
-## Step 8 — Return to the approval gate
+## Step 8 — Hand the sibling set back
 
-Splitting never releases the edit gate — only `mentor:planning` does. When you finish,
-the gate's original subject no longer exists, so leaving the user here strands them.
+Splitting never releases the edit gate, and it never approves anything. When you
+finish, the gate's original subject no longer exists, so leaving the user with a bare
+"done" strands them.
 
 Surface each child's **isolation header only** (not the full bodies — that is what the
-files are for), then **re-ask `mentor:planning`'s approval question**, exactly as the
-"Review the plan (staged)" option does when it returns. Note in the question that
-**Proceed now approves the whole set** and routes building to `/mentor:track`, so the
-user is not left wondering which child "Proceed" means. The split doesn't close the
-door on `planning`'s Step 5 zoom/tour opt-in either — a child is still fair game for
-`Skill(skill="mentor:zooming")` or `mentor:plan-touring` before the user answers, the
-same as it would have been pre-split; mention it's still available rather than making
-the user rediscover it by asking.
+files are for), then hand the sibling set back to the approval question you were called
+from. Do not send the user through `/mentor:plan` for this: the gate is still armed and
+the children were just written, so re-arming would stamp a fresh marker mtime and make
+approval refuse them all as older than it.
+
+Say plainly what the set is: draft plans carrying the parent's state, **each approved on
+its own before it is built** — there is no blanket yes over the group. An HTML zoom is
+still available on any child (`Skill(skill="mentor:zooming")`), the same as it would have
+been pre-split; mention it rather than making the user rediscover it by asking.
 
 ### Retiring a superseded plan later
 
@@ -336,11 +326,10 @@ Deletion is a separate, later decision from the split itself — Step 6 only mar
 to run after Step 8. When the user does later ask to delete a superseded plan's directory (not
 just retire it — "clean up the old parent", "delete these superseded plans"), this skill also
 owns that cleanup, since a split is the common way a plan becomes `superseded` in the first
-place. Weigh this against `mentor:plan-review`, which puts a group's superseded parent at the
-front of its consistency check **regardless of state**, because it is often the only place that
-still shows whether every parent requirement actually landed in a child — deleting it forecloses
-that check permanently, so if the split hasn't been through `/plan-review` yet, say so before
-deleting.
+place. One thing to weigh first: a superseded parent is often the only place that still
+shows whether every parent requirement actually landed in a child, and a consistency
+review reads it for exactly that. Deleting it forecloses that check permanently — so if
+the split hasn't been through `/plan-review` yet, say so before deleting.
 
 1. **Resolve paths the same worktree-safe way Step 4 does — never a bare `.mentor/plans/`,**
    which resolves against the wrong tree in a linked worktree:
@@ -399,10 +388,8 @@ deleting.
    repointed, and what (if anything) is being kept back per item 4.
 6. **Repoint (steps 2–3) before deleting, never after** — a live citation or dependency must
    never end up pointing at a path that no longer exists.
-7. **Sweep for orphaned review artifacts the delete won't reach on its own.** A plan's own
-   `tour/` lives inside its directory (`mentor:plan-touring`'s `tour_dir`) and is removed along
-   with it — nothing to do there. Two artifact classes live **outside** the plan directory and
-   will NOT be removed by deleting it:
+7. **Sweep for orphaned review artifacts the delete won't reach on its own.** Two artifact
+   classes live **outside** the plan directory and will NOT be removed by deleting it:
    - `.mentor/zooms/<retiring-slug>/` (`mentor:zooming`'s `zoom_dir`)
    - `.mentor/tours/<retiring-slug>-*.html` (`mentor:touring`'s acceptance tours)
 8. **Verify.** Both checks are now a filter each, so neither needs reading the whole array:

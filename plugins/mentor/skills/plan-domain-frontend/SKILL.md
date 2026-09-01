@@ -3,28 +3,29 @@ name: plan-domain-frontend
 description: >
   Domain planning skill for FRONTEND / UX-UI work, invoked ONCE by `plan`
   (Step 3 domain routing) when the task touches components, pages, styles,
-  layout, or design systems. Not a /command. Shapes the research prompts and
+  layout, or design systems — or directly, whenever you want this domain's
+  shaping applied. Shapes the research prompts and
   the Markdown plan body: a before/after delta table, ASCII zone wireframe,
   and token table per changed surface, all derived from the project's REAL
   design tokens and source. The live before/after HTML/CSS mockup contract
-  (prompt token mentor:frontend-mockup) is carried by the per-combo zoom
-  agents of the opt-in HTML zoom (`mentor:zooming`, delegated from `plan`
-  Step 5), when the user explicitly requests a visual zoom of a UI surface.
+  (prompt token mentor:frontend-mockup) belongs to `mentor:zooming` and applies
+  only when the user explicitly requests a visual zoom of a UI surface.
 ---
 
 # Frontend Planning Domain
 
-Invoked **once per plan** by `plan`'s domain routing (Step 3) when the task touches UX/UI —
-components, pages, styles, layout, design systems, theming, responsive work. This skill adds
-directives to the research and plan-writing the flow already performs, plus — **only when the user
-requests an HTML zoom of a UI surface** (`mentor:zooming`, via `plan` Step 5) — the mockup contract
-(§4), folded into each UI combo agent's prompt.
+Invoked by `plan`'s Step 3 domain routing when the task touches UX/UI — components, pages,
+styles, layout, design systems, theming, responsive work — or directly whenever you want this
+domain's shaping. Standalone, apply §1 to whatever research is underway and §2–3 to whichever
+plan or document you are authoring. This skill adds directives to research and plan-writing; the
+live mockup contract for an opt-in HTML zoom lives with the skill that generates zooms
+(`mentor:zooming` → `references/ui-mockup-contract.md`).
 
 The plan deliverable (Markdown, always): a **before/after delta table + ASCII zone wireframe +
 token table** per changed surface (§3), precise about *what* changes and approximate about layout.
 When the user explicitly requests a visual zoom of a UI surface, that combo's zoom html file
 carries **live before/after HTML/CSS mockups** faithful to the project's real design tokens, fonts,
-and component structure (§4).
+and component structure — see §4 for who owns that contract.
 
 ## Visualization quality bar (the point of this skill)
 
@@ -150,70 +151,20 @@ always prose, never the rendering). Per `plan` Step 4's anti-duplication rule, t
 + ASCII wireframe IS the surface's visualization — do not also emit a separate per-topic UI diagram
 for the same surface.
 
-## 4 — Mockup contract (HTML zoom only — `mentor:zooming` Step 3)
+## 4 — Mockup contract (HTML zoom only)
 
-> **This skill owns the contract.** `mentor:zooming` (Step 3 — delegated from `plan` Step 5 when
-> zooming a plan) generates zoom artifacts by dispatching one
-> agent per topic × perspective combo; when a combo's topic is a UI surface and the perspective
-> needs to *see* that surface to do its job — End user, Reviewer/Architect, or QA/Tester (the
-> tester must see the states they verify), everyone **except** the Implementor, whose zoom is
-> about file wiring and step order rather than appearance — fold this section into that combo
-> agent's prompt. Subagents must not dispatch nested agents (see `mentor:dispatch-agents`,
-> "no nested fan-out"), so there is no separate mockup-author
-> dispatch — the combo agent reads the real source files and authors + embeds the mockup panes
-> inside its own zoom file. The `.md` plan (§3) stays the source of truth; the zoom is a
-> supplementary visual aid for the requested surface(s) only.
+When the user asks for an HTML zoom of a UI surface, the zoom's combo agents author live
+before/after mockup panes. That contract — which perspectives get panes, the no-JS
+`iframe srcdoc` isolation rule, the seven prompt inputs, the escaping order — lives with
+the skill that dispatches those agents: **`mentor:zooming` →
+`references/ui-mockup-contract.md`**. Read it there when you need to know what a UI zoom
+will produce; do not restate it here, since a second copy is how the panes and the plan
+drift apart.
 
-Rules:
-
-- **Sequencing.** Zoom combos dispatch AFTER the plan is written — the AFTER pane needs the
-  authored `Proposed UI changes per surface` spec.
-- **Skip when there is no visual delta** (e.g. a pure component refactor): the zoom notes
-  "no visual change" instead. Never force identical before/after panes.
-- **Regenerate on revision — completeness-checked, not memory-driven.** If the
-  `Proposed UI changes per surface` section changes during a Keep-planning iteration (or a global
-  product decision invalidates prior visuals), `grep -l` the invalidated term/content across EVERY
-  existing html in the plan's zooms dir (`.mentor/zooms/<plan-slug>/`) and re-dispatch ALL matching combos in one batched
-  message with the updated spec — never just "that combo" from memory, and never ship stale panes.
-  Wait for the re-dispatches to complete before any `plan-review` dispatch reads the zoom files.
-- **Inline panes only — never a hosted Artifact.** The panes are embedded **inline** as
-  `<iframe srcdoc>` in the combo's single self-contained zoom html file; the agent must **not**
-  call the `Artifact` tool or return a claude.ai-hosted URL — a published artifact would be a
-  detached, drifting copy.
-
-### Combo-agent prompt inputs
-
-The UI combo agent's prompt MUST contain the literal token `mentor:frontend-mockup` and these
-inputs (so pane fidelity never depends on the agent re-researching):
-
-1. The changed-surface list (scoped to the combo's topic) with the real component / token /
-   font **file paths** from research EVIDENCE.
-2. The plan's `Proposed UI changes per surface` entries relevant to the topic, verbatim.
-3. The distilled design principles from the Preflight's discovered design skill.
-4. The instruction: *"Read the real source files yourself. The BEFORE pane must faithfully
-   reproduce the current UI; the AFTER pane the proposed UI. Invent nothing — every color, font,
-   spacing value, and structural element comes from the project's actual source or the
-   proposed-changes spec."*
-5. The isolation requirement: *"Author each pane as a COMPLETE self-contained mini-HTML document
-   (its own `<style>` with the project's real tokens inlined, system-font fallback) and embed it
-   via `<iframe srcdoc>`. **Static HTML/CSS + inline SVG ONLY — no JavaScript at all (no
-   `<script>`, no `<canvas>`), no external CSS/JS, no images.** The pane must render identically
-   inside an `<iframe srcdoc>` with scripting disabled."*
-6. The review-clarity requirement (the quality bar above): *"Place numbered markers (➊➋➌) directly
-   on the changed elements in the AFTER pane — a small absolutely-positioned span on a
-   `position:relative` wrapper, self-contained — and render a callout list keyed to the same
-   numbers beside the panes. Verify the AFTER holds at 360px; when reflow matters, add a third
-   AFTER pane with its iframe capped at 360px wide, labeled mobile. Render every color/font token
-   you introduced or changed as a swatch strip (color tokens get a color chip). Call out any
-   contrast or focus-order delta alongside. Order surfaces by user-visibility (primary surface
-   first)."*
-7. The escaping rule: *"HTML-attribute-escape every mini-doc before embedding it in `srcdoc` —
-   **in this order**: `&` → `&amp;` FIRST, then `"` → `&quot;`. (Order matters — escaping `"`
-   first would let the later `&` pass corrupt the `&quot;` entities. Do NOT escape `<` / `>`;
-   `srcdoc` does not need it.)"*
-
-The zoom file follows `mentor:zooming` Step 3's constraints (single self-contained file authored in
-one `Write`, inline CSS, WCAG-AA, ≥15px); the pane/badge/callout styling is the agent's to design.
+What this skill owes that contract is the material it consumes: §3's
+`Proposed UI changes per surface` entries, the real component/token/font file paths from
+research EVIDENCE, and §1's distilled design principles. A zoom whose combos get those is
+faithful; one that gets a paraphrase is not.
 
 ## Constraints recap (hard rules)
 

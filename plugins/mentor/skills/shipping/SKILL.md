@@ -143,17 +143,14 @@ ship invented is the one commit it must never author. **This is not Step 3's
 territory below** — Step 3's auto-commit-without-prompting is scoped narrowly to
 files `simplify` itself just created in this same turn; it never licenses
 committing whatever Step 2 finds dirty here, however similar the shape looks. A
-session that just finished a `mentor:dispatch-agents` run should already have a
-clean tree — its CLOSING CHECKLIST commits that work before pointing here — so a
-dirty tree at this gate means something outside that flow, which only the user
-can classify.
+dirty tree at this gate is work this skill cannot classify — it did not watch it
+being made, and only the user knows whether it belongs in this ship.
 
 ## Step 3 — Run `/simplify`
 
 Invoke `Skill(skill="simplify")` **in this thread** (a Claude Code built-in; if
 unavailable, do a quick review of the branch diff yourself instead). It fans out its own
-review agents: while they run, **No busy-wait** applies here too
-(`mentor:dispatch-agents`, "Async runtime & lifecycle") — end the turn and let the
+review agents: while they run, do not wait on them by hand — end the turn and let the
 harness re-invoke you when they report. A `Bash true` poll burns a whole turn and returns
 nothing.
 
@@ -600,15 +597,14 @@ edge case named above: there is no PR-scoped range to diff there. The verificati
 name is offered the same way the marketplace check above names `/loom:publish-plugin` —
 say what exists, never run it — since this step still stops at the open PR/MR either way.
 
-Do **not** watch checks, poll `gh run`, or `sleep` after the push — `/mentor:merge`
-Step 2 owns the one bounded watch, and chaining sleeps or re-checks is the **No busy-wait**
-rule owned by `mentor:dispatch-agents` ("Async runtime & lifecycle").
+Do **not** watch checks, poll `gh run`, or `sleep` after the push — never chain sleeps or
+re-checks; `/mentor:merge` owns the one bounded watch on the tail.
 
-One carve-out worth naming, because it is the reason this gets overridden: when the plan's
-own `Done when:` requires a green CI run, that obligation is real — but it does not license
-watching here. Invoke `/mentor:merge`, which owns the bounded watch, and report what it
-found. The `Done when:` is satisfied either way; the difference is whether the waiting is
-done by something that knows how to wait.
+One case worth naming, because it is the reason this gets overridden: when the plan's own
+`Done when:` requires a green CI run, that obligation is real — but it does not license
+watching here. Report that `Done when:` as **outstanding on the merge tail**, naming the
+run, so it is visibly unfinished rather than quietly assumed; the bounded watch that
+settles it belongs to `/mentor:merge`.
 
 ## Failure modes
 
@@ -617,7 +613,7 @@ done by something that knows how to wait.
 | Detached HEAD | Abort — check out a branch first. |
 | On the default/integration branch (`branch` = `base`) | Step 1 asks first: cut a feature branch and re-invoke (recommended), or push straight to `origin/<branch>` with no PR. Never offer 5A — the PR/MR cannot open and the push lands first. |
 | Dirty tree at Step 2 | Abort — the *user* commits or stashes, then re-invokes; ship never branches, stages or commits to clear it. Untracked-only is NOT dirty; report it and continue. |
-| Tempted to watch CI after the push | Stop and hand to `/mentor:merge`. Never a `seq`/`sleep` poll loop — that is the **No busy-wait** rule. |
+| Tempted to watch CI after the push | Stop and hand to `/mentor:merge`. Never a `seq`/`sleep` poll loop — one bounded call or none. |
 | Simplify edited out-of-scope files | Ask before committing. |
 | Tests fail | Default: stop; branch intact for iteration. |
 | A test command with its own `cd` ran unconfined | cwd persists across Bash calls, so later `git add <path>` fails with `pathspec did not match any files`. Wrap it — `(cd "$repo_root" && <cmd>)` — and re-derive `repo_root` in any block that moved. |

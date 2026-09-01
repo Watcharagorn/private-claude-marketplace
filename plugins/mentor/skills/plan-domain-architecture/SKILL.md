@@ -4,7 +4,8 @@ description: >
   Domain planning skill for ARCHITECTURE / system-structure work, invoked ONCE
   by `plan` (Step 3 domain routing) when a plan changes structure — a
   new/changed/removed service, container, datastore, queue, external integration,
-  component, or data flow. Not a /command. Shapes the research (map the current
+  component, or data flow — or directly, whenever you want this domain's shaping
+  applied. Shapes the research (map the current
   architecture, its containers, external systems, and the edges between them)
   and the Markdown plan to carry a before/after C4-model view — diff-highlighted
   Mermaid Context / Container (/ Component) diagrams, rendering only the C4
@@ -14,9 +15,11 @@ description: >
 
 # Architecture (C4) Planning Domain
 
-Invoked **once per plan** by `plan`'s domain routing (Step 3) when the task **changes system
-structure**. Like the backend-api domain (and unlike frontend), it adds directives to the research
-and plan-writing the flow already performs — **no extra agent dispatch**.
+Invoked by `plan`'s Step 3 domain routing when the task **changes system structure** — or
+directly whenever you want this domain's shaping. Standalone, apply §1 to whatever research is
+underway and §2–3 to whichever plan or document you are authoring. Like the backend-api domain
+(and unlike frontend), it adds directives to research and plan-writing — **no extra agent
+dispatch**.
 
 The signature deliverable: the plan carries a **before/after C4-model view** of the system — a
 [C4](https://c4model.com) diagram at each level the change touches, with new/changed/removed elements
@@ -164,9 +167,9 @@ Realize each rendered level **inline in the `.md`** as a Mermaid **`flowchart TB
 Per `plan` Step 4's anti-duplication rule: the diagram (+ legend) IS the artifact — do not also
 echo the prose element/relationship lists beside it.
 
-This domain composes with others: when `backend-api` also matched, the C4 Container diagram and the
-contract tables are **complementary** (system shape vs. endpoint contracts) — do not duplicate the
-sequence-flow viz as a C4 diagram or vice-versa; each answers a different question.
+This domain composes with others: when `backend-api` also matched, the C4 Container diagram and
+its contract tables are **complementary** (system shape vs. endpoint contracts) — do not redraw a
+sequence flow as a C4 diagram here; each answers a different question.
 
 ## HTML zoom (opt-in)
 

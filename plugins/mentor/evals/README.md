@@ -2,21 +2,18 @@
 
 `hooks/tests/` proves the scripts behave. This proves the **descriptions** do: that a
 user's phrasing reaches the skill it should, and — more importantly — not one of its
-fourteen siblings.
+thirteen siblings.
 
-mentor ships fifteen overlapping user-facing skills (`planning`, `plan-split`,
+mentor ships fourteen overlapping user-facing skills (`planning`, `plan-split`,
 `plan-track`, `plan-review`, `grilling`, `dispatch-agents`, `resuming`, `handoff-note`,
-`touring`, `zooming`, `merging`, `shipping`, `deferring`, `constitution-authoring`,
-`plan-touring`).
+`touring`, `zooming`, `merging`, `shipping`, `deferring`, `constitution-authoring`).
 The risk that
 matters is not "does `plan-split` trigger" but "does `plan-split` fire when the user
 meant `plan-track`" — or, since v2.12.0, "does `zooming` steal `touring`'s
 acceptance-page queries" (both make HTML from any subject; they differ on publication +
-interaction) — or, since this eval refresh, "does `plan-touring` steal `touring`'s
-reviewer-facing queries" (both walk a plan page by page; they differ on publication +
-who's clicking).
+interaction).
 A description tuned on its own can score perfectly and still
-collide, so this harness stages **all fifteen at once** and records which one wins.
+collide, so this harness stages **all fourteen at once** and records which one wins.
 
 Note the skill names are the **skill** names, not the command names: since v2.18.0 no
 skill shares a name with a command (`/mentor:plan` → skill `planning`, and so on), which
@@ -36,9 +33,11 @@ The scratch project and `results.json` are written to `$TMPDIR/mentor-trigger-ev
 
 Baseline at v2.11.1: **36/40**, 18 of 20 queries clean on both reps — over 8 staged
 skills and queries 1–20. v2.12.0 stages 10 skills (`tour` and `zoom` joined) and adds
-queries 21–28; re-baseline on the first run. This refresh stages 15 skills
-(`deferring`, `constitution-authoring`, `plan-touring` joined) and adds queries 36–44;
-re-baseline pending — the harness itself was not re-run as part of this change.
+queries 21–28; re-baseline on the first run. A later refresh staged 15 skills
+(`deferring`, `constitution-authoring`, `plan-touring` joined) and added queries 36–44.
+**v3.0.0** removed `plan-touring` (14 skills staged, query 42 dropped) and rewrote
+several descriptions in the isolation pass — re-baseline pending; the harness was not
+re-run as part of that change.
 
 ## Seed the fixture first — this is not optional
 

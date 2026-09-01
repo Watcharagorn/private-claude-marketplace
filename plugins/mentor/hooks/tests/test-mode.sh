@@ -87,7 +87,7 @@ chk "invalid mode → usage printed"     sh -c "printf '%s' \"\$0\" | grep -q 'U
 chk "usage names the dispatch axis"    sh -c "printf '%s' \"\$0\" | grep -q 'verify-only'" "$out"
 
 echo "== A2. the dispatch axis is independent of mode =="
-# Three axes in one config file. The whole reason the write path is shared (write_key) is
+# Two axes in one config file. The whole reason the write path is shared (write_key) is
 # that a second hand-rolled merge is where one axis silently clobbers another.
 out="$(sm verify-only)"
 chk "set verify-only → confirmation"   sh -c "printf '%s' \"\$0\" | grep -q 'dispatch set: verify-only'" "$out"
@@ -98,12 +98,19 @@ chk "..foreign key still preserved"    test "$(jq -r .custom "$CONF")" = "keep-m
 
 out="$(sm plan-only)"
 chk "mode change keeps dispatch"       test "$(jq -r .dispatch "$CONF")" = "verify-only"
-out="$(sm solo)"
+out="$(sm agents)"
 chk "dispatch change keeps mode"       test "$(jq -r .mode "$CONF")" = "plan-only"
-chk "solo warns it drops grading"      sh -c "printf '%s' \"\$0\" | grep -q 'independent grader'" "$out"
+chk "agents names the routing test"    sh -c "printf '%s' \"\$0\" | grep -q 'Where dispatch pays'" "$out"
 
 out="$(sm status)"
-chk "status → both axes reported"      sh -c "printf '%s' \"\$0\" | grep -q '^mode: plan-only' && printf '%s' \"\$0\" | grep -q '^dispatch: solo'" "$out"
+chk "status → both axes reported"      sh -c "printf '%s' \"\$0\" | grep -q '^mode: plan-only' && printf '%s' \"\$0\" | grep -q '^dispatch: agents'" "$out"
+
+# `solo` retired in v3.0.0 — it was the one value that also retired the verification
+# round, and no mode may do that. A resurrected third value is the regression this pins.
+out="$(sm solo || true)"
+chk "solo → rejected as unknown"       sh -c "printf '%s' \"\$0\" | grep -q 'Unknown mode'" "$out"
+chk "..dispatch axis untouched"        test "$(jq -r .dispatch "$CONF")" = "agents"
+chk "usage offers no solo value"       sh -c "! printf '%s' \"\$0\" | grep '^Usage:' | grep -q 'solo'" "$out"
 
 # Unset dispatch must read as "no override", never as an answer the user never gave.
 jq 'del(.dispatch)' "$CONF" > "$CONF.tmp" && mv "$CONF.tmp" "$CONF"
@@ -113,24 +120,13 @@ chk "..names it as no override"        sh -c "printf '%s' \"\$0\" | grep -q 'no 
 chk "..mode line still leads"          sh -c "printf '%s' \"\$0\" | grep -q '^mode: plan-only'" "$out"
 sm plan >/dev/null
 
-echo "== A2b. the instant axis (v2.37.0) is independent of both =="
-out="$(sm instant-off)"
-chk "set instant-off → confirmation"   sh -c "printf '%s' \"\$0\" | grep -q 'instant set: off'" "$out"
-chk "config instant is off"            test "$(jq -r .instant "$CONF")" = "off"
-chk "..mode axis untouched"            test "$(jq -r .mode "$CONF")" = "plan"
-chk "..foreign key still preserved"    test "$(jq -r .custom "$CONF")" = "keep-me"
-out="$(sm instant-on)"
-chk "set instant-on → confirmation"    sh -c "printf '%s' \"\$0\" | grep -q 'instant set: on'" "$out"
-chk "config instant is on"             test "$(jq -r .instant "$CONF")" = "on"
-out="$(sm status)"
-chk "status → instant reported"        sh -c "printf '%s' \"\$0\" | grep -q '^instant: on'" "$out"
-# Unset instant must read as "behaves as on" — never a question, never off.
-jq 'del(.instant)' "$CONF" > "$CONF.tmp" && mv "$CONF.tmp" "$CONF"
-out="$(sm status)"
-chk "instant unset → UNSET line"       sh -c "printf '%s' \"\$0\" | grep -q '^instant: UNSET'" "$out"
-chk "..names the on default"           sh -c "printf '%s' \"\$0\" | grep -q 'behaves as on'" "$out"
+# The surface is TWO axes as of v3.0.0 — a third one reappearing in the usage text is
+# the regrowth this pin exists to catch, not a cosmetic diff.
 out="$(sm bogus || true)"
-chk "usage names the instant axis"     sh -c "printf '%s' \"\$0\" | grep -q 'instant-on'" "$out"
+chk "usage names the mode axis"        sh -c "printf '%s' \"\$0\" | grep -q 'plan-only'" "$out"
+chk "usage offers no third axis"       sh -c "! printf '%s' \"\$0\" | grep -qi 'instant'" "$out"
+out="$(sm status)"
+chk "status → no third axis line"      sh -c "! printf '%s' \"\$0\" | grep -qi 'instant'" "$out"
 
 rc=0; ( cd "$NONGIT" && HOME="$SANDBOX" bash "$SETMODE" status >/dev/null 2>&1 ) || rc=$?
 chk "non-repo → exit 1"                test "$rc" = "1"

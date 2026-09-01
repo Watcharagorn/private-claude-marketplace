@@ -7,8 +7,7 @@
 # lifecycle-state sidecar live inside it):
 #   <repo_root>/.mentor/
 #   ├── .gitignore        # commit config.json + constitution.md; ignore transient state
-#   ├── config.json       # {"mode": "plan|plan-only", "dispatch": "agents|solo|verify-only",
-#   │                     #   "instant": "on|off" (v2.37.0 — unattended continuation),
+#   ├── config.json       # {"mode": "plan|plan-only", "dispatch": "agents|verify-only",
 #   │                     #   "context_gate", "context_*_tokens", "test_command" ...}
 #   ├── constitution.md   # governing principles (committed; managed by /mentor:constitution)
 #   ├── plans/            # one .planning.<wt-id> gate marker PER WORKTREE (v2.23.0,
@@ -324,7 +323,7 @@ mentor_get_mode() {
 }
 
 # mentor_get_dispatch <repo_root> — echo the persisted DISPATCH preference
-# (agents|solo|verify-only) or empty when unset.
+# (agents|verify-only) or empty when unset.
 #
 # This is a different axis from `mode` and lives in the same config.json. It answers,
 # once per repo, the question a standing no-subagents instruction would otherwise raise
@@ -334,27 +333,12 @@ mentor_get_mode() {
 #   agents      route per the skill (verification/review/research dispatch, implementation
 #               earns it) — an explicit opt-in, useful for silencing a false-positive
 #               policy hit in a repo that merely *discusses* background agents
-#   solo        keep implementation in the main thread regardless of the routing test
-#   verify-only implementation in the main thread, verification still dispatched — the
-#               split that preserves independent grading, which `solo` gives up
+#   verify-only implementation in the main thread regardless of the routing test,
+#               verification still dispatched — the split that keeps the independent
+#               grader, which is why it is the only in-thread value: a `solo` value that
+#               also retired verification existed until v3.0.0 and was removed
 mentor_get_dispatch() {
   mentor_config_get "${1:-}" "dispatch"
-}
-
-# mentor_get_instant <repo_root> — echo the persisted UNATTENDED-CONTINUATION
-# preference (on|off) or empty when unset.
-#
-# The third axis (v2.37.0), same config.json. It answers: when a plan already holds a
-# standing grant, may dispatch-agents' per-step loop run it to completion without a
-# human in the turn? UNSET MEANS ON — unattended continuation is only worth having if
-# nobody has to be present to opt in; what keeps that default safe is that the loop
-# runs nothing until `plan-state.sh instant` answers GO, and every stop it can hit
-# fails toward a question (ASK) or a halt (HOLD), never toward work. `off` restores
-# the attended flow end to end: no per-plan branch, no end-of-run auto-commit, every
-# closing question intact. Callers must treat any OTHER value as `off` — an
-# unparseable preference degrades toward MORE attendance, never less.
-mentor_get_instant() {
-  mentor_config_get "${1:-}" "instant"
 }
 
 # mentor_cwd <input_json> — echo the hook cwd ($PWD fallback).
@@ -825,25 +809,6 @@ mentor_plan_live_handoffs() {
 # carries this delimiter naturally, so nothing legitimate loses coverage.
 MENTOR_STEP_LINE_PATTERN='^[[:space:]]*(-[[:space:]]+)?([*][*])?(#{3,4}[[:space:]]+)?([0-9]+([.][0-9]+)*[.]([[:space:]]|[*]|$)|[Ss]tep[[:space:]]+[0-9]+([.][0-9]+)*([[:space:]]|:|[*]|[.][[:space:]]|[.]$|$))'
 
-# Outward-action patterns (v2.37.0) — matched by `plan-state.sh instant` against a
-# step's body to enforce dispatch-agents' unconditional "no outward action" stop.
-# Bracket expressions only, never a backslash escape: these are passed to awk -v as
-# dynamic regexes — the same undefined-behavior trap documented above for `[.]` and
-# `[*][*]`.
-#
-# Two tiers, deliberately. The COMMAND tier is high-precision (a literal push /
-# publish / merge invocation) and a non-negated hit is a stop; the PROSE tier
-# ("pull request", "pushes to") is REPORTED only — validated against the four real
-# fixture plans, the command tier scores 3 hits with zero false positives, while
-# promoting the prose tier to a stop would false-stop plans that merely DISCUSS
-# releases. Negation cues are LINE-scoped (POSIX awk has no sentence splitter; line
-# scope is what makes it testable): a line that both names an action and negates it
-# ("never `git push` by hand") lands in outward_negated=, not outward=, and the
-# caller reads both lists.
-MENTOR_OUTWARD_CMD_PATTERN='git[[:space:]]+(push|merge|tag)|gh[[:space:]]+(pr[[:space:]]+(create|merge)|release)|(npm|yarn|pnpm|cargo)[[:space:]]+publish|twine[[:space:]]+upload|publish-plugin|mentor:(ship|merge)'
-MENTOR_OUTWARD_PROSE_PATTERN='pull[[:space:]]+request|release[[:space:]]+commit|push(es|ed|ing)?[[:space:]]+(to|the)|open[[:space:]]+a[[:space:]]+PR|default[[:space:]]+branch'
-MENTOR_NEGATION_CUE_PATTERN="never|not[[:space:]]|n[']t|instead[[:space:]]+of|rather[[:space:]]+than|must[[:space:]]+not|forbid|without|hand-rolled"
-
 # mentor_plan_tick_counts <plan_md> — echo "<ticked> <total>" step-line counts from
 # the `## Implementation steps` section, ticked when a step line contains ✅.
 # "0 0" when no plan.md or no recognizable step lines. The one parsing
@@ -871,8 +836,8 @@ mentor_plan_tick_counts() {
 }
 
 # mentor_plan_step_scan <plan_md> — one awk pass over `## Implementation steps`,
-# emitting the TSV facts both `plan-state.sh verify` and `plan-state.sh instant`
-# consume. ONE derivation, deliberately: two independent scanners would be a second
+# emitting the TSV facts `plan-state.sh verify` consumes. ONE derivation,
+# deliberately: two independent scanners would be a second
 # copy of the step-body boundary rule, which is exactly how a reader and a writer
 # come to disagree about what a step is (the guarantee MENTOR_STEP_LINE_PATTERN's
 # comment above exists to protect). Rows:

@@ -17,9 +17,9 @@ description: >
 A **constitution** is the supreme rulebook for how work is planned and built in a
 repo: a short list of named principles, each declarative and testable, plus a
 governance block that records how the document is versioned and amended. Once it
-exists, every `/mentor:plan` reads it live and proves compliance in a
-**Constitution Check** section; `/plan-review` flags violations. The constitution
-never forces itself — a plan may deviate, but only with an explicit, justified
+exists, its consumers resolve `constitution_path` and read this file live —
+planning proves compliance in a **Constitution Check** section, review flags
+violations. The constitution never forces itself — a plan may deviate, but only with an explicit, justified
 note (or by amending the constitution first).
 
 It is committed to the repo at **`.mentor/constitution.md`** so the whole team
@@ -65,15 +65,14 @@ fi
 - **`NOT-A-REPO`** → the constitution is per-repo and committed. Tell the user to
   `cd` into a git repo and stop.
 - **`PLANNING-ACTIVE`** → this worktree's plan gate (own marker or the legacy
-  repo-global one) is armed. The default target, `.mentor/constitution.md`, is
-  itself **exempt** from the plan edit gate (`plan-gate.sh`'s `.mentor/`
-  exemption) — the write would technically succeed even here. What the gate
-  *does* actually block is an **adopt-by-reference** target from Step 3a that
-  lives outside `.mentor/` (e.g. `docs/constitution.md`); amending that document
-  while armed would hit the gate for real. Either way, stop: authoring or
-  amending governing principles while a plan is actively mid-decision invites
-  the two to talk past each other — tell the user to approve or finish the
-  current plan first (or re-run this outside a plan session), then stop.
+  repo-global one) is armed. Split on the target. The default,
+  `.mentor/constitution.md`, is **exempt** from the plan edit gate
+  (`plan-gate.sh`'s `.mentor/` exemption): say in one line that a plan is
+  mid-flight — principles written now and a plan drafted against the old ones can
+  talk past each other — and continue. An **adopt-by-reference** target from
+  Step 3a that lives outside `.mentor/` (e.g. `docs/constitution.md`) is a
+  different matter: the gate blocks that write for real, so stop and tell the user
+  to approve or finish the current plan first.
 - Otherwise capture `REPO_ROOT`, whether the file `EXISTS` or is `NEW`, and
   `TODAY` for the dates below.
 
@@ -246,11 +245,11 @@ with **Ratify & write** / **Save amendment** before anything is written. If that
 question was interrupted, never asked, or the user only claimed approval in prose
 ("looks good", "go ahead"), ask it now — prose selects no option. Surfacing the
 document and reasoning your way to a conclusion is not consent: this is a committed,
-team-shared rulebook, and Step 6 is the only check on the write, since the plan gate
-is disarmed here by definition (Step 1 stops the flow when it is not).
+team-shared rulebook, and Step 6 is the only check on the write — `plan-gate.sh`
+exempts the `.mentor/` tree, so an armed plan gate never stands in for that consent.
 
-On approval, create the dir and write the file with `Write` (it is in-repo, but no
-plan gate is armed, so the write is allowed):
+On approval, create the dir and write the file with `Write` (it is in-repo, but
+`.mentor/` is exempt from the plan gate, so the write is allowed even mid-plan):
 
 ```bash
 # Re-derive: each fenced block is its own Bash call, so Step 1's value is gone.
@@ -270,7 +269,7 @@ printed `ADOPTED-BY-REFERENCE`. Then report:
   then push it the way this repo normally lands changes (`/mentor:ship` when the
   branch needs a PR). A commit left local diverges the shared branch and the next
   session pays for it in recovery. Do not commit or push for the user unless they ask.
-- Remind that from now on `/mentor:plan` will include a Constitution Check against it.
+- Remind that from now on planning will include a Constitution Check against it.
 
 ### Do NOT
 - Do **not** run `begin-plan.sh` or arm the plan gate — this is not a plan session.

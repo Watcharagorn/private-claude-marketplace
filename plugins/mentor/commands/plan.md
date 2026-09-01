@@ -87,9 +87,19 @@ Do these in order:
    it, in the skill, is the only way it stays right. Each option maps to an
    `approve-plan.sh` invocation the skill specifies; all of them validate the plan
    and release the gate except Review, Split, Keep planning, and **Pause — still
-   drafting**, which stay in planning. That last one runs no script at all: it writes
+   drafting**, which stay in planning. Split returns to this same question with the
+   children's headers, where each child is approved individually — never one blanket
+   yes over the set. That last one runs no script at all: it writes
    a handoff doc and stops with the gate still armed, so a session that runs out of
    room mid-plan can continue next session without an approval it never gave.
+
+3. **On an approving outcome that implements** — Proceed, or a Split's Proceed over the
+   sibling set — the session continues into implementation via `mentor:dispatch-agents`'
+   "Executing the dispatches"; once that closes, `/mentor:tour` (acceptance pass),
+   `/mentor:defer` (park what's left) and `/mentor:ship` (open the PR) are the follow-on
+   offers — name them, never auto-run them. **Deliver plan only** and **Hand off to next
+   agent** release the gate and then STOP, exactly as the skill states — neither
+   implements, and neither dispatches in this session.
 
 **Never re-run step 1 once it has run.** `begin-plan.sh` resets THIS worktree's
 `.planning.<wt-id>` marker's mtime (or the legacy `.planning`'s, in the empty-wt-id

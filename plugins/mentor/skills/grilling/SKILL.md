@@ -25,7 +25,7 @@ It is a **conversation**, not an implementation. It makes **no repo edits** duri
 
 Grilling resolves "have we actually thought this through?"; plan-review answers "is the written plan any good?". They are complementary, run at different moments, and never replace each other.
 
-Within the plan flow itself, `plan` Step 3.5 owns *post-research* decision resolution — the same one-question-at-a-time, recommended-first protocol, run with research evidence in hand. Grilling owns *pre-research* ambiguity in the request; a decision resolved in either place is never re-asked by the other.
+Within the plan flow itself, `plan` Step 3.5 owns *post-research* decision resolution — the same one-question-at-a-time, recommended-first protocol, run with research evidence in hand. Grilling owns *pre-research* ambiguity in the request, and never re-asks a decision this interview already resolved.
 
 ## When to use
 
@@ -84,8 +84,6 @@ If there is genuinely nothing to grill, say so in one line and stop.
 ```bash
 bash "${CLAUDE_PLUGIN_ROOT}/hooks/plan-state.sh" context
 ```
-
-Same tiers as `mentor:resuming` Step 5 / `mentor:plan-track` Step 0:
 
 - **`CONTEXT: ASK`** — ask the user the two-option question the script prints (hand off, or bypass for this session) before starting the interview.
 - **`CONTEXT: HANDOFF`** — they already chose to continue; proceed, but plan to hand off before this interview's work is done.

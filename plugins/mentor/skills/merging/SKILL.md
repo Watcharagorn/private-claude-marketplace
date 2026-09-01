@@ -12,12 +12,12 @@ description: >
 
 # merge — watch checks, triage once, merge on green
 
-`/mentor:ship` deliberately ends at "PR open" — re-running ship to get a merge would
-re-run simplify, the clean check, tests and the push, and ship has already retired the
-topic's handoff notes, so there is nothing to resume from either. This skill is the
-re-entry point for the tail: watch CI, work out **once** whether a failure is a flake,
-this diff's regression, or rot that was already on the base branch, and merge only when
-the user has said so.
+This skill owns the tail of any open PR on the current branch, mentor-made or not: watch
+CI, work out **once** whether a failure is a flake, this diff's regression, or rot that
+was already on the base branch, and merge only when the user has said so. It is a
+separate entry point on purpose — a shipping pass ends at "PR open", and re-running one
+to get a merge would re-run the simplify pass, the clean check, the tests and the push
+against work that is already up.
 
 ## When NOT to use
 
@@ -56,9 +56,9 @@ Run this with an explicit **`timeout: 600000`** — `--watch` blocks until every
 reaches a terminal state, and the Bash tool's default is 120s with a 600s ceiling, so
 without it the call dies on any CI slower than two minutes and looks like a failure.
 
-One blocking call — **never** a hand-rolled sleep/poll loop; this is the **No busy-wait**
-rule owned by `mentor:dispatch-agents` ("Async runtime & lifecycle"), which covers waits
-on long-running commands as well as on agents. That leaves three outcomes:
+One blocking call — **never** a hand-rolled sleep/poll loop. Waiting is not work: when a
+single bounded call can block until the answer arrives, make that call instead of polling
+around it. That leaves three outcomes:
 
 - **All green** → Step 4.
 - **Non-zero because checks failed** → Step 3.
@@ -170,17 +170,17 @@ unasked.
 
 ## Step 5 — Close the plan's state
 
-Only after a merge actually landed. `mentor:shipping` Step 6 closes plan state when it
-*opens* the PR, so a PR that merges in a later session — or that `ship` never
-opened — leaves its plan at `in_progress`, and the next `/mentor:track` re-offers
-work that already shipped. This step closes that half of the loop; it is a no-op
+Only after a merge actually landed. A shipping pass closes plan state when it *opens*
+the PR, so a PR that merges in a later session — or that no ship ever opened — leaves
+its plan at `in_progress`, and the next `/mentor:track` re-offers work that already
+shipped. This step closes that half of the loop; it is a no-op
 when ship already did it, because `set` is idempotent.
 
 Merge resolves the topic differently from ship, and better: ship asks what *this
 session* worked on, which a merge-only session cannot answer, while the PR names
 it. Take the merged PR's head branch, strip a leading `<type>/`, and match the
-remainder against `plan-state.sh list` slugs with **`mentor:resuming` Step 4's
-unique-substring rule** — ambiguous or no match means no candidate, and you stop
+remainder case-insensitively as a substring against `plan-state.sh list` slugs. Only a
+**unique** hit is a candidate; ambiguous or no match means no candidate, and you stop
 here rather than guessing.
 
 With a candidate in hand, ask before writing — a PR often carries only some of a
@@ -189,8 +189,11 @@ plan's steps, and `implemented` would hide the rest from `/mentor:track`:
 ```bash
 [ -d "${CLAUDE_PLUGIN_ROOT}/hooks" ] || { echo "ERROR: CLAUDE_PLUGIN_ROOT unresolved or stale — do not search the plugin cache or hardcode a version path; ask the user to /reload-plugins or restart" >&2; exit 1; }
 plans_dir="$(bash "${CLAUDE_PLUGIN_ROOT}/hooks/plan-state.sh" dir --plans)"
-open="$(jq -r '.note // ""' "$plans_dir/<slug>/.state.json" 2>/dev/null | tr '|' '\n' | grep -m1 '^ *open:' | sed 's/^ *//; s/ *$//')"
-bash "${CLAUDE_PLUGIN_ROOT}/hooks/plan-state.sh" set <slug> implemented --note "${open:+$open | }merged: PR #<n> <sha>"
+[ -n "$plans_dir" ] || { echo "ERROR: mentor plans dir unresolved — is CLAUDE_PLUGIN_ROOT set? do not search the plugin cache or hardcode a version path; ask the user to /reload-plugins or restart" >&2; exit 1; }
+if [ -d "$plans_dir/<slug>" ]; then
+  open="$(jq -r '.note // ""' "$plans_dir/<slug>/.state.json" 2>/dev/null | tr '|' '\n' | grep -m1 '^ *open:' | sed 's/^ *//; s/ *$//')"
+  bash "${CLAUDE_PLUGIN_ROOT}/hooks/plan-state.sh" set <slug> implemented --note "${open:+$open | }merged: PR #<n> <sha>"
+fi
 ```
 
 Carry the `--note`, and carry any `open:` segment forward inside it. `note` is the one
@@ -200,9 +203,11 @@ verification findings the user chose to leave open — overwriting it silently c
 clear (a stale `failed` reason, most of all), which is why the read greps for the `open:`
 segment specifically instead of prepending the whole string. The composition is literal —
 `open: a, b | merged: PR #12 abc` — so a later reader still finds `merged:` where it
-expects it. The directory guard and the split-parent
-downgrade caveat are `mentor:shipping` Step 6's ("Also close the plan's state") — follow
-them there rather than reading a second copy here. No candidate, or the user says
+expects it. The directory guard above is why the write is wrapped rather than left to
+fail: `set` exits 1 with "No such plan" when the plans dir exists but the slug doesn't,
+and inventing a slug to satisfy it is worse than stopping. One guard the script cannot
+give you: `set` has no downgrade check, so if the slug resolves to a **split parent**,
+`implemented` overwrites `superseded` — read the state before writing. No candidate, or the user says
 no → say what you found and stop; never hand-edit `.state.json`.
 
 ## Step 6 — The post-merge run on the base branch
@@ -234,7 +239,7 @@ gh run list --branch "$base" --limit 10 --json databaseId,headSha \
 run has not been created yet — wait once, retry once, and stop. Do not loop.
 
 Then **one bounded `gh run watch <id>`, exactly as Step 2 does it** (`timeout: 600000`) —
-the **No busy-wait** rule owned by `mentor:dispatch-agents`. On red, name the failing job
+one call, no poll loop around it. On red, name the failing job
 and stop: no triage, no rerun. Step 3's one-rerun budget is PR-scoped, and a regression on
 the base branch is a fresh working session, not a tail on this one.
 
@@ -248,9 +253,11 @@ than handing back a command to type. The verdict outlives this session either wa
 would only re-roll it.
 
 **A green run on `base` is when a deploy artifact actually goes live** — the merged PR may have
-touched one. The detection is `mentor:shipping` Step 7's ("Say when the shipped diff touches a
-deploy artifact"); if that session's own ship never ran or predates this merge, repeat it here
-against `base`'s diff rather than re-deriving a second copy of the pattern list.
+touched one. Say so in one report line when the merged diff touched any of
+`**/supabase/functions/**`, `**/fly.toml`, `**/vercel.json`, `**/serverless.yml`,
+`**/.github/workflows/deploy*.yml`, `**/k8s/**`, `**/kubernetes/**`, `**/helm/**`, or
+`**/terraform/**` — deploying is separate from merging, and leaving it unstated is how a
+user ends up improvising a from-scratch deploy investigation later. Never deploy it here.
 
 ## Done when
 

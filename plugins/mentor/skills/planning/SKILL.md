@@ -17,8 +17,7 @@ The flow: resolve the mode & load the constitution → clarify if needed →
 research (delegation suggested) → domain routing → resolve open decisions
 with the user → write the Markdown plan
 (with a Constitution Check when a constitution exists) → (optional
-topic × perspective HTML zooms via `mentor:zooming`, or a plan tour via
-`mentor:plan-touring`, on request) → approve & release →
+topic × perspective HTML zooms via `mentor:zooming`, on request) → approve & release →
 routed implementation (dispatch-agents decides main thread vs subagents).
 
 While this worktree's `.planning.<wt-id>` marker is armed — or the legacy,
@@ -67,9 +66,11 @@ default** — it decides which option Step 6 lists first; both outcomes are
 always offered there, and you never ask the user to pick a mode upfront:
 
 - **`MODE: plan-only`** — list **"Deliver plan only"** first at Step 6.
-- **`MODE: plan`**, **`MODE: UNSET (default: plan)`**, or no `MODE:` line at
-  all (not in a git repo, so there was nothing to arm — distinct from the
-  unarmed-inside-a-repo case the check above catches) — list **"Proceed"** first.
+- **`MODE: plan`**, **`MODE: UNSET (default: plan)`**, or no `MODE:` line at all
+  — list **"Proceed"** first. No line is the ordinary reading when nothing armed the
+  gate: outside a git repo there was nothing to arm, and on a standalone load nobody
+  ran `begin-plan.sh` at all. Default to `plan` either way rather than inventing a
+  script call to go looking for one.
 
 `begin-plan.sh` may also print a **`CONTEXT:`** line (the context gate):
 
@@ -77,12 +78,10 @@ always offered there, and you never ask the user to pick a mode upfront:
   the WARN row of Step 6's option set (it leads with **"Hand off to next agent"**).
   Nothing about *how* you plan changes.
 - **`CONTEXT: HANDOFF`** — critically large, and the user already chose to proceed
-  (gate bypassed). Everything WARN does, plus: do not propose a zoom or plan tour
-  (Step 5) or plan-review yourself — an explicit user ask for any of these is still
+  (gate bypassed). Everything WARN does, plus: do not propose a zoom (Step 5) or
+  plan-review yourself — an explicit user ask for any of these is still
   honored — and use the HANDOFF row at Step 6. "Keep the plan lean", if the command
   layer said it, means exactly those omissions: Step 4's content spec never shrinks.
-- **`CONTEXT: ASK`** never reaches this skill — the command layer resolves it with the
-  user first; noted for completeness.
 
 **Load the constitution.** Resolve the constitution path (a repo may keep its
 governing doc outside `.mentor/` — `constitution_path` in `.mentor/config.json`
@@ -149,21 +148,8 @@ skill load:
 bash "${CLAUDE_PLUGIN_ROOT}/hooks/plan-state.sh" policy
 ```
 
-`POLICY: SET (dispatch=…)` means the user already recorded where work runs in this repo —
-honor it and ask nothing. `FOUND` means a standing no-subagents instruction is recorded
-somewhere durable: ask ONCE and record the answer (`dispatch-agents`' **Standing
-no-subagents policy** has the exact question and the `set-mode.sh` call that makes it the
-last time anyone is asked). `UNRESOLVED` means the check could not run, which is not the
-same as a clean result: treat the question as open. `NONE` clears you to dispatch.
-`CONTRACT: active` confirms `hooks/dispatch-contract.sh` will append the standing
-"Deliver before idling" block — the no-nested-fan-out ban, the no-poll rule, mandatory
-`SendMessage` delivery — to every dispatch prompt automatically. **Do not paste that
-block by hand**; the hook is idempotent and a hand-typed paraphrase only risks dropping
-a directive the agent has no other way to learn. `CONTRACT: MISSING` is the one case
-where you paste it yourself, from `hooks/dispatch-contract.txt` — the block's only copy. If
-the `MISSING` reason names that file (absent, empty, or no first line), there is nothing
-left to paste: stop and tell the user the mentor install is damaged rather than
-reconstructing the block from memory.
+Follow its printed guidance verbatim — it states the verdict, what to ask (or not ask),
+and whether the standing dispatch block is actually reaching your agents.
 
 One nudge on a silent idle; close each agent out once its findings are consumed
 (`dispatch-agents`' "Async runtime & lifecycle", which governs these dispatches without
@@ -565,9 +551,8 @@ Required sections, in order:
    unqualified `grep -r` is not yet earned.
 6. `## Implementation steps` — numbered, concrete, and **routed before they are
    annotated**. Before writing this section, invoke
-   `Skill(skill="mentor:dispatch-agents")` — this is the skill's FIRST load point in a
-   plan run, since Step 2 needs only the `policy` preflight — and run its
-   **"Where dispatch pays"** test over the steps you are about to write. That test, not
+   `Skill(skill="mentor:dispatch-agents")` and run its **"Where dispatch pays"** test
+   over the steps you are about to write. That test, not
    a default, decides the routing: implementation dispatches when two or more
    file-disjoint steps can be in flight at once and each brief stands alone, or when a
    single step's own context cost would flood the main thread; otherwise it runs in the
@@ -718,7 +703,7 @@ carrying a number forward from research recall. A wrong headline count caught
 here costs nothing; the same number caught later, once a reviewer's own count
 check flags it, costs a multi-section sweep to fix everywhere it was restated.
 
-## Step 5 — Optional HTML zoom & plan tour (explicit user opt-in only) {#html-zoom}
+## Step 5 — Optional HTML zoom (explicit user opt-in only) {#html-zoom}
 
 The topic × perspective HTML zoom is its own skill — `zoom` — and this step is
 pure delegation. Only when the **user asks** for an HTML zoom / visual preview
@@ -746,35 +731,21 @@ re-dispatch EVERY matching combo in one batched message). Wait for those
 agents to complete before dispatching `plan-review`, so a reviewer never reads
 a zoom mid-write.
 
-**Plan tour.** Only when the user asks for a walkthrough or tour of *how the
-plan will execute* — never by default — invoke `Skill(skill="mentor:plan-touring")`
-with the current plan as the subject; its artifacts land in
-`.mentor/plans/<plan-slug>/tour/`.
-
 ## Step 6 — Approve & release {#approve}
 
 > **🚫 No edits or implementation until the plan is APPROVED.** During planning,
 > only read-only agents (Explore, Plan, plan-review reviewers) may be
-> dispatched — the sole exceptions are `mentor:zooming`'s combo agents (Step 5),
+> dispatched — the sole exception is `mentor:zooming`'s combo agents (Step 5),
 > which write ONLY zoom artifacts under `.mentor/zooms/` (gate-exempt
-> `.mentor/` tree), and `mentor:plan-touring`'s combo agents (Step 5), which
-> write ONLY under `.mentor/plans/*/tour/` — never repo source files.
+> `.mentor/` tree) — never repo source files.
 > Every editing/implementation agent comes AFTER approval.
 
-**Close out consumed dispatches before asking.** Every agent this session
-dispatched whose output is already folded into the plan — Step 2's research and
-plan-body agents, Step 3.5's Explores, Step 5's zoom and tour combos, and the
-reviewers or child-plan agents of a `plan-review` / `plan-split` pass that just
-returned here — gets stopped now, per the **Close out** rule in `dispatch-agents`'
-"Async runtime & lifecycle". This is the checkpoint where it costs the most: the
-question below can sit unanswered for hours of real wall-clock time, and a
-resident agent's idle notification landing mid-wait reads as new input and
-silently rejects the pending question, stalling the session until a human
-notices. Enumerate live tasks first, diff against this session's own dispatch
-tree, and stop only what traces to it — a remembered name is not enough, even
-when you're sure what's still resident (the same rule `dispatch-agents`'
-"Async runtime & lifecycle" states unconditionally). (In Claude Code those are
-`TaskList` and `TaskStop`, either of which may need fetching via `ToolSearch`.)
+**Close out consumed dispatches before asking**, per the **Close out** rule in
+`dispatch-agents`' "Async runtime & lifecycle". This is the checkpoint where it
+costs the most, which is the only reason it's worth naming here: the question
+below can sit unanswered for hours of real wall-clock time, and a resident agent's
+idle notification landing mid-wait reads as new input and silently rejects the
+pending question, stalling the session until a human notices.
 
 First **surface the complete plan body** in your message — plain markdown,
 verbatim, no commentary around it — so the user can review it in the transcript.
@@ -926,12 +897,11 @@ worktree (repo-wide, in legacy_mode). On failure it prints the problem, keeps th
 gate closed, and exits non-zero: fix the plan (re-write per Step 4) and re-ask. On
 success, implement the plan.
 
-**Executing the implementation after approval:** the plan already recorded its routing at
-Step 4 — dispatch annotations on the steps, or a `Dispatch: skipped` line. Invoke
-`Skill(skill="mentor:dispatch-agents")` (skip only if already loaded this session) and
-follow its **"Executing the dispatches"** section — it owns the
-whole procedure, and restating it here is how the two copies drift apart. Three things
-are specific to arriving from this skill:
+**After approval, the gate is open and this skill's job is done.** The plan already
+recorded its routing at Step 4 — dispatch annotations on the steps, or a
+`Dispatch: skipped` line — and implementation belongs to `mentor:dispatch-agents`'
+**"Executing the dispatches"**, which owns that procedure whole. Three things a plan
+authored here carries into it, wherever it gets executed:
 
 - **Keep a step's own body on `-` bullets.** The step counter cannot tell a numbered
   sub-item from a step, and an inflated denominator strands a finished plan at
@@ -957,11 +927,9 @@ bash "${CLAUDE_PLUGIN_ROOT}/hooks/plan-state.sh" set <slug> implemented         
 bash "${CLAUDE_PLUGIN_ROOT}/hooks/plan-state.sh" set <slug> failed --note "<what broke>"   # escalating, or handing off with verification unresolved
 ```
 
-`mentor:dispatch-agents` states this for the dispatch path; it is repeated here
-because the **`Dispatch: skipped`** path never loads that skill for
-implementation (it still loads it to dispatch verification), and direct
-implementation must not be the one route that leaves no record. The ticks above
-are also the only step tracker mentor reads here — don't mirror them into a
+Direct implementation on the **`Dispatch: skipped`** path must not be the one
+route that leaves no record, which is why the calls are stated here too. The ticks
+above are also the only step tracker mentor reads — don't mirror them into a
 separate todo list as well; a second list costs a call per step and nothing
 reads it (tracking *dispatched agents* themselves, e.g. for the closing
 checklist's task sweep, is unrelated and still applies). Missing a transition
@@ -975,19 +943,12 @@ resolve — and you raise your own ad hoc `AskUserQuestion` about it, include
 on this rather than resolving it inline right now, and nothing else on this path
 offers that choice.
 
-**Close out the skipped path too.** For the same reason, carry that skill's
-CLOSING CHECKLIST items across yourself — there are no implementation agents to
-release, but there is still work to hand back:
-
-- **Offer `/mentor:tour`** — one line: a hands-on acceptance pass building an
-  editable guided-tour review artifact (pass/not-pass scenarios) of what shipped.
-  Do not auto-run it; it publishes to a stable URL, so the user chooses.
-- **Sweep the report you're about to write** — every follow-up, gap, or
-  known-broken item in it is **named** there, in plain terms, so nothing survives
-  only as an aside that dies with the session. Do not capture them on your own:
-  parking work is the user's call. Offer `/mentor:defer` as the pointer for
-  whatever they want parked. Either way an unresolved verification topic or an
-  unverified claim is never a stub — it's `set <slug> failed --note` on the plan.
+**Close out the skipped path too.** There are no implementation agents to release,
+but there is still work to hand back: **sweep the report you're about to write** —
+every follow-up, gap, or known-broken item in it is **named** there, in plain terms,
+so nothing survives only as an aside that dies with the session. Do not capture them
+on your own; parking work is the user's call. And an unresolved verification topic or
+an unverified claim is never a stub — it's `set <slug> failed --note` on the plan.
 
 Skipping dispatch is a decision about *who types the edits*, not a discount on
 what the user gets at the end. Implementation may be main-thread; verification
@@ -1012,8 +973,8 @@ bash "${CLAUDE_PLUGIN_ROOT}/hooks/approve-plan.sh" --handoff
 ```
 
 Same validation + release, then **follow the hand-off directive it prints** —
-invoke the handoff skill for this approved plan and stop. Do not implement and
-do not dispatch in this session.
+invoke `Skill(skill="mentor:handoff-note")` for this approved plan and stop. Do not
+implement and do not dispatch in this session.
 
 An **"Other" answer expressing handoff intent** does *not* route here by default.
 There are two handoff outcomes now and they differ on consent, so free text like
@@ -1050,20 +1011,11 @@ infer them and each one has bitten a real session:
   this line the next approval fails with "Newest plan predates this planning session"
   and no hint of the cause.
 
-On **Review the plan (staged)**, invoke `Skill(skill="mentor:plan-review")` and
-prepend: *"The user selected 'Review the plan (staged)' — skip the Step 2 gate
-and start Stage 1 directly."* If this option was reached via free-text "Other"
-that explicitly asked for the mechanical/consistency check alone (not the full
-staged review), prepend instead: *"The user explicitly asked for the
-consistency check alone — skip the Step 2 gate and go straight to
-Stage-2-only mode."* Either way its reviewers are read-only and the gate stays
-closed; the skill itself folds the Stage 1 edits the user accepts at its
-severity-gated fold gate and auto-folds MECHANICAL Stage 2 findings
-into the plan file (gate-exempt `.mentor/` writes), walks CRITICAL
-DECISION-REQUIRED findings one verdict question at a time and resolves the
-rest in one batched question (applying only accepted resolutions),
-then returns to this same question — this option never releases the gate by
-itself.
+On **Review the plan (staged)**, invoke `Skill(skill="mentor:plan-review")` with
+this plan as the subject. Say which the user asked for — the full staged review, or
+(when free-text "Other" asked for it explicitly) the mechanical/consistency check
+alone. Its reviewers are read-only and its own writes are gate-exempt `.mentor/`
+ones, so this option never releases the gate by itself.
 
 **An "Other" answer expressing further-interview intent** ("grill me more", "walk
 through more use-cases/scenarios", or similar) has no button in any row — grilling is
@@ -1071,17 +1023,27 @@ framed elsewhere in this skill as a pre-research step, so nothing here routes a
 post-draft ask for it, and the user is left re-typing the request past a menu that
 doesn't offer it. Route it: invoke `Skill(skill="mentor:grilling")` scoped to the
 **drafted plan** (not the original request) — interview against what's already
-written, not from scratch — then return to this same question when the interview
-closes. Like Review, this option never releases the gate by itself.
+written, not from scratch. Like Review, this option never releases the gate by
+itself, so the plan still needs approving once the interview's answers are folded in.
 
 On **Split into multiple plans**, invoke `Skill(skill="mentor:plan-split")`. It writes
-only under `.mentor/plans/`, so the gate stays closed: it confirms a slice map,
-dispatches one agent per child, retires the parent, and returns here. Then **re-ask
-this same question** against the new sibling set — the oversize condition is now
-false, so the option set comes from the table's first two rows. Say in the question
-that **Proceed now approves the whole set** and routes building to `/mentor:track`;
-otherwise the user is left guessing which child "Proceed" means, and the model is left
-implementing whichever one it happens to remember.
+only under `.mentor/plans/`, so the gate stays closed while it confirms a slice map,
+dispatches one agent per child, and retires the parent. It hands the sibling set back
+here.
+
+**Each child is approved on its own — there is no blanket yes over the set.** Ask one
+`AskUserQuestion` (`multiSelect: true`) listing the children by slug and one-line goal:
+*"Which of these are approved to build?"* For each one the user selects, run
+`plan-state.sh set <child-slug> approved` **before** releasing the gate — a plan already
+out of `draft` is skipped by the release's promotion pass. Then release the gate once,
+as the chosen option specifies.
+
+Anything the user did **not** select is still newer than the marker, so the release
+sweeps it to `approved` with a sidecar note recording that it was not individually
+reviewed. That note is not a formality: `/mentor:track` reads it and confirms with the
+user before dispatching such a plan, which is what keeps an unselected child from being
+built on a yes that was never given. Say in the question that building runs through
+`/mentor:track`, one child at a time.
 
 On **Keep planning**, do not run the script; return to planning.
 

@@ -34,6 +34,10 @@ Do these in order:
    deferred stub is never built directly either — it routes to `/mentor:plan` to be
    claimed first.
 
+3. **When the build closes**, `/mentor:tour` (acceptance pass), `/mentor:defer` (park
+   what's left) and `/mentor:ship` (open the PR) are the follow-on offers — name them,
+   never auto-run them.
+
 Argument (optional) — a plan slug, a 1-based number from the list, or `status` to
 print state and stop without building:
 

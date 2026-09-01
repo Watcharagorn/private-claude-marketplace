@@ -168,17 +168,8 @@ no skill load:
 bash "${CLAUDE_PLUGIN_ROOT}/hooks/plan-state.sh" policy
 ```
 
-`POLICY: SET (dispatch=…)` — the user already recorded where work runs in this repo;
-honor it and ask nothing. `FOUND` — a standing no-subagents instruction is on record; ask
-ONCE and record the answer, per `dispatch-agents`' **Standing no-subagents policy** (the
-recording is what stops every later surface re-asking). `UNRESOLVED` — the check could not
-run, which is not a clean result; treat the question as open. `NONE` — dispatch. `CONTRACT: active` confirms
-`hooks/dispatch-contract.sh` appends the standing "Deliver before idling" block to every
-dispatch prompt automatically: **do not paste it by hand.** Only on `CONTRACT: MISSING`
-do you paste it yourself, from `hooks/dispatch-contract.txt` — the block's only copy. If
-the `MISSING` reason names that file (absent, empty, or no first line), there is nothing
-left to paste: stop and tell the user the mentor install is damaged rather than
-reconstructing the block from memory.
+Follow its printed guidance verbatim — it states the verdict, what to ask (or not ask),
+and whether the standing dispatch block is actually reaching your agents.
 
 Step 1's "no nested fan-out" reaches a combo agent only through that injected block, which
 is why `CONTRACT: MISSING` matters here even though nothing else in this skill dispatches.
@@ -205,11 +196,9 @@ deployment topology, capacity/health-check chains, and blast radius — if
 those facts were gathered live this session (CLI/API output, no source file),
 write them to `${zoom_dir}/_brief.md` once per Step 1's conversation-only-subject
 row and point every such combo at it, rather than re-deriving the same facts
-in each combo's prompt; a **UI-surface topic** gets the mockup contract inputs from
-`plan-domain-frontend` §4 whenever the perspective needs to *see* the surface to
-do its job — End user, Reviewer/Architect, and QA/Tester (the tester must see
-the states they verify) — but **not** Implementor, whose zoom is about file
-wiring and step order, where a pixel-faithful mockup is redundant.
+in each combo's prompt; a **UI-surface topic** gets the mockup contract from
+`references/ui-mockup-contract.md` — read it whenever the combo's perspective needs
+to *see* the surface to do its job, and fold its inputs into that combo's prompt.
 
 Per-file spec: a single self-contained file — inline CSS, no build step;
 Mermaid via CDN
@@ -224,8 +213,8 @@ plan-open.sh auto-opens each file once. Stable names — a re-zoom of the same
 combo overwrites in place. Zooms whose content is primarily visual (mockups,
 diagrams) SHOULD ship lightweight pan/zoom affordances on the outer page
 (fullscreen toggle ⛶, overlay scrim, +/−/reset, wheel-zoom — inline JS in the
-outer file only; iframe `srcdoc` panes stay no-JS per `plan-domain-frontend`
-§4).
+outer file only; iframe `srcdoc` panes stay no-JS per
+`references/ui-mockup-contract.md`).
 
 ## Step 4 — Completion check
 
@@ -256,9 +245,10 @@ been made.
 When a revision of the subject — a plan edit, a product decision, a code change
 — invalidates prior zooms, `grep -l` the invalidated term across every existing
 `${zoom_dir}/*.html` and re-dispatch EVERY matching combo in one batched
-message — never just the combo you remember changing. When the subject is a
-plan under review, wait for these agents to complete before any `plan-review`
-dispatch, so a reviewer never reads a zoom mid-write.
+message — never just the combo you remember changing. **Do not report the re-zoom
+complete until every re-dispatched combo has returned** — a half-written zooms dir
+read by anyone else (a reviewer, the user) shows stale panes next to fresh ones with
+nothing marking which is which.
 
 Each re-dispatch prompt names the superseded term and the term replacing it, and
 requires the returned `Self-check:` to add `residual-<old>=N` — one short reason

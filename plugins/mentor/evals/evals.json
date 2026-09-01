@@ -15,8 +15,7 @@
     "merging",
     "shipping",
     "deferring",
-    "constitution-authoring",
-    "plan-touring"
+    "constitution-authoring"
   ],
   "evals": [
     {
@@ -266,21 +265,15 @@
       "query": "can you summarize what the first amendment of the US constitution actually says, im writing a blog post about it"
     },
     {
-      "id": 42,
-      "expected": "plan-touring",
-      "tests": "core trigger, pre-approval walkthrough, explicitly local/not shared",
-      "query": "before i approve this plan can you walk me through how itll execute, step by step, laid out as pages? this stays local, nobody else needs to see it"
-    },
-    {
       "id": 43,
       "expected": "touring",
-      "tests": "NEAR-MISS vs plan-touring: reviewers ticking pass/not-pass on a shareable link, not a private pre-approval walkthrough",
+      "tests": "core trigger: reviewers ticking pass/not-pass on a shareable acceptance page",
       "query": "reviewers need to walk through each scenario of the payment work from that plan step by step and mark pass or not-pass, then send me the link when its ready to share"
     },
     {
       "id": 44,
       "expected": "zooming",
-      "tests": "NEAR-MISS vs plan-touring: one static diagram, no paging or plan walkthrough",
+      "tests": "NEAR-MISS vs touring: one static read-only diagram, no pass/not-pass interaction and nothing published",
       "query": "just show me a diagram of the current auth flow, one page is fine"
     },
     {

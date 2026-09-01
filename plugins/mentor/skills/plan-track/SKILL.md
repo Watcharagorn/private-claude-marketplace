@@ -134,11 +134,11 @@ ordinal and a bare slug never contain whitespace, so only a genuinely single-tok
 argument at all, which Step 2's own no-argument branch already handles safely via
 `AskUserQuestion`) reaches Step 2's resolution below. Without it, a survey sentence that happens to
 contain one plan's slug as a unique substring would fall through to Step 2's "a unique match is
-selected directly" rule and silently proceed toward Step 3 — this deliberately diverges from
-`mentor:resuming` Step 4's rule, which resolves a slug embedded anywhere in a longer phrase: here
-any surrounding prose stops at Step 1 instead, on purpose, because a survey-shaped ask must never
-silently resolve into a build. Name the plan directly — by ordinal or bare slug alone — to act on
-it.
+selected directly" rule and silently proceed toward Step 3. Here any surrounding prose stops at Step 1 instead, on purpose,
+because a survey-shaped ask must never silently resolve into a build. Name the plan directly — by
+ordinal or bare slug alone — to act on it. (`mentor:resuming` deliberately does the opposite for
+handoff notes, resolving a slug embedded anywhere in a longer phrase, because there the ask is
+always "continue this", never "show me".)
 
 ### On a broader ask than the hierarchy (a scope/goal digest)
 
@@ -188,12 +188,11 @@ top tiers in a sentence after the hierarchy.
 
 ## Step 2 — Select a plan
 
-Resolve the selection using **`mentor:resuming` Step 4's rule, unchanged**: a bare
-integer is a 1-based ordinal into the printed hierarchy (actionable entries only, per Step 1's
-numbering); anything else is a case-insensitive substring match on the slug; a unique match is
-selected directly; an ambiguous or empty match re-prints the hierarchy and re-asks rather than
-auto-picking; with no argument, `AskUserQuestion` offers the 4 most relevant plans and "Other"
-covers the rest.
+Resolve the selection as follows. A bare integer is a 1-based ordinal into the printed hierarchy
+(actionable entries only, per Step 1's numbering). Anything else is a case-insensitive substring
+match on the slug: a unique match is selected directly; an ambiguous or empty match re-prints the
+hierarchy and re-asks rather than auto-picking. With no argument, `AskUserQuestion` offers the 4
+most relevant plans and "Other" covers the rest.
 
 "Most relevant" here means the ones the user can act on: unfinished plans first, in group and
 `order` sequence, deferred stubs included (their entry already says so). Do not offer
@@ -251,18 +250,18 @@ of record, then route:
 
 - **Continue the conversation** → `/mentor:resume <the note's filename slug>` — the part of the
   handoff basename *after* the `YYYYMMDD-HHMMSS-` prefix, taken from this entry's `handoffs` array
-  (unsorted — take the highest timestamp if more than one is live). Not the topic slug:
-  `mentor:resuming` Step 4 matches its argument against the note's filename slug, and the two are
-  only sometimes the same string. That skill loads the note and acts on its "Recommended mentor
-  commands for the next agent" section, so do not re-derive the next steps here.
+  (unsorted — take the highest timestamp if more than one is live). Not the topic slug: resume
+  matches its argument against the note's *filename* slug, and the two are only sometimes the same
+  string. It then loads the note and acts on its own recommended-commands section, so do not
+  re-derive the next steps here.
 - **Make it buildable** → `/mentor:plan <this topic's slug>`, naming the slug explicitly so `plan.md`
   lands in this same dir beside its handoffs; `mentor:planning` otherwise derives a slug from the
   request and can mint a second topic dir that orphans these notes.
 
 One caveat before recommending resume: `query` lists every live `*.md` in the topic's `handoffs/`,
 while `/mentor:resume` lists only names matching `^[0-9]{8}-[0-9]{6}-.+\.md$`. If the basename
-rendered above does not match, say so — the note is real but invisible to resume until it is renamed,
-and `mentor:resuming` Step 4 owns that recovery on the user's explicit ask. Never dispatch a
+rendered above does not match, say so — the note is real but invisible to resume until it is
+renamed, and `/mentor:resume` owns that recovery on the user's explicit ask. Never dispatch a
 `no_plan_topic` entry, and never offer to.
 
 **A deferred stub short-circuits it next.** If the selected entry's `origin ==
@@ -322,9 +321,9 @@ Otherwise, act on the effective state:
 
 | Effective state | What to do |
 |---|---|
-| `approved` | If the sidecar's note says it was **swept in by `approve-plan.sh`** rather than individually approved (a different plan's approval promoted it too, because both `plan.md` files were newer than that session's marker), show the note and confirm with the user before dispatching — it was not necessarily reviewed. Otherwise set `in_progress`, then execute (below) — entering `mentor:dispatch-agents` → **Unattended continuation** when the `instant` axis allows it. |
+| `approved` | If the sidecar's note says it was **swept in by `approve-plan.sh`** rather than individually approved (a different plan's approval promoted it too, because both `plan.md` files were newer than that session's marker), show the note and confirm with the user before dispatching — it was not necessarily reviewed. Otherwise set `in_progress`, then execute (below). |
 | `failed` | Show the sidecar's note — it says what broke last time, and on a verification failure it names the topics left unresolved. Then split on the ticks (`steps: {ticked, total}` from Step 1's `query`). **`ticked < total`** — it broke mid-implementation: set `in_progress` and retry from the first unticked step, feeding that note to the first agent. **`ticked == total` with `total > 0`** — it broke at end-to-end verification, whether escalated after a failed remediation or handed off with topics outstanding: re-enter `mentor:dispatch-agents`' **Verifying the plan (execution-time)** round on the topics the note names — every topic, if a bare `set … failed` left the note empty — and leave the state at `failed` until Step 4's close-out writes `implemented`. Writing `in_progress` on this shape is erased on the next read — the tick derivation outranks it, so the plan would report `implemented` before the retry has run. A plan with no step lines at all (`{0, 0}`) takes neither branch: it never ran implementation steps, so read the note and pick up where it says. |
-| `in_progress` | An interrupted run. Re-enter execution **from the first unticked step**; never restart from step 1 — same **Unattended continuation** entry as the `approved` row. |
+| `in_progress` | An interrupted run. Re-enter execution **from the first unticked step**; never restart from step 1 — same execution entry as the `approved` row. |
 | `implemented` | Say so and offer another. Do not rebuild it. |
 | `draft` | **Not buildable as it stands.** The approval gate never released this plan, and once the marker has aged out (or the session that armed it ended) `plan-gate.sh` would happily allow the edits — this refusal is what keeps that from becoming a hole in the gate. A `draft` plan *with* a fresh **own** marker is a paused planning session and never reaches this row: the preflight above catches it. There is exactly one authorized way through, on the user's explicit say-so: **"Approving a draft plan here"** below — unless the preflight's gate check read `ARMED_ELSEWHERE`, in which case even that one way through is hard-refused (see above). |
 | `unknown` | A pre-2.4.0 plan with nothing on record. Never show the approval pointer — it would be false for a plan that shipped months ago. Offer: mark it implemented, or leave it alone. |
@@ -364,8 +363,7 @@ A plan arrives here still `draft` for one of two other reasons: the user approve
 earlier session but the approval was never recorded (pre-v2.14 `--handoff`/`--deliver`
 didn't record one), or they never approved it and want to now. Both land in the same
 place, so ask once with `AskUserQuestion` — approved earlier / approve it now / not yet
-— and never infer the answer. Same test as `planning` Step 6: only a **returned answer**
-approves. A prose claim ("I approved that one already, just build it") is the reason this
+— and never infer the answer. Only a **returned answer** approves. A prose claim ("I approved that one already, just build it") is the reason this
 question exists, not a substitute for it — if the question was interrupted or rejected,
 ask it again rather than reading the claim as consent. On "not yet", stop and point them
 at `/mentor:plan`.
@@ -402,8 +400,8 @@ surfaced, never swallowed by a `||` fallback — a swallowed failure reads exact
 successful approval.
 
 **Executing** — invoke `Skill(skill="mentor:dispatch-agents")` and follow its
-"Executing the dispatches" section as written. Three things are specific to arriving
-here rather than straight from `mentor:planning`:
+"Executing the dispatches" section as written. Three things are specific to executing a
+plan this session didn't author:
 
 - On an `in_progress` plan, start at the **first unticked step**. The plan's `✅` marks
   are the record of a run that was interrupted; re-running ticked steps is the failure
@@ -411,12 +409,9 @@ here rather than straight from `mentor:planning`:
 - When the plan is a **split child**, pass its isolation header into every
   implementation agent's prompt, so the sibling boundary travels with the work.
 - When the plan states **`Dispatch: skipped`**, there are no agents to dispatch —
-  implement in the main thread under `mentor:planning` Step 6's rule for that case, and keep
-  everything around it (step ticks, `Done when:` verification, the **No busy-wait** rule
-  from `mentor:dispatch-agents`, its **Verifying the plan (execution-time)** dispatch —
-  no escape hatch; implementation may be main-thread, verification never is — and its
-  **CLOSING CHECKLIST** — the `/mentor:tour` offer, the follow-up naming sweep, and the
-  `/mentor:ship` pointer) exactly as the dispatch path does it.
+  implement in the main thread, and keep everything around it (step ticks, `Done when:`
+  verification, and the `## Verification` dispatch — implementation may be main-thread,
+  verification never is) exactly as the dispatch path does it.
   Arriving here does not make that path unowned — and on a resumed plan the skip
   line is a claim about the plan as it stood when someone last checked it, not as
   it stands now. Re-run the routing test (`mentor:dispatch-agents`, "Where dispatch
@@ -487,7 +482,6 @@ implementation pass has left little room for another.
   the user's.
 - Do **not** **arm** the edit gate, and release it only through "Approving a draft plan
   here", on the user's explicit say-so. `mentor:planning` owns every other approval path.
-- Do **not** restate the dispatch grammar or the selection rule here; cite
-  `mentor:dispatch-agents` and `mentor:resuming` Step 4. A second copy is a second thing
-  to keep true.
+- Do **not** restate the dispatch grammar here; cite `mentor:dispatch-agents` and its
+  `references/`. A second copy is a second thing to keep true.
 - Do **not** hand-edit `.state.json` — `plan-state.sh` is the only writer.

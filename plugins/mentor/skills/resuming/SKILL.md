@@ -271,13 +271,7 @@ rename it into the canonical pattern using the file's **mtime** for the timestam
 (`mv "$f" "$(dirname "$f")/$(date -r "$f" +%Y%m%d-%H%M%S)-<slug>.md"` — an invented "now"
 timestamp would mis-sort the note permanently) and re-list. Only on their explicit request.
 
-**Strip recognized flags from the argument before resolving anything.** `--confirm` (run the
-selected work attended, overriding the `instant` default) is a flag, not a selector: remove it
-from `$ARGUMENTS` first and remember it for Step 5 / the drain. Matching it as text would make
-`/mentor:resume <slug> --confirm` match nothing, re-print the picker, and silently drop the one
-thing the user asked for.
-
-Then resolve a selection:
+Resolve a selection:
 
 - **From the argument** (`$ARGUMENTS`) or from an `AskUserQuestion` "Other" free-text answer:
   - A **bare integer** → a **1-based ordinal** into the printed list (1 = newest).
@@ -342,11 +336,9 @@ genuinely different topics or slugs — this carve-out is only for the same-topi
   left") rather than restating the slug in prose.
 - If there is **exactly one** note, skip the picker and ask a simple **Continue / Cancel**. If there
   are **zero** notes but **exactly one** drain entry (a root or a group) total, the same shortcut
-  applies to it — skip the picker and ask Continue / Cancel for that one entry instead. When the
-  `instant` axis is on (unset behaves as on — `set-mode.sh status`) and `--confirm` was not passed,
-  even that question is skipped: announce the unique selection in one line ("Resuming <slug> — the
-  only live entry") and proceed. The announcement is not optional — an auto-selection the user never
-  saw is how the wrong work gets continued silently.
+  applies to it — skip the picker and ask Continue / Cancel for that one entry instead. Even a
+  single candidate gets that question: continuing work the user never confirmed is how the wrong
+  thing gets picked up silently.
 
 ## Step 5 — Load & continue
 
@@ -396,10 +388,7 @@ checkpoints fire, and they speak only above the warn threshold).
    this topic — it is a constraint, not a suggestion, and it does not expire with the session
    that wrote it. **This narration is its own turn, before the note's first action of any kind —
    read-only ones included** — folding it silently into a later wrap-up, or skipping straight into
-   the note's action steps, does not satisfy this step. On an instant auto-selected resume
-   (Step 4's announced unique-entry path) the narration still leads, in full, but the turn does
-   not end on it — the announcement is the visibility the stop existed to buy; attended resumes
-   keep the hard stop. Do **not** stamp the note yet — loading is
+   the note's action steps, does not satisfy this step. Do **not** stamp the note yet — loading is
    not finishing; if this session stalls, the note must still be listed for the next one.
 4. **Reference artifacts by their paths** — the plan file, PRDs/ADRs, issue/PR URLs, commit SHAs as
    the note lists them. Do **not** paste their contents; open/read them only as needed to act.
@@ -490,9 +479,9 @@ checkpoints fire, and they speak only above the warn threshold).
    start drafting or editing on a `STALE` (or `RELEASED`) marker — run `/mentor:plan <slug>` first to
    re-arm it, unless the note's recommendation is another tracked plugin's command (e.g.
    `/loom:learn`); that work has no mentor plan of record, so this repo's plan gate doesn't apply to
-   it — skip straight to running the listed command. `mentor:planning`'s own unarmed-gate check cannot save you here, because skipping the
-   command means the skill never loads to run it. This is exactly the case a note resuming
-   **planning** (its plan still `draft`) will usually hit.
+   it — skip straight to running the listed command. Nothing downstream re-checks this for you:
+   skipping the command means nothing that would have checked ever loads. This is exactly the case
+   a note resuming **planning** (its plan still `draft`) will usually hit.
 
    When the note resumes **implementation**, also glance at branch ownership before the first edit
    — GitHub + `gh` only, fail-soft:
@@ -531,24 +520,19 @@ checkpoints fire, and they speak only above the warn threshold).
    what the note recommends, whether it names a `/mentor:` command or another tracked plugin's
    (`/loom:harvest`, `/loom:learn <plugin> <session-id>`) — a listed command is a listed command
    regardless of prefix. A note listing `/mentor:ship` or `/mentor:merge` as ready is still bound
-   by those skills' own consent gates — `mentor:dispatch-agents`' CLOSING CHECKLIST offers ship,
-   it never auto-runs it, and a satisfied trigger condition in the note doesn't override that.
-   If the note recommends `/mentor:plan <focus>`, run that. If it recommends resuming
+   by those skills' own consent gates — a satisfied trigger condition in the note doesn't override
+   them. If the note recommends `/mentor:plan <focus>`, run that. If it recommends resuming
    implementation of an **approved plan**, invoke
    **`Skill(skill="mentor:plan-track", args="<slug>")`** (the skill behind `/mentor:track <slug>`)
    with the plan slug the note names — the bound is on which work and its scope, not on
    mirroring the note's slash token into `Skill()`, which only re-enters through the command
-   wrapper for a second hop. Track is not an extra step you inferred — it is how that
-   recommendation is honored:
-   it re-enters at the first unticked step instead of rebuilding from step 1, runs the context check
-   that decides whether this session is big enough to finish, and then executes through
-   `mentor:dispatch-agents` anyway. `mentor:dispatch-agents` says the same thing from its side ("When
-   NOT to use — starting from a plan this session didn't write"), and a resumed note is exactly that
-   case. Older notes phrase the recommendation as "implementation via `mentor:dispatch-agents`" —
-   honor those **through** `/mentor:track` too; it is the same work, and passing the slug means the
-   user who already chose a note isn't asked to choose a plan again. Invoke
-   `Skill(skill="mentor:dispatch-agents")` directly only when the note's work has no plan record at
-   all, so there is no state for track to read.
+   wrapper for a second hop. Track is the better route for a resumed note because it re-enters at
+   the first unticked step instead of rebuilding from step 1, and it runs the context check that
+   decides whether this session is big enough to finish. Older notes phrase the recommendation as
+   "implementation via `mentor:dispatch-agents`" — that is the same work; passing the slug to track
+   means the user who already chose a note isn't asked to choose a plan again. Go to
+   `Skill(skill="mentor:dispatch-agents")` directly when the note's work has no plan record at all,
+   so there is no state for track to read.
 
    **When the note names no commands at all** — no "Recommended mentor commands for the next agent"
    section — you still have a route; do not improvise one, and do not re-derive plan state here.
@@ -566,12 +550,11 @@ checkpoints fire, and they speak only above the warn threshold).
       `/loom:` hit with the user before invoking it, never run it on a single-token sweep match
       alone; a swept token can be prose *about* the pattern, not a real recommendation, and some
       loom commands (`/loom:publish-plugin`) push to the default branch.
-   2. **None anywhere → `Skill(skill="mentor:plan-track", args="<topic>")`** (`/mentor:track
-      <topic>`), using the note's own topic slug (the
+   2. **None anywhere → offer `/mentor:track <topic>`**
+      (`Skill(skill="mentor:plan-track", args="<topic>")`), using the note's own topic slug (the
       `plans/<topic>/` dir it lives in — `/mentor:handoff` writes notes there, so you already hold
-      the key). Track reads plan state and already triages an approved plan, a `draft`, a deferred
-      stub, and a topic with no plan record; re-deriving that here would fork a decision tree that
-      has one owner.
+      the key). It reads plan state and triages an approved plan, a `draft`, a deferred stub, and a
+      topic with no plan record, which is the whole triage this branch needs; the user decides.
    3. Only when the note's plan of record lives **outside** `.mentor/` — another framework owns it —
       does the no-plan-record rule above apply directly, and `mentor:dispatch-agents` carries the
       branch for it. `/mentor:track` refuses that case by design and sends you to `/mentor:plan`,
@@ -580,37 +563,30 @@ checkpoints fire, and they speak only above the warn threshold).
    Step 2's `(no focus section)` label is the early tell: a note previewed that way is non-canonical,
    so expect this branch before you start editing rather than after.
 
-   **The bound is on the work, not on how it is executed or delivered.** Running the note's work by
-   hand instead of through `/mentor:track` skips the step ticks and `mentor:dispatch-agents`' closing
-   sweep — the sweep that names every follow-up in the report — and hand-rolling
-   `git push` + `gh pr create` skips `mentor:shipping` Step 6, which stamps this note resolved and
-   closes the plan's state. The note then stays live and `/mentor:track` re-offers work that already
-   shipped. Concretely: when you are about to type `git push`, `gh pr create`, or `gh pr merge`, run
-   `/mentor:ship` instead — it hands off to `/mentor:merge`, which owns the merge consent gate. And
+   **The bound is on the work, not on how it is executed or delivered.** Know what each shortcut
+   costs before taking it: running the note's work by hand skips the step ticks and the closing
+   report sweep that names every follow-up, and a hand-rolled `git push` + `gh pr create` skips the
+   step that stamps this note resolved and closes the plan's state — the note then stays live and
+   later sessions re-offer work that already shipped. `/mentor:ship` is what does that stamping
+   (and hands off to `/mentor:merge`, which owns the merge consent gate), so it is the cheaper path
+   whenever you are about to type `git push`, `gh pr create`, or `gh pr merge` yourself. And
    when you are about to issue an `Agent()` call — however the note phrased it ("dispatch parallel
    `Explore` agents", "no single mentor command owns this") — run
-   `bash "${CLAUDE_PLUGIN_ROOT}/hooks/plan-state.sh" policy` first. Prose describing a fan-out
-   names no command, so it is neither the no-commands branch above nor licence to dispatch without
-   that check: it reports either a dispatch preference the user already recorded for this repo (a
-`POLICY: SET` verdict — honor it and ask nothing) or any standing no-subagents instruction that
-still needs one question, and it confirms the standing contract
-   block ("Deliver before idling") will reach your agents — the only thing that makes a dispatched
-   agent report instead of signalling idle with nothing delivered. A fan-out issued without it
-   strands the whole group at once and leaves you redoing their work by hand. Going direct rather than through `/mentor:track` is right **only** for a research or
+   `bash "${CLAUDE_PLUGIN_ROOT}/hooks/plan-state.sh" policy` first and follow its printed guidance
+   verbatim. Prose describing a fan-out names no command, so it is neither the no-commands branch
+   above nor licence to dispatch without that check — a fan-out issued without it can strand the
+   whole group at once and leave you redoing their work by hand. Going direct rather than through
+   `/mentor:track` is right **only** for a research or
    analysis fan-out, which has no plan steps to re-enter or tick — a fan-out that *implements* plan
    steps still routes through `/mentor:track` per the bound above. Loading the skill honors the
    note's instruction; it does not expand its scope.
 
-   A bare "let's commit" is not that signal. Commit normally — the bound is on how the session
-   ends, not on any commit along the way, and `mentor:shipping` Step 2 aborts on a dirty tree
-   precisely because it expects you to have committed first. What it does bind is the turn after:
-   when the note's work is done but unshipped, do not let that commit be the last thing this
-   session does. Ask whether to ship now, or run `/mentor:handoff` — which supersedes the note you
-   resumed and leaves one live resume point in its place, so the remaining ship step survives the
-   session instead of dying with it. Committing finished work and then stopping — no
-   `/mentor:ship`, `/mentor:merge`, `/mentor:handoff`, or `/mentor:defer` anywhere in the session —
-   is the same raw ending the "Done when" bound rules out; it just arrives one step later than the
-   push/PR case.
+   A bare "let's commit" is not that signal. Commit normally — the bound is on the note's work,
+   not on any commit along the way, and a shipping pass expects you to have committed first
+   anyway. Worth surfacing when the note's work is done but unshipped: say so, and name the two
+   routes — ship now, or `/mentor:handoff`, which supersedes the note you resumed and leaves one
+   live resume point in its place so the remaining ship step doesn't die with the session. Which
+   one, or neither, is the user's call.
 7. **Stamp the note resolved when — and only when — its work is done.** Track the note's path for the
    rest of the session; the stamp fires on the first of these:
    - **All the note's tasks completed per the plan file** — every recommended command ran to
@@ -767,19 +743,12 @@ fix captured mid-drain would otherwise slip past on the very survey that declare
 
 ### Per-item gate flow
 
-Each queued item is built exactly the way `/mentor:plan` would build it standalone. This mode
-re-enters that command's own body per item — it is not a shortcut around it:
-
-1. `bash "${CLAUDE_PLUGIN_ROOT}/hooks/begin-plan.sh" <item-slug>` — the same arm, every one of its
-   context/foreign-marker gates intact (`plugins/mentor/commands/plan.md` Step 1). A `CONTEXT: ASK`
-   here stops the drain exactly like it would stop a standalone `/mentor:plan`.
-2. `Skill({"skill": "mentor:planning"})` — it claims the stub (its own `claim`, since a parked
-   child's `origin` is `"deferred"` — `mentor:deferring` owns what that capture wrote and why),
-   fleshes it out with the user, and asks its own approval question (`{#approve}`).
-3. Only on that item's approval does resume proceed to build it, via the same `mentor:dispatch-agents`
-   implementation flow any freshly approved plan gets — including its **Unattended continuation**
-   per-step loop when the `instant` axis allows it (and the attended flow when `--confirm` was
-   passed or the axis is off).
+Each queued item is planned and approved **standalone**, exactly as if the user had typed
+`/mentor:plan <item-slug>` for it — run that per item rather than re-implementing its steps here.
+A parked child's `origin` is `"deferred"` (`mentor:deferring` owns what that capture wrote and
+why), so the stub it left is what gets claimed and fleshed out. Nothing about the drain shortens
+that path: the item's own approval gate is where building starts, and a `CONTEXT: ASK` on the way
+in stops the drain exactly like it would stop a standalone `/mentor:plan`.
 
 **Consent stays per item.** One approval never covers the rest of the queue — a 4-item subtree is 4
 separate approval questions, not one "approve everything" ask up front: each item is its own plan
@@ -805,16 +774,11 @@ queue (post-order): fix-retry-loop, fix-auth-timeout
   skipped non-conforming files were named in the user-facing list, not just in bash output.
 - The user's selection was resolved unambiguously (argument or interactive) across both axes —
   note, root, or split group — never auto-picked on an ambiguous/no match, except the deterministic
-  note-first resolution for a topic that matches on both axes at once, and the announced
-  unique-entry auto-select when the `instant` axis is on and `--confirm` was not passed (Step 4).
+  note-first resolution for a topic that matches on both axes at once.
 - **If the selection was a note:** it was loaded, scanned for secrets, its focus + current state +
-  open questions surfaced in full before acting (as their own turn on an attended resume; leading
-  the continuing turn on an instant auto-selected one), and the work continued via the note's
-  recommended command(s) — mentor's own or another tracked plugin's, exactly as listed — and nothing
-  beyond them. The session still **ended through a listed command** — a mentor command
-  (`/mentor:ship` → `/mentor:merge`, `/mentor:handoff`, or `/mentor:defer`) or a cross-plugin command
-  the note explicitly named — never through raw `git`/`gh` or a hand-written file; the bound is on
-  the work, not on how it is executed or delivered. It was **stamped resolved** only if its work
+  open questions surfaced in full as their own turn before acting, and the work continued via the
+  note's recommended command(s) — mentor's own or another tracked plugin's, exactly as listed — and
+  nothing beyond them. It was **stamped resolved** only if its work
   finished this session (all plan-file tasks done AND its topic has no open descendants left) or it
   was superseded by a nested `/mentor:handoff` — and left **live** otherwise; a topic with both a
   note and open descendants had the note load first, with the drain only offered after.

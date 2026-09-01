@@ -16,6 +16,13 @@ Repo work outside that framework's scope is **named in your report** and `/mento
 offered. This path is self-graded, with no verifier and no disposition gate behind it, so
 there is nothing here that could responsibly park work on the user's behalf.
 
+**Close the run out by hand, since no plan state will do it for you.** On a mentor plan,
+`plan-state.sh set <slug> implemented` prints the closing offers as a side effect of the
+state write; there is no such write here, so name them yourself in the report: the
+acceptance pass (`/mentor:tour`) and the PR (`/mentor:ship`), neither auto-run. Skipping
+them is how a finished run ends with nobody pointed at the tail — the plan file is
+mentor's primary source of truth, not its only mode of operation.
+
 ## The three rules
 
 - **Copy `Goal:`/`Done when:` verbatim from the task's own text**, and verify the delivery

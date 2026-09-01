@@ -8,20 +8,23 @@ description: >
   or the persistence layer behind them, in ANY storage shape: a migration, or an
   added/changed/removed table, column, index, constraint, enum, or RLS/row-level
   policy (SQL) — or the equivalent entity/relationship change in a config file,
-  CSV, spreadsheet-backed store, or ORM model. Not a /command. Shapes the
-  research (find route definitions, handlers, schemas, callers, migrations)
+  CSV, spreadsheet-backed store, or ORM model — or directly, whenever you want
+  this domain's shaping applied. Shapes the
+  research (routes, handlers, schemas, callers, migrations)
   and the Markdown plan to carry a before/after contract comparison —
   per-endpoint diff tables, schema diffs, a per-column delta table plus a
-  Mermaid ER diff when the change is DDL, and a Mermaid sequence-flow per
-  changed flow. No mockup contract; richer styled panels are reserved
-  for the opt-in topic × perspective HTML zoom (`mentor:zooming`).
+  Mermaid ER diff when DDL, and a Mermaid sequence-flow per
+  changed flow. No mockup contract; styled panels are reserved
+  for the opt-in HTML zoom (`mentor:zooming`).
 ---
 
 # Backend-API Planning Domain
 
-Invoked **once per plan** by `plan`'s domain routing (Step 3) when the task touches
-API/endpoint/route/handler/schema/DTO/contract work. Lighter than the frontend domain: it adds
-directives to the research and plan-writing the flow already performs — **no extra agent dispatch**.
+Invoked by `plan`'s Step 3 domain routing when the task touches
+API/endpoint/route/handler/schema/DTO/contract work — or directly whenever you want this domain's
+shaping. Standalone, apply §1 to whatever research is underway and §2–3 to whichever plan or
+document you are authoring. Lighter than the frontend domain: it adds directives to research and
+plan-writing — **no extra agent dispatch**.
 
 The signature deliverable: the plan carries a **before/after API contract comparison** — a
 per-endpoint diff table, a schema diff per changed DTO, and a sequence-flow viz for each changed

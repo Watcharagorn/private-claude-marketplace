@@ -41,14 +41,12 @@ everything.
 
 ## Step 1 — Resolve the next-session focus
 
-Before anything else, close out live background work the same way `dispatch-agents`'
-"Async runtime & lifecycle" section requires at any other close-out point — dispatched
-agents still live (`TaskList`/`TaskStop`, fetched via `ToolSearch` first if this session
-hasn't loaded them) and any live `Monitor` watch (that section covers both; a watch has
-no stop tool, so resolve it first or record its status and the check command in the
-note). A handoff is the session's last exit: anything left resident here has no later
-checkpoint in *this* session to catch it, and outlives the note as a stray, unmonitored
-task.
+Before anything else, close out live background work: run `TaskList` (fetched via
+`ToolSearch` first if this session hasn't loaded it) and stop anything still resident
+that traces to this session's own dispatch tree. A live `Monitor` watch has no stop tool
+— resolve it first, or record its status and the exact check command in the note. A
+handoff is the session's last exit: anything left resident here has no later checkpoint
+in *this* session to catch it, and outlives the note as a stray, unmonitored task.
 
 Make this a call, not a memory of one — a nested spawn (a `plan-split`/`plan-review`
 pass's children, in particular) can still be resident and mutating its own artifacts
@@ -226,9 +224,9 @@ Pick the entries that fit the current state, tailored to the next-session focus.
 When the next agent must do something **before** any mentor command — finish one specific
 verification step this session left open, wait on an external check — write it as a bold
 **Before any command:** line above the mapping bullet(s) you picked, never as an item inside
-the list itself. `mentor:resuming` Step 6 reads this section by scanning for the commands the
-bound "act" behavior invokes; a precondition folded into the list as if it were one more entry
-reads as either a command to run or noise to skip, and it's neither.
+the list itself. Whoever resumes this note scans the list for commands to run; a precondition
+folded in as if it were one more entry reads as either a command to run or noise to skip, and
+it's neither.
 
 When that precondition is itself a live/interactive check this session can't finish headlessly (a
 tmux/console render, a UI click-through), lead with the exact pass/fail condition as a
@@ -297,8 +295,8 @@ press count) and mark the walk-through as confirmation only, not the primary evi
   command owns a fan-out.** Whether or not a command does, the next agent reads that sentence as
   licence to dispatch raw, and a fan-out without the contract block strands the whole group —
   it has already cost two sessions. This is the one mapping entry that names a skill rather than a
-  slash command, so spell out the `Skill(...)` call: `mentor:resuming`'s fallback sweep looks for
-  `/mentor:<command>` tokens and will not match a bare skill name.
+  slash command, so write the `Skill(...)` call out literally — a bare skill name is easily lost by
+  a reader (or a sweep) looking for `/mentor:<command>` tokens.
 - If `.mentor/config.json` exists (a persisted mode — `/mentor:mode status` shows it), cite the repo's approval-gate default so the next agent knows whether "Proceed" or "Deliver plan only" is listed first at plan approval.
 - If this topic's `handoffs/resolved/` dir already holds one or more prior notes (this is not the
   topic's first handoff — `ls .../handoffs/resolved/*.md 2>/dev/null | wc -l`, filenames only, never
@@ -526,9 +524,9 @@ substitute for it.
 - Do **not** open a prior handoff as a template — for its path, naming, structure, or anything else.
   Path comes from Step 2's snippet; structure comes from Step 3.
 - Do **not** paste large artifacts (full diffs, whole plan bodies, file dumps) — reference them.
-- Do **not** author or revise a `plan.md` — that file has exactly one writer, `mentor:planning`
-  (plus `deferring`'s stubs and `plan-split`'s children). An argument asking for one routes through
-  the "Work planned outside mentor" mapping (Step 3) instead of being hand-rolled here.
+- Do **not** author or revise a `plan.md` here — a handoff note points at plans, it never writes
+  them. An argument asking for one routes through the "Work planned outside mentor" mapping
+  (Step 3) instead of being hand-rolled here.
 - Do **not** carry secrets or PII into the file.
 - Do **not** claim zero open findings, or that verification is clean, without first checking the
   plan's own `## Verification` topic outcomes — a topic that only a substitute check verified (a

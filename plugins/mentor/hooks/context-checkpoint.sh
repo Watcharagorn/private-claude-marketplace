@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 # context-checkpoint.sh — PostToolBatch (v2.37.0): the mid-run context reading.
 #
-# context-gate.sh is UserPromptSubmit-only, so a run that collapses N human turns into
-# one — dispatch-agents' unattended continuation, or any long autonomous stretch —
-# receives ZERO context readings between prompts. Measured before this existed: one
+# context-gate.sh is UserPromptSubmit-only, so any long autonomous stretch — a fan-out
+# and its verification round, a multi-step implementation the user let run — collapses
+# N turns into one and receives ZERO context readings between prompts. Measured before this existed: one
 # real session grew ~247k tokens between two readings with no warning in between.
 # resuming/SKILL.md names the shape: "a long autonomous stretch between this reading
 # and that report is exactly the shape context-gate.sh's own WARN tier cannot catch."
@@ -12,9 +12,9 @@
 #
 # ADVISORY ONLY, BY RULING — this hook NEVER exits 2 (on PostToolBatch, exit 2 stops
 # the agentic loop dead: mid-step, half-edited tree, no handoff note, no failed --note
-# — safety bought at the price of the auditability the loop exists to add). Every
-# tier injects text via hookSpecificOutput.additionalContext and exits 0. The
-# guarantee is "never blind", not "forced stop": a run CAN still exhaust the window
+# — safety bought at the price of everything the run would otherwise have written
+# down). Every tier injects text via hookSpecificOutput.additionalContext and exits 0.
+# The guarantee is "never blind", not "forced stop": a run CAN still exhaust the window
 # if it ignores the directive — that trade was chosen explicitly (2026-08-20) over an
 # exit-2 backstop.
 #
@@ -91,11 +91,11 @@ case "$tier" in
     if [ -e "${state_dir}/.context-bypass-${SESSION_ID:-nosession}" ]; then
       MSG="[mentor] CONTEXT CHECKPOINT: ~${TOKENS} tokens ≥ ${ASK_AT} (gate bypassed for this session). Keep the run lean: finish the current unit of work, then hand off at the next natural boundary (/mentor:handoff → /mentor:resume in a fresh session)."
     else
-      MSG="[mentor] CONTEXT CHECKPOINT: ~${TOKENS} tokens ≥ ${ASK_AT}. If you are mid-run (dispatch-agents' unattended loop, or any long autonomous stretch): finish ONLY the current step, record its outcome (tick it, or plan-state.sh set <slug> failed --note), write the handoff (Skill mentor:handoff-note), and END THE TURN — do not start another step. If a human is in the turn, surface the handoff question now instead. (Advisory only — this hook never blocks.)"
+      MSG="[mentor] CONTEXT CHECKPOINT: ~${TOKENS} tokens ≥ ${ASK_AT}. If you are in the middle of a long autonomous stretch: finish ONLY the unit of work in flight, record its outcome (tick it, or plan-state.sh set <slug> failed --note), write the handoff (Skill mentor:handoff-note), and END THE TURN — do not start another. If a human is in the turn, surface the handoff question now instead. (Advisory only — this hook never blocks.)"
     fi
     ;;
   2)
-    MSG="[mentor] CONTEXT CHECKPOINT: ~${TOKENS} of ${ASK_AT} tokens — nearing the handoff threshold mid-run. Steer toward a natural boundary: finish the current step, avoid opening new large workstreams, and prefer ending the turn at the next step boundary over starting another step."
+    MSG="[mentor] CONTEXT CHECKPOINT: ~${TOKENS} of ${ASK_AT} tokens — nearing the handoff threshold. Steer toward a natural boundary: finish the work in flight, avoid opening new large workstreams, and prefer ending the turn at the next boundary over starting another unit of work."
     ;;
   *)
     MSG="[mentor] CONTEXT CHECKPOINT: ~${TOKENS} tokens ≥ ${WARN_AT} and still mid-run. At the next natural step boundary, consider wrapping up and handing off (/mentor:handoff → /mentor:resume in a fresh session). (Re-fires on tier rise or every ~${rearm_delta} tokens of growth.)"

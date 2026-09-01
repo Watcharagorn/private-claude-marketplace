@@ -1,31 +1,28 @@
 ---
 name: dispatch-agents
 description: >
-  How a mentor plan routes work between the main thread and subagents, plus the
-  annotation grammar and async runtime contract that govern every dispatch.
-  Verification, review, and research always dispatch — an independent grader is
-  the product there, not an optimization. Implementation has to earn it: dispatch
-  only when two or more file-disjoint steps can be in flight at once, otherwise
-  keep it in the main thread with a stated `Dispatch: skipped` reason. Invoked by
-  plan Steps 4 and 6, or when the user says "dispatch agents" / "fan out" /
-  "parallelize". Verification dispatch has no skip on a mentor plan. Also owns
-  "Unattended continuation" — the per-step loop that runs a granted plan to
-  completion without a human in the turn, gated per step by plan-state.sh instant.
+  Routing, annotation grammar, and the async runtime contract for any fan-out of
+  work to subagents. Verification, review, and research always dispatch — an
+  independent grader is the product there, not an optimization. Implementation has
+  to earn it: dispatch only when two or more file-disjoint steps can be in flight
+  at once, otherwise keep it in the main thread with a stated `Dispatch: skipped`
+  reason. Verification dispatch has no skip on a mentor plan. Use this whenever
+  work is about to fan out — a plan's implementation steps, a research sweep, a
+  multi-repo survey, a verification round — or when the user says "dispatch
+  agents", "fan out", "use subagents", "parallelize this".
 ---
 
 # Dispatch Agents
 
 This skill decides **where each kind of work runs** — main thread or dispatched
 subagent — and then carries the annotation grammar for the steps that do fan out and
-the contract for executing them. Used by `plan` (Step 4 routing + annotation, Step 6
-execution) and referenced by `plan-review` and `handoff`.
+the contract for executing them.
 
 ## When to use
 
-Every mentor plan comes through here: `plan` Step 4 invokes this skill to route and
-annotate the implementation steps, and Step 6 invokes it again to execute them after
-approval. Also invoked when the user explicitly says "dispatch agents", "fan out",
-"use subagents", "parallelize this".
+Load this whenever work is about to fan out to subagents: routing and annotating a
+plan's implementation steps, executing those steps after approval, or an explicit
+"dispatch agents", "fan out", "use subagents", "parallelize this".
 
 **The routing answer differs by kind of work, and that is the point of the skill.**
 Verification, review, and research dispatch unconditionally — there an independent
@@ -44,27 +41,31 @@ not apply to those; the "Async runtime & lifecycle" contract does, and it is the
 reason to be here. Skipping the skill because the work has no plan is how a nine-agent
 fan-out goes out without the deliver-before-idling block and returns one report.
 
-## When NOT to use — starting from a plan this session didn't write
+## Two preconditions this skill does not establish for you
 
-If you are picking up a plan that already exists — a fresh session, a handoff, or
-one of a `/plan-split` group — go through **`/mentor:track`** instead of invoking
-this skill directly. It answers two things this skill cannot:
+Before the first implementation dispatch, confirm both yourself. They are separate
+reads — `context` answers only the second:
 
-- **Which plan, and how far did it get?** Track reads each plan's state and re-enters
-  an interrupted run at the first unticked step, rather than rebuilding from step 1.
-  It also refuses `draft` plans, which the approval gate never released.
-- **Is this session big enough to finish the job?** Track runs a context check first
-  (its Step 0 explains why nothing else covers this path). Dispatching straight from
-  here is the one route into a full implementation with nothing measuring the session.
+```bash
+bash "${CLAUDE_PLUGIN_ROOT}/hooks/plan-state.sh" query --slug <slug> --fields state --format tsv
+bash "${CLAUDE_PLUGIN_ROOT}/hooks/plan-state.sh" context    # CONTEXT: ASK|HANDOFF|WARN|OK|UNKNOWN
+```
 
-When `mentor:planning` Step 6 or `mentor:plan-track` invokes this skill, those checks
-already ran; carry on.
+- **The plan is not `draft`.** A `draft` plan is one the approval gate never
+  released, and dispatching against it implements something nobody approved.
+- **The session is big enough to finish.** Dispatching a full implementation with
+  nothing measuring the session is how a run dies mid-plan with no handoff — act on
+  the tier `context` prints rather than noting it and carrying on.
+
+Executing a plan this session didn't author — a fresh session, a handoff, one of a
+`/plan-split` group — is what `/mentor:track` is for: it picks the plan, reads its
+state, and re-enters an interrupted run at the first unticked step rather than
+rebuilding from step 1. That is the convenient route, not a required one.
 
 ## When NOT to use — another framework owns the plan of record
 
 Work already planned elsewhere (spec-kit's `tasks.md`, a Jira epic): do not author a
-mentor plan or run an approval question over it (`plan-track`, "When NOT to use").
-Annotate that framework's phase with the grammar below and execute. What that path skips,
+mentor plan or run an approval question over it. Annotate that framework's phase with the grammar below and execute. What that path skips,
 why it is self-graded, and its three rules for touching that framework's files are in
 `references/other-framework-path.md` — read it before the first dispatch on such a phase.
 
@@ -327,23 +328,10 @@ Effort and model are independent levers: a `low`-effort `opus` step is fine, and
 4. **Collapse small dependent steps.** Adjacent `Sequential:` steps that are individually small (combined ≤ ~40 changed lines) and suit the same role/model merge into ONE step, and so into one dispatch — `one plan step = one dispatch` holds in both directions, which is why **Budget each step to one agent's context** below splits an oversized step into steps rather than into dispatches. Don't pay agent startup per tiny step.
 5. **Budget each step to one agent's context.** A dispatched agent never compacts, so
    every tool result and every thinking block it emits stays in its context until the
-   step ends. Nobody can count those calls while authoring, so size by smells
-   instead; a step showing any of these is oversized and gets split:
-   - it spans more than one service or layer;
-   - it touches more than ~10 files across distinct areas;
-   - its `Done when:` needs a live multi-service stack driven end-to-end (that proof
-     belongs to a `## Verification` topic — see **State done-when** below);
-   - its `Inputs:`, or the reconnaissance it implies, pull in several whole large
-     files (tens of KB each) — the costliest smell by measure, and the one a
-     narrow-sounding step hides best;
-   - its prompt sketch reads like a project brief rather than a task.
-
-   Split an oversized step into **sequential steps, one dispatch each, handing off by
-   report** — each later step takes the prior step's report as its `Inputs:`. *Collapse small
-   dependent steps* above bounds the opposite end (collapse tiny steps, split giant
-   ones), and if splitting pushes the plan past ~12 steps that is `/plan-split`'s
-   threshold doing its job, not a reason to re-merge. (The measured blowup behind these
-   smells: `references/rationale.md` → **Sizing a step to one agent's context**.)
+   step ends. Nobody can count those calls while authoring, so size by smells instead:
+   the five that mark an oversized step, and how to split one, are in
+   `references/decomposition-smells.md`. Read it while sizing steps — it is the single
+   copy, so an author and a reviewer can't end up working from drifted lists.
 6. **Assign roles.** Smallest specialist that covers the work.
 7. **Assign models.** Default `sonnet`; upgrade only with a reason.
 8. **Assign effort.** Default `medium`; upgrade for design/cross-cutting, downgrade for trivial.
@@ -365,16 +353,14 @@ plan's annotations; execution never needs it.
 ## Executing the dispatches (after plan approval)
 
 Dispatch implementation/editing agents **only after the plan is approved**
-(`approve-plan.sh` released the gate). Every implementation dispatch in a
-mentor session routes through this skill — callers load it (once per session)
-before issuing `Agent` calls. Then:
+(`approve-plan.sh` released the gate). Then:
 
 1. **Pull each step's brief, not the whole plan** — `bash "${CLAUDE_PLUGIN_ROOT}/hooks/plan-state.sh" brief <slug> --step N` returns the plan title, its `## Context` goal, the whole `## Out of scope` section, one line per step with tick state, the verbatim body of step N, and the `## Verification` topic titles — everything a dispatch needs, at a fraction of `plan.md`'s size. Do not read the whole plan file from memory or by hand; run one `brief` call per step (or per step in a parallel group) instead.
 2. **Dispatch "Run in parallel:" groups** — issue ALL `Agent()` calls for each parallel group in a **single message** so they run concurrently. The solution-quality line and the standing contract block ("Deliver before idling," "Async runtime & lifecycle" below) reach every prompt automatically via the dispatch hook, so there is nothing to paste by hand — but the block's directives, including the no-nested-fan-out ban, are non-negotiable regardless of how the prompt sketch itself reads. After dispatching, apply **No busy-wait**: stop and let the harness re-invoke you when agents complete.
 3. **Dispatch "Sequential:" steps one at a time** — wait for the prior step's result before issuing the next call.
 4. **Verify each `Done when:` criterion** before moving to the next step — agents describe what they intended; trust but verify. On a concurrency- or timing-sensitive criterion, one clean run is not evidence — re-run it yourself 5+ times before accepting a PASS; an agent's self-reported `PASS=N/FAIL=0` from a single run proves nothing about a race. A zero-hit or empty result from your own check is likewise not evidence the criterion failed until you've confirmed the check itself works — a single-line `grep` can miss a claim that wraps across lines, an unquoted glob aborts outright under zsh's `nomatch`, and ERE alternation is `|`, not `\|`; when a check comes back empty, narrow it to one line or run it against a known-positive before trusting the negative. A step that hands back partial work plus a remainder brief has not failed its criterion — verify what it actually claims, then continue it per the hand-back addendum under "On a failed `Done when:`" above.
 5. **Execute the plan's Verification section** — dispatch one fresh verifier per `Topic N —` block, all in a single message, even when the plan opened `Dispatch: skipped`. Full contract in "Verifying the plan (execution-time)" below. A plan's own implementation step titled "Verification pass" or similar is not this step; it's ordinary self-graded work covered by **Verify each `Done when:` criterion** above, never a substitute for this dispatch.
-6. **CLOSING CHECKLIST — always, whatever Verification returned** (on a `failed` or handed-off plan the first two items still run; hold the tour and ship offers, which speak for work that was accepted)**:**
+6. **CLOSING CHECKLIST**, whatever Verification returned — a `failed` or handed-off plan gets it too:
    - **Close out finished agents** — enumerate live tasks with `TaskList` and diff
      against this session's own dispatch tree, nested spawns included, before
      `TaskStop`ping only what traces to that tree. A remembered name can belong to
@@ -382,13 +368,11 @@ before issuing `Agent` calls. Then:
      safety net, not a substitute for enumerate-then-diff (full rule, including
      the ownership check before *nudging* on idle — which has no such net:
      "Async runtime & lifecycle" below).
-   - **Offer `/mentor:tour`** — one line: a hands-on acceptance pass building an editable guided-tour review artifact (pass/not-pass scenarios) of what shipped. Do not auto-run it.
    - **Sweep the report you're about to write** — every follow-up, gap, or known-broken
      item in it is **named** there, in plain terms, so nothing survives only as an aside
      that dies with the session. Do not capture them on your own: parking work is the
      user's call, and anything a verifier raised already carries their verdict from "The
-     non-goal disposition gate" below. Close by offering `/mentor:defer` as the pointer for
-     whatever else they want parked. Either way an unresolved verification topic or an
+     non-goal disposition gate" below. And an unresolved verification topic or an
      unverified claim is never a stub — it's `set <slug> failed --note` on the plan.
    - **Commit this session's implementation work.** `git status --porcelain`: if
      every dirty/untracked path is something this session's dispatches touched,
@@ -406,133 +390,12 @@ before issuing `Agent` calls. Then:
      stating. (The run that made this real: `references/rationale.md` →
      **Who commits an implementation run's work**.) The orchestrator is the only
      legal committer here — the standing contract above bars dispatched agents from
-     touching the index — and this is deliberately a **question**, never
-     `mentor:shipping` Step 3's silent auto-commit: that allowance is scoped to
-     files `simplify` itself just created, not to a whole implementation run.
-     Skip this bullet only when the tree is clean and nothing was flagged as
-     absorbed. One scoped exception: an **instant** run (below) replaces this
-     question with its end-of-run auto-commit on the run's own plan branch — a
-     user-ruled trade that never touches the branch you were on;
-     the question stays for every attended run.
-   - **Point at `/mentor:ship`** — one line: once the ticks above are verified and
-     the tree is committed (above), the next move is `/mentor:ship` (it hands off
-     to `/mentor:merge`'s bounded watch) — not a hand-rolled `git push`, `gh pr
-     create`, or a CI-poll loop. Do not auto-run it. A tree still dirty when
-     `mentor:shipping` Step 2 runs means something outside this session's own
-     work — that abort is real, not a formality it will paraphrase past.
+     touching the index — and committing an implementation run's work is always a
+     **question**, never an assumption: whose work is in the tree is the one thing
+     the orchestrator can be wrong about. Skip this bullet only when the tree is
+     clean and nothing was flagged as absorbed.
 
 Do NOT paraphrase the plan or summarize what you're about to do. Dispatch immediately.
-
-## Unattended continuation (the per-step loop)
-
-The elaboration of "Executing the dispatches" above for a plan that already holds a
-standing grant: run it to completion without a human in the turn, asking `plan-state.sh instant` before
-every dispatch and every tick, and stopping the moment the script or the evidence says
-stop. **On by default** — the `instant` config axis unset behaves as `on`;
-`set-mode.sh instant-off`, or `--confirm` on the resume prompt, restores the attended
-flow end to end. Why the loop refuses more than it runs, and the measurements behind
-the three-way verify route: `references/rationale.md` → **Why the loop refuses more
-than it runs**.
-
-Let `PS="${CLAUDE_PLUGIN_ROOT}/hooks/plan-state.sh"` throughout.
-
-**Pre-flight, once per plan.** `bash "$PS" instant <slug>` — line 1 is the verdict;
-branch on it by string equality:
-
-- `UNRESOLVED` (exit 2) — re-run with `--verbose`, report `reason=`, STOP. Never read
-  it as GO, and never as HOLD either: "unknown" is "ask", not "unsafe".
-- `HOLD` — report `--verbose` and STOP; no dispatch, no tick. `gate-armed`/`gate-stale`
-  → plan-track Step 3's ARMED prose (do NOT run approve-plan.sh to clear it — it takes
-  no slug); `structure` → run `plan-state.sh verify <slug>`, fix what it names, re-enter.
-- `ASK` — AskUserQuestion headed by `reason=`, STOP until answered: `swept-in` →
-  plan-track's `approved`-row mandatory confirm; `draft`/`no-grant-on-record` →
-  plan-track's "Approving a draft plan here"; `failed` → plan-track's `failed` row;
-  `stored-implemented-ticks-open` → the sidecar says done and the ticks say otherwise —
-  the user reconciles, never the loop; `context` → `plan-state.sh context`'s own ASK
-  block (handoff recommended / bypass-context.sh).
-- `NO_STEPS` — a step-less stub is planning work, not loop work: route to
-  `Skill(mentor:planning)` (on `origin=deferred`, plan-track's claim path first). STOP.
-- `DONE` — nothing left to run; skip to "Verifying the plan (execution-time)".
-- `GO` — continue below.
-
-**Enter the plan branch** (user-ruled). The run's commits belong to a
-branch of their own, cut from whatever is checked out now: `mentor/<slug>`, or
-`mentor/<group>/<slug>` when the sidecar carries a group. Already on it → proceed;
-it exists from an earlier handoff → check it out; otherwise `git checkout -b`. When
-another unattended run is already active in this working tree (its plan branch is
-checked out with a fresh `instant-run-*.md` on a different slug), take a
-`git worktree add` sibling instead — one tree, one run. A dirty tree does NOT block
-entry (ruled); record every pre-existing dirty path as a `NOTE:` line in the run
-record so the end-of-run commit can prove it staged none of them.
-
-**Open the run record** — `.mentor/plans/<slug>/instant-run-<ts>.md` (the
-`topic-N-verify.md` convention). Every per-step verdict, `NOTE:` line, and route
-decision below is appended there as it happens: an aside in a chat message disappears
-at session end, which is the failure this file exists to prevent.
-
-**Per step**, starting at `next_step=` from the pre-flight `--verbose`:
-
-1. `v="$(bash "$PS" instant <slug> N)"` — the WHOLE ladder re-runs per step: gate and
-   context are re-read each iteration, which is what closes the blind spot between
-   human turns. `UNRESOLVED`/`HOLD` → record, `set <slug> failed --note "<token>:
-   <reason=>"`, STOP. `ASK` → record, ask; on "stop", write the `failed --note` before
-   ending. `DONE` → the step is already ticked; `N=N+1`, continue. `DEFER`/`GO` → run it.
-2. **Capture the header CRC** from `instant <slug> N --verbose` **now** — this is the header
-   the tick must land on later.
-3. Pull the brief and dispatch it per "Executing the dispatches" → **Pull each step's
-   brief**, **Dispatch "Run in parallel:" groups** and **Dispatch "Sequential:" steps**, honoring
-   `Run in parallel:`/`Sequential:` exactly as written.
-4. **Verify the `Done when:` — the three-way route the script deliberately does not
-   pick** (it reports facts; the route is judgment):
-   - the criterion is one bounded command and nothing else → run it yourself; tick on
-     its output;
-   - a prose conjunct remains, or prose only → dispatch ONE fresh verifier per
-     `references/verifier-contract.md` and tick on its `Verdict:` — **and under
-     `dispatch: solo` this verifier is dispatched anyway** (user-ruled: solo's
-     no-agents intent is overridden for verification only). Disclose each such
-     dispatch in the run record (`NOTE: solo-override verifier — step N`); never
-     self-grade a criterion the same thread just implemented;
-   - the criterion turns on a physical or manual event → ask the human. No stand-in
-     counts.
-   A failed criterion spends the ONE re-dispatch of the orchestrator contract (with
-   the diff and failing output as inputs); a hand-back spends nothing. A second
-   failure → `set <slug> failed --note`, surface, STOP. A partial mid-step failure
-   leaves no rollback: record every file the step wrote in the run record and do NOT
-   advance.
-5. On `GO`: re-run `instant <slug> N --verbose` and abort the tick unless
-   `header_crc=` still equals the value from **Capture the header CRC** (the tick writes positionally
-   into an unversioned file — a moved header means it would land on the wrong line).
-   Then `bash "$PS" tick <slug> N`. On `DEFER`: dispatch and verify but do NOT tick;
-   note `N:defer_until=` for the drain below.
-6. Append the step's verdict to the run record, `N=N+1`, and loop while
-   `bash "$PS" instant <slug>` is not `DONE`.
-
-**Mid-run context.** The `context-checkpoint.sh` hook (PostToolBatch) injects
-`[mentor] CONTEXT CHECKPOINT` advisories between tool batches — advisory only, by
-ruling; nothing forces a stop. Obey the ASK-tier directive when it arrives: finish
-ONLY the current step, record its outcome, write the handoff, end the turn.
-
-**Drain the deferred list.** For each held step whose `defer_until=` is now ticked:
-re-verify its `Done when:`, then tick. Still unsatisfied → `set <slug> failed --note
-"step N: forward ref unmet"` and surface.
-
-**Ending an instant run.** `instant <slug>` now reads `DONE` (the grant reads the
-STORED state, so it survives its own last tick — that is what authorizes the
-`## Verification` remediation). Run "Verifying the plan (execution-time)" and "The
-non-goal disposition gate" unchanged — including under `dispatch: solo`, where the
-round's fresh verifiers still dispatch per the same user-ruled override as
-**Verify the `Done when:`** above, disclosed in the run record — then the CLOSING
-CHECKLIST with ONE substitution
-(user-ruled): instead of the commit **question**, commit the run's work
-automatically — once, at end of run, on the plan branch. Stage narrowly (only paths
-the steps' return contracts name — never `git add -A`, never a whole directory; the
-pre-existing dirty paths in the run record must not appear in `git diff --cached`),
-run the repo's own mandated pre-commit checks in their headless form first (apply
-safe fixes; defer every ask-first decision into the commit body unapplied), and
-record the commit sha in the run record. No mid-run commits — real plans carry
-`Done when:` criteria that read the pre-change `HEAD`. The branch stays **local**:
-push, PR, and merge remain hard stops, so "Offer `/mentor:tour`" and "Point at
-`/mentor:ship`" close the run exactly as written above.
 
 ## Verifying the plan (execution-time)
 
@@ -578,7 +441,9 @@ Step 1 instead. A verification round moves the plan with `set`.
     an earlier reading. A verification round runs mostly on harness-synthetic prompts
     (inbound agent reports), which `context-gate.sh`'s own WARN tier deliberately skips,
     so a round can grow well past WARN with only `context-checkpoint.sh`'s rate-limited
-    advisories having said so. This is a **context
+    advisories having said so. Those advisories are **advisory by ruling — no tier
+    blocks** — so obey them when they arrive; nothing will stop the run for you
+    (`references/rationale.md` → **Why the context checkpoint is advisory-only**). This is a **context
     guard, not a disposition question**: at `WARN`, `ASK`, or `HANDOFF`, ask the one
     question the round gets — **remediate now, or hand off to a fresh session?** — and at
     `ASK` answer it with the two-option directive `context` prints itself rather than
@@ -644,22 +509,13 @@ never a reason to stay out of the file.
 
 Dispatched agents run as background teammates: they can signal **idle** before
 (or instead of) delivering, die mid-flight on infra errors, and stay resident
-after finishing. These rules govern every dispatch surface in mentor — this
-skill, plus the dispatches in `plan` Steps 2 and 3.5, `plan-domain-dynamic`'s
-domain-definer (reached from `plan` Step 3's routing, and dispatched ahead of
-Step 2's research agents), `zoom` (which `plan` Step 5 delegates to),
-`plan-review`, `tour`, `plan-tour`, `plan-split`, `grilling`, `ship`, `merge`,
-and any ad hoc fan-out reached from `resume` (each cross-references this
-section). **Keep this roster current when a surface starts dispatching** —
-a reader who checks it and does not find their surface concludes
-the contract does not apply to them, which is exactly how a fan-out goes out raw:
+after finishing. These rules apply to **any** fan-out, whoever launched it and
+whether or not a plan is involved — nothing about them is specific to plan
+implementation. The standing prompt block reaches dispatched agents on its own via
+`hooks/dispatch-contract.sh`, so there is nothing to load or paste to get it; one
+`plan-state.sh policy` call confirms the injection is actually live and reports any
+standing no-subagents policy at the same time.
 
-- **Every surface on this roster gets the standing block for free.** Since v2.34.0
-  `hooks/dispatch-contract.sh` injects it into every `Task`/`Agent` prompt, so a surface
-  no longer has to load this skill just to reach it — most on the roster now run
-  `plan-state.sh policy` instead, one call, which also reports whether that injection is
-  actually live. What a surface still owes is that preflight. When adding a surface
-  here, confirm it carries it.
 - **A delegated step's fan-out is still yours.** When a plan step hands its
   work to another plugin's own multi-agent skill, the main thread runs that
   skill — its agents are dispatched from this session and land in this
@@ -686,29 +542,28 @@ the contract does not apply to them, which is exactly how a fan-out goes out raw
 
   - **`POLICY: SET (dispatch=…)`** → the user already answered this, for this repo. Honor
     it and **ask nothing** — `agents` routes per "Where dispatch pays", `verify-only`
-    implements in-thread and still dispatches verification, `solo` keeps both in-thread
-    and owes the report a disclosure that the plan carries no independent grader —
-    except inside an instant run, where the per-step loop still dispatches its one
-    fresh prose-criterion verifier ("Unattended continuation" → **Verify the
-    `Done when:`**, user-ruled), disclosed in the run record. Nothing
-    here is re-litigated per plan or per session; that re-litigation is the whole reason
-    the key exists.
+    implements in-thread and still dispatches verification. Nothing here is re-litigated
+    per plan or per session; that re-litigation is the whole reason the key exists. No
+    dispatch preference retires the verification round: **"No escape hatch"** below binds
+    under every mode, which is why the two values differ only on where implementation
+    runs.
   - **`POLICY: NONE`** → route per "Where dispatch pays".
   - **`POLICY: FOUND`** → a standing instruction is on record and it conflicts with the
     routing test. Ask **once**, then **record the answer** so no later surface in this or
     any future session asks again:
 
     ```bash
-    bash "${CLAUDE_PLUGIN_ROOT}/hooks/set-mode.sh" <agents|solo|verify-only>
+    bash "${CLAUDE_PLUGIN_ROOT}/hooks/set-mode.sh" <agents|verify-only>
     ```
 
-    One `AskUserQuestion`, header `Dispatch`, these three options in this order:
+    One `AskUserQuestion`, header `Dispatch`, these two options in this order:
     **"Main thread, but still verify independently (Recommended)"** → `verify-only` /
-    **"Keep everything in the main thread"** → `solo` / **"Route per the plan's own
-    test"** → `agents`. `verify-only` leads because it honors the policy where the policy
-    has a real argument — implementation — while keeping the fresh grader, which is the
-    part a plan cannot replace. Say in the question that the answer is remembered for this
-    repo and changeable with `/mentor:mode`.
+    **"Route per the plan's own test"** → `agents`. `verify-only` leads because it honors
+    the policy where the policy has a real argument — implementation — while keeping the
+    fresh grader. There is deliberately no third option that also retires verification:
+    a plan cannot grade itself, so that is not a preference mentor offers. Say in the
+    question that the answer is remembered for this repo and changeable with
+    `/mentor:mode`.
 
     **Quote the policy, not a premise you did not check.** Standing instructions of this
     kind often justify themselves with a reliability claim — that dispatched agents go
@@ -726,14 +581,13 @@ the contract does not apply to them, which is exactly how a fan-out goes out raw
   own agents declining or being unavailable, a step the standing policy just above kept
   in the main thread, `lite verify`'s one combined verifier standing in for two
   independent ones — changes what actually backed a result, and the report has to say
-  so next to that result, not leave it implied. `mentor:shipping` Step 3 is the worked
-  case: a solo diff review is reported **as** a solo diff review, because reporting the
-  substitute as though the full step ran is what turns a judgment call into a false
-  green. **This is not a license** — it does not cover the surfaces on this roster that
-  forbid running solo at all (`zoom` and `plan-tour` never hand-render in the main
-  thread, `plan-split` never hand-authors a child, and verification's "No escape hatch"
-  above has no fallback beyond the one named allowance): there, a solo attempt is a
-  contract violation to stop and flag, never a substitution to disclose.
+  so next to that result, not leave it implied. A solo diff review is reported **as** a
+  solo diff review, because reporting the substitute as though the full step ran is what
+  turns a judgment call into a false green. **This is not a license** — it does not cover
+  work that forbids running solo at all (`zoom` never hand-renders in the main thread,
+  `plan-split` never hand-authors a child, and verification's "No escape hatch" above has
+  no fallback beyond the one named allowance): there, a solo attempt is a contract
+  violation to stop and flag, never a substitution to disclose.
 - **No busy-wait.** Waiting is not work: never chain `sleep`s, fire no-op Bash calls,
   or reach for `ScheduleWakeup` to pass the time. This governs **every** waiting surface
   in a mentor session, not only dispatched agents — a long build, a background test

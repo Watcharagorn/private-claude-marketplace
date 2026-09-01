@@ -1980,7 +1980,7 @@ chk "..evidence really is capped at 5"           test "$(printf '%s\n' "$out" | 
 # instruction IS on record, because that instruction is what the user already answered.
 # set-mode.sh is per-repo like plan-state.sh, so it has to run from the same cwd ps() uses.
 sm() { ( cd "${CWD:-$REPO}" && _env bash "$(dirname "$PLANSTATE")/set-mode.sh" "$@" 2>&1 ); }
-for v in agents solo verify-only; do
+for v in agents verify-only; do
   sm "$v" >/dev/null 2>&1
   out="$(ps policy)"; rc=$?
   chk "policy: dispatch=$v → exit 0"             test "$rc" = "0"
@@ -1989,9 +1989,15 @@ for v in agents solo verify-only; do
   chk "..tells the caller not to ask [$v]"       has "Do NOT ask" "$out"
   chk "..CONTRACT still reported [$v]"           has "CONTRACT:" "$out"
 done
-# solo gives up independent grading, so the verdict has to say the report must disclose it
-sm solo >/dev/null 2>&1
-chk "policy: solo names the disclosure duty"     has "no independent verification" "$(ps policy)"
+# `solo` retired in v3.0.0: it was the only value that retired the verification round.
+# A stored one must degrade to UNRESOLVED and re-open the question, never be honored and
+# never be silently rewritten to another value the user did not choose.
+python3 -c "import json,sys;p=sys.argv[1];d=json.load(open(p));d['dispatch']='solo';json.dump(d,open(p,'w'))" "$REPO/.mentor/config.json"
+out="$(ps policy)"; rc=$?
+chk "policy: stored solo → UNRESOLVED"           has "POLICY: UNRESOLVED" "$out"
+chk "..exit 2 (the check could not answer)"      test "$rc" = "2"
+chk "..names it as a removed pre-v3 setting"     has "pre-v3.0.0" "$out"
+chk "..never honored as SET"                     sh -c '! printf "%s" "$1" | grep -q "POLICY: SET"' _ "$out"
 
 # An unrecognized value must never launder into "no policy" — the user meant something.
 python3 - "$REPO/.mentor/config.json" <<'PY' 2>/dev/null || python3 -c "import json,sys;p=sys.argv[1];d=json.load(open(p));d['dispatch']='sometimes';json.dump(d,open(p,'w'))" "$REPO/.mentor/config.json"

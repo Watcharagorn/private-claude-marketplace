@@ -2,20 +2,21 @@
 name: plan-domain-dynamic
 description: >
   Dynamic-domain fallback planning skill, invoked ONCE by `plan`
-  (Step 3 domain routing) when NO registered domain skill matched. Not a
-  /command. Unlike the static domain skills it does not know the domain in
+  (Step 3 domain routing) when NO registered domain skill matched — or
+  directly, whenever the work sits in a domain nothing else covers. Unlike
+  the static domain skills it does not know the domain in
   advance: it owns a dispatch contract for a small domain-definer agent
   (prompt token mentor:domain-dynamic) that names the task's domain on the
   fly, derives global best practices for planning in that domain, and returns
   a compact DOMAIN BRIEF whose directives shape the research prompts and the
   Markdown plan — so every plan gets domain-expert treatment.
-  Instruction-only.
 ---
 
 # Dynamic-Domain Planning Fallback
 
-Invoked **once per plan** by `plan`'s domain routing (Step 3) when **no registered domain
-matched** — see that registry for the current list, rather than trusting a copy here. The
+Invoked by `plan`'s Step 3 domain routing when **no registered domain matched** — see that
+registry for the current list, rather than trusting a copy here — or directly whenever the work
+sits in a domain nothing else covers. The
 registered skills hardcode their domain's directives; this
 skill *derives* them: it dispatches a small **domain-definer agent** that identifies the domain,
 distills the global best practices experts apply when planning work in that domain, and returns
@@ -32,9 +33,9 @@ must contain, how to visualize it, what typically goes wrong); the generalist-re
 ## 1 — Domain-definer dispatch (before Step 2 research)
 
 ONE `Agent` call — `subagent_type: general-purpose`, `model: sonnet`, `effort: medium` —
-dispatched **BEFORE the `plan` Step 2 (Research) agents**, because its RESEARCH DIRECTIVES
-shape their prompts. The agent is small (≤ ~350-word return, no plan authoring); the sequential
-hop is the only ordering that makes the brief's research directives real.
+dispatched **before any research agents go out**, because its RESEARCH DIRECTIVES shape their
+prompts. The agent is small (≤ ~350-word return, no plan authoring); the sequential hop is the
+only ordering that makes the brief's research directives real.
 
 - The prompt MUST contain the literal token `mentor:domain-dynamic` — traceability only.
 - **Input:** the user's task statement.
@@ -43,11 +44,17 @@ hop is the only ordering that makes the brief's research directives real.
   unfamiliar. If web search is unavailable, derive from training knowledge — never stall. It
   must flag low-confidence domain identification explicitly.
 
-This dispatch fires ahead of `plan` Step 2's research agents, so it is usually the
-session's first — run that step's `policy` preflight here instead, then dispatch. The
-standing "Deliver before idling" block is appended to the definer's prompt automatically;
-it governs *delivery*, not contents, so the "nothing else" rule below still describes the
-brief itself. Without it the definer can go idle holding the brief, with Step 2's research
+This is usually the session's first dispatch, so run the preflight here before making it:
+
+```bash
+[ -d "${CLAUDE_PLUGIN_ROOT}/hooks" ] || { echo "ERROR: CLAUDE_PLUGIN_ROOT unresolved or stale — do not search the plugin cache or hardcode a version path; ask the user to /reload-plugins or restart" >&2; exit 1; }
+bash "${CLAUDE_PLUGIN_ROOT}/hooks/plan-state.sh" policy
+```
+
+Follow its printed guidance verbatim. The standing "Deliver before idling" block is appended to
+the definer's prompt automatically; it governs *delivery*, not contents, so the "nothing else"
+rule below still describes the brief itself. Without it the definer can go idle holding the brief,
+with the research
 prompts left waiting on it — which is what a `CONTRACT: MISSING` reading warns you about.
 Neither variant below needs any of this: the small-plan fold rides inside a research agent,
 and the self-authored brief dispatches nothing.
@@ -80,13 +87,13 @@ PITFALLS:
 - **Malformed return:** if the brief is missing required fields, salvage what is present and
   proceed (Step 2 research proceeds regardless); re-dispatch at most once; never block the
   flow on a malformed brief.
-- **Late refinement:** if post-research refinement (`plan` Step 3 domain routing, "refine
-  after research FINDINGS return") matches a **registered** domain after this fallback already
-  ran, invoke that domain skill as usual; its directives supersede the brief's AUTHOR DIRECTIVES
-  and VIZ IDIOM (keep PITFALLS as extra edge-case input); do not re-dispatch the definer.
-- **Substituted co-source:** when `plan` Step 3 substituted an already-available skill for part
-  of the task, that skill governs the part it covers — treat this brief as the secondary domain
-  there (its VIZ IDIOM yields; BEST PRACTICES and PITFALLS still apply).
+- **A more specific domain source arrives later:** if research findings reveal the work does sit
+  in a registered domain after this fallback already ran, that source's AUTHOR DIRECTIVES and VIZ
+  IDIOM win; keep this brief's PITFALLS as extra edge-case input, and do not re-dispatch the
+  definer.
+- **Partial coverage:** when a more specific source covers only part of the task, it governs the
+  part it covers — treat this brief as the secondary domain there (its VIZ IDIOM yields; BEST
+  PRACTICES and PITFALLS still apply).
 - **Revision rule:** on "Keep planning" / "Keep it current" iterations, **reuse the existing
   DOMAIN BRIEF**; re-dispatch the definer only if the user corrects the domain identification
   (e.g. a flagged `confidence: low` guess) or the task scope changes materially.
@@ -118,9 +125,8 @@ unchanged (FINDINGS ≤ ~400 words / EVIDENCE `file:line` / OPEN QUESTIONS).
 
 Carry the **full DOMAIN BRIEF** into plan-writing and require:
 
-- A **`## Domain best practices applied`** section placed **after the implementation steps**
-  (never between `## Context` and `## Use case scenarios` — the Use case scenarios section of
-  `plan` Step 4 owns that slot), plain Markdown. Each row maps a practice → the named
+- A **`## Domain best practices applied`** section placed **after the implementation steps**,
+  never ahead of the scenarios section, plain Markdown. Each row maps a practice → the named
   step/section that honors it. **Omit any practice that changed nothing** — adopted practices
   only, every row names a concrete anchor.
 - PITFALLS folded into **Edge cases & assumptions** and **Verification**.

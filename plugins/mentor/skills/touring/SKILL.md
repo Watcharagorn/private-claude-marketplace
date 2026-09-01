@@ -35,8 +35,6 @@ not the plan, not a zoom, and never lives in `plans/`.
 
 ## When NOT to use
 
-- A mentor planning session is active in this worktree (this worktree's own gate, or the legacy
-  repo-global marker, reads `ARMED`) — approve or abandon the plan first; Step 0 enforces this.
 - The user wants the **plan content** reviewed — that is `/plan-review` (the two-stage 4-topic
   pre-approval review) or `/mentor:grill` (decision interview), not a tour.
 - The user wants a **read-only visual view of a subject** (a plan topic, a subsystem, a design) —
@@ -55,14 +53,11 @@ Derive the project-scoped mentor state dir and check the planning gate (same der
 ```bash
 state_dir="$(bash "${CLAUDE_PLUGIN_ROOT}/hooks/plan-state.sh" dir)"   # worktree-safe; _no-repo fallback
 [ -n "$state_dir" ] || { echo "ERROR: mentor state dir unresolved — is CLAUDE_PLUGIN_ROOT set? do not search the plugin cache or hardcode a version path; ask the user to /reload-plugins or restart" >&2; exit 1; }
-[ "$(bash "${CLAUDE_PLUGIN_ROOT}/hooks/plan-state.sh" gate)" = "ARMED" ] && echo "PLANNING_ACTIVE"
 ls -t "$state_dir"/plans/*/plan.md 2>/dev/null | head -3   # candidate plan subjects (newest first)
 sibling_wts="$(bash "${CLAUDE_PLUGIN_ROOT}/hooks/plan-state.sh" gate --verbose | sed -n 's/^elsewhere=\([^ ]*\).*/\1/p')"
 [ -n "$sibling_wts" ] && bash "${CLAUDE_PLUGIN_ROOT}/hooks/plan-state.sh" list --owners   # cross-check OWNER col below
 ```
 
-- **`PLANNING_ACTIVE`** → print the one-line abort and stop:
-  `Tour aborted: a mentor planning session is active — approve or abandon the plan first.`
 - **Resolve the subject**, in priority order:
   1. the **argument** — a topic ("secret rotation flow") or a plan-slug substring for multi-plan repos;
   2. the **newest plan** from the listing above (the default when one exists) — but when
@@ -189,8 +184,10 @@ tour_file="$state_dir/tours/<slug>-<audience>.html"
 
 ## Do NOT
 
-- Do **not** run while this worktree's gate reads `ARMED`, and do **not** modify the plan file —
-  it is a read-only input (the Step 2 dispatched agent reads it; the main thread does not re-read it).
+- Do **not** modify the plan file — it is a read-only input (the Step 2 dispatched agent reads
+  it; the main thread does not re-read it). A tour writes only under `.mentor/tours/`, which the
+  edit gate exempts, so an armed planning gate is not a reason to abort — mention it if the
+  subject is a plan still being drafted, since the tour will describe a moving target.
 - Do **not** write anything into `plans/` or `zooms/` (tour files live in `tours/`), and do **not**
   publish the plan or a zoom artifact via the Artifact tool — the `zoom` skill's local-only
   prohibition still stands; only the tour page is published.
