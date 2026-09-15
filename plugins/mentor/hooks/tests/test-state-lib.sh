@@ -483,15 +483,23 @@ mv "$HAND_T/20260102-000000-topic-note.md" "$HAND_T/resolved/"   # the resolve s
 chk "resolved-stamped note skipped" test "$(libsh "mentor_latest_handoff '$expect_root'")" = "$HAND_L/20260101-000000-legacy-note.md"
 chk "resolved note drops out of count" test "$(libsh "mentor_live_handoff_count '$expect_root'")" = "1"
 rm -rf "$STATE/plans" "$HAND_L"
-# No repo → falls back to ~/.claude/mentor/_no-repo (where the handoff skill writes no-repo notes).
+# No repo → defaults to the portable state tree (where the handoff skill writes
+# no-repo notes), while preserving an existing Claude-era tree.
 chk "no repo + no _no-repo notes → empty" test -z "$(libsh "mentor_latest_handoff ''")"
 chk "no repo + no _no-repo notes → count 0" test "$(libsh "mentor_live_handoff_count ''")" = "0"
-NR="$SANDBOX/.claude/mentor/_no-repo/plans/nr-topic/handoffs"
+NR="$SANDBOX/.local/state/mentor/_no-repo/plans/nr-topic/handoffs"
 mkdir -p "$NR"
 : > "$NR/20260103-000000-nr-note.md"
 chk "no repo → _no-repo fallback note found" test "$(libsh "mentor_latest_handoff ''")" = "$NR/20260103-000000-nr-note.md"
 chk "no repo → _no-repo fallback count 1" test "$(libsh "mentor_live_handoff_count ''")" = "1"
+rm -rf "$SANDBOX/.local/state/mentor"
+LEGACY_NR="$SANDBOX/.claude/mentor/_no-repo/plans/legacy/handoffs"
+mkdir -p "$LEGACY_NR"
+: > "$LEGACY_NR/20260104-000000-legacy-note.md"
+chk "existing Claude fallback remains readable" test "$(libsh "mentor_latest_handoff ''")" = "$LEGACY_NR/20260104-000000-legacy-note.md"
 rm -rf "$SANDBOX/.claude/mentor"
+OVERRIDE_NR="$SANDBOX/custom-mentor-state/_no-repo"
+chk "MENTOR_STATE_HOME overrides no-repo base" test "$(HOME="$SANDBOX" MENTOR_STATE_HOME="$SANDBOX/custom-mentor-state" bash -c '. "'$LIB'"; mentor_no_repo_state_dir')" = "$OVERRIDE_NR"
 echo "== J. mentor_find_transcript / mentor_context_verdict (the shared ask-first check) =="
 # One implementation, two callers: begin-plan.sh at arm time and `plan-state.sh
 # context`, which /mentor:track runs before it dispatches. The tiers mirror the gate's

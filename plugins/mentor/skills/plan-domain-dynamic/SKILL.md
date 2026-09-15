@@ -14,6 +14,10 @@ description: >
 
 # Dynamic-Domain Planning Fallback
 
+## Host portability
+
+Use a structured question UI when the host offers one; otherwise ask the same focused question directly and wait for the answer. If delegated agents are unavailable or prohibited, perform the required research, review, or implementation serially and retain the same evidence, scope, and verification contract. Treat Mentor helpers as optional host integrations: resolve them with `PLUGIN_ROOT` first, then `CLAUDE_PLUGIN_ROOT`; if neither is available, work from the repository's durable `.mentor/` artifacts and report any state action that cannot be performed safely. This rule overrides later host-specific tool names, preserving user choice and plan continuity across hosts.
+
 Invoked by `plan`'s Step 3 domain routing when **no registered domain matched** — see that
 registry for the current list, rather than trusting a copy here — or directly whenever the work
 sits in a domain nothing else covers. The
@@ -47,8 +51,8 @@ only ordering that makes the brief's research directives real.
 This is usually the session's first dispatch, so run the preflight here before making it:
 
 ```bash
-[ -d "${CLAUDE_PLUGIN_ROOT}/hooks" ] || { echo "ERROR: CLAUDE_PLUGIN_ROOT unresolved or stale — do not search the plugin cache or hardcode a version path; ask the user to /reload-plugins or restart" >&2; exit 1; }
-bash "${CLAUDE_PLUGIN_ROOT}/hooks/plan-state.sh" policy
+[ -d "${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:-}}/hooks" ] || { echo "ERROR: Mentor helper unavailable — set PLUGIN_ROOT (or use the Claude compatibility fallback) or use the documented artifact fallback" >&2; exit 1; }
+bash "${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:-}}/hooks/plan-state.sh" policy
 ```
 
 Follow its printed guidance verbatim. The standing "Deliver before idling" block is appended to

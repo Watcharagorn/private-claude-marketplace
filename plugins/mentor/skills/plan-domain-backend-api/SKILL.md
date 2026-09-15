@@ -20,6 +20,10 @@ description: >
 
 # Backend-API Planning Domain
 
+## Host portability
+
+Use a structured question UI when the host offers one; otherwise ask the same focused question directly and wait for the answer. If delegated agents are unavailable or prohibited, perform the required research, review, or implementation serially and retain the same evidence, scope, and verification contract. Treat Mentor helpers as optional host integrations: resolve them with `PLUGIN_ROOT` first, then `CLAUDE_PLUGIN_ROOT`; if neither is available, work from the repository's durable `.mentor/` artifacts and report any state action that cannot be performed safely. This rule overrides later host-specific tool names, preserving user choice and plan continuity across hosts.
+
 Invoked by `plan`'s Step 3 domain routing when the task touches
 API/endpoint/route/handler/schema/DTO/contract work — or directly whenever you want this domain's
 shaping. Standalone, apply §1 to whatever research is underway and §2–3 to whichever plan or

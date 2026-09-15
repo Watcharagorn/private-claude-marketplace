@@ -1,0 +1,38 @@
+{
+  "$schema": "./catalog.schema.json",
+  "schemaVersion": 1,
+  "name": "private-marketplace",
+  "displayName": "Private Marketplace",
+  "owner": {
+    "name": "my-private"
+  },
+  "plugins": [
+    {
+      "name": "mentor",
+      "path": "plugins/mentor",
+      "category": "Developer Tools",
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_INSTALL"
+      }
+    },
+    {
+      "name": "loom",
+      "path": "plugins/loom",
+      "category": "Developer Tools",
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_INSTALL"
+      }
+    },
+    {
+      "name": "tmux-design",
+      "path": "plugins/tmux-design",
+      "category": "Developer Tools",
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_INSTALL"
+      }
+    }
+  ]
+}

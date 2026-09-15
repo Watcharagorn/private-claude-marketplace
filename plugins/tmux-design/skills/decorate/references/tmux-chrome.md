@@ -197,7 +197,7 @@ Generate a separate file and let them own the one-line include:
 
 ```bash
 mkdir -p ~/.config/tmux
-"${CLAUDE_PLUGIN_ROOT}/scripts/tmux_theme.sh" tokyo-night > ~/.config/tmux/theme.tmux
+"<tmux-design-root>/scripts/tmux_theme.sh" tokyo-night > ~/.config/tmux/theme.tmux
 tmux source-file ~/.config/tmux/theme.tmux && tmux refresh-client -S
 ```
 

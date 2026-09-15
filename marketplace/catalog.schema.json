@@ -1,0 +1,45 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://agent-plugins.org/schemas/private-marketplace/catalog.schema.json",
+  "title": "Dual-host marketplace catalog",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["$schema", "schemaVersion", "name", "displayName", "owner", "plugins"],
+  "properties": {
+    "$schema": { "const": "./catalog.schema.json" },
+    "schemaVersion": { "const": 1 },
+    "name": { "type": "string", "pattern": "^[a-z0-9][a-z0-9-]*$" },
+    "displayName": { "type": "string", "minLength": 1 },
+    "owner": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name"],
+      "properties": { "name": { "type": "string", "minLength": 1 } }
+    },
+    "plugins": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/plugin" }
+    }
+  },
+  "$defs": {
+    "plugin": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "path", "category", "policy"],
+      "properties": {
+        "name": { "type": "string", "pattern": "^[a-z0-9][a-z0-9-]*$" },
+        "path": { "type": "string", "pattern": "^plugins/[a-z0-9][a-z0-9-]*$" },
+        "category": { "type": "string", "minLength": 1 },
+        "policy": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["installation", "authentication"],
+          "properties": {
+            "installation": { "enum": ["NOT_AVAILABLE", "AVAILABLE", "INSTALLED_BY_DEFAULT"] },
+            "authentication": { "enum": ["ON_INSTALL", "ON_USE"] }
+          }
+        }
+      }
+    }
+  }
+}

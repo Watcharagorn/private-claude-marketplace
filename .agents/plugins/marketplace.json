@@ -1,0 +1,44 @@
+{
+  "name": "private-marketplace",
+  "interface": {
+    "displayName": "Private Marketplace"
+  },
+  "plugins": [
+    {
+      "name": "mentor",
+      "source": {
+        "source": "local",
+        "path": "./plugins/mentor"
+      },
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_INSTALL"
+      },
+      "category": "Developer Tools"
+    },
+    {
+      "name": "loom",
+      "source": {
+        "source": "local",
+        "path": "./plugins/loom"
+      },
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_INSTALL"
+      },
+      "category": "Developer Tools"
+    },
+    {
+      "name": "tmux-design",
+      "source": {
+        "source": "local",
+        "path": "./plugins/tmux-design"
+      },
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_INSTALL"
+      },
+      "category": "Developer Tools"
+    }
+  ]
+}

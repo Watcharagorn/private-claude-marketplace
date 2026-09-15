@@ -1,7 +1,8 @@
 ---
 name: daily-report
 description: Compose and EMAIL a summary of one day of loom's daily automation — what harvest folded per project, which sessions learn disposed per plugin, what got published, and any failures — to the notify.email configured in $cfg/loom/automation/config.json, delivered through the Gmail MCP connector. The daily runner fires "/loom:daily-report --headless" itself at the end of every real run once notify.email is set (re-run /loom:automate or edit config.json to set it). Invoke manually to test the notification path or re-send a day's report — use when the user says "/loom:daily-report", "email me the loom daily summary", "send/test the automation report email", "set up or check the loom email report", or asks what the daily run changed and wants it mailed. --date YYYY-MM-DD reports a past day (default today); --dry-run composes and prints but never sends; --headless never prompts and self-reports failures into the runner's fail-notify marker.
-version: 0.1.0
+metadata:
+  version: "0.1.0"
 ---
 
 # daily-report — email the day's automation summary

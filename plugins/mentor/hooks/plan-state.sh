@@ -229,7 +229,7 @@
 #
 #   dir [--plans]
 #       The repo-scoped mentor dir (<repo_root>/.mentor via git-common-dir, so linked
-#       worktrees share one; ~/.claude/mentor/_no-repo outside a repo) — one path on
+#       worktrees share one; mentor_no_repo_state_dir outside a repo) — one path on
 #       stdout. Skills call this instead of hand-rolling the derivation: the inlined
 #       copies drifted, and most dropped the no-repo fallback.
 #
@@ -455,7 +455,7 @@ if [ "$sub" = "dir" ]; then
   if [ -n "$dir_repo" ]; then
     mdir="$(mentor_state_dir "$dir_repo")"
   else
-    mdir="$HOME/.claude/mentor/_no-repo"
+    mdir="$(mentor_no_repo_state_dir)"
   fi
   if [ "${1:-}" = "--plans" ]; then
     echo "${mdir}/plans"
@@ -480,7 +480,7 @@ if [ "$sub" = "ensure-dir" ]; then
   if [ -n "$ed_repo" ]; then
     ed_mdir="$(mentor_state_dir "$ed_repo")"
   else
-    ed_mdir="$HOME/.claude/mentor/_no-repo"
+    ed_mdir="$(mentor_no_repo_state_dir)"
   fi
   # Confine it. Callers substitute a model-chosen <topic> into the path, so without this
   # check ensure-dir would be an arbitrary mkdir-and-chmod primitive reachable from a
@@ -547,7 +547,7 @@ if [ "$sub" = "relocate" ]; then
   if [ -n "$rl_repo" ]; then
     rl_mdir="$(mentor_state_dir "$rl_repo")"
   else
-    rl_mdir="$HOME/.claude/mentor/_no-repo"
+    rl_mdir="$(mentor_no_repo_state_dir)"
   fi
   rl_src_canon="$(python3 -c 'import os,sys; print(os.path.realpath(sys.argv[1]))' "$rl_src" 2>/dev/null || echo "$rl_src")"
   rl_src_parent="$(dirname "$rl_src_canon")"
@@ -682,7 +682,7 @@ if [ "$sub" = "handoff-path" ]; then
   if [ -n "$hp_repo" ]; then
     hp_mdir="$(mentor_state_dir "$hp_repo")"
   else
-    hp_mdir="$HOME/.claude/mentor/_no-repo"
+    hp_mdir="$(mentor_no_repo_state_dir)"
   fi
   hp_target="${hp_mdir}/plans/${hp_topic}/handoffs"
   # Confine it — <topic> is model-chosen, so without this a handoff-note run could be
@@ -734,7 +734,7 @@ if [ "$sub" = "handoff-selfcheck" ]; then
   if [ -n "$hs_repo" ]; then
     hs_mdir="$(mentor_state_dir "$hs_repo")"
   else
-    hs_mdir="$HOME/.claude/mentor/_no-repo"
+    hs_mdir="$(mentor_no_repo_state_dir)"
   fi
   hs_dir="$(dirname "$hs_out")"
   # Confine it — <note-path> crosses a Bash-tool-call boundary (the agent re-types it from
@@ -813,7 +813,7 @@ if [ "$sub" = "gate" ]; then
   if [ -n "$g_repo" ]; then
     g_mdir="$(mentor_state_dir "$g_repo")"
   else
-    g_mdir="$HOME/.claude/mentor/_no-repo"
+    g_mdir="$(mentor_no_repo_state_dir)"
   fi
   g_plans="${g_mdir}/plans"
   g_wt_id="$(mentor_worktree_id "$(pwd)")"

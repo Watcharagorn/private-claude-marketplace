@@ -363,7 +363,12 @@ chk "dir --plans → plans dir"           test "$(psout dir --plans)" = "$REPO/.
 CWD="$BARE"
 chk "dir in a never-planned repo works" test "$(psout dir)" = "$BARE/.mentor"   # no plans-dir guard
 CWD="$NONGIT"
-chk "dir outside a repo → _no-repo"     test "$(psout dir)" = "$SANDBOX/.claude/mentor/_no-repo"
+chk "Claude adapter dir outside a repo → CLAUDE_CONFIG_DIR fallback" \
+  test "$(psout dir)" = "$SANDBOX/.claude/mentor/_no-repo"
+portable_dir="$(cd "$NONGIT" && env -u CLAUDE_CONFIG_DIR -u MENTOR_STATE_HOME \
+  HOME="$SANDBOX" XDG_STATE_HOME="$SANDBOX/xdg-state" bash "$PLANSTATE" dir 2>/dev/null)"
+chk "host-neutral dir outside a repo → XDG state fallback" \
+  test "$portable_dir" = "$SANDBOX/xdg-state/mentor/_no-repo"
 CWD="$REPO"
 
 echo "== I. Environmental problems are fail-soft: exit 0 with ONE reason on stderr =="

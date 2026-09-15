@@ -24,12 +24,14 @@ harness measures is measuring the real routing surface only because of that spli
 
 ```bash
 cd plugins/mentor/evals
-python3 harness.py claude-opus-5 2      # <model> <reps-per-query>
+python3 harness.py claude claude-opus-5 2  # <host> <model> <reps-per-query>
+python3 harness.py codex gpt-5.6-sol 2
 ```
 
-Needs the `claude` CLI on PATH. ~55 queries × reps, 6 at a time, roughly 10–25s each.
-The scratch project and `results.json` are written to `$TMPDIR/mentor-trigger-eval/`
-(override with `MENTOR_EVAL_WORKDIR`) — never into the repo.
+Needs the selected host CLI on PATH and its normal authentication. ~55 queries × reps run six
+at a time. The scratch projects and `results-<host>.json` files are written to
+`$TMPDIR/mentor-trigger-eval/` (override with `MENTOR_EVAL_WORKDIR`) — never into the repo.
+Keep Claude and Codex baselines separate because model routing behavior is not interchangeable.
 
 Baseline at v2.11.1: **36/40**, 18 of 20 queries clean on both reps — over 8 staged
 skills and queries 1–20. v2.12.0 stages 10 skills (`tour` and `zoom` joined) and adds
@@ -42,7 +44,8 @@ re-run as part of that change.
 ## Seed the fixture first — this is not optional
 
 ```bash
-python3 seed.py "$TMPDIR/mentor-trigger-eval/project"
+python3 seed.py "$TMPDIR/mentor-trigger-eval/project-claude"
+python3 seed.py "$TMPDIR/mentor-trigger-eval/project-codex"
 ```
 
 `harness.py` stages the skills but not the plans they talk about. Against an empty
@@ -75,12 +78,9 @@ nothing.
 
 ## Known failures, all understood
 
-- **#20** (`plan` fires on a bare "help me plan X") is expected and **not** a hole.
-  The semantic match beats any wording that merely asks the model to prefer the
-  command — measured: rewording the description moved it 0/3. The real fix is
-  `plan/SKILL.md` Step 0, which detects the unarmed gate after loading and refuses.
-  The eval only records *which skill fires*, not what it does next, so this stays red
-  by construction.
+- **#20** is intentionally green from v3.1.0 onward: natural-language planning is the
+  portable entry point. Claude can still add the `/mentor:plan` command and edit gate,
+  while Codex follows the same skill guidance-first.
 - **#2** is a flawed query, deliberately left alone. It reuses `plan-track`'s own
   phrase "one session at a time" and gives "break this up" no referent. Tuning a
   description to win it would be overfitting to a bad test.

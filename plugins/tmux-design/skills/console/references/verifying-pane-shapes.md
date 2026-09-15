@@ -307,9 +307,9 @@ same reason an own-loop renderer owes a one-shot frame mode — and it is checke
 
 ```bash
 w=100
-<tui> --dump --width "$w" | python3 "${CLAUDE_PLUGIN_ROOT}/scripts/check_cols.py" "$w" --reserve 0
+<tui> --dump --width "$w" | python3 "<tmux-design-root>/scripts/check_cols.py" "$w" --reserve 0
 WIDTH_FIXTURE='⛔ blocked  日本語製品  🧑‍🌾 farmer' \
-  <tui> --dump --width "$w" | python3 "${CLAUDE_PLUGIN_ROOT}/scripts/check_cols.py" "$w" --reserve 0
+  <tui> --dump --width "$w" | python3 "<tmux-design-root>/scripts/check_cols.py" "$w" --reserve 0
 a=$(<tui> --dump --width 60 | wc -l); b=$(<tui> --dump --width 160 | wc -l)
 [ -n "$a" ] && [ "$a" -gt 0 ] || echo "EMPTY DUMP — the sweep proved nothing"
 ```

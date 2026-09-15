@@ -39,7 +39,7 @@ case "${MENTOR_PLAN_OPEN:-}" in off|0|false|no) exit 0 ;; esac
 # _brief.md source pack).
 case "$file" in
   */.mentor/zooms/*/*.html) ;;
-  */.claude/mentor/_no-repo/zooms/*/*.html) ;;
+  */mentor/_no-repo/zooms/*/*.html) ;;
   */.mentor/plans/*/zoom/*.html) ;;
   */.mentor/plans/*/plan.md) ;;
   *) exit 0 ;;

@@ -1,10 +1,14 @@
 ---
 name: plan-track
 description: |
-  Show the repo-wide remaining-work hierarchy — plan lifecycle states, step progress, deps, fix children rolled up under their root with open-descendant counts, deferred stubs, live handoffs — then build the next unbuilt plan. Backs /mentor:track. Use when asked what plans exist, what's left, which plan is next, whether a plan is already implemented or REALLY done (open fixes), "any task left for <plan>", or to implement/pick up/retry a plan generically — an unnamed "what's next" survey, /plan-split with no group named, or /mentor:defer stubs to survey. Reads lifecycle state, refuses when context is too large, warns (never blocks) on unmet deps and a root done with open descendants, routes a deferred stub to /mentor:plan, executes via mentor:dispatch-agents. Inventory and roll-up only — not authoring a request (/mentor:plan), capturing mid-flow work (/mentor:defer), draining a named root's fixes or a named split group's siblings in order (/mentor:resume), or judging plan quality (/plan-review).
+  Show the repo-wide remaining-work hierarchy — plan lifecycle states, step progress, deps, fix children rolled up under their root with open-descendant counts, deferred stubs, live handoffs — then build the next unbuilt plan. Backs /mentor:track. Use when asked what plans exist, what's left, which plan is next, whether a plan is already implemented or REALLY done (open fixes), "any task left for this plan", or to implement/pick up/retry a plan generically — an unnamed "what's next" survey, /plan-split with no group named, or /mentor:defer stubs to survey. Reads lifecycle state, refuses when context is too large, warns (never blocks) on unmet deps and a root done with open descendants, routes a deferred stub to /mentor:plan, executes via mentor:dispatch-agents. Inventory and roll-up only — not authoring a request (/mentor:plan), capturing mid-flow work (/mentor:defer), draining a named root's fixes or a named split group's siblings in order (/mentor:resume), or judging plan quality (/plan-review).
 ---
 
 # Plan Track — What's Built, What's Next, Build It
+
+## Host portability
+
+Use a structured question UI when the host offers one; otherwise ask the same focused question directly and wait for the answer. If delegated agents are unavailable or prohibited, perform the required research, review, or implementation serially and retain the same evidence, scope, and verification contract. Treat Mentor helpers as optional host integrations: resolve them with `PLUGIN_ROOT` first, then `CLAUDE_PLUGIN_ROOT`; if neither is available, work from the repository's durable `.mentor/` artifacts and report any state action that cannot be performed safely. This rule overrides later host-specific tool names, preserving user choice and plan continuity across hosts.
 
 `mentor:planning` writes plans; this skill is how you come back to them. Each plan dir
 carries a `.state.json` sidecar recording where it stands, so a fresh session can
@@ -51,8 +55,8 @@ honest on their own.
 ## Step 0 — Check the context before doing anything else
 
 ```bash
-[ -d "${CLAUDE_PLUGIN_ROOT}/hooks" ] || { echo "ERROR: CLAUDE_PLUGIN_ROOT unresolved or stale — do not search the plugin cache or hardcode a version path; ask the user to /reload-plugins or restart" >&2; exit 1; }
-bash "${CLAUDE_PLUGIN_ROOT}/hooks/plan-state.sh" context
+[ -d "${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:-}}/hooks" ] || { echo "ERROR: Mentor helper unavailable — set PLUGIN_ROOT (or use the Claude compatibility fallback) or use the documented artifact fallback" >&2; exit 1; }
+bash "${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:-}}/hooks/plan-state.sh" context
 ```
 
 This is load-bearing, not a formality. `context-gate.sh` lets **every** slash-prefixed
@@ -76,7 +80,7 @@ having no check at all.
 ## Step 1 — See the hierarchy
 
 ```bash
-bash "${CLAUDE_PLUGIN_ROOT}/hooks/plan-state.sh" query --open-counts --format tree
+bash "${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:-}}/hooks/plan-state.sh" query --open-counts --format tree
 ```
 
 This is the ONE call that answers "what's remaining?", and it returns the **finished view** —
@@ -152,8 +156,8 @@ split` child may use `### N. Title`, another may not), so an improvised pattern 
 some. Instead, call the shared extractor per plan you're summarizing:
 
 ```bash
-[ -d "${CLAUDE_PLUGIN_ROOT}/hooks" ] || { echo "ERROR: CLAUDE_PLUGIN_ROOT unresolved or stale — do not search the plugin cache or hardcode a version path; ask the user to /reload-plugins or restart" >&2; exit 1; }
-synopsis="$(. "${CLAUDE_PLUGIN_ROOT}/hooks/lib/state.sh"; plans_dir="$(mentor_plans_dir "$(git rev-parse --show-toplevel)")"; mentor_plan_goal_line "${plans_dir}/<slug>/plan.md" context)"
+[ -d "${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:-}}/hooks" ] || { echo "ERROR: Mentor helper unavailable — set PLUGIN_ROOT (or use the Claude compatibility fallback) or use the documented artifact fallback" >&2; exit 1; }
+synopsis="$(. "${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:-}}/hooks/lib/state.sh"; plans_dir="$(mentor_plans_dir "$(git rev-parse --show-toplevel)")"; mentor_plan_goal_line "${plans_dir}/<slug>/plan.md" context)"
 ```
 
 Pass `context` explicitly: the function defaults to `goal` (matching its one existing caller,
@@ -167,8 +171,8 @@ reacts to the hierarchy with a judgment ("that one's noise", "these three are cr
 really a docs task"):
 
 ```bash
-bash "${CLAUDE_PLUGIN_ROOT}/hooks/plan-state.sh" set-priority <slug> critical   # "" clears
-bash "${CLAUDE_PLUGIN_ROOT}/hooks/plan-state.sh" set-category <slug> fix       # "" clears
+bash "${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:-}}/hooks/plan-state.sh" set-priority <slug> critical   # "" clears
+bash "${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:-}}/hooks/plan-state.sh" set-category <slug> fix       # "" clears
 ```
 
 Each writes nothing but its own field — state, note, deps and ownership all ride through untouched
@@ -279,7 +283,7 @@ shield exists to prevent.
 changes what's actually blocked.** Check the gate before acting on the table:
 
 ```bash
-bash "${CLAUDE_PLUGIN_ROOT}/hooks/plan-state.sh" gate   # ARMED | ARMED_ELSEWHERE | STALE | RELEASED
+bash "${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:-}}/hooks/plan-state.sh" gate   # ARMED | ARMED_ELSEWHERE | STALE | RELEASED
 ```
 
 - **`ARMED`** — THIS worktree's own gate (or the legacy repo-global marker) is live, so
@@ -310,7 +314,7 @@ bash "${CLAUDE_PLUGIN_ROOT}/hooks/plan-state.sh" gate   # ARMED | ARMED_ELSEWHER
   "safe to promote." Name which worktree with `--verbose`:
 
   ```bash
-  bash "${CLAUDE_PLUGIN_ROOT}/hooks/plan-state.sh" gate --verbose   # one elsewhere=<wt-id> … line per live sibling
+  bash "${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:-}}/hooks/plan-state.sh" gate --verbose   # one elsewhere=<wt-id> … line per live sibling
   ```
 
   Surface every `elsewhere=` line to the user before continuing past a `draft` selection.
@@ -331,7 +335,7 @@ Otherwise, act on the effective state:
 To move state:
 
 ```bash
-bash "${CLAUDE_PLUGIN_ROOT}/hooks/plan-state.sh" set <slug> <state> [--note "…"]
+bash "${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:-}}/hooks/plan-state.sh" set <slug> <state> [--note "…"]
 ```
 
 ### Approving a draft plan here
@@ -341,7 +345,7 @@ above or the user jumped straight to "approve draft plan X", check the gate befo
 else:
 
 ```bash
-bash "${CLAUDE_PLUGIN_ROOT}/hooks/plan-state.sh" gate
+bash "${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:-}}/hooks/plan-state.sh" gate
 ```
 
 `ARMED_ELSEWHERE` **hard-refuses this whole section** — a sibling worktree is mid-planning, and
@@ -371,7 +375,7 @@ at `/mentor:plan`.
 On either yes, move the state first:
 
 ```bash
-bash "${CLAUDE_PLUGIN_ROOT}/hooks/plan-state.sh" set <slug> approved --note "<which reason>"
+bash "${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:-}}/hooks/plan-state.sh" set <slug> approved --note "<which reason>"
 ```
 
 That call is what makes this safe: it is slug-scoped, so it promotes the one plan the
@@ -380,7 +384,7 @@ check at the top of this section ran before the three-way question was asked, an
 another worktree's session) can pass while the user answers:
 
 ```bash
-bash "${CLAUDE_PLUGIN_ROOT}/hooks/plan-state.sh" gate   # must read STALE or RELEASED
+bash "${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:-}}/hooks/plan-state.sh" gate   # must read STALE or RELEASED
 ```
 
 `ARMED` or `ARMED_ELSEWHERE` here means stop and re-apply the worktree check above instead of
@@ -388,7 +392,7 @@ running `approve-plan.sh` blind — edits are still blocked (or another worktree
 live) and the state move alone will not unblock them:
 
 ```bash
-bash "${CLAUDE_PLUGIN_ROOT}/hooks/approve-plan.sh"
+bash "${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:-}}/hooks/approve-plan.sh"
 ```
 
 It takes **no plan argument** — only `--handoff` or `--deliver`, which mean something
@@ -422,7 +426,7 @@ plan this session didn't author:
   test stay in the main thread; a stale skip line is a reason to re-route, not a reason
   to dispatch everything. A skipped plan usually
   writes its steps as plain numbered items rather than `Step N — …` lines — `bash
-  "${CLAUDE_PLUGIN_ROOT}/hooks/plan-state.sh" tick <slug> <N>` counts either form
+  "${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:-}}/hooks/plan-state.sh" tick <slug> <N>` counts either form
   by ordinal, so ticking works the same way regardless of which one this plan uses.
 
 ## Step 4 — Close out

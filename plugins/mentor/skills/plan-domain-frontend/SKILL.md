@@ -14,6 +14,10 @@ description: >
 
 # Frontend Planning Domain
 
+## Host portability
+
+Use a structured question UI when the host offers one; otherwise ask the same focused question directly and wait for the answer. If delegated agents are unavailable or prohibited, perform the required research, review, or implementation serially and retain the same evidence, scope, and verification contract. Treat Mentor helpers as optional host integrations: resolve them with `PLUGIN_ROOT` first, then `CLAUDE_PLUGIN_ROOT`; if neither is available, work from the repository's durable `.mentor/` artifacts and report any state action that cannot be performed safely. This rule overrides later host-specific tool names, preserving user choice and plan continuity across hosts.
+
 Invoked by `plan`'s Step 3 domain routing when the task touches UX/UI — components, pages,
 styles, layout, design systems, theming, responsive work — or directly whenever you want this
 domain's shaping. Standalone, apply §1 to whatever research is underway and §2–3 to whichever
@@ -51,8 +55,9 @@ plan, and distills its design principles for the plan body (§2) and any later U
 (§4). Pick it by **runtime discovery** (the same idiom `tour` uses): read the most recent
 active-skills system-reminder and pick the strongest design/UX skill present —
 `frontend-design:frontend-design` when installed, else the strongest alternative (e.g.
-`ui-ux-pro-max`), else the built-in `artifact-design`. If none is listed, degrade gracefully —
-proceed without it and note the omission in the plan's Context.
+`ui-ux-pro-max`). Do not require a host-specific artifact-design capability. If no relevant design
+capability is listed, degrade gracefully — proceed without it and note the omission in the plan's
+Context.
 
 Three global rules govern everything in this domain (restated as hard rules in §Constraints):
 
@@ -169,8 +174,8 @@ faithful; one that gets a paraphrase is not.
 ## Constraints recap (hard rules)
 
 1. Invoke ONE design skill once before writing the plan — discovered at runtime per the Preflight
-   (`frontend-design:frontend-design` when installed, else the strongest present alternative, else
-   `artifact-design`); distill, don't skip.
+   (`frontend-design:frontend-design` when installed, else the strongest present alternative);
+   distill it, or record the explicit no-capability fallback.
 2. Delta renderings, mockups, and implementation steps derive ONLY from real front-end source
    files.
 3. No mockup files inside the repo source tree, ever — the opt-in zoom html (in the gate-exempt

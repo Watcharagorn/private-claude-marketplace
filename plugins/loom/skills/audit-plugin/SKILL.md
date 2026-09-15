@@ -1,7 +1,8 @@
 ---
 name: audit-plugin
-description: Audit an EXISTING plugin from ONE session — a named session id/path, or the active session — to find how it misbehaved (gate false-positives, wrong-skill calls, retries, redundant questions, post-run surprises) and ship the fixes. Selects the target plugin once (auto by purpose-match, or the named one), dispatches one proposal-only audit agent, expert-reviews, confirms via one multi-select, implements per artifact-catalog safety, and publishes one version bump. Invoke for "audit <plugin> against session <id>", "fix <plugin> based on session <id>", "what went wrong with <plugin> in this session", or "/audit-plugin <session-id> [plugin]". For enhancement/redundancy work or analysis across every session, use learn; for loose user/project artifacts from a session, use harvest-automations.
-version: 1.0.1
+description: Audit an EXISTING plugin from ONE session — a named session id/path, or the active session — to find how it misbehaved (gate false-positives, wrong-skill calls, retries, redundant questions, post-run surprises) and ship the fixes. Selects the target plugin once (auto by purpose-match, or the named one), dispatches one proposal-only audit agent, expert-reviews, confirms via one multi-select, implements per artifact-catalog safety, and publishes one version bump. Invoke for "audit PLUGIN against session SESSION_ID", "fix PLUGIN based on session SESSION_ID", "what went wrong with PLUGIN in this session", or "/audit-plugin SESSION_ID [plugin]". For enhancement/redundancy work or analysis across every session, use learn; for loose user/project artifacts from a session, use harvest-automations.
+metadata:
+  version: "1.0.1"
 ---
 
 # Audit Plugin — find & fix how an existing plugin misbehaved (from a session)

@@ -1,6 +1,9 @@
-# Private Claude Marketplace
+# Private Agent Marketplace
 
-Marketplace repo hosting Claude Code plugins under `plugins/<name>/`, registered in `.claude-plugin/marketplace.json`.
+Marketplace repo hosting plugins under `plugins/<name>/` for Claude Code and
+Codex. `AGENTS.md` defines the host-neutral maintenance contract; use
+`scripts/marketplace` rather than treating a Claude-only catalog as the source
+of truth.
 
 ## Rules
 
@@ -39,12 +42,17 @@ skill's `references/rationale.md`, pointed at by heading name.
 
 ### Plugin-edit verification gate (MANDATORY)
 
-**Always run `/verify-plugin-edits <plugin>` before `git commit`/`git push` on any change under `plugins/<name>/`.**
+**Always run `scripts/verify-plugin-edits <plugin>` (or the thin
+`/verify-plugin-edits <plugin>` facade) before `git commit`/`git push` on any
+change under `plugins/<name>/`.**
 
 - Applies to: any commit touching `plugins/<name>/` — skill edits, script edits, hook edits, manifest/version bumps, README updates.
-- Fix every reported FAIL (JSON validity, script syntax, stale terms, description length, hardcoded paths, hook test suites, manifest description sync, cross-block bash variable leakage) before committing. Don't re-derive a subset of these checks by hand (`python3 -m json.tool`, ad hoc `grep`, eyeballing a diff) — the command already covers all of them in one pass.
+- Fix every reported FAIL before committing. The canonical checker validates
+  marketplace metadata, plugin tests, and available skill validation; it is the
+  only release check shared by Claude Code and Codex. Don't re-derive a subset
+  by hand (`python3 -m json.tool`, ad hoc `grep`, eyeballing a diff).
 - Applies even when a skill (loom harvest/learn/audit-plugin, skill-creator, publish-plugin, etc.) is driving the change: run this command as the last step before the commit, not instead of it.
-- Runs **after** `/prune-instructions` (gate above) for edits under `plugins/<name>/`, so the hygiene pass's own edits there are covered rather than shipping unvalidated. This command never inspects `.claude/**` or root `CLAUDE.md`.
+- Runs **after** `/prune-instructions` (gate above) for edits under `plugins/<name>/`, so the hygiene pass's own edits there are covered rather than shipping unvalidated. The plugin verifier does not replace the root `.claude/hooks/tests/*.sh` checks for root-only changes.
 - Exceptions: pure version-number bumps and typo-only fixes that don't touch behavior may skip it (same exception as the skill quality gate above).
 
 ### Git staging safety around loom automation (MANDATORY)

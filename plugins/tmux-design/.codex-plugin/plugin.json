@@ -1,0 +1,25 @@
+{
+  "name": "tmux-design",
+  "description": "Design and verification guidance for readable, stable tmux console surfaces.",
+  "version": "0.5.0",
+  "author": {
+    "name": "NTBX"
+  },
+  "skills": "./skills/",
+  "interface": {
+    "displayName": "Tmux Design",
+    "shortDescription": "Design readable, stable, and verifiable tmux surfaces.",
+    "longDescription": "Apply a visual system to tmux panes and verify that renderers, refresh loops, and layout changes work in the live terminal.",
+    "developerName": "NTBX",
+    "category": "Developer Tools",
+    "capabilities": [
+      "Read",
+      "Write"
+    ],
+    "defaultPrompt": [
+      "Help me redesign this tmux pane.",
+      "Make this terminal dashboard easier to read.",
+      "Audit this tmux layout for display problems."
+    ]
+  }
+}

@@ -140,8 +140,8 @@ cues between panel fill, border, and selection disappear.
 truecolor render; it is a structurally different image.
 
 ```bash
-python3 "${CLAUDE_PLUGIN_ROOT}/scripts/renderer_template.py" demo --theme catppuccin-mocha --depth 256
-python3 "${CLAUDE_PLUGIN_ROOT}/scripts/renderer_template.py" demo --theme catppuccin-mocha --depth 16
+python3 "<tmux-design-root>/scripts/renderer_template.py" demo --theme catppuccin-mocha --depth 256
+python3 "<tmux-design-root>/scripts/renderer_template.py" demo --theme catppuccin-mocha --depth 16
 ```
 
 At 16 colors a theme is *nearly* gone: hues map through `_rgb_to_16` to the eight basic colors, and
@@ -231,7 +231,8 @@ keystroke-driven pane" (`console/references/verifying-pane-shapes.md`); read it 
    differently-themed status bar, which is the exact failure the shared vocabulary prevents.
 3. Render and load it before claiming it works:
    ```bash
-   R="${CLAUDE_PLUGIN_ROOT}/scripts"
+   # Resolve <tmux-design-root> as described in decorate/SKILL.md.
+   R="<tmux-design-root>/scripts"
    python3 "$R/renderer_template.py" demo --theme <name>
    "$R/tmux_theme.sh" <name> > /tmp/t.tmux && tmux source-file /tmp/t.tmux
    ```

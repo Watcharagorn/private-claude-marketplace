@@ -12,6 +12,10 @@ description: >
 
 # merge — watch checks, triage once, merge on green
 
+## Host portability
+
+Use a structured question UI when the host offers one; otherwise ask the same focused question directly and wait for the answer. If delegated agents are unavailable or prohibited, perform the required research, review, or implementation serially and retain the same evidence, scope, and verification contract. Treat Mentor helpers as optional host integrations: resolve them with `PLUGIN_ROOT` first, then `CLAUDE_PLUGIN_ROOT`; if neither is available, work from the repository's durable `.mentor/` artifacts and report any state action that cannot be performed safely. This rule overrides later host-specific tool names, preserving user choice and plan continuity across hosts.
+
 This skill owns the tail of any open PR on the current branch, mentor-made or not: watch
 CI, work out **once** whether a failure is a flake, this diff's regression, or rot that
 was already on the base branch, and merge only when the user has said so. It is a
@@ -187,12 +191,12 @@ With a candidate in hand, ask before writing — a PR often carries only some of
 plan's steps, and `implemented` would hide the rest from `/mentor:track`:
 
 ```bash
-[ -d "${CLAUDE_PLUGIN_ROOT}/hooks" ] || { echo "ERROR: CLAUDE_PLUGIN_ROOT unresolved or stale — do not search the plugin cache or hardcode a version path; ask the user to /reload-plugins or restart" >&2; exit 1; }
-plans_dir="$(bash "${CLAUDE_PLUGIN_ROOT}/hooks/plan-state.sh" dir --plans)"
-[ -n "$plans_dir" ] || { echo "ERROR: mentor plans dir unresolved — is CLAUDE_PLUGIN_ROOT set? do not search the plugin cache or hardcode a version path; ask the user to /reload-plugins or restart" >&2; exit 1; }
+[ -d "${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:-}}/hooks" ] || { echo "ERROR: Mentor helper unavailable — set PLUGIN_ROOT (or use the Claude compatibility fallback) or use the documented artifact fallback" >&2; exit 1; }
+plans_dir="$(bash "${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:-}}/hooks/plan-state.sh" dir --plans)"
+[ -n "$plans_dir" ] || { echo "ERROR: Mentor plans directory unresolved — set PLUGIN_ROOT (or use the Claude compatibility fallback) or derive the repository .mentor directory" >&2; exit 1; }
 if [ -d "$plans_dir/<slug>" ]; then
   open="$(jq -r '.note // ""' "$plans_dir/<slug>/.state.json" 2>/dev/null | tr '|' '\n' | grep -m1 '^ *open:' | sed 's/^ *//; s/ *$//')"
-  bash "${CLAUDE_PLUGIN_ROOT}/hooks/plan-state.sh" set <slug> implemented --note "${open:+$open | }merged: PR #<n> <sha>"
+  bash "${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:-}}/hooks/plan-state.sh" set <slug> implemented --note "${open:+$open | }merged: PR #<n> <sha>"
 fi
 ```
 

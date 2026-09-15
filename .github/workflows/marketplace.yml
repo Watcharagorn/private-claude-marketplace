@@ -1,0 +1,48 @@
+name: Marketplace validation
+
+on:
+  pull_request:
+    paths:
+      - ".agents/plugins/**"
+      - ".claude-plugin/**"
+      - ".github/workflows/marketplace.yml"
+      - "AGENTS.md"
+      - "CLAUDE.md"
+      - "marketplace/**"
+      - "plugins/**"
+      - "scripts/**"
+      - "tests/marketplace/**"
+  push:
+    paths:
+      - ".agents/plugins/**"
+      - ".claude-plugin/**"
+      - ".github/workflows/marketplace.yml"
+      - "AGENTS.md"
+      - "CLAUDE.md"
+      - "marketplace/**"
+      - "plugins/**"
+      - "scripts/**"
+      - "tests/marketplace/**"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  deterministic-linux:
+    name: Canonical metadata and deterministic plugin tests
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate canonical sources and generated host projections
+        run: scripts/marketplace validate
+      - name: Run marketplace unit tests
+        run: scripts/marketplace test
+      - name: Verify each plugin without host-specific CLIs
+        shell: bash
+        run: |
+          set -euo pipefail
+          for plugin_dir in plugins/*; do
+            [ -d "$plugin_dir" ] || continue
+            scripts/verify-plugin-edits "$(basename "$plugin_dir")"
+          done

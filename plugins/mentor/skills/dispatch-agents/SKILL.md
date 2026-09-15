@@ -14,6 +14,10 @@ description: >
 
 # Dispatch Agents
 
+## Host portability
+
+Use a structured question UI when the host offers one; otherwise ask the same focused question directly and wait for the answer. If delegated agents are unavailable or prohibited, perform the required research, review, or implementation serially and retain the same evidence, scope, and verification contract. Treat Mentor helpers as optional host integrations: resolve them with `PLUGIN_ROOT` first, then `CLAUDE_PLUGIN_ROOT`; if neither is available, work from the repository's durable `.mentor/` artifacts and report any state action that cannot be performed safely. This rule overrides later host-specific tool names, preserving user choice and plan continuity across hosts.
+
 This skill decides **where each kind of work runs** — main thread or dispatched
 subagent — and then carries the annotation grammar for the steps that do fan out and
 the contract for executing them.
@@ -47,8 +51,8 @@ Before the first implementation dispatch, confirm both yourself. They are separa
 reads — `context` answers only the second:
 
 ```bash
-bash "${CLAUDE_PLUGIN_ROOT}/hooks/plan-state.sh" query --slug <slug> --fields state --format tsv
-bash "${CLAUDE_PLUGIN_ROOT}/hooks/plan-state.sh" context    # CONTEXT: ASK|HANDOFF|WARN|OK|UNKNOWN
+bash "${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:-}}/hooks/plan-state.sh" query --slug <slug> --fields state --format tsv
+bash "${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:-}}/hooks/plan-state.sh" context    # CONTEXT: ASK|HANDOFF|WARN|OK|UNKNOWN
 ```
 
 - **The plan is not `draft`.** A `draft` plan is one the approval gate never
@@ -182,7 +186,7 @@ The point of SDD: quality through narrow focus, and a lean main thread.
 **Recording what happened**
 
 - **Tick each step as its `Done when:` passes:**
-  `bash "${CLAUDE_PLUGIN_ROOT}/hooks/plan-state.sh" tick <slug> <N>` (N = the step's
+  `bash "${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:-}}/hooks/plan-state.sh" tick <slug> <N>` (N = the step's
   ordinal, counting either `Step N — …` or numbered-item lines). Use `tick`, never a
   hand-built `Edit`: mentor counts ticks by scanning step lines only, so a `✅` parked on
   an indented `Done when:` line is invisible and the step reads as never started. It is
@@ -196,10 +200,10 @@ The point of SDD: quality through narrow focus, and a lean main thread.
 - **Move the plan's state as you go**, so `/mentor:track` can answer "what is built?" in
   a fresh session without re-reading anything:
   ```bash
-  [ -d "${CLAUDE_PLUGIN_ROOT}/hooks" ] || { echo "ERROR: CLAUDE_PLUGIN_ROOT unresolved or stale — do not search the plugin cache or hardcode a version path; ask the user to /reload-plugins or restart" >&2; exit 1; }
-  bash "${CLAUDE_PLUGIN_ROOT}/hooks/plan-state.sh" set <slug> in_progress    # before the first dispatch
-  bash "${CLAUDE_PLUGIN_ROOT}/hooks/plan-state.sh" set <slug> implemented    # every Done when: + Verification PASS
-  bash "${CLAUDE_PLUGIN_ROOT}/hooks/plan-state.sh" set <slug> failed --note "<what broke>"
+  [ -d "${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:-}}/hooks" ] || { echo "ERROR: Mentor helper unavailable — set PLUGIN_ROOT (or use the Claude compatibility fallback) or use the documented artifact fallback" >&2; exit 1; }
+  bash "${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:-}}/hooks/plan-state.sh" set <slug> in_progress    # before the first dispatch
+  bash "${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:-}}/hooks/plan-state.sh" set <slug> implemented    # every Done when: + Verification PASS
+  bash "${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:-}}/hooks/plan-state.sh" set <slug> failed --note "<what broke>"
   ```
   `<slug>` is the plan's directory name. Set `failed` wherever verification ends
   unresolved — the escalate-to-user point after the one remediation re-dispatch also
@@ -292,7 +296,10 @@ message.
 
 ## Choosing `role`
 
-The authoritative list of `role:` values is the `Agent` tool's `subagent_type` enum in your current tool spec — the set of agents actually installed and enabled. Do **not** scan `~/.claude/agents/` or plugin `agents/` folders on disk — those can list disabled plugins. If nothing in the enum fits, fall back to `general-purpose` and put the specialty in the prompt.
+The authoritative list of `role:` values is the current host's worker-role capability list — the
+set of agents actually installed and enabled. Do **not** scan a host cache or plugin `agents/`
+folder on disk — those can list disabled integrations. If no role fits, use the general-purpose
+worker role and put the specialty in the prompt; if no worker capability exists, execute serially.
 
 | Need | Role |
 |---|---|
@@ -355,7 +362,7 @@ plan's annotations; execution never needs it.
 Dispatch implementation/editing agents **only after the plan is approved**
 (`approve-plan.sh` released the gate). Then:
 
-1. **Pull each step's brief, not the whole plan** — `bash "${CLAUDE_PLUGIN_ROOT}/hooks/plan-state.sh" brief <slug> --step N` returns the plan title, its `## Context` goal, the whole `## Out of scope` section, one line per step with tick state, the verbatim body of step N, and the `## Verification` topic titles — everything a dispatch needs, at a fraction of `plan.md`'s size. Do not read the whole plan file from memory or by hand; run one `brief` call per step (or per step in a parallel group) instead.
+1. **Pull each step's brief, not the whole plan** — `bash "${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:-}}/hooks/plan-state.sh" brief <slug> --step N` returns the plan title, its `## Context` goal, the whole `## Out of scope` section, one line per step with tick state, the verbatim body of step N, and the `## Verification` topic titles — everything a dispatch needs, at a fraction of `plan.md`'s size. Do not read the whole plan file from memory or by hand; run one `brief` call per step (or per step in a parallel group) instead.
 2. **Dispatch "Run in parallel:" groups** — issue ALL `Agent()` calls for each parallel group in a **single message** so they run concurrently. The solution-quality line and the standing contract block ("Deliver before idling," "Async runtime & lifecycle" below) reach every prompt automatically via the dispatch hook, so there is nothing to paste by hand — but the block's directives, including the no-nested-fan-out ban, are non-negotiable regardless of how the prompt sketch itself reads. After dispatching, apply **No busy-wait**: stop and let the harness re-invoke you when agents complete.
 3. **Dispatch "Sequential:" steps one at a time** — wait for the prior step's result before issuing the next call.
 4. **Verify each `Done when:` criterion** before moving to the next step — agents describe what they intended; trust but verify. On a concurrency- or timing-sensitive criterion, one clean run is not evidence — re-run it yourself 5+ times before accepting a PASS; an agent's self-reported `PASS=N/FAIL=0` from a single run proves nothing about a race. A zero-hit or empty result from your own check is likewise not evidence the criterion failed until you've confirmed the check itself works — a single-line `grep` can miss a claim that wraps across lines, an unquoted glob aborts outright under zsh's `nomatch`, and ERE alternation is `|`, not `\|`; when a check comes back empty, narrow it to one line or run it against a known-positive before trusting the negative. A step that hands back partial work plus a remainder brief has not failed its criterion — verify what it actually claims, then continue it per the hand-back addendum under "On a failed `Done when:`" above.
@@ -437,7 +444,7 @@ Step 1 instead. A verification round moves the plan with `set`.
   remediation: re-dispatch the topic fresh with the verifier's remainder as its inputs.
   Read it as a `FAIL` and the topic burns its retry on work nobody attempted.
   - **Re-check context first** — the same move as `planning`'s "Re-check context": run
-    `bash "${CLAUDE_PLUGIN_ROOT}/hooks/plan-state.sh" context` fresh rather than trusting
+    `bash "${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:-}}/hooks/plan-state.sh" context` fresh rather than trusting
     an earlier reading. A verification round runs mostly on harness-synthetic prompts
     (inbound agent reports), which `context-gate.sh`'s own WARN tier deliberately skips,
     so a round can grow well past WARN with only `context-checkpoint.sh`'s rate-limited
@@ -534,8 +541,8 @@ standing no-subagents policy at the same time.
   there while reporting a clean zero indistinguishable from "no policy recorded":
 
   ```bash
-  [ -d "${CLAUDE_PLUGIN_ROOT}/hooks" ] || { echo "ERROR: CLAUDE_PLUGIN_ROOT unresolved or stale — do not search the plugin cache or hardcode a version path; ask the user to /reload-plugins or restart" >&2; exit 1; }
-  bash "${CLAUDE_PLUGIN_ROOT}/hooks/plan-state.sh" policy
+  [ -d "${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:-}}/hooks" ] || { echo "ERROR: Mentor helper unavailable — set PLUGIN_ROOT (or use the Claude compatibility fallback) or use the documented artifact fallback" >&2; exit 1; }
+  bash "${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:-}}/hooks/plan-state.sh" policy
   ```
 
   It prints its verdict in words, so there is no exit code to interpret.
@@ -553,7 +560,7 @@ standing no-subagents policy at the same time.
     any future session asks again:
 
     ```bash
-    bash "${CLAUDE_PLUGIN_ROOT}/hooks/set-mode.sh" <agents|verify-only>
+    bash "${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:-}}/hooks/set-mode.sh" <agents|verify-only>
     ```
 
     One `AskUserQuestion`, header `Dispatch`, these two options in this order:
@@ -649,7 +656,7 @@ standing no-subagents policy at the same time.
   `TaskStop`; note anything else in the one-line report rather than
   stopping it, since it may belong to a sibling session or the user's own
   background work. **The same checkpoints are also the right moment to
-  re-check context** — run `bash "${CLAUDE_PLUGIN_ROOT}/hooks/plan-state.sh"
+  re-check context** — run `bash "${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:-}}/hooks/plan-state.sh"
   context` here too, not only on the failure loop's remediation path
   ("Verifying the plan (execution-time)" above, which carries the reason). Its
   remediate-or-hand-off question does not apply here — there is nothing left to

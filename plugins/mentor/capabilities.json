@@ -1,0 +1,54 @@
+{
+  "$schema": "../../marketplace/capabilities.schema.json",
+  "schemaVersion": 1,
+  "tier": "dual-enhanced",
+  "hosts": {
+    "claude": { "status": "supported", "commands": true, "hooks": true },
+    "codex": { "status": "supported", "commands": false, "hooks": false }
+  },
+  "workflows": [
+    {
+      "name": "planning",
+      "skills": ["planning", "grilling", "plan-domain-architecture", "plan-domain-backend-api", "plan-domain-dynamic", "plan-domain-frontend", "plan-split"],
+      "fallback": "Use ordinary conversation for decisions and persist the plan under .mentor; Codex does not require an edit hook.",
+      "claude": { "status": "supported", "test": "plugins/mentor/tests/test-dual-host-contract.sh" },
+      "codex": { "status": "supported", "test": "plugins/mentor/tests/test-dual-host-contract.sh" }
+    },
+    {
+      "name": "review-and-dispatch",
+      "skills": ["plan-review", "dispatch-agents"],
+      "fallback": "Run independent checks serially in the current task when delegation is unavailable.",
+      "claude": { "status": "supported", "test": "plugins/mentor/hooks/tests/test-dispatch-contract.sh" },
+      "codex": { "status": "supported", "test": "plugins/mentor/tests/test-dual-host-contract.sh" }
+    },
+    {
+      "name": "durable-state",
+      "skills": ["plan-track", "deferring", "resuming", "handoff-note"],
+      "fallback": "Read and update the host-neutral .mentor files through plan-state.sh.",
+      "claude": { "status": "supported", "test": "plugins/mentor/hooks/tests/test-state-lib.sh" },
+      "codex": { "status": "supported", "test": "plugins/mentor/hooks/tests/test-state-lib.sh" }
+    },
+    {
+      "name": "delivery",
+      "skills": ["shipping", "merging"],
+      "fallback": "Use the host's ordinary shell and approval flow when slash-command facades are unavailable.",
+      "claude": { "status": "supported", "test": "plugins/mentor/tests/test-dual-host-contract.sh" },
+      "codex": { "status": "supported", "test": "plugins/mentor/tests/test-dual-host-contract.sh" }
+    },
+    {
+      "name": "visual-artifacts",
+      "skills": ["touring", "zooming"],
+      "fallback": "Write self-contained local HTML plus Markdown or JSON; hosted Artifact publication is optional.",
+      "claude": { "status": "supported", "test": "plugins/mentor/tests/test-dual-host-contract.sh" },
+      "codex": { "status": "supported", "test": "plugins/mentor/tests/test-dual-host-contract.sh" }
+    },
+    {
+      "name": "governance",
+      "skills": ["constitution-authoring"],
+      "fallback": "Persist project principles in .mentor/constitution.md.",
+      "claude": { "status": "supported", "test": "plugins/mentor/tests/test-dual-host-contract.sh" },
+      "codex": { "status": "supported", "test": "plugins/mentor/tests/test-dual-host-contract.sh" }
+    }
+  ],
+  "waiver": null
+}

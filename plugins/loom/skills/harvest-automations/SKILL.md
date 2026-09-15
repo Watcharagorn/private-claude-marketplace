@@ -10,9 +10,10 @@ description: >
   prompts, --dry-run previews; ledger + watermark skip sessions already done); a session id or
   .jsonl path harvests that ONE session interactively — "harvest this session" means the ACTIVE
   session, single mode. Invoked via "/harvest", "harvest this session/project", "harvest all
-  sessions", "harvest session <id>", "turn this session into a skill / command / agent", "automate
+  sessions", "harvest session SESSION_ID", "turn this session into a skill / command / agent", "automate
   what I keep doing by hand", or "what could I have automated".
-version: 1.0.0
+metadata:
+  version: "1.0.0"
 ---
 
 # Harvest Automations

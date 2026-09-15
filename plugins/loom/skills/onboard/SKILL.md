@@ -1,7 +1,8 @@
 ---
 name: onboard
 description: Guided walkthrough that sets up the whole loom plugin for a new user or machine — checks the plugin's tracking state (the SessionEnd hook only proves itself after tracked sessions end), opts plugins into tracking, explains the harvest/learn modes and where state lives, offers the daily automation schedule, and finishes with a verification dry-run. Use when the user says "onboard loom", "set up loom", "help me get started with loom/harvest/learn", "/loom:onboard", asks what loom can do, or has just installed the plugin and asks what to configure. Resumable — each step checks current state first, so re-running skips what's already done.
-version: 0.1.2
+metadata:
+  version: "0.1.2"
 ---
 
 # onboard — set up loom end to end

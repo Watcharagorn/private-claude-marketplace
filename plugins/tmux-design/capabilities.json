@@ -1,0 +1,26 @@
+{
+  "$schema": "../../marketplace/capabilities.schema.json",
+  "schemaVersion": 1,
+  "tier": "dual-core",
+  "hosts": {
+    "claude": { "status": "supported", "commands": true, "hooks": false },
+    "codex": { "status": "supported", "commands": false, "hooks": false }
+  },
+  "workflows": [
+    {
+      "name": "console",
+      "skills": ["console"],
+      "fallback": "Use the same tmux CLI and bundled renderer scripts through the portable skill.",
+      "claude": { "status": "supported", "test": "plugins/tmux-design/tests/test-command-routing.sh" },
+      "codex": { "status": "supported", "test": "plugins/tmux-design/tests/test-command-routing.sh" }
+    },
+    {
+      "name": "decorate",
+      "skills": ["decorate"],
+      "fallback": "Use the same named themes and bundled renderer scripts through the portable skill.",
+      "claude": { "status": "supported", "test": "plugins/tmux-design/tests/test-renderer-reuse.sh" },
+      "codex": { "status": "supported", "test": "plugins/tmux-design/tests/test-renderer-reuse.sh" }
+    }
+  ],
+  "waiver": null
+}

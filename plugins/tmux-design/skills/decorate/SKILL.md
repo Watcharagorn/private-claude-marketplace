@@ -11,7 +11,7 @@ description: >-
   this output", "animate this pane so I can tell it's still alive". Reach for it even when tmux is
   never mentioned; "my CLI output looks ugly" counts.
   For WIRING a pane — adding panes, viddy refresh, lnav formats, session audits — use
-  tmux-design:console: this skill styles what a pane shows, console operates the pane.
+  `console`: this skill styles what a pane shows, console operates the pane.
 ---
 
 # Decoration for tmux surfaces
@@ -25,9 +25,30 @@ One idea underpins everything here: a pane is glanced at hundreds of times a day
 should get the answer from *shape and color* before they finish reading a word. Decoration that
 doesn't shorten that glance is noise, and decoration that misaligns is worse than none.
 
+## Bundled resource paths
+
+`<tmux-design-root>` in this skill and its references means the absolute plugin root. Resolve it
+fresh in each shell invocation: prefer `PLUGIN_ROOT`; accept `CLAUDE_PLUGIN_ROOT` when Claude Code
+provides it; otherwise take the absolute path of this loaded `SKILL.md` from the active-skill
+context and walk two directories up. Do not copy the angle-bracket placeholder literally or assume
+a variable set in an earlier Bash call still exists.
+
+```bash
+tmux_design_root="${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:-}}"
+if [ -z "$tmux_design_root" ]; then
+  skill_md="/absolute/path/to/the/loaded/skills/decorate/SKILL.md"
+  tmux_design_root="$(cd "$(dirname "$skill_md")/../.." && pwd)"
+fi
+[ -f "$tmux_design_root/scripts/renderer_template.py" ] \
+  || { echo "tmux-design root is unresolved: $tmux_design_root" >&2; exit 1; }
+```
+
+For another standalone command block, substitute `<tmux-design-root>` with that resolved absolute
+path (or repeat the resolver above with that block's loaded `SKILL.md` path).
+
 ## When NOT to use
 
-- Wiring, refresh, or verification of a pane — that's `tmux-design:console`
+- Wiring, refresh, or verification of a pane — that's `console`
 - Web/GUI frontend work — that's `frontend-design`
 - One-shot script output that never lives in a persistent pane
 
@@ -101,12 +122,12 @@ behind `command -v`, and know that they strip color when piped unless forced.
 
 ```bash
 # See the whole vocabulary, in any theme, at any color depth
-python3 "${CLAUDE_PLUGIN_ROOT}/scripts/renderer_template.py" demo --theme catppuccin-mocha
-python3 "${CLAUDE_PLUGIN_ROOT}/scripts/renderer_template.py" demo --depth 16 --ascii
+python3 "<tmux-design-root>/scripts/renderer_template.py" demo --theme catppuccin-mocha
+python3 "<tmux-design-root>/scripts/renderer_template.py" demo --depth 16 --ascii
 
 # Generate tmux chrome for a theme (stdout only — never edits ~/.tmux.conf)
-"${CLAUDE_PLUGIN_ROOT}/scripts/tmux_theme.sh" --list
-"${CLAUDE_PLUGIN_ROOT}/scripts/tmux_theme.sh" nord
+"<tmux-design-root>/scripts/tmux_theme.sh" --list
+"<tmux-design-root>/scripts/tmux_theme.sh" nord
 ```
 
 `renderer_template.py` provides `c() role_index() vlen() pad() trunc() sanitize() table() panel() divider()
@@ -145,7 +166,7 @@ Generate a snippet, review it, then have the user load it. Never rewrite `~/.tmu
 
 ```bash
 mkdir -p ~/.config/tmux
-"${CLAUDE_PLUGIN_ROOT}/scripts/tmux_theme.sh" tokyo-night > ~/.config/tmux/theme.tmux
+"<tmux-design-root>/scripts/tmux_theme.sh" tokyo-night > ~/.config/tmux/theme.tmux
 tmux source-file ~/.config/tmux/theme.tmux && tmux refresh-client -S
 ```
 

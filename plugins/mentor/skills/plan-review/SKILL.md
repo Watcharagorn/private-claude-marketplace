@@ -21,6 +21,10 @@ description: |
 
 # Plan Review — Judgment, Fold, then Mechanical Auto-Fold
 
+## Host portability
+
+Use a structured question UI when the host offers one; otherwise ask the same focused question directly and wait for the answer. If delegated agents are unavailable or prohibited, perform the required research, review, or implementation serially and retain the same evidence, scope, and verification contract. Treat Mentor helpers as optional host integrations: resolve them with `PLUGIN_ROOT` first, then `CLAUDE_PLUGIN_ROOT`; if neither is available, work from the repository's durable `.mentor/` artifacts and report any state action that cannot be performed safely. This rule overrides later host-specific tool names, preserving user choice and plan continuity across hosts.
+
 A pre-approval review pass in **two stages of two concurrent reviewers each**:
 it reads the current plan, confirms at the Step 2 gate, then fans out the
 **judgment reviewers** (practicality, comprehensiveness) — one `Agent()` call
@@ -94,8 +98,8 @@ domain detection — the full pass always reviews these same four dimensions.
 ## Step 1 — Resolve the plan file(s)
 
 ```bash
-[ -d "${CLAUDE_PLUGIN_ROOT}/hooks" ] || { echo "ERROR: CLAUDE_PLUGIN_ROOT unresolved or stale — do not search the plugin cache or hardcode a version path; ask the user to /reload-plugins or restart" >&2; exit 1; }
-bash "${CLAUDE_PLUGIN_ROOT}/hooks/plan-state.sh" current
+[ -d "${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:-}}/hooks" ] || { echo "ERROR: Mentor helper unavailable — set PLUGIN_ROOT (or use the Claude compatibility fallback) or use the documented artifact fallback" >&2; exit 1; }
+bash "${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:-}}/hooks/plan-state.sh" current
 ```
 
 The `PLAN:` line is the **primary** plan — the subject every reviewer reads — and its
@@ -124,7 +128,7 @@ plans_dir="$(dirname "$plan_dir")"
 repo_root="$(cd "$plans_dir/../.." && pwd)"
 zoom_dir="$(dirname "$plans_dir")/zooms/$(basename "$plan_dir")"   # mentor:zooming's plan-slug contract
 ls -t "$plans_dir"/*/plan.md 2>/dev/null              # ALL plans, newest first, incl. superseded — see below
-bash "${CLAUDE_PLUGIN_ROOT}/hooks/plan-state.sh" list # STATE per slug — a LABEL on the paths above, never a filter
+bash "${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:-}}/hooks/plan-state.sh" list # STATE per slug — a LABEL on the paths above, never a filter
 grep -A6 -i '^## Critical files' "$plans_dir"/*/plan.md 2>/dev/null   # the overlap signal: same files ⇒ related
 ls    "$zoom_dir"/*.html 2>/dev/null                  # the primary plan's supplementary zoom artifacts
 const_rel="$(jq -r '.constitution_path // empty' "$repo_root/.mentor/config.json" 2>/dev/null)"
@@ -192,8 +196,8 @@ the fold. Each call uses
 no skill load:
 
 ```bash
-[ -d "${CLAUDE_PLUGIN_ROOT}/hooks" ] || { echo "ERROR: CLAUDE_PLUGIN_ROOT unresolved or stale — do not search the plugin cache or hardcode a version path; ask the user to /reload-plugins or restart" >&2; exit 1; }
-bash "${CLAUDE_PLUGIN_ROOT}/hooks/plan-state.sh" policy
+[ -d "${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:-}}/hooks" ] || { echo "ERROR: Mentor helper unavailable — set PLUGIN_ROOT (or use the Claude compatibility fallback) or use the documented artifact fallback" >&2; exit 1; }
+bash "${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:-}}/hooks/plan-state.sh" policy
 ```
 
 Follow its printed guidance verbatim — it states the verdict, what to ask (or not ask),
@@ -258,7 +262,7 @@ Each `prompt` must contain:
    into all reviewers.
 9. Gitignore caveat: `If a claim in this plan rests on a repo-wide search finding
    nothing, re-check it before trusting it by running: bash
-   "${CLAUDE_PLUGIN_ROOT}/hooks/plan-state.sh" sweep '<pattern>' --roots repo — .mentor/
+   "${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:-}}/hooks/plan-state.sh" sweep '<pattern>' --roots repo — .mentor/
    is gitignored by design, so a recursive grep silently skips it. That subcommand hands
    grep an explicit file list instead of letting it walk, and its SWEEP: line reports how
    many files were actually read, so a zero result can be told apart from a search that
@@ -424,7 +428,7 @@ fixes. If every edit was skipped, skip the write.
 Step 4's walk can spend real budget, and this skill has no earlier context
 reading of its own to have grown stale — nothing measures it before this
 point, whether entered via Step 5 or, in Stage-2-only mode, directly. Run
-`bash "${CLAUDE_PLUGIN_ROOT}/hooks/plan-state.sh" context` and follow its
+`bash "${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:-}}/hooks/plan-state.sh" context` and follow its
 printed guidance verbatim rather than improvising a question: `ASK` hands you
 the exact `AskUserQuestion` to ask, with its hand-off and bypass options, and
 holds the dispatch below until it's answered; `HANDOFF`/`WARN` print a note to
@@ -546,7 +550,7 @@ must contain:
      scenario; Critical files mismatch (listed-but-unused, or touched-but-unlisted);
      `count-mismatch` — the plan states a count of its own change surface ("five
      call sites", "3 handlers"): sweep the named identifier with
-     `bash "${CLAUDE_PLUGIN_ROOT}/hooks/plan-state.sh" sweep '<identifier>' --roots repo`
+     `bash "${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:-}}/hooks/plan-state.sh" sweep '<identifier>' --roots repo`
      and reconcile the **whole** result set against the plan's list, since confirming
      each listed site cannot reveal the ones nobody listed. Use that subcommand rather
      than composing a recursive `grep`: recursion is what makes grep apply `.gitignore`,

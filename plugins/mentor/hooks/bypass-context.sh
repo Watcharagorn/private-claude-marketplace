@@ -16,7 +16,7 @@ set -euo pipefail
 
 repo_root="$(mentor_repo_root "$PWD")"
 state_dir="$(mentor_state_dir "$repo_root")"
-[ -z "$state_dir" ] && state_dir="${HOME}/.claude/mentor/_no-repo"
+[ -z "$state_dir" ] && state_dir="$(mentor_no_repo_state_dir)"
 
 mkdir -p -m 700 "$state_dir" 2>/dev/null || true
 [ -n "$repo_root" ] && mentor_ensure_gitignore "$state_dir"

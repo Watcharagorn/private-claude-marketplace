@@ -1,0 +1,4 @@
+interface:
+  display_name: "Dual-host Plugin Migrator"
+  short_description: "Port Claude plugins to Claude and Codex"
+  default_prompt: "Use $dual-host-plugin-migrator to convert this Claude Code plugin or marketplace for both Claude Code and Codex."

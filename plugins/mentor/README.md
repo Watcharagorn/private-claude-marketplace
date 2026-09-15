@@ -1,19 +1,21 @@
 # mentor
 
-A lean planning harness for Claude Code. One enforcement mechanism: `/mentor:plan`
-arms this worktree's plan gate marker (`.planning.<wt-id>` — one per git worktree
-since v2.23.0), and a single fail-closed `PreToolUse` hook blocks every repo edit in
-that worktree — even under `bypassPermissions` — until the plan is approved. Plans
-are **Mermaid-first Markdown** documents persisted in the repo's **`.mentor/`** dir
-(gitignored, shared across every worktree), with required per-topic visualizations
-and a mandatory **Use case scenarios** section proving the plan understood the
-request. They auto-open for review and are the single source of truth for
-implementation, handoff, and review.
+A lean, cross-host planning harness. Its portable core is a set of skills plus durable
+**Mermaid-first Markdown** plan artifacts in the repository's **`.mentor/`** directory
+(gitignored, shared across worktrees). The core can be selected directly from a natural-language
+request or a host skill picker in Claude Code, Codex, or another capable coding agent. Plans carry
+the decisions, visualizations, scenarios, and implementation contract used for handoff and review.
 
-**What mentor is — and is not.** Mentor is two gates and a set of skills: the edit gate
-keeps the repo read-only until a plan is approved, the context gate keeps sessions from
-silently outgrowing their window, and the skills surface methodology — planning, routing,
-verification, handoff — at the moment it applies. Mentor is **not** a workflow engine: no
+Claude Code adds an enforcement adapter: its `/mentor:plan` facade arms a worktree plan-gate marker
+(`.planning.<wt-id>`) and a fail-closed `PreToolUse` hook blocks repo edits until approval. Preserve
+that stronger behavior when the adapter is installed. Hosts without compatible hooks use the same
+explicit no-source-edits-before-approval rule as an advisory boundary and still write the plan under
+`.mentor/`; they must not pretend that an unavailable gate is enforced.
+
+**What mentor is — and is not.** Mentor is portable planning methodology plus host adapters. Where
+available, the edit gate keeps the repo read-only until a plan is approved and the context gate keeps
+sessions from silently outgrowing their window; the skills surface planning, routing, verification,
+and handoff at the moment they apply. Mentor is **not** a workflow engine: no
 component drives a multi-step run by re-polling script verdicts with nobody in the turn.
 (Single point-in-time reads like `gate`/`context`/`policy` are fine — the ban is on
 unattended sequencing, not on consulting state.) And every skill is an **independent
@@ -29,6 +31,13 @@ slim-down regrew 32 → 79 files in five weeks; this paragraph and
 
 ## Quick start
 
+On any supported host, ask naturally: **“Plan <what you want to build>”**, or invoke the
+`planning` skill directly. The result is a plan at `.mentor/plans/<slug>/plan.md`; use the host's
+structured question UI when available, otherwise answer the same focused questions in conversation.
+No source edit occurs before your explicit approval.
+
+### Claude Code command facade
+
 ```
 /mentor:mode plan-only        # optional: approval-gate default (plan | plan-only)
 /mentor:mode verify-only      # optional: dispatch preference (agents | verify-only)
@@ -36,7 +45,7 @@ slim-down regrew 32 → 79 files in five weeks; this paragraph and
 /mentor:plan <what you want to build>
 ```
 
-`/mentor:plan`:
+In Claude Code, `/mentor:plan` additionally:
 
 1. Runs `begin-plan.sh`, which writes this worktree's own `.planning.<wt-id>` marker
    — **arming the edit gate for this worktree**. From here, repo source edits in
@@ -61,14 +70,14 @@ slim-down regrew 32 → 79 files in five weeks; this paragraph and
    main thread orchestrates, subagents implement and verify (one fresh verifier
    agent per Verification topic, with no escape hatch).
 
-> `/mentor:plan` is **namespaced** — it cannot collide with Claude Code's native
+> This Claude Code facade is **namespaced** — it cannot collide with Claude Code's native
 > reserved `/plan` command. The same holds for every mentor command: they exist
 > **only** in `/mentor:<name>` form. A bare `/ship` or `/plan` is not mentor's —
 > it is whatever else claims that name, or nothing at all, and "nothing at all"
 > is the dangerous case: the assistant may improvise a substitute flow rather
 > than report that the command didn't resolve.
 
-> Enabling mentor **mid-session** (e.g. toggling it on in `.claude/settings.json`)
+> **Claude Code adapter note:** enabling mentor **mid-session** (e.g. toggling it on in `.claude/settings.json`)
 > doesn't make its commands or skills live in that same session — until you
 > `/reload-plugins` (or start a fresh session), neither `/mentor:ship` nor a
 > skill trigger like "dispatch agents" resolves, and Claude Code silently falls
@@ -78,7 +87,10 @@ slim-down regrew 32 → 79 files in five weeks; this paragraph and
 > then match it against the `Changes in vX.Y.Z` sections below to see whether
 > a given fix is in your copy.
 
-## Commands
+## Claude Code commands
+
+These commands are optional Claude Code facades over the portable skills and artifacts. On Codex or
+another host, invoke the matching skill or describe the same intent naturally.
 
 | Command | What it does |
 |---|---|
@@ -90,8 +102,8 @@ slim-down regrew 32 → 79 files in five weeks; this paragraph and
 | `/mentor:grill [topic]` | One-question-at-a-time interview that sharpens a design's open decisions before you build. Conversation only, beyond a settled trivial one-file change. |
 | `/mentor:handoff "<focus>"` | Compact the session into a handoff document (in its plan-topic folder, `.mentor/plans/<topic>/handoffs/`, gitignored) for a fresh agent; ends with copy-paste resume prompts (`/mentor:resume <slug>` + a plugin-free alternative). Also offered at the approval gate in two flavors — **Hand off to next agent** (approves and releases first; leads the options, marked **(Recommended)**, when the context gate warns or asks) and **Pause — still drafting** (hands off with the gate still armed and the plan still `draft`, so the next session continues planning). |
 | `/mentor:resume [slug\|number]` | List this repo's live handoff notes (across all plan topics) and continue the chosen one. A note is stamped **resolved** (moved to a `resolved/` subdir, never re-listed) only when its work completes per the plan file (`/mentor:ship` stamps too) or a nested `/mentor:handoff` supersedes it — unfinished work stays resumable. Also the drain door for parked work: `/mentor:resume <root>` works through a root plan's open fix children leaf-first, and `/mentor:resume <group>` finishes a split group's remaining siblings in `order` — each item through the normal plan → approve → build cycle. |
-| `/mentor:tour [user\|dev\|both] [subject]` | **Post-approval acceptance review**: an editable guided-tour artifact — scenario cards with pass/not-pass toggles, feedback capture, and MD/JSON report export — published to a stable URL that revisions republish in place. Subject defaults to the newest plan; artifacts live in `.mentor/tours/` (gitignored). |
-| `/mentor:zoom [subject] [topic] [perspective]` | **Topic × perspective HTML zoom of any subject** — a repo subsystem, a doc, a mentor plan, or the thing under discussion; no plan file or planning session required. One dispatched agent per combo writes a self-contained page to `.mentor/zooms/<subject-slug>/` (gitignored), auto-opened locally and **never published**. `plan` Step 5 delegates here for in-planning zooms. |
+| `/mentor:tour [user\|dev\|both] [subject]` | **Post-approval acceptance review**: an editable guided-tour set — scenario cards with pass/not-pass toggles, feedback capture, and local HTML/MD/JSON deliverables in `.mentor/tours/` (gitignored). Claude Artifact hosting is optional after those files exist. |
+| `/mentor:zoom [subject] [topic] [perspective]` | **Topic × perspective HTML zoom of any subject** — a repo subsystem, a doc, a mentor plan, or the thing under discussion; no plan file or planning session required. Each combo writes a self-contained local page to `.mentor/zooms/<subject-slug>/` (gitignored); workers are used when supported, otherwise the same contract runs serially. `plan` Step 5 delegates here for in-planning zooms. |
 | `/mentor:defer <item(s)>` | `git stash`-like capture, **manual only** — mentor never defers on your behalf; the harness names follow-ups and offers this command, and a gate that surfaces a finding runs the capture only on your explicit Defer verdict. Park one or many mid-flow discoveries (mid-planning or mid-implementation) as draft plan stubs at the normal plans location (`origin: "deferred"` in the sidecar, no separate stash area), then return to the interrupted flow. Picked up later via `/mentor:track`, which routes it to `/mentor:plan` to be claimed before it can build. An item that **blocks a plan's "really done"** — the active plan, or an already-implemented plan whose shipped work carries a confirmed defect — parks as a fix child under the plan that owns it (`--parent` = the owning plan's slug, nesting when that plan is itself a fix), so a plan can't read done while its fixes dangle. |
 | `/mentor:track [slug\|number\|status]` | Repo-wide remaining-work hierarchy — every plan's state, step progress, cross-plan `deps`, deferred stubs, and live handoffs — with fix children nested under their root and per-root open-descendant counts — then build the one you pick. The way back into a `/plan-split` group. |
 | `plan-split`* | Split an oversized plan into independently buildable sibling plans, each with explicit scope isolation; also offered as **Split into multiple plans** at the approval gate when a plan is oversized. |
@@ -179,13 +191,13 @@ v2.2.0, handoffs inside them since v2.10.0):
 ├── zooms/           # /mentor:zoom artifacts — <subject-slug>/<topic>-<perspective>.html
 │                    #   (pre-v2.12 they lived in plans/<slug>/zoom/; auto-relocated) ← gitignored
 ├── handoffs/        # legacy flat notes (pre-v2.10 — still listed, never written)
-└── tours/           # /mentor:tour review artifacts (<slug>-<audience>.html) ← gitignored
+└── tours/           # /mentor:tour review set (<slug>-<audience>.html/.md/.json) ← gitignored
 ```
 
 Only `config.json` and `constitution.md` are committed (team-shared); plans, zooms,
 handoffs, tours and the transient markers are gitignored. Un-ignore `plans/` if you want plans
-version-controlled. **Not in a git repo?** handoff/resume and the context gate fall
-back to `~/.claude/mentor/_no-repo/`.
+version-controlled. **Not in a git repo?** `plan-state.sh dir` resolves the configured portable
+state home (including `MENTOR_STATE_HOME` when set); skills must not hardcode a host config path.
 
 ## Splitting a big plan (`/plan-split`)
 

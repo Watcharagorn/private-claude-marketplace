@@ -19,6 +19,10 @@ description: |
 
 # Plan Split — One Oversized Plan → N Isolated Siblings
 
+## Host portability
+
+Use a structured question UI when the host offers one; otherwise ask the same focused question directly and wait for the answer. If delegated agents are unavailable or prohibited, perform the required research, review, or implementation serially and retain the same evidence, scope, and verification contract. Treat Mentor helpers as optional host integrations: resolve them with `PLUGIN_ROOT` first, then `CLAUDE_PLUGIN_ROOT`; if neither is available, work from the repository's durable `.mentor/` artifacts and report any state action that cannot be performed safely. This rule overrides later host-specific tool names, preserving user choice and plan continuity across hosts.
+
 `mentor:planning` assumes one ask = one plan. When the ask is huge, that single plan
 becomes unreviewable, its implementation runs out of context partway through, and a
 resumed session has to guess which steps already landed.
@@ -60,8 +64,8 @@ a neighbour's files.
 ## Step 1 — Resolve the plan and its state
 
 ```bash
-[ -d "${CLAUDE_PLUGIN_ROOT}/hooks" ] || { echo "ERROR: CLAUDE_PLUGIN_ROOT unresolved or stale — do not search the plugin cache or hardcode a version path; ask the user to /reload-plugins or restart" >&2; exit 1; }
-bash "${CLAUDE_PLUGIN_ROOT}/hooks/plan-state.sh" current
+[ -d "${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:-}}/hooks" ] || { echo "ERROR: Mentor helper unavailable — set PLUGIN_ROOT (or use the Claude compatibility fallback) or use the documented artifact fallback" >&2; exit 1; }
+bash "${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:-}}/hooks/plan-state.sh" current
 ```
 
 Use the `PLAN:` path it prints and `Read` that file. If it prints `GROUP:` other than
@@ -106,28 +110,33 @@ Aim for slices that are each independently implementable and roughly one session
 work. If N > 4, confirm the count and mention `MENTOR_PLAN_OPEN=off` — `plan-open.sh`
 opens every new `plan.md`, so a 6-way split pops six editor tabs.
 
-## Step 4 — Author the children by dispatch, one agent per slice
+## Step 4 — Author the children by bounded workers
 
-Issue one `Agent` call per slice (`subagent_type: general-purpose`, `model: sonnet`,
-`effort: high`), **all in a single message** so they run concurrently — the same
-pattern `mentor:zooming` Step 3 uses for zoom artifacts. Authoring in the main thread
-would defeat the purpose: the point is to keep the orchestrating context lean.
+Use one worker per slice when the host supports delegation, issuing them together when
+parallel execution is available. Otherwise author the slices serially in the main
+thread, preserving the same isolated scope and validation contract. Parallelism keeps
+the orchestrator lean; it is not a requirement for a correct split.
 
-Each subagent starts with **zero memory of this conversation and no
-`CLAUDE_PLUGIN_ROOT`**, so a prompt that says "follow the content spec at
-`{#write-the-plan}`" gives it nothing it can resolve. Resolve the paths first:
+Each worker starts with **zero memory of this conversation and no assumed plugin-root
+environment**, so a prompt that says "follow the content spec at `{#write-the-plan}`"
+gives it nothing it can resolve. Resolve portable paths first:
 
 ```bash
-[ -d "${CLAUDE_PLUGIN_ROOT}/hooks" ] || { echo "ERROR: CLAUDE_PLUGIN_ROOT unresolved or stale — cannot build subagent prompts; do not search the plugin cache or hardcode a version path; ask the user to /reload-plugins or restart" >&2; exit 1; }
-echo "${CLAUDE_PLUGIN_ROOT}/skills/planning/SKILL.md"
-mentor_dir="$(bash "${CLAUDE_PLUGIN_ROOT}/hooks/plan-state.sh" dir)"   # worktree-safe
-[ -n "$mentor_dir" ] || { echo "ERROR: mentor dir unresolved — is CLAUDE_PLUGIN_ROOT set? do not search the plugin cache or hardcode a version path; ask the user to /reload-plugins or restart" >&2; exit 1; }
+plugin_root="${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:-}}"
+if [ -n "$plugin_root" ] && [ -x "$plugin_root/hooks/plan-state.sh" ]; then
+  planning_skill="$plugin_root/skills/planning/SKILL.md"
+  mentor_dir="$(bash "$plugin_root/hooks/plan-state.sh" dir)"
+else
+  planning_skill=""
+  mentor_dir="$(git rev-parse --show-toplevel 2>/dev/null || pwd)/.mentor"
+fi
+printf 'PLANNING_SKILL=%s\nMENTOR_DIR=%s\n' "$planning_skill" "$mentor_dir"
 ls "$mentor_dir/constitution.md" 2>/dev/null   # include only if it exists
 # The one number every child's prompt quotes for the parent's size — take it from
 # query's own step-tick counter, never a hand-count: two agents dispatched from the
 # same hand-count have independently mis-derived it the same wrong way before.
 # `--slug` + `--fields` pulls exactly that one scalar, so there is no array to sift.
-parent_step_count="$(bash "${CLAUDE_PLUGIN_ROOT}/hooks/plan-state.sh" query \
+parent_step_count="$(bash "${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:-}}/hooks/plan-state.sh" query \
   --slug "<PARENT>" --format tsv --fields steps.total)"
 ```
 
@@ -136,8 +145,8 @@ this is what stamps ownership at creation, not after.** For each slice:
 
 ```bash
 # Re-derive: the path block above ran as its own Bash call, so $mentor_dir is gone here.
-mentor_dir="$(bash "${CLAUDE_PLUGIN_ROOT}/hooks/plan-state.sh" dir)"
-bash "${CLAUDE_PLUGIN_ROOT}/hooks/plan-state.sh" ensure-dir "${mentor_dir}/plans/<CHILD-SLUG>"
+mentor_dir="$(bash "${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:-}}/hooks/plan-state.sh" dir)"
+bash "${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:-}}/hooks/plan-state.sh" ensure-dir "${mentor_dir}/plans/<CHILD-SLUG>"
 ```
 
 `ensure-dir` stamps `owner`/`owner_session` on a plan-topic dir the instant it is
@@ -195,8 +204,8 @@ than the rare one. Confirm it will actually land, once, before the first child g
 no skill load:
 
 ```bash
-[ -d "${CLAUDE_PLUGIN_ROOT}/hooks" ] || { echo "ERROR: CLAUDE_PLUGIN_ROOT unresolved or stale — do not search the plugin cache or hardcode a version path; ask the user to /reload-plugins or restart" >&2; exit 1; }
-bash "${CLAUDE_PLUGIN_ROOT}/hooks/plan-state.sh" policy
+[ -d "${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:-}}/hooks" ] || { echo "ERROR: Mentor helper unavailable — set PLUGIN_ROOT (or use the Claude compatibility fallback) or use the documented artifact fallback" >&2; exit 1; }
+bash "${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:-}}/hooks/plan-state.sh" policy
 ```
 
 Follow its printed guidance verbatim — it states the verdict, what to ask (or not
@@ -239,7 +248,7 @@ with no children, which would delete the user's plan.
    it is non-empty and opens with its isolation header, then IMMEDIATELY register
    that one child:
    ```bash
-   bash "${CLAUDE_PLUGIN_ROOT}/hooks/plan-state.sh" init <child-slug> --group <parent-slug> --order <n>
+   bash "${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:-}}/hooks/plan-state.sh" init <child-slug> --group <parent-slug> --order <n>
    ```
    `init` re-stamps `owner`/`owner_session` for this worktree (Step 4's `ensure-dir`
    already stamped it at mint time — this is the last-init-wins re-own, and the
@@ -274,7 +283,7 @@ with no children, which would delete the user's plan.
    out.
 4. **Finally** retire the parent:
    ```bash
-   bash "${CLAUDE_PLUGIN_ROOT}/hooks/plan-state.sh" set <parent-slug> superseded
+   bash "${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:-}}/hooks/plan-state.sh" set <parent-slug> superseded
    ```
    The parent's `plan.md` stays on disk as the record of the whole; `superseded` just
    removes it from "the current plan" and sorts it last.
@@ -334,13 +343,13 @@ the split hasn't been through `/plan-review` yet, say so before deleting.
 1. **Resolve paths the same worktree-safe way Step 4 does — never a bare `.mentor/plans/`,**
    which resolves against the wrong tree in a linked worktree:
    ```bash
-   plans_dir="$(bash "${CLAUDE_PLUGIN_ROOT}/hooks/plan-state.sh" dir --plans)"
+   plans_dir="$(bash "${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:-}}/hooks/plan-state.sh" dir --plans)"
    ```
 2. **Check the structural links mechanically first — `plan-state.sh` already has the answer,
    so don't grep for it:**
    ```bash
-   bash "${CLAUDE_PLUGIN_ROOT}/hooks/plan-state.sh" query --subtree <retiring-slug>
-   bash "${CLAUDE_PLUGIN_ROOT}/hooks/plan-state.sh" list --group <retiring-slug>
+   bash "${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:-}}/hooks/plan-state.sh" query --subtree <retiring-slug>
+   bash "${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:-}}/hooks/plan-state.sh" list --group <retiring-slug>
    ```
    Every child born from this split still names the parent as its `group` — that's expected
    lineage, not a reason to keep the directory. What matters is anything **outside** this split's
@@ -354,8 +363,8 @@ the split hasn't been through `/plan-review` yet, say so before deleting.
    # Re-derive: step 1's block was a separate Bash call and its variables are gone. An unset
    # $plans_dir would make grep search the cwd instead of the repo's plans, reporting a
    # false-clean sweep — guarded below rather than left to fail silently.
-   [ -d "${CLAUDE_PLUGIN_ROOT}/hooks" ] || { echo "ERROR: CLAUDE_PLUGIN_ROOT unresolved or stale — do not search the plugin cache or hardcode a version path; ask the user to /reload-plugins or restart" >&2; exit 1; }
-   plans_dir="$(bash "${CLAUDE_PLUGIN_ROOT}/hooks/plan-state.sh" dir --plans)"
+   [ -d "${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:-}}/hooks" ] || { echo "ERROR: Mentor helper unavailable — set PLUGIN_ROOT (or use the Claude compatibility fallback) or use the documented artifact fallback" >&2; exit 1; }
+   plans_dir="$(bash "${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:-}}/hooks/plan-state.sh" dir --plans)"
    [ -d "$plans_dir" ] || { echo "ERROR: plans dir unresolved — do not fall back to a relative path; the sweep would report a false clean" >&2; exit 1; }
    # Safe ONLY because the traversal root is "$plans_dir", which sits BELOW the
    # .mentor/.gitignore holding `*`: a grep collects ignore files at or below its own root

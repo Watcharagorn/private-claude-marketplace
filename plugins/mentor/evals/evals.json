@@ -1,6 +1,6 @@
 {
-  "eval_name": "mentor-v2.14.0-multi-skill-triggering",
-  "note": "Multi-class: every query is scored on WHICH mentor skill fires, not whether one does. 'none' means no mentor skill should be consulted.",
+  "eval_name": "mentor-v3.1.0-cross-host-skill-routing",
+  "note": "Cross-host multi-class routing: every query is scored on WHICH mentor skill fires, not whether one does. 'none' means no mentor skill should be consulted.",
   "skills_in_play": [
     "planning",
     "plan-split",
@@ -134,8 +134,8 @@
     },
     {
       "id": 20,
-      "expected": "none",
-      "tests": "DESIGN CHECK: a fresh planning ask must NOT be grabbed by any sibling skill; the /mentor:plan COMMAND is the only entry point (it arms the gate first), and mentor:planning is its non-triggering body",
+      "expected": "planning",
+      "tests": "CROSS-HOST ENTRY: a fresh natural-language planning ask routes to the portable planning skill; Claude may add its command/hook gate, while Codex continues guidance-first",
       "query": "help me plan the auth refactor — new JWT rotation, a redis session store, and ripping out the old cookie flow. touches api/auth/* and the middleware"
     },
     {

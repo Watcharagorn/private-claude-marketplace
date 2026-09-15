@@ -1,0 +1,147 @@
+#!/usr/bin/env bash
+# Verify one marketplace plugin through the host-neutral release gate.
+set -euo pipefail
+
+repo_root="$(cd "$(dirname "$0")/.." && pwd -P)"
+plugin_name="${1:-}"
+
+usage() {
+  echo "Usage: scripts/verify-plugin-edits <plugin>" >&2
+}
+
+if [ -z "$plugin_name" ]; then
+  usage
+  exit 2
+fi
+
+plugin_dir="$repo_root/plugins/$plugin_name"
+if [ ! -d "$plugin_dir" ]; then
+  echo "FAIL plugin does not exist: plugins/$plugin_name" >&2
+  exit 2
+fi
+
+pass_count=0
+warn_count=0
+fail_count=0
+
+pass() { pass_count=$((pass_count + 1)); printf 'PASS %s\n' "$1"; }
+warn() { warn_count=$((warn_count + 1)); printf 'WARN %s\n' "$1" >&2; }
+fail() { fail_count=$((fail_count + 1)); printf 'FAIL %s\n' "$1" >&2; }
+
+make_smoke_root() {
+  local smoke_base="${TMPDIR:-/tmp}"
+  smoke_base="${smoke_base%/}"
+  mktemp -d "$smoke_base/marketplace-verify.XXXXXX"
+}
+
+remove_smoke_root() {
+  local smoke_root="$1"
+  local smoke_base="${TMPDIR:-/tmp}"
+  smoke_base="${smoke_base%/}"
+  case "$smoke_root" in
+    "$smoke_base"/marketplace-verify.*) rm -rf -- "$smoke_root" ;;
+    *) warn "refused to clean unexpected smoke directory: $smoke_root" ;;
+  esac
+}
+
+run_required() {
+  local label="$1"
+  shift
+  if "$@"; then
+    pass "$label"
+  else
+    fail "$label"
+  fi
+}
+
+marketplace_tool="$repo_root/scripts/marketplace"
+if [ -x "$marketplace_tool" ]; then
+  run_required "canonical marketplace validation ($plugin_name)" \
+    "$marketplace_tool" validate "$plugin_name"
+  run_required "canonical deterministic tests ($plugin_name)" \
+    "$marketplace_tool" test "$plugin_name"
+else
+  fail "canonical marketplace tool is missing or not executable: scripts/marketplace"
+  fail "canonical deterministic tests unavailable without scripts/marketplace"
+fi
+
+validator="${SKILL_CREATOR_VALIDATOR:-}"
+if [ -z "$validator" ]; then
+  for skill_root in \
+    "${CODEX_HOME:-$HOME/.codex}/skills" \
+    "${CLAUDE_CONFIG_DIR:-$HOME/.claude}/plugins/cache"; do
+    [ -d "$skill_root" ] || continue
+    validator="$(find "$skill_root" -path '*skill-creator*/scripts/quick_validate.py' -type f 2>/dev/null | sort | tail -1)"
+    [ -n "$validator" ] && break
+  done
+fi
+
+if [ -n "$validator" ] && [ -f "$validator" ]; then
+  python_runner="${PYTHON:-python3}"
+  if command -v "$python_runner" >/dev/null 2>&1 && "$python_runner" -c 'import yaml' >/dev/null 2>&1; then
+    while IFS= read -r skill_dir; do
+      [ -n "$skill_dir" ] || continue
+      run_required "quick_validate ${skill_dir#"$repo_root/"}" "$python_runner" "$validator" "$skill_dir"
+    done < <(find "$plugin_dir/skills" -mindepth 1 -maxdepth 1 -type d 2>/dev/null | sort)
+  elif command -v uv >/dev/null 2>&1; then
+    while IFS= read -r skill_dir; do
+      [ -n "$skill_dir" ] || continue
+      run_required "quick_validate ${skill_dir#"$repo_root/"}" \
+        uv run --with pyyaml python "$validator" "$skill_dir"
+    done < <(find "$plugin_dir/skills" -mindepth 1 -maxdepth 1 -type d 2>/dev/null | sort)
+  else
+    warn "quick_validate skipped: Python with PyYAML and uv are unavailable"
+  fi
+else
+  warn "quick_validate skipped: skill-creator validator is unavailable (set SKILL_CREATOR_VALIDATOR)"
+fi
+
+if command -v claude >/dev/null 2>&1; then
+  run_required "Claude manifest validation" claude plugin validate --strict "$plugin_dir"
+  claude_smoke_root="$(make_smoke_root)"
+  if (
+    mkdir -p "$claude_smoke_root/config" "$claude_smoke_root/work"
+    cd "$claude_smoke_root/work"
+    env CLAUDE_CONFIG_DIR="$claude_smoke_root/config" \
+      claude plugin marketplace add "$repo_root" --scope user >/dev/null
+    env CLAUDE_CONFIG_DIR="$claude_smoke_root/config" \
+      claude plugin install "$plugin_name@private-marketplace" --scope user --json >/dev/null
+    env CLAUDE_CONFIG_DIR="$claude_smoke_root/config" \
+      claude plugin list --json | grep -q '"enabled": true'
+  ); then
+    pass "Claude clean-cache marketplace install"
+  else
+    fail "Claude clean-cache marketplace install"
+  fi
+  remove_smoke_root "$claude_smoke_root"
+else
+  warn "Claude CLI unavailable; skipped Claude host validation"
+fi
+
+if command -v codex >/dev/null 2>&1; then
+  if codex plugin --help >/dev/null 2>&1; then
+    pass "Codex plugin CLI available"
+    codex_smoke_root="$(make_smoke_root)"
+    if (
+      mkdir -p "$codex_smoke_root/config"
+      env CODEX_HOME="$codex_smoke_root/config" \
+        codex plugin marketplace add "$repo_root" --json >/dev/null
+      env CODEX_HOME="$codex_smoke_root/config" \
+        codex plugin add "$plugin_name@private-marketplace" --json >/dev/null
+      env CODEX_HOME="$codex_smoke_root/config" \
+        codex plugin list --json | grep -q '"enabled": true'
+    ); then
+      pass "Codex clean-cache marketplace install"
+    else
+      fail "Codex clean-cache marketplace install"
+    fi
+    remove_smoke_root "$codex_smoke_root"
+  else
+    fail "Codex plugin CLI did not start"
+  fi
+else
+  warn "Codex CLI unavailable; skipped Codex host availability check"
+fi
+
+printf 'RESULT plugin=%s pass=%s warn=%s fail=%s\n' "$plugin_name" "$pass_count" "$warn_count" "$fail_count"
+[ "$fail_count" -eq 0 ]

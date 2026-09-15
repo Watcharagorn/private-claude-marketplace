@@ -11,8 +11,8 @@ description: >-
   monochrome pane; building an lnav log format; or when an edited pane script "isn't showing
   changes". Reach for it even when the user never says "tmux" — "why is my watch pane stale"
   counts. Trigger phrases — "audit my tmux panes", "add a shortcut to this pane",
-  /tmux-design:console [setup|redesign|audit]. For how it should LOOK — themes, boxes,
-  bars, badges, status-bar and border styling — use tmux-design:decorate; a whole-workspace
+  setup, redesign, or audit workflows. For how it should LOOK — themes, boxes,
+  bars, badges, status-bar and border styling — use the `decorate` skill; a whole-workspace
   polish runs both.
 ---
 
@@ -24,10 +24,34 @@ everything renders through a formatter (a table renderer, gum, lnav, viddy) with
 and in-place refresh. A pane is glanced at hundreds of times a day; every formatting decision
 below exists to make that glance faster.
 
+## Bundled resource paths
+
+`<tmux-design-root>` in this skill and its references means the absolute plugin root. Resolve it
+fresh in each shell invocation: prefer `PLUGIN_ROOT`; accept `CLAUDE_PLUGIN_ROOT` when Claude Code
+provides it; otherwise take the absolute path of this loaded `SKILL.md` from the active-skill
+context and walk two directories up. Do not copy the angle-bracket placeholder literally or assume
+a variable set in an earlier Bash call still exists.
+
+```bash
+tmux_design_root="${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:-}}"
+if [ -z "$tmux_design_root" ]; then
+  skill_md="/absolute/path/to/the/loaded/skills/console/SKILL.md"
+  tmux_design_root="$(cd "$(dirname "$skill_md")/../.." && pwd)"
+fi
+[ -f "$tmux_design_root/scripts/renderer_template.py" ] \
+  || { echo "tmux-design root is unresolved: $tmux_design_root" >&2; exit 1; }
+```
+
+For another standalone command block, substitute `<tmux-design-root>` with that resolved absolute
+path (or repeat the resolver above with that block's loaded `SKILL.md` path).
+For example, the Claude Code compatibility branch resolves the width checker as
+`${CLAUDE_PLUGIN_ROOT}/scripts/check_cols.py`; Codex may instead provide the identical location
+through `PLUGIN_ROOT`, and the loaded-skill fallback reaches it without either variable.
+
 ## When NOT to use
 
 - Styling *decisions* — themes, palettes, boxes, charts, status-bar or pane-border appearance,
-  popups (use `tmux-design:decorate`; this skill wires panes up, that one decides how they look).
+  popups (use `decorate`; this skill wires panes up, that one decides how they look).
   A whole-workspace request — "make my panes nicer", "maximize the UX of this session" — is
   normally **both** skills in sequence rather than a reason to stop here: wire and verify in this
   skill, and load `decorate` for the look instead of inventing one inline
@@ -55,9 +79,9 @@ Enforce these in every pane you create or touch:
    A renderer may own the redraw itself rather than being wrapped — but only when motion **encodes
    data** *and* the paint cadence must exceed the data cadence. Anything short of both: use viddy.
    See "Status-driven animated glyphs" in
-   `${CLAUDE_PLUGIN_ROOT}/skills/decorate/references/primitives.md` for what that owes
+   `<tmux-design-root>/skills/decorate/references/primitives.md` for what that owes
    you, and "Verifying an own-loop pane" in
-   `${CLAUDE_PLUGIN_ROOT}/skills/console/references/verifying-pane-shapes.md` for how to check it.
+   `<tmux-design-root>/skills/console/references/verifying-pane-shapes.md` for how to check it.
 
    A pane the user **types into** — gum prompts, a menu loop — is a third shape, and neither the
    wrapper nor the own-loop carve-out covers it: it repaints on input, not on a clock, so there is no
@@ -72,12 +96,12 @@ Enforce these in every pane you create or touch:
 3. **Always emit color.** Panes aren't TTYs — never rely on a library's auto-detection, it will
    silently strip everything. `NO_COLOR` (non-empty) is the opt-out, and `FORCE_COLOR=0` or an empty/`dumb` `TERM` also
    disable it. *Which* colors is
-   `tmux-design:decorate`'s call: it owns the semantic roles, the named themes, and the
+   `decorate` skill's call: it owns the semantic roles, the named themes, and the
    truecolor→256→16 degradation. A pane that emits raw color codes instead of naming a role
    can't be re-themed, so route palette questions there rather than hardcoding here.
 
    That routing is easy to skip once you are already deep in a console task and chrome is the last
-   thing left, so treat these four as the moment to load `tmux-design:decorate` *before* typing the
+   thing left, so treat these four as the moment to load `decorate` *before* typing the
    next command: you are about to set `status-*`, `window-status-*`, or `pane-border-*`; you are
    about to write a literal `colour###` or `#rrggbb` anywhere; you are about to name a color for a
    **TUI you are writing** — a curses `init_pair`, an attribute table, any color constant the widget
@@ -96,14 +120,14 @@ Enforce these in every pane you create or touch:
 4. **Tables**: bold header row, thin rule under it, two-space column gaps, right-aligned
    numerics. Pad with **display-column** width math, not `len()` — `⛔ blocked` is 9 characters
    and 10 columns, and colored or hyperlinked cells are mostly invisible bytes. Use the kit's
-   `vlen()`/`pad()`; see `${CLAUDE_PLUGIN_ROOT}/skills/decorate/references/primitives.md`. If the
+   `vlen()`/`pad()`; see `<tmux-design-root>/skills/decorate/references/primitives.md`. If the
    renderer you are extending isn't Python, those helpers aren't reachable and the shell's own
    padding is wrong in a way that hides — read rule 7's foreign-language branch before padding
    anything. Strip trailing zeros from exchange
    decimals (`60800.00000000` → `60800`). Negative money as `-$150.78`, never `$-150.78`.
 5. **Semantic marks**: a mark is read faster than a word — `▰▱` proximity gauges, category dots,
    `∅ none` (dim) for empty sections. Prefer marks that are one column wide in every locale;
-   `${CLAUDE_PLUGIN_ROOT}/skills/decorate/references/primitives.md`
+   `<tmux-design-root>/skills/decorate/references/primitives.md`
    has the safe set and the emoji-width trap.
 6. **Timestamps in the reader's local timezone**, short form `12 Jul 19:55` — a pane is glanced
    at, and mentally converting UTC costs more than the timestamp saves. Color heartbeats by
@@ -135,9 +159,9 @@ Enforce these in every pane you create or touch:
    doesn't contain:
    ```bash
    w=100
-   <renderer command> | python3 "${CLAUDE_PLUGIN_ROOT}/scripts/check_cols.py" "$w" --reserve 1
+   <renderer command> | python3 "<tmux-design-root>/scripts/check_cols.py" "$w" --reserve 1
    WIDTH_FIXTURE='⛔ blocked  日本語製品  🧑‍🌾 farmer' \
-     <renderer command> | python3 "${CLAUDE_PLUGIN_ROOT}/scripts/check_cols.py" "$w" --reserve 1
+     <renderer command> | python3 "<tmux-design-root>/scripts/check_cols.py" "$w" --reserve 1
    ```
    Silence and a zero exit on **both** is the pass. The first line is verify-loop step 2 and it
    passes on ASCII data no matter how the padding was computed — only a row carrying a wide glyph, a
@@ -148,14 +172,14 @@ Enforce these in every pane you create or touch:
    If there is none, copy the bundled
    starter into the project's `scripts/` and adapt it:
    ```bash
-   cp "${CLAUDE_PLUGIN_ROOT}/scripts/renderer_template.py" scripts/<name>_view.py
-   python3 "${CLAUDE_PLUGIN_ROOT}/scripts/renderer_template.py" demo   # see the standard rendered
+   cp "<tmux-design-root>/scripts/renderer_template.py" scripts/<name>_view.py
+   python3 "<tmux-design-root>/scripts/renderer_template.py" demo   # see the standard rendered
    ```
    It ships `c() role_index() vlen() pad() trunc() sanitize() title() table() panel() divider() spread() bar() sparkline()
    badge() kv() gauge() freshness() pane_width() pane_height() invalidate_pane_size()` plus theme
    resolution and local-timezone handling, so the fiddly parts (display-column padding, palette,
    degradation, and asking tmux for the pane's real size) are already right. Richer tools only if already
-   installed — `command -v gum viddy lnav jq bat glow`; `${CLAUDE_PLUGIN_ROOT}/skills/decorate/references/tooling.md` has the
+   installed — `command -v gum viddy lnav jq bat glow`; `<tmux-design-root>/skills/decorate/references/tooling.md` has the
    invocations and the force-color rules that make them work in a pane.
 
    Adapting the starter means importing or copying its helpers, **not re-deriving them** — and
@@ -218,7 +242,7 @@ Enforce these in every pane you create or touch:
    sha, an AWS region) is correct and flagging it spends the check's credibility, which is the same
    reason `cluster_width` guards the Python branch. What a hit *is* good for is deciding: a padded
    field that can ever hold a name, a path, a branch or a status glyph belongs in the
-   foreign-language branch above, and a palette hit belongs in `tmux-design:decorate` as a named
+   foreign-language branch above, and a palette hit belongs in `decorate` as a named
    role. A raw-palette hit is also the one reliable signal that the pane can't be re-themed
    (rule 3) — `grep -c TMUX_DESIGN_THEME "$r"` returning 0 alongside it confirms it.
    The `cluster_width` guard is what keeps this quiet on a renderer that copied the kit wholesale —
@@ -229,7 +253,7 @@ Enforce these in every pane you create or touch:
    pre-existing one you extended, whose own `pad()` is built on its own width model. The `;` in the palette pattern earns
    its place the same way — `PORT = "8080"` is not a color, and flagging it would spend the check's
    credibility on a constant. A hit on either line means you re-derived: take the width helpers from
-   the kit, and the color literal to `tmux-design:decorate` as a named role. A silent run still owes
+   the kit, and the color literal to `decorate` as a named role. A silent run still owes
    you one look at the padding path, because no name-based grep can see a file that defines *two*
    width functions and pads with the ASCII-only one while a correct one sits unused beside it.
 8. **Refresh cadence matches data cadence** — 90s for fast-moving state, 120s+ for slow. Render
@@ -291,7 +315,7 @@ Enforce these in every pane you create or touch:
    laptops, which is the same trap as PageUp/PageDown and `⌥`-combinations. Prefer a plain
    letter or `Ctrl`-letter key, or ship one as an alias alongside the pretty binding, and read
    "Keys that do not arrive the way you think" in
-   `${CLAUDE_PLUGIN_ROOT}/skills/console/references/verifying-pane-shapes.md` before committing to
+   `<tmux-design-root>/skills/console/references/verifying-pane-shapes.md` before committing to
    a key. Whichever key ships, the hint row above has to advertise **that** one — advertising a key
    the user's terminal eats is worse than advertising nothing.
 
@@ -312,7 +336,7 @@ Enforce these in every pane you create or touch:
    the binding actually loaded.
 
    Verify it per "Verifying a pane keybinding" in
-   `${CLAUDE_PLUGIN_ROOT}/skills/console/references/verifying-pane-shapes.md` — a `bind-key` is the
+   `<tmux-design-root>/skills/console/references/verifying-pane-shapes.md` — a `bind-key` is the
    one shape no capture can reach. There is deliberately no `audit` sweep for this
    rule — `list-keys` cannot say which pane a binding targets, so a sweep would flag correct
    bindings, and a check that flags correct work is one you learn to ignore.
@@ -377,11 +401,11 @@ that shrank is the one nobody captures.
    rows always, plus the right-hand column once your content fills the pane), and
    `pane-border-status top` costs another row per pane. Subtract the wrapper's cut before sizing
    anything, and measure *after* loading chrome rather than before — see "Motion, repaint, and the
-   wrapper's cut" in `${CLAUDE_PLUGIN_ROOT}/skills/decorate/references/primitives.md`.
+   wrapper's cut" in `<tmux-design-root>/skills/decorate/references/primitives.md`.
 3. Write or update the one-shot renderer (import/reuse the project's existing loader functions —
    don't duplicate parsing logic). **Settle the shape before you write it**: under rule 2's own-loop
    carve-out the renderer owes the requirements list in "Status-driven animated glyphs"
-   (`${CLAUDE_PLUGIN_ROOT}/skills/decorate/references/primitives.md`), and it budgets its real estate
+   (`<tmux-design-root>/skills/decorate/references/primitives.md`), and it budgets its real estate
    *without* the wrapper's cut step 2 just subtracted. Read that list before the first line rather
    than after the first render — every item on it is structural, so retrofitting one ("refetch on
    resize" is the one that gets missed) costs a second edit pass.
@@ -403,7 +427,7 @@ that shrank is the one nobody captures.
    loop, which *replaces* viddy rather than being wrapped by it: exec the loop itself, and let the
    requirements list's one-variable fallback be the thing that flips the pane back to viddy when the
    loop misbehaves. Verify it through "Verifying an own-loop pane" in
-   `${CLAUDE_PLUGIN_ROOT}/skills/console/references/verifying-pane-shapes.md` — steps 1, 2 and 4 all
+   `<tmux-design-root>/skills/console/references/verifying-pane-shapes.md` — steps 1, 2 and 4 all
    change for that shape, and step 2 **hangs** if you run it as written.
 
 ### audit — enforce the standard across a session
@@ -531,7 +555,8 @@ were launched with, which is why "I edited it but nothing changed" happens. Afte
    the kit's own `vlen()` — the same function the renderers pad and truncate with — and budgets
    against the pane **minus the wrapper's cut** rather than the pane:
    ```bash
-   check="${CLAUDE_PLUGIN_ROOT:?unset — the plugin loader sets it}/scripts/check_cols.py"
+   # Replace <tmux-design-root> using the resolver above in this separate Bash call.
+   check="<tmux-design-root>/scripts/check_cols.py"
    rc=0
    for w in 60 100 160; do
      TMUX_PANE_WIDTH=$w <renderer command> | python3 "$check" "$w" --reserve 1 || rc=1
@@ -687,7 +712,7 @@ were launched with, which is why "I edited it but nothing changed" happens. Afte
    came back — which is the case that catches people, because no edit was made and so this loop was
    never entered. Waiting hands you an indeterminate frame; a respawn hands you a determinate one.
    The exception is a **two-clock** own-loop pane ("Two clocks, never one" in
-   `${CLAUDE_PLUGIN_ROOT}/skills/decorate/references/primitives.md`): respawning restarts the
+   `<tmux-design-root>/skills/decorate/references/primitives.md`): respawning restarts the
    *painter*, which repaints the cache instantly and animates a confident, healthy-looking frame over
    the stale data you were trying to clear. Run its one-shot mode, which fetches synchronously, and
    read `freshness()` rather than the motion — under two clocks, motion says the monitor is alive and
@@ -708,7 +733,7 @@ renderer that **owns its paint loop** has no stable frame for step 1 to sample, 
 pane shows a function of what has been typed, and a **`bind-key`** lives in the client's key dispatch
 where no `send-keys` at the pane can reach it. Each needs its own procedure, and each is
 reference-grade depth rather than something to re-derive at the keyboard — read
-`${CLAUDE_PLUGIN_ROOT}/skills/console/references/verifying-pane-shapes.md` and follow the subsection
+`<tmux-design-root>/skills/console/references/verifying-pane-shapes.md` and follow the subsection
 matching the pane in front of you. Skipping it is the expensive move here: every one of these shapes
 has a *pass-shaped* failure (an empty capture, a plausible "saved" frame, two exit-0 key sends that
 did nothing), so improvising the verification tends to produce a confident pass over a broken pane.

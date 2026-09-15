@@ -6,6 +6,10 @@ description: >
 
 # Resume — Continue a Handoff Note, a Parked Fix, or a Split Group
 
+## Host portability
+
+Use a structured question UI when the host offers one; otherwise ask the same focused question directly and wait for the answer. If delegated agents are unavailable or prohibited, perform the required research, review, or implementation serially and retain the same evidence, scope, and verification contract. Treat Mentor helpers as optional host integrations: resolve them with `PLUGIN_ROOT` first, then `CLAUDE_PLUGIN_ROOT`; if neither is available, work from the repository's durable `.mentor/` artifacts and report any state action that cannot be performed safely. This rule overrides later host-specific tool names, preserving user choice and plan continuity across hosts.
+
 This skill is the **consume** side of `/mentor:handoff`, and the **continuation** side of a fix
 parked mid-flow (`mentor:deferring`'s parent-aware capture) or a plan-split left half-built
 (`mentor:plan-split`). `/mentor:handoff` compacts a session into a self-contained handoff document
@@ -59,8 +63,8 @@ Derive the per-repo mentor dir via the shared subcommand — the same call `/men
 uses, so reading and writing agree by construction:
 
 ```bash
-mentor_dir="$(bash "${CLAUDE_PLUGIN_ROOT}/hooks/plan-state.sh" dir)"
-[ -n "$mentor_dir" ] || { echo "ERROR: mentor dir unresolved — is CLAUDE_PLUGIN_ROOT set? do not search the plugin cache or hardcode a version path; ask the user to /reload-plugins or restart" >&2; exit 1; }
+mentor_dir="$(bash "${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:-}}/hooks/plan-state.sh" dir)"
+[ -n "$mentor_dir" ] || { echo "ERROR: Mentor state directory unresolved — set PLUGIN_ROOT (or use the Claude compatibility fallback) or derive the repository .mentor directory" >&2; exit 1; }
 echo "$mentor_dir"
 ```
 
@@ -106,28 +110,21 @@ A snippet that lists conforming notes newest-first with their topic and focus pr
 deliberately `find`-based, not glob-based — an unmatched glob aborts the whole command under zsh
 (and either location may legitimately be empty), while `find` just yields nothing for a missing dir:
 
-**Plugin-wide convention:** every Bash call anywhere in mentor that dereferences
-`${CLAUDE_PLUGIN_ROOT}` guards it first — a new Bash tool call is a new shell, so a guard earlier
-in the same skill does not cover it. Applies across every skill/command in this plugin, not just
-here; when adding a new `${CLAUDE_PLUGIN_ROOT}` call, grep for `CLAUDE_PLUGIN_ROOT unresolved` to
-match the existing wording rather than inventing a new one.
-
-Always write the guard against the **braced** `${CLAUDE_PLUGIN_ROOT}` — never the bare
-`$CLAUDE_PLUGIN_ROOT`. Claude Code substitutes only the braced token into command/skill text at
-load time; it never exports a `CLAUDE_PLUGIN_ROOT` variable into the Bash tool's environment
-(hooks get the env var, Bash tool calls do not). So `[ -n "$CLAUDE_PLUGIN_ROOT" ]` reads an empty
-string every time and the guard fails unconditionally — v2.32.0 and earlier shipped exactly that
-bug, aborting `/mentor:track` and friends in every repo. Testing the braced path instead is
-correct in both directions: when the plugin is loaded the token becomes a real absolute path and
-the check passes; when it is stale or unresolved the token survives literally, expands to nothing,
-and the check fails loudly as intended.
+**Plugin-wide convention:** every separate Bash call that needs a Mentor helper starts with
+`plugin_root="${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:-}}"` and tests the concrete helper path. Shell
+calls do not share variables, so a guard in an earlier snippet does not protect a later one.
+`PLUGIN_ROOT` is the portable contract; `CLAUDE_PLUGIN_ROOT` is a compatibility fallback for the
+Claude command facade. If neither resolves, use the repository's durable `.mentor/` artifacts when
+the operation can be completed safely, or report the unavailable state operation rather than
+guessing a host cache path. This avoids a host-specific path assumption while keeping existing
+Claude helper behavior intact.
 
 ```bash
 # Re-derive: Step 1's block was a separate Bash call and its variables are gone. An unset
 # $mentor_dir would make `find` search "/plans" and "/handoffs" instead of the repo's —
 # guarded below rather than left to fail silently.
-mentor_dir="$(bash "${CLAUDE_PLUGIN_ROOT}/hooks/plan-state.sh" dir)"
-[ -n "$mentor_dir" ] || { echo "ERROR: mentor dir unresolved — is CLAUDE_PLUGIN_ROOT set? do not search the plugin cache or hardcode a version path; ask the user to /reload-plugins or restart" >&2; exit 1; }
+mentor_dir="$(bash "${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:-}}/hooks/plan-state.sh" dir)"
+[ -n "$mentor_dir" ] || { echo "ERROR: Mentor state directory unresolved — set PLUGIN_ROOT (or use the Claude compatibility fallback) or derive the repository .mentor directory" >&2; exit 1; }
 i=0; skipped=""
 while IFS= read -r f; do
   base="$(basename "$f")"
@@ -171,7 +168,7 @@ drain_rows=()
 while IFS="$(printf '\t')" read -r rslug rgroup rstate n; do
   [ -n "$rslug" ] || continue
   drain_rows+=("${rslug}$(printf '\t')${rgroup}$(printf '\t')${rstate}$(printf '\t')${n:-0}")
-done < <(bash "${CLAUDE_PLUGIN_ROOT}/hooks/plan-state.sh" query --roots --open-counts \
+done < <(bash "${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:-}}/hooks/plan-state.sh" query --roots --open-counts \
            --format tsv --fields slug,group,state,open_descendants)
 printed_roots=" "   # slugs already given a [drain: root] row — the lineage pass below dedupes on it
 for row in "${drain_rows[@]}"; do   # ungrouped roots with open descendants
@@ -220,7 +217,7 @@ while read -r lcount lslug; do
   case "$printed_roots" in *" ${lslug} "*) continue ;; esac   # already selectable via its own root row
   i=$((i+1))
   printf '%d. [drain: root] %s — %s unparented open fix(es) by lineage\n' "$i" "$lslug" "$lcount"
-done < <(bash "${CLAUDE_PLUGIN_ROOT}/hooks/plan-state.sh" query \
+done < <(bash "${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:-}}/hooks/plan-state.sh" query \
            --category fix --no-parent --open --deferred-from-exists \
            --format tsv --fields deferred_from.slug | sort | uniq -c)
 ```
@@ -357,7 +354,7 @@ reading it gets — mid-stretch, only `context-checkpoint.sh`'s rate-limited adv
 fire):
 
 ```bash
-bash "${CLAUDE_PLUGIN_ROOT}/hooks/plan-state.sh" context
+bash "${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:-}}/hooks/plan-state.sh" context
 ```
 
 The tiers match the rest of the plugin — `mentor:plan-track`'s own Step 0 runs this identical call:
@@ -396,7 +393,7 @@ checkpoints fire, and they speak only above the warn threshold).
    released (or armed); check the actual marker before acting:
 
    ```bash
-   bash "${CLAUDE_PLUGIN_ROOT}/hooks/plan-state.sh" gate --verbose   # ARMED | STALE | ARMED_ELSEWHERE | RELEASED (+ per-token fields below)
+   bash "${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:-}}/hooks/plan-state.sh" gate --verbose   # ARMED | STALE | ARMED_ELSEWHERE | RELEASED (+ per-token fields below)
    ```
 
    If the marker state contradicts the note, say so and follow the marker, not the note. `gate` is
@@ -572,7 +569,7 @@ checkpoints fire, and they speak only above the warn threshold).
    whenever you are about to type `git push`, `gh pr create`, or `gh pr merge` yourself. And
    when you are about to issue an `Agent()` call — however the note phrased it ("dispatch parallel
    `Explore` agents", "no single mentor command owns this") — run
-   `bash "${CLAUDE_PLUGIN_ROOT}/hooks/plan-state.sh" policy` first and follow its printed guidance
+   `bash "${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:-}}/hooks/plan-state.sh" policy` first and follow its printed guidance
    verbatim. Prose describing a fan-out names no command, so it is neither the no-commands branch
    above nor licence to dispatch without that check — a fan-out issued without it can strand the
    whole group at once and leave you redoing their work by hand. Going direct rather than through
@@ -595,7 +592,7 @@ checkpoints fire, and they speak only above the warn threshold).
 
      ```bash
      note="<the resumed note's absolute path>"
-     resolved_dir="$(bash "${CLAUDE_PLUGIN_ROOT}/hooks/plan-state.sh" ensure-dir "$(dirname "$note")/resolved")" || exit 1
+     resolved_dir="$(bash "${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:-}}/hooks/plan-state.sh" ensure-dir "$(dirname "$note")/resolved")" || exit 1
      mv "$note" "$resolved_dir/$(basename "$note")"
      echo "resolved: $resolved_dir/$(basename "$note")"
      ```
@@ -606,7 +603,7 @@ checkpoints fire, and they speak only above the warn threshold).
      legacy flat dir, handoff's sweep cannot see it: hand its absolute path to the handoff step
      explicitly, or stamp it here with the snippet above.
    - **Never while the topic still has open descendants — check before either bullet above fires.**
-     Run `bash "${CLAUDE_PLUGIN_ROOT}/hooks/plan-state.sh" query --slug <topic-slug> --open-counts
+     Run `bash "${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:-}}/hooks/plan-state.sh" query --slug <topic-slug> --open-counts
      --format tsv --fields open_descendants` (the note's topic — the `plans/<topic>/` dir it lives
      in), which prints that one number and nothing else. A non-zero count means the
      topic is NOT actually done, however cleanly the note's own tasks wrapped up: every recommended
@@ -661,7 +658,7 @@ it structurally depends on has already closed.
 
 To compute the drain order for a root `R`:
 
-1. `bash "${CLAUDE_PLUGIN_ROOT}/hooks/plan-state.sh" query --subtree R --open-counts` — the
+1. `bash "${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:-}}/hooks/plan-state.sh" query --subtree R --open-counts` — the
    descendant set, each with its effective state (and, via `--open-counts`, its own open count).
    This is the only source of truth for which descendants are open; never re-derive it. Add
    `--open` to get just the open ones.
@@ -691,7 +688,7 @@ lineage only (parked as backlog rather than as a child, or captured before the o
 rule existed), which the `parent` walk is structurally blind to, so the drain would finish "clean"
 while they still dangle. When any exist, present them and ask the user **one**
 consented question: adopt each into the drain (run
-`bash "${CLAUDE_PLUGIN_ROOT}/hooks/plan-state.sh" set-parent <stub-slug> <owning-plan>`), or leave
+`bash "${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:-}}/hooks/plan-state.sh" set-parent <stub-slug> <owning-plan>`), or leave
 it flat.
 
 **What that question defaults to turns on the stub's `note`**, and getting it backwards
@@ -699,7 +696,7 @@ re-litigates a settled decision every single session. `query` does not carry `no
 sidecar:
 
 ```bash
-plans_dir="$(bash "${CLAUDE_PLUGIN_ROOT}/hooks/plan-state.sh" dir --plans)"
+plans_dir="$(bash "${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:-}}/hooks/plan-state.sh" dir --plans)"
 jq -r '.note // ""' "$plans_dir/<stub-slug>/.state.json"
 ```
 

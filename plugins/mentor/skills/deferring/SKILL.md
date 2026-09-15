@@ -6,6 +6,10 @@ description: >
 
 # Defer — Stash Work for Later
 
+## Host portability
+
+Use a structured question UI when the host offers one; otherwise ask the same focused question directly and wait for the answer. If delegated agents are unavailable or prohibited, perform the required research, review, or implementation serially and retain the same evidence, scope, and verification contract. Treat Mentor helpers as optional host integrations: resolve them with `PLUGIN_ROOT` first, then `CLAUDE_PLUGIN_ROOT`; if neither is available, work from the repository's durable `.mentor/` artifacts and report any state action that cannot be performed safely. This rule overrides later host-specific tool names, preserving user choice and plan continuity across hosts.
+
 A `git stash`-like capture for future work. Something surfaces that is real but not what you're
 doing right now — a typo worth fixing someday, a refactor idea, a feature the user mentions in
 passing while you're mid-plan or mid-implementation. Without this skill that observation lives only
@@ -123,9 +127,9 @@ same batch — the stub exists on disk by the time you get there):
 2. **Compute and create the plan dir:**
 
    ```bash
-   plans_dir="$(bash "${CLAUDE_PLUGIN_ROOT}/hooks/plan-state.sh" dir --plans)"
-   [ -n "$plans_dir" ] || { echo "ERROR: mentor plans dir unresolved — is CLAUDE_PLUGIN_ROOT set? do not search the plugin cache or hardcode a version path; ask the user to /reload-plugins or restart" >&2; exit 1; }
-   plan_dir="$(bash "${CLAUDE_PLUGIN_ROOT}/hooks/plan-state.sh" ensure-dir "$plans_dir/$slug")" || exit 1
+   plans_dir="$(bash "${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:-}}/hooks/plan-state.sh" dir --plans)"
+   [ -n "$plans_dir" ] || { echo "ERROR: Mentor plans directory unresolved — set PLUGIN_ROOT (or use the Claude compatibility fallback) or derive the repository .mentor directory" >&2; exit 1; }
+   plan_dir="$(bash "${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:-}}/hooks/plan-state.sh" ensure-dir "$plans_dir/$slug")" || exit 1
    echo "${plan_dir}/plan.md"
    ```
 
@@ -155,7 +159,7 @@ same batch — the stub exists on disk by the time you get there):
 4. **Register it:**
 
    ```bash
-   bash "${CLAUDE_PLUGIN_ROOT}/hooks/plan-state.sh" init "$slug" --deferred${parent:+ --parent "$parent"}${deps:+ --deps "$deps"}${priority:+ --priority "$priority"}${category:+ --category "$category"}${from_plan:+ --from "$from_plan"}
+   bash "${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:-}}/hooks/plan-state.sh" init "$slug" --deferred${parent:+ --parent "$parent"}${deps:+ --deps "$deps"}${priority:+ --priority "$priority"}${category:+ --category "$category"}${from_plan:+ --from "$from_plan"}
    ```
 
    `--deferred` sets the sidecar's `origin: "deferred"` — the marker that (a) shields this stub

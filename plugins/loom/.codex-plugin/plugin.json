@@ -1,0 +1,25 @@
+{
+  "name": "loom",
+  "description": "Session-driven workflow harvesting, plugin maintenance, and automation guidance.",
+  "version": "4.7.0",
+  "author": {
+    "name": "NTBX"
+  },
+  "skills": "./skills/",
+  "interface": {
+    "displayName": "Loom",
+    "shortDescription": "Maintain and publish reusable workflow plugins.",
+    "longDescription": "Maintain marketplace plugins and publish synchronized Claude Code and Codex packages; Claude Code also supports session harvesting and automation workflows.",
+    "developerName": "NTBX",
+    "category": "Developer Tools",
+    "capabilities": [
+      "Read",
+      "Write"
+    ],
+    "defaultPrompt": [
+      "Help me prepare a safe plugin release.",
+      "Validate both marketplace projections.",
+      "Audit this plugin workflow for improvements."
+    ]
+  }
+}

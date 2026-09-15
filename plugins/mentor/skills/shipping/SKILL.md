@@ -5,6 +5,10 @@ description: Finish the current branch — clean-check, run /simplify, optionall
 
 # ship — Ship the current branch
 
+## Host portability
+
+Use a structured question UI when the host offers one; otherwise ask the same focused question directly and wait for the answer. If delegated agents are unavailable or prohibited, perform the required research, review, or implementation serially and retain the same evidence, scope, and verification contract. Treat Mentor helpers as optional host integrations: resolve them with `PLUGIN_ROOT` first, then `CLAUDE_PLUGIN_ROOT`; if neither is available, work from the repository's durable `.mentor/` artifacts and report any state action that cannot be performed safely. This rule overrides later host-specific tool names, preserving user choice and plan continuity across hosts.
+
 Drives clean-check → `/simplify` → optional tests → **user-chosen ship target**
 for the branch currently checked out. No worktree machinery — the flow operates
 on `$PWD`'s repo and branch.
@@ -423,13 +427,13 @@ stamp on their own triggers.
 # Re-derive here (shell vars don't survive between Bash calls) via the shared
 # subcommand handoff/resume use: from a linked worktree it resolves to the MAIN
 # repo's .mentor, where the notes actually live (show-toplevel would miss them).
-plans_dir="$(bash "${CLAUDE_PLUGIN_ROOT}/hooks/plan-state.sh" dir --plans)"
-[ -n "$plans_dir" ] || { echo "ERROR: mentor plans dir unresolved — is CLAUDE_PLUGIN_ROOT set? do not search the plugin cache or hardcode a version path; ask the user to /reload-plugins or restart" >&2; exit 1; }
+plans_dir="$(bash "${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:-}}/hooks/plan-state.sh" dir --plans)"
+[ -n "$plans_dir" ] || { echo "ERROR: Mentor plans directory unresolved — set PLUGIN_ROOT (or use the Claude compatibility fallback) or derive the repository .mentor directory" >&2; exit 1; }
 hand_dir="$plans_dir/<topic>/handoffs"   # ← REPLACE <topic> per the rule above
 find "$hand_dir" -maxdepth 1 -type f -name '*.md' 2>/dev/null | while IFS= read -r n; do
   case "$(basename "$n")" in
     [0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9]-[0-9][0-9][0-9][0-9][0-9][0-9]-*.md)  # conforming notes only
-      bash "${CLAUDE_PLUGIN_ROOT}/hooks/plan-state.sh" ensure-dir "$hand_dir/resolved" >/dev/null
+      bash "${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:-}}/hooks/plan-state.sh" ensure-dir "$hand_dir/resolved" >/dev/null
       mv "$n" "$hand_dir/resolved/$(basename "$n")"
       echo "work shipped → resolved: $(basename "$n")" ;;
     *)
@@ -450,11 +454,11 @@ never-guess rule: a shipped plan left `in_progress` is re-offered for building b
 the next session's `/mentor:track`:
 
 ```bash
-plans_dir="$(bash "${CLAUDE_PLUGIN_ROOT}/hooks/plan-state.sh" dir --plans)"
-[ -n "$plans_dir" ] || { echo "ERROR: mentor plans dir unresolved — is CLAUDE_PLUGIN_ROOT set? do not search the plugin cache or hardcode a version path; ask the user to /reload-plugins or restart" >&2; exit 1; }
+plans_dir="$(bash "${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:-}}/hooks/plan-state.sh" dir --plans)"
+[ -n "$plans_dir" ] || { echo "ERROR: Mentor plans directory unresolved — set PLUGIN_ROOT (or use the Claude compatibility fallback) or derive the repository .mentor directory" >&2; exit 1; }
 if [ -d "$plans_dir/<topic>" ]; then
   open="$(jq -r '.note // ""' "$plans_dir/<topic>/.state.json" 2>/dev/null | tr '|' '\n' | grep -m1 '^ *open:' | sed 's/^ *//; s/ *$//')"
-  bash "${CLAUDE_PLUGIN_ROOT}/hooks/plan-state.sh" set <topic> implemented --note "$open"
+  bash "${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:-}}/hooks/plan-state.sh" set <topic> implemented --note "$open"
 fi
 ```
 

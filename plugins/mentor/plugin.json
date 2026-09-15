@@ -1,0 +1,26 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+  "name": "mentor",
+  "version": "3.1.0",
+  "description": "Plan-first software delivery guidance with review, verification, and optional workflow guardrails.",
+  "author": { "name": "NTBX" },
+  "keywords": ["planning", "review", "handoff", "verification"],
+  "extensions": {
+    "com.openai": {
+      "hooks": [],
+      "interface": {
+        "displayName": "Mentor",
+        "shortDescription": "Plan-first delivery guidance for software changes.",
+        "longDescription": "Plan software changes, resolve design decisions, coordinate focused research and verification, and keep an implementation plan reviewable.",
+        "developerName": "NTBX",
+        "category": "Developer Tools",
+        "capabilities": ["Read", "Write"],
+        "defaultPrompt": [
+          "Help me make a plan for this change.",
+          "Review this implementation plan for gaps.",
+          "Help me verify this completed change."
+        ]
+      }
+    }
+  }
+}

@@ -10,14 +10,18 @@ description: |
   "update/refresh the zoom", "the zoom is stale". Resolves
   topic(s) × perspective(s) (End user / Implementor / Reviewer-Architect /
   QA-Tester), then dispatches one agent per combo, each writing ONE
-  self-contained HTML file to .mentor/zooms/<subject-slug>/ — auto-opened
-  locally, NEVER published via the Artifact tool, no reviewer interaction.
-  Distinct from /mentor:tour (a published, editable acceptance page where
+  self-contained HTML file to .mentor/zooms/[subject-slug]/ — auto-opened
+  locally, never hosted, with no reviewer interaction.
+  Distinct from /mentor:tour (an editable local acceptance set where
   reviewers mark pass/not-pass and leave feedback) and from /plan-review
   (a quality verdict on a written plan, not an HTML page).
 ---
 
 # Zoom — Topic × Perspective HTML Review Pages
+
+## Host portability
+
+Use a structured question UI when the host offers one; otherwise ask the same focused question directly and wait for the answer. If delegated agents are unavailable or prohibited, perform the required research, review, or implementation serially and retain the same evidence, scope, and verification contract. Treat Mentor helpers as optional host integrations: resolve them with `PLUGIN_ROOT` first, then `CLAUDE_PLUGIN_ROOT`; if neither is available, work from the repository's durable `.mentor/` artifacts and report any state action that cannot be performed safely. This rule overrides later host-specific tool names, preserving user choice and plan continuity across hosts.
 
 Generate (and regenerate) **zoom artifacts**: self-contained HTML pages, each
 scoped to one **topic × perspective** pair, that let a human *see* one slice of a
@@ -30,9 +34,9 @@ finalize step, and **never a hosted copy**.
 **Sticky re-entry rule.** EVERY zoom ask re-enters this skill's contract — the
 first one, the Nth one, a free-text follow-up ("update the review artifact",
 "add a zoom for X"), a mid-revision regeneration, at any point in any workflow.
-Run the Selection gate (skipping questions the ask already answers) and generate
-via dispatched agents. **Never hand-edit or hand-write a zoom file in the main
-thread** — least of all late in a session, when context is already large. And
+Run the Selection gate (skipping questions the ask already answers) and generate via
+delegated workers when available, or serially in the main thread otherwise. Keep every
+file's scope and self-check contract unchanged in either mode. And
 **never one file for the whole subject** — a whole-subject ask ("preview the
 plan as HTML") does not bypass the gate below; it is exactly the case the gate
 exists for.
@@ -49,7 +53,7 @@ exists for.
 - Nobody asked for a visual — zooms are **explicit opt-in only**, never a default
   deliverable.
 - The user wants a **shareable page where reviewers mark pass/not-pass and leave
-  feedback** — that is `/mentor:tour` (published on purpose, editable). A zoom is
+  feedback** — that is `/mentor:tour` (a local editable acceptance set). A zoom is
   local, read-only, and has no reviewer interaction.
 - The user wants a **quality verdict on a written plan** — that is `/plan-review`
   (staged reviewers folding edits into the `.md`), not an HTML rendering.
@@ -58,15 +62,22 @@ exists for.
 
 ## Step 0 — State dir, subject, and slug
 
-Derive the project-scoped mentor state dir (same derivation as `hooks/lib/state.sh`
-— never hardcode paths; not in a git repo → fall back to `~/.claude/mentor/_no-repo`):
+Derive the project-scoped mentor state dir. When available, `plan-state.sh dir` owns
+worktree and non-repository resolution through the portable state home; never hardcode
+a host configuration directory:
 
 ```bash
-state_dir="$(bash "${CLAUDE_PLUGIN_ROOT}/hooks/plan-state.sh" dir)"   # worktree-safe; _no-repo fallback
-[ -n "$state_dir" ] || { echo "ERROR: mentor state dir unresolved — is CLAUDE_PLUGIN_ROOT set? do not search the plugin cache or hardcode a version path; ask the user to /reload-plugins or restart" >&2; exit 1; }
+plugin_root="${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:-}}"
+if [ -n "$plugin_root" ] && [ -x "$plugin_root/hooks/plan-state.sh" ]; then
+  state_dir="$(bash "$plugin_root/hooks/plan-state.sh" dir)"
+else
+  state_dir="$(git rev-parse --show-toplevel 2>/dev/null || pwd)/.mentor"
+fi
 ls -t "$state_dir"/plans/*/plan.md 2>/dev/null | head -3   # candidate plan subjects (newest first)
-sibling_wts="$(bash "${CLAUDE_PLUGIN_ROOT}/hooks/plan-state.sh" gate --verbose | sed -n 's/^elsewhere=\([^ ]*\).*/\1/p')"
-[ -n "$sibling_wts" ] && bash "${CLAUDE_PLUGIN_ROOT}/hooks/plan-state.sh" list --owners   # cross-check OWNER col below
+if [ -n "$plugin_root" ] && [ -x "$plugin_root/hooks/plan-state.sh" ]; then
+  sibling_wts="$(bash "$plugin_root/hooks/plan-state.sh" gate --verbose | sed -n 's/^elsewhere=\([^ ]*\).*/\1/p')"
+  [ -n "$sibling_wts" ] && bash "$plugin_root/hooks/plan-state.sh" list --owners
+fi
 const_rel="$(jq -r '.constitution_path // empty' "$state_dir/config.json" 2>/dev/null)"
 case "$state_dir" in */.mentor)   # in a repo — resolve the constitution against its root
   const_path="${state_dir%/.mentor}/${const_rel:-.mentor/constitution.md}"
@@ -100,15 +111,16 @@ gate, so zooming is legal while this worktree's gate reads `ARMED` — during pl
 this skill's combo agents are the sole write-capable dispatches allowed, and they
 write ONLY zoom artifacts under `.mentor/zooms/`, never repo source files.
 
-## Step 1 — Source pack (resolve inputs before any dispatch)
+## Step 1 — Source pack (resolve inputs before generation)
 
-Dispatched combo agents must not fan out further (`dispatch-agents`, "no nested
-fan-out"), so everything they need to read must be resolved first:
+Delegated combo workers must not fan out further (`dispatch-agents`, "no nested
+fan-out"), so everything they need to read must be resolved first. The main-thread
+fallback follows the same source pack:
 
 | Subject kind | Source pack |
 |---|---|
 | A canonical document (a mentor plan, spec, ADR, README) | its path — each combo agent `Read`s it directly |
-| Repo code / a subsystem | the real file paths (from prior research or a quick Glob/Grep); when the area is broad or unfamiliar, dispatch **one read-only `Explore` agent** first and write its FINDINGS + `file:line` EVIDENCE to `${zoom_dir}/_brief.md` |
+| Repo code / a subsystem | the real file paths (from prior research or a quick Glob/Grep); when the area is broad or unfamiliar, use one read-only research worker when available, otherwise perform the same focused survey, then write FINDINGS + `file:line` EVIDENCE to `${zoom_dir}/_brief.md` |
 | Conversation-only subject (no file exists) | the main thread writes `${zoom_dir}/_brief.md` distilling the conversation — the one main-thread write this skill permits, and it is a brief, never a zoom |
 
 Every combo prompt carries the hard rule: **invent nothing** — every claim,
@@ -134,8 +146,9 @@ Resolve two dimensions before generating anything:
 1. Derive up to 4 candidate **topics** from the subject: a plan's `## Approach`
    subsections, `Proposed UI changes per surface` entries, or implementation-step
    groupings; a codebase subject's natural sub-areas; a brief's sections.
-2. Ask ONE `AskUserQuestion` call with two multi-select questions — **Topics**
-   (the derived candidates) and **Perspective** (catalog below). Skip a question
+2. Ask one structured multi-select question when supported, or the equivalent direct
+   question otherwise — **Topics** (the derived candidates) and **Perspective** (catalog below).
+   Skip a question
    only when the user's request already explicitly named that dimension ("zoom
    into checkout as the end user" skips both). When only one topic is derivable,
    treat topic as resolved and ask only Perspective (AskUserQuestion needs 2–4
@@ -158,18 +171,18 @@ every finished file auto-opens). Kebab-sanitize topic and perspective names and
 uniquify colliding topic slugs (append `-2`, `-3`, …) so no two combos share a
 path.
 
-## Step 3 — Generation — one agent per combo, always dispatched
+## Step 3 — Generation — one worker per combo
 
-**Run the pre-dispatch preflight before the first `Agent` call, not after.** One call,
-no skill load:
+When helpers are available, run the pre-dispatch policy check before the first worker:
 
 ```bash
-[ -d "${CLAUDE_PLUGIN_ROOT}/hooks" ] || { echo "ERROR: CLAUDE_PLUGIN_ROOT unresolved or stale — do not search the plugin cache or hardcode a version path; ask the user to /reload-plugins or restart" >&2; exit 1; }
-bash "${CLAUDE_PLUGIN_ROOT}/hooks/plan-state.sh" policy
+plugin_root="${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:-}}"
+[ -n "$plugin_root" ] && [ -x "$plugin_root/hooks/plan-state.sh" ] && \
+  bash "$plugin_root/hooks/plan-state.sh" policy
 ```
 
-Follow its printed guidance verbatim — it states the verdict, what to ask (or not ask),
-and whether the standing dispatch block is actually reaching your agents.
+Follow the printed guidance when it exists. Without the helper, honor any live user
+restriction on delegation and use the serial fallback rather than blocking.
 
 Step 1's "no nested fan-out" reaches a combo agent only through that injected block, which
 is why `CONTRACT: MISSING` matters here even though nothing else in this skill dispatches.
@@ -177,14 +190,13 @@ The block's durable-copy clause is for verdict-producing agents (reviewers, veri
 combo's durable artifact is the HTML file it already writes, and nothing here writes under
 `plans/`.
 
-Issue one `Agent` call per combo (`subagent_type: general-purpose`,
-`model: sonnet`, `effort: high`), ALL combos in one message — even a single
-combo is dispatched, keeping one contract and keeping HTML out of the main
-context. Each agent's prompt carries: the source pack (Step 1), its topic, its
+Issue one worker per combo and run all independent combos together when the host supports
+parallel delegation. If it does not, write the same files serially in the main thread.
+Each worker or serial pass carries: the source pack (Step 1), its topic, its
 perspective row from the catalog above, the output path
 `${zoom_dir}/<topic>-<perspective>.html`, the spec below, the invent-nothing
-rule, and the delivery prohibition: *"Do NOT call the `Artifact` tool and do NOT
-return any hosted URL. Return ONLY the file path + a `Self-check:` line in named
+rule, and the delivery prohibition: *"Do not publish or return a hosted URL. Return
+only the file path + a `Self-check:` line in named
 fields — `sections=N diagrams=N doctype=yes closing-html=yes tags-balanced=yes`
 — never the HTML body."* Named fields rather than free prose, because prose
 makes an **absence** invisible: a combo that quietly omits "full standalone
@@ -206,10 +218,9 @@ Mermaid via CDN
 `<pre class="mermaid">`) is allowed; content for the **assigned topic through
 the assigned perspective only**, never the whole subject; readable — body text
 ≥15px-equivalent, WCAG-AA contrast, monospace for code; authored in a
-**single `Write` call** (no skeleton-then-`Edit` — plan-open.sh opens the file
-on first Write and must never show a half-built page). The path is inside the
-gate-exempt `.mentor/` tree, so any armed plan gate allows the Write;
-plan-open.sh auto-opens each file once. Stable names — a re-zoom of the same
+single complete write (no skeleton-then-edit). The path is inside the
+gate-exempt `.mentor/` tree, so any armed plan gate allows the write. A host may
+auto-open each file, but opening is optional. Stable names — a re-zoom of the same
 combo overwrites in place. Zooms whose content is primarily visual (mockups,
 diagrams) SHOULD ship lightweight pan/zoom affordances on the outer page
 (fullscreen toggle ⛶, overlay scrim, +/−/reset, wheel-zoom — inline JS in the
@@ -218,7 +229,7 @@ outer file only; iframe `srcdoc` panes stay no-JS per
 
 ## Step 4 — Completion check
 
-After the agents return, `ls "$zoom_dir"` against the expected combo files and
+After each worker or serial pass completes, compare `ls "$zoom_dir"` against the expected combo files and
 confirm each file's structural bookends yourself — first bytes match `<!doctype`
 or `<html` case-insensitively, last non-whitespace is `</html>`, size non-zero —
 as one Bash loop over the dir emitting one `OK`/`BAD` line per file. Read each
@@ -229,57 +240,52 @@ re-grepping a zoom's *content* to re-verify what the `Self-check:` already
 reports just drags HTML into the main thread.
 
 A missing file, a structurally invalid one, and a `Self-check:` missing a
-required field all take the same path — re-dispatch that combo once, naming the
-defect, before giving up. Zoom dispatches follow `dispatch-agents`' "Async
-runtime & lifecycle" rules — close out finished combo agents after the remedy
-rather than after the check, so a still-warm agent stays reachable for the
-repair. Closing out means calling `TaskList` (fetch it plus `TaskStop` via
-`ToolSearch` first if this session hasn't loaded them yet) and diffing
-against the dispatched combos before `TaskStop`ping them, for every batch —
-not just the last one, since a multi-topic zoom is itself a batch of up to 6
-combos and "all combos are closed" is not true until that call has actually
-been made.
+required field all take the same path — rerun that combo once, naming the defect,
+before giving up. Delegated work follows the host's normal lifecycle; serial work
+needs no worker cleanup. In either case, do not report a batch complete until each
+expected file has passed the structural check.
 
 ## Step 5 — Re-zoom on revision (completeness-checked, not memory-driven)
 
 When a revision of the subject — a plan edit, a product decision, a code change
 — invalidates prior zooms, `grep -l` the invalidated term across every existing
 `${zoom_dir}/*.html` and re-dispatch EVERY matching combo in one batched
-message — never just the combo you remember changing. **Do not report the re-zoom
-complete until every re-dispatched combo has returned** — a half-written zooms dir
+message when workers are available, or regenerate them serially — never just the combo
+you remember changing. **Do not report the re-zoom complete until every regenerated combo
+is complete** — a half-written zooms dir
 read by anyone else (a reviewer, the user) shows stale panes next to fresh ones with
 nothing marking which is which.
 
-Each re-dispatch prompt names the superseded term and the term replacing it, and
+Each regeneration brief names the superseded term and the term replacing it, and
 requires the returned `Self-check:` to add `residual-<old>=N` — one short reason
 per remaining hit — plus `new-term-present=yes`. Then compare: `grep -c` the old
 term per regenerated file against the declared count, and re-dispatch once on a
-mismatch, or on a hit with no stated reason. The agent that wrote the file
-already knows which occurrences are deliberate before/after content, so asking
-it to declare them keeps that judgment where the evidence is — and keeps
+mismatch, or on a hit with no stated reason. The worker that wrote the file
+or the serial author already knows which occurrences are deliberate before/after content, so recording
+them keeps that judgment where the evidence is — and keeps
 acceptance identical on the first regeneration and the third, instead of
 drifting with how thorough the orchestrator feels late in a session.
 
 ## Done when
 
 - Every selected combo has its `${zoom_dir}/<topic>-<perspective>.html` on disk
-  with a consumed `Self-check:` line (one re-dispatch attempted for any missing
-  combo), and finished combo agents are closed out.
+  with a consumed `Self-check:` line (one rerun attempted for any missing combo),
+  and delegated workers are closed out when the host provides lifecycle controls.
 - The selection gate ran (or was skipped because the ask named both dimensions),
   and no zoom covers more than its one topic × perspective.
-- Nothing was published: no `Artifact` call, no hosted URL — only local files
-  that plan-open.sh auto-opened.
+- Nothing was published: no hosted URL — only local files, which a host may open.
 
 ### Do NOT
 
-- Do **not** call the `Artifact` tool, return a hosted URL, or publish a zoom in
-  any form — zooms are local-only; the published review surface is `/mentor:tour`.
+- Do **not** return a hosted URL or publish a zoom in any form — zooms are local-only;
+  the editable review surface is `/mentor:tour`.
 - Do **not** write a zoom (or anything else) into the repo source tree, `plans/`,
   or `tours/` — zoom output lives only under `.mentor/zooms/<subject-slug>/`
   (the plan resolution helpers glob `plans/*/plan.md` and must never see zoom
   files).
-- Do **not** hand-author or hand-edit zoom HTML in the main thread — generation
-  is always dispatched; the only main-thread write is `_brief.md` (Step 1).
+- Do **not** skip the per-combo generation contract. Use delegated workers when
+  available, or author the complete scoped HTML serially in the main-thread fallback;
+  `_brief.md` remains the only non-HTML output under `zooms/`.
 - Do **not** edit the subject — the plan, doc, or source files are read-only
   inputs here; folding changes into a plan is `plan`/`plan-review` territory.
 - Do **not** render the whole subject as one file — one topic × perspective per

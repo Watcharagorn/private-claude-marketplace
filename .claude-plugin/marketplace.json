@@ -6,21 +6,21 @@
   "plugins": [
     {
       "name": "mentor",
-      "description": "A lean planning harness for Claude Code: an edit gate keeps the repo read-only until the plan is approved, then work is routed to where it pays — verification, review and research always to fresh single-focus subagents, implementation only when steps can truly run in parallel.",
+      "description": "Plan-first software delivery guidance with review, verification, and optional workflow guardrails.",
       "source": "./plugins/mentor",
-      "category": "development"
+      "category": "Developer Tools"
     },
     {
       "name": "loom",
-      "description": "Session harvesting and plugin lifecycle tools: harvest sessions into reusable artifacts, learn from a plugin's sessions to auto-improve and republish it, track usage, run it all daily unattended, and email a summary of what changed — each install isolated to its own config dir.",
+      "description": "Session-driven workflow harvesting, plugin maintenance, and automation guidance.",
       "source": "./plugins/loom",
-      "category": "development"
+      "category": "Developer Tools"
     },
     {
       "name": "tmux-design",
-      "description": "A design standard for tmux console surfaces: panes render themed, column-correct, in-place-refreshing content instead of raw text, verified live in the pane rather than assumed from a file edit.",
+      "description": "Design and verification guidance for readable, stable tmux console surfaces.",
       "source": "./plugins/tmux-design",
-      "category": "development"
+      "category": "Developer Tools"
     }
   ]
 }

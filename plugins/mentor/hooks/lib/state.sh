@@ -33,7 +33,8 @@
 #   │                     #   (+ hidden .*.opened sidecars; pre-v2.12 they lived in plans/<slug>/zoom/)
 #   └── handoffs/         # legacy flat notes (pre-v2.10 — still read, never written)
 #   (.context-warned-<session_id> markers live at the .mentor/ root.)
-#   Not inside a git repo → callers fall back to ~/.claude/mentor/_no-repo/.
+#   Not inside a git repo → callers use mentor_no_repo_state_dir. New installs
+#   default to the XDG state tree; an existing Claude-era fallback is preserved.
 #
 # CONTRACT: callers run under `set -euo pipefail`. Every function here exits with
 # status 0. All helpers are fail-soft: bad input echoes empty, never aborts the caller.
@@ -57,11 +58,35 @@ mentor_repo_root() {
 }
 
 # mentor_state_dir <repo_root> — echo <repo_root>/.mentor (project-scoped state dir).
-# Empty on bad input (callers fall back to ~/.claude/mentor/_no-repo/). Not mkdir'd.
+# Empty on bad input (callers use mentor_no_repo_state_dir). Not mkdir'd.
 mentor_state_dir() {
   local repo_root="${1:-}"
   if [ -z "$repo_root" ]; then echo ""; return 0; fi
   echo "${repo_root}/.mentor"
+  return 0
+}
+
+# mentor_no_repo_state_dir — echo the host-neutral fallback for sessions outside a
+# git repository. MENTOR_STATE_HOME is the explicit cross-host override. XDG state is
+# the portable default, while CLAUDE_CONFIG_DIR remains a supported Claude adapter
+# and an already-existing ~/.claude/mentor/_no-repo tree remains readable so an
+# upgrade never strands handoff notes. Not mkdir'd.
+mentor_no_repo_state_dir() {
+  local legacy
+  if [ -n "${MENTOR_STATE_HOME:-}" ]; then
+    echo "${MENTOR_STATE_HOME%/}/_no-repo"
+    return 0
+  fi
+  if [ -n "${CLAUDE_CONFIG_DIR:-}" ]; then
+    echo "${CLAUDE_CONFIG_DIR%/}/mentor/_no-repo"
+    return 0
+  fi
+  legacy="${HOME}/.claude/mentor/_no-repo"
+  if [ -e "$legacy" ]; then
+    echo "$legacy"
+    return 0
+  fi
+  echo "${XDG_STATE_HOME:-${HOME}/.local/state}/mentor/_no-repo"
   return 0
 }
 
@@ -1299,14 +1324,14 @@ mentor_context_gate_state() {
 # the exact locations /mentor:resume lists), newest first, one per line. Non-conforming
 # names are skipped; notes stamped resolved (moved into a handoffs/resolved/ subdir on
 # completion or supersession) never match the globs, so solved notes stop counting as fresh.
-# With no repo_root, falls back to ~/.claude/mentor/_no-repo — the dir the handoff skill
-# writes to outside a git repo — so no-repo sessions get the same freshness handling. The
+# With no repo_root, falls back through mentor_no_repo_state_dir — the dir the handoff
+# skill writes to outside a git repo — so no-repo sessions get the same freshness handling. The
 # one place the name-shape/location contract lives — mentor_latest_handoff and
 # mentor_live_handoff_count both derive from it instead of re-globbing independently.
 mentor_list_handoffs() {
   local state_dir f
   state_dir="$(mentor_state_dir "${1:-}")"
-  if [ -z "$state_dir" ]; then state_dir="${HOME}/.claude/mentor/_no-repo"; fi
+  if [ -z "$state_dir" ]; then state_dir="$(mentor_no_repo_state_dir)"; fi
   while IFS= read -r f; do
     case "${f##*/}" in
       [0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9]-[0-9][0-9][0-9][0-9][0-9][0-9]-*.md)

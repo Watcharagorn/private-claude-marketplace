@@ -1,7 +1,8 @@
 ---
 name: track
-description: Opt in to loom usage tracking so /loom:learn's discovery is instant. Records which enabled plugins — across any marketplace — loom should index at session end; a SessionEnd hook then appends one usage line per finished session. Invoke for "track <plugin>", "track <marketplace>", "start/stop tracking plugin usage", "tracking status", "what is loom tracking", or "/track [plugin | marketplace] [--stop]". Only ever tracks plugins that are ENABLED (at any scope — user, project, or machine-wide install); never analyzes or publishes (that is /loom:learn).
-version: 0.1.0
+description: Opt in to loom usage tracking so /loom:learn's discovery is instant. Records which enabled plugins — across any marketplace — loom should index at session end; a SessionEnd hook then appends one usage line per finished session. Invoke for "track PLUGIN", "track MARKETPLACE", "start/stop tracking plugin usage", "tracking status", "what is loom tracking", or "/track [plugin | marketplace] [--stop]". Only ever tracks plugins that are ENABLED (at any scope — user, project, or machine-wide install); never analyzes or publishes (that is /loom:learn).
+metadata:
+  version: "0.1.0"
 ---
 
 # track — opt in to loom usage tracking

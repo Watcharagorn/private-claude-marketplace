@@ -1,17 +1,19 @@
 ---
 name: planning
 description: >
-  Not a standalone entry point, and NOT for a conversational planning request — when the
-  user asks to plan something, run the /mentor:plan COMMAND; never select this skill to
-  answer that ask. This is the body of that command: it runs begin-plan.sh first to arm
-  the marker-driven edit gate that holds planning read-only; loaded any other way this
-  skill detects the unarmed gate at Step 0 and stops, pointing you at the command.
-  Guides research, domain routing, resolving open decisions with the user one at a
-  time (AskUserQuestion with decision support), writing a Mermaid-first Markdown
-  plan into the gate-exempt .mentor/ tree, and the approval that releases the gate.
+  Create a Mermaid-first Markdown implementation plan for a natural-language request
+  or explicit skill invocation. Guides research, domain routing, decision support,
+  a durable plan under .mentor/, and explicit approval before implementation. In
+  Claude Code, /mentor:plan remains a compatible command facade that pre-arms its
+  edit gate; direct or other-host invocation uses the same planning contract with an
+  advisory read-only boundary when that host cannot provide the gate.
 ---
 
 # mentor Plan
+
+## Host portability
+
+Use a structured question UI when the host offers one; otherwise ask the same focused question directly and wait for the answer. If delegated agents are unavailable or prohibited, perform the required research, review, or implementation serially and retain the same evidence, scope, and verification contract. Treat Mentor helpers as optional host integrations: resolve them with `PLUGIN_ROOT` first, then `CLAUDE_PLUGIN_ROOT`; if neither is available, work from the repository's durable `.mentor/` artifacts and report any state action that cannot be performed safely. This rule overrides later host-specific tool names, preserving user choice and plan continuity across hosts.
 
 The flow: resolve the mode & load the constitution → clarify if needed →
 research (delegation suggested) → domain routing → resolve open decisions
@@ -30,47 +32,48 @@ but the rule is the same.
 
 ## Step 0 — Mode & constitution {#mode}
 
-**First, confirm the edit gate is actually armed for THIS worktree.** This skill is
-the body of the `/mentor:plan` command, which runs `begin-plan.sh` before invoking
-it. If you were loaded some other way — most likely a conversational "help me plan
-this" — that never ran:
+This is a direct planning entry point: select it when the user asks to plan, whether
+they use natural language, a host's skill picker, or Claude Code's `/mentor:plan`
+facade. **Do not make source edits while planning; write only the durable `.mentor/`
+plan artifacts until the user explicitly approves.** The Claude facade adds an enforced
+worktree gate; other hosts use this same boundary as an instruction. The boundary stays
+explicit because an unavailable host integration must not turn a planning request into
+unannounced implementation.
+
+Resolve the optional Mentor helpers portably. `PLUGIN_ROOT` is the canonical host
+contract; `CLAUDE_PLUGIN_ROOT` is a Claude Code compatibility fallback:
 
 ```bash
-[ -d "${CLAUDE_PLUGIN_ROOT}/hooks" ] || { echo "ERROR: CLAUDE_PLUGIN_ROOT unresolved or stale — do not search the plugin cache or hardcode a version path; ask the user to /reload-plugins or restart" >&2; exit 1; }
-case "$(bash "${CLAUDE_PLUGIN_ROOT}/hooks/plan-state.sh" dir)" in
-  */.mentor)
-    [ "$(bash "${CLAUDE_PLUGIN_ROOT}/hooks/plan-state.sh" gate)" = "ARMED" ] || echo "GATE: NOT ARMED"
-    ;;
-esac
+plugin_root="${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:-}}"
+if [ -n "$plugin_root" ] && [ -x "$plugin_root/hooks/plan-state.sh" ]; then
+  mentor_dir="$(bash "$plugin_root/hooks/plan-state.sh" dir)"
+  gate="$(bash "$plugin_root/hooks/plan-state.sh" gate)"
+  printf 'MENTOR_HELPERS=available\nGATE=%s\n' "$gate"
+else
+  repo_root="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
+  mentor_dir="$repo_root/.mentor"
+  gate="ADVISORY"
+  printf 'MENTOR_HELPERS=unavailable\nGATE=ADVISORY\n'
+fi
 ```
 
-Only the exact `ARMED` token counts: `STALE`, `RELEASED`, and `ARMED_ELSEWHERE` (a
-sibling worktree's independent gate) all read as NOT ARMED here.
+When `GATE=ARMED`, preserve the existing Claude worktree gate behavior. `STALE`,
+`RELEASED`, and `ARMED_ELSEWHERE` do not gate this worktree. When `GATE=ADVISORY` or
+another non-armed value is returned, continue directly — never send the user away to a
+slash command — and state that no host-level edit gate is active. Do not run
+`begin-plan.sh` merely to simulate the command facade.
 
-`GATE: NOT ARMED` means `plan-gate.sh` has no marker enforcing THIS worktree, so every
-repo edit stays allowed for the whole session while Step 6 goes on showing its "no edits
-until approved" banner. Planning that only *looks* read-only is worse than planning that
-admits it isn't, so do not continue: say so in one line and ask the user to run
-`/mentor:plan <their request>`, which arms the gate and comes back here. Do **not** run
-`begin-plan.sh` yourself to patch this up — on a large session it answers `CONTEXT: ASK`
-and exits *without* arming, and resolving that is the command's job, not this skill's.
-
-(Why the `dir` guard comes first, and why `STALE` counts as unarmed: `references/rationale.md`
+(Why a genuine Claude gate must be observed when present: `references/rationale.md`
 → **Step 0 — the armed-gate check**.)
 
-No output means the gate is armed for this worktree, or you are outside a repo
-where there is nothing to protect. Either way, continue.
-
-`begin-plan.sh` printed a `MODE:` line. The mode is only the **approval-gate
+When the Claude facade ran, `begin-plan.sh` may have printed a `MODE:` line. The mode is only the **approval-gate
 default** — it decides which option Step 6 lists first; both outcomes are
 always offered there, and you never ask the user to pick a mode upfront:
 
 - **`MODE: plan-only`** — list **"Deliver plan only"** first at Step 6.
 - **`MODE: plan`**, **`MODE: UNSET (default: plan)`**, or no `MODE:` line at all
-  — list **"Proceed"** first. No line is the ordinary reading when nothing armed the
-  gate: outside a git repo there was nothing to arm, and on a standalone load nobody
-  ran `begin-plan.sh` at all. Default to `plan` either way rather than inventing a
-  script call to go looking for one.
+  — list **"Proceed"** first. No line is the ordinary reading for direct invocation;
+  default to `plan` rather than inventing a script call to look for one.
 
 `begin-plan.sh` may also print a **`CONTEXT:`** line (the context gate):
 
@@ -88,10 +91,14 @@ governing doc outside `.mentor/` — `constitution_path` in `.mentor/config.json
 points at it; see `/mentor:constitution`'s adopt-by-reference branch):
 
 ```bash
-# via the shared subcommand, not --show-toplevel: a linked worktree must resolve to
-# the MAIN repo's .mentor, where the constitution actually lives
-mentor_dir="$(bash "${CLAUDE_PLUGIN_ROOT}/hooks/plan-state.sh" dir)"
-[ -n "$mentor_dir" ] || { echo "ERROR: mentor dir unresolved — is CLAUDE_PLUGIN_ROOT set? do not search the plugin cache or hardcode a version path; ask the user to /reload-plugins or restart" >&2; exit 1; }
+# `mentor_dir` comes from the Step 0 helper-or-artifact fallback. Re-derive it when
+# this runs in a separate shell.
+plugin_root="${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:-}}"
+if [ -n "$plugin_root" ] && [ -x "$plugin_root/hooks/plan-state.sh" ]; then
+  mentor_dir="$(bash "$plugin_root/hooks/plan-state.sh" dir)"
+else
+  mentor_dir="$(git rev-parse --show-toplevel 2>/dev/null || pwd)/.mentor"
+fi
 repo_root="${mentor_dir%/.mentor}"
 const_rel="$(jq -r '.constitution_path // empty' "$mentor_dir/config.json" 2>/dev/null)"
 const_path="${repo_root}/${const_rel:-.mentor/constitution.md}"
@@ -144,8 +151,8 @@ call answers both questions this step has to settle, and it costs a line rather 
 skill load:
 
 ```bash
-[ -d "${CLAUDE_PLUGIN_ROOT}/hooks" ] || { echo "ERROR: CLAUDE_PLUGIN_ROOT unresolved or stale — do not search the plugin cache or hardcode a version path; ask the user to /reload-plugins or restart" >&2; exit 1; }
-bash "${CLAUDE_PLUGIN_ROOT}/hooks/plan-state.sh" policy
+[ -d "${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:-}}/hooks" ] || { echo "ERROR: Mentor helper unavailable — set PLUGIN_ROOT (or use the Claude compatibility fallback) or use the documented artifact fallback" >&2; exit 1; }
+bash "${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:-}}/hooks/plan-state.sh" policy
 ```
 
 Follow its printed guidance verbatim — it states the verdict, what to ask (or not ask),
@@ -201,8 +208,8 @@ No "no ignore" flag fixes this portably (ugrep rejects the GNU spelling outright
 `sweep` hands grep an explicit file list instead — `find` walks, `grep` only reads —
 and resolves linked worktrees to the main repo's `.mentor/`:
 ```bash
-[ -d "${CLAUDE_PLUGIN_ROOT}/hooks" ] || { echo "ERROR: CLAUDE_PLUGIN_ROOT unresolved or stale — do not search the plugin cache or hardcode a version path; ask the user to /reload-plugins or restart" >&2; exit 1; }
-bash "${CLAUDE_PLUGIN_ROOT}/hooks/plan-state.sh" sweep "<pattern>" --roots plans
+[ -d "${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:-}}/hooks" ] || { echo "ERROR: Mentor helper unavailable — set PLUGIN_ROOT (or use the Claude compatibility fallback) or use the documented artifact fallback" >&2; exit 1; }
+bash "${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:-}}/hooks/plan-state.sh" sweep "<pattern>" --roots plans
 ```
 It prints `SWEEP: roots=N files=N hits=N` before any hits, so a zero is trustworthy only
 when `files=` is non-zero; exit **2** plus a `NOTHING-SEARCHED` line means it read nothing
@@ -436,7 +443,13 @@ topic, and `ensure-dir` below will happily create a second directory beside it,
 orphaning whichever one doesn't get worked on next:
 
 ```bash
-bash "${CLAUDE_PLUGIN_ROOT}/hooks/plan-state.sh" list --owners
+plugin_root="${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:-}}"
+if [ -n "$plugin_root" ] && [ -x "$plugin_root/hooks/plan-state.sh" ]; then
+  bash "$plugin_root/hooks/plan-state.sh" list --owners
+else
+  repo_root="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
+  find "$repo_root/.mentor/plans" -mindepth 2 -maxdepth 2 -name plan.md -print 2>/dev/null
+fi
 ```
 
 This is a quick scan, not a fuzzy-match algorithm: only act on a genuinely obvious
@@ -450,23 +463,35 @@ or recent draft, not yours to continue; mint a fresh slug instead, the same call
 you'd make if nothing plainly matched. Reuse is safe only for a slug this
 worktree already owns, or one the OWNER column shows unowned (`-`).
 
-Then mint the plan directory and its state record in **one** call (substituting a
-kebab-case `<slug>` derived from the request — ≤30 chars, drop articles, keep
-nouns/verbs):
+Then mint the plan directory and, when the bundled helper is available, its state
+record in **one** call (substituting a kebab-case `<slug>` derived from the request —
+≤30 chars, drop articles, keep nouns/verbs):
 
 ```bash
-plan_md="$(bash "${CLAUDE_PLUGIN_ROOT}/hooks/plan-state.sh" start "<slug>")" || exit 1
+plugin_root="${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:-}}"
+if [ -n "$plugin_root" ] && [ -x "$plugin_root/hooks/plan-state.sh" ]; then
+  plan_md="$(bash "$plugin_root/hooks/plan-state.sh" start "<slug>")" || exit 1
+else
+  repo_root="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
+  plan_md="$repo_root/.mentor/plans/<slug>/plan.md"
+  mkdir -p "$(dirname "$plan_md")"
+fi
 echo "$plan_md"   # fixed name inside the slug dir, NO timestamp — stable across revisions
 ```
 
-`start` does three things that used to be three separate Bash calls: creates the dir and
+When available, `start` does three things that used to be three separate Bash calls: creates the dir and
 locks the whole path to 700, records the plan as `draft` in a hidden `.state.json` beside
 it, and clears the `origin` field if this slug was a `/mentor:defer` stub you are now
 fleshing out. Its stdout is exactly the plan path, so the capture above fails the
 pipeline if anything went wrong; the state summary goes to stderr where you can still
 read it.
 
-Three consequences worth knowing:
+With no helper, write the same `plan.md` at the printed path and do not invent or
+overwrite a `.state.json` sidecar: an existing state file remains compatible with the
+Claude facade, while a host adapter can add equivalent lifecycle updates later. The
+plan itself stays the portable source of truth.
+
+Three helper-backed consequences worth knowing:
 
 - **Ownership is stamped on this call** — `start` marks THIS worktree as the dir's owner,
   and last-write-wins, so running it on a slug another worktree minted re-owns it to you.
@@ -483,11 +508,10 @@ read the state record to know which plans are built and which are pending.
 
 The path is inside the gate-exempt
 `.mentor/` tree, so the edit gate allows it; `plan-open.sh` auto-opens it for review the first time
-(VSCode tab when available — toggle preview with ⇧⌘V; opener configurable via
-`MENTOR_PLAN_OPENER`, disable with `MENTOR_PLAN_OPEN=off`, both under `env` in
-`~/.claude/settings.json`). **Keep it current:** on every revision re-write this
-SAME file in place — never create a second timestamped copy. Never write the
-plan anywhere else in the repo or to the harness-native `~/.claude/plans/` dir.
+(VSCode tab when available; opener configurable through the host's Mentor environment).
+Opening is a convenience, not a delivery requirement. **Keep it current:** on every revision
+re-write this SAME file in place — never create a second timestamped copy. Never write the plan
+to a host-native plans directory instead of `.mentor/`.
 Before each re-write, re-run Step 3's registry scan against the new body — that is
 where a domain the plan only just grew gets caught.
 
@@ -502,8 +526,12 @@ many small edits (a fold pass, a decision resolution, a split) is exactly
 when this happens. After such a revision, run:
 
 ```bash
-bash "${CLAUDE_PLUGIN_ROOT}/hooks/plan-state.sh" verify <slug>
+bash "${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:-}}/hooks/plan-state.sh" verify <slug>
 ```
+
+when the helper is available. Otherwise perform the equivalent visible checks — balanced
+fences, valid tables, and a `Done when:` for every implementation step — before asking
+for approval; do not fail a portable planning flow solely because the helper is absent.
 
 before moving on — one call for the three checks that gate its exit code:
 fence balance, table pipe-count uniformity, and every step in
@@ -778,8 +806,8 @@ having said so. Run this immediately before composing the question — **one cal
 things the ask depends on**:
 
 ```bash
-bash "${CLAUDE_PLUGIN_ROOT}/hooks/plan-state.sh" context
-grep -n -A 8 '^### The option set' "${CLAUDE_PLUGIN_ROOT}/skills/planning/SKILL.md"
+bash "${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:-}}/hooks/plan-state.sh" context
+grep -n -A 8 '^### The option set' "${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:-}}/skills/planning/SKILL.md"
 ```
 
 The `context` half decides which option row you use; the `grep` half re-reads that row's
@@ -794,7 +822,7 @@ the context half — you still need the `grep`.
 - **`CONTEXT: ASK`** — do not ask the approval question yet. Ask via
   `AskUserQuestion` (header "Context", two options) exactly as the command
   layer's arm-time ASK does: hand off & stop (`Skill(skill="mentor:handoff-note")`),
-  or bypass (`bash "${CLAUDE_PLUGIN_ROOT}/hooks/bypass-context.sh"`, then
+  or bypass (`bash "${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:-}}/hooks/bypass-context.sh"`, then
   continue below).
 - **`CONTEXT: HANDOFF`** or **`CONTEXT: WARN`** — use the matching row below,
   even if Step 0 printed a lower tier or nothing at all.
@@ -884,10 +912,16 @@ failure.)
 | Hand off to next agent | Approve and release, then write a handoff doc so a fresh agent implements it — this session is getting large. |
 | Pause — still drafting | Write a handoff doc and stop **without approving**: the gate stays armed and the plan stays `draft`, so the next session continues *planning*, not implementing. For when the session is out of room but the plan is not settled. |
 
+On a host without `approve-plan.sh`, use the user's returned choice as the same explicit
+consent boundary, keep the plan at its durable `.mentor/` path, and report that no
+host-level gate or lifecycle sidecar was changed. Do not claim an enforced release that
+did not occur. This preserves the existing Claude state and gate semantics without
+requiring another host to emulate them.
+
 On **Proceed**, run:
 
 ```bash
-bash "${CLAUDE_PLUGIN_ROOT}/hooks/approve-plan.sh"
+bash "${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:-}}/hooks/approve-plan.sh"
 ```
 
 It validates the plan (a non-empty `.md` newer than the marker it resolves — this
@@ -921,10 +955,10 @@ not a fallback, so carry it out rather than re-litigating it here.
 guessing:
 
 ```bash
-bash "${CLAUDE_PLUGIN_ROOT}/hooks/plan-state.sh" set <slug> in_progress            # execution starts
-bash "${CLAUDE_PLUGIN_ROOT}/hooks/plan-state.sh" tick <slug> <N>                   # each step's Done when: passes
-bash "${CLAUDE_PLUGIN_ROOT}/hooks/plan-state.sh" set <slug> implemented            # every Done when: + Verification PASS
-bash "${CLAUDE_PLUGIN_ROOT}/hooks/plan-state.sh" set <slug> failed --note "<what broke>"   # escalating, or handing off with verification unresolved
+bash "${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:-}}/hooks/plan-state.sh" set <slug> in_progress            # execution starts
+bash "${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:-}}/hooks/plan-state.sh" tick <slug> <N>                   # each step's Done when: passes
+bash "${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:-}}/hooks/plan-state.sh" set <slug> implemented            # every Done when: + Verification PASS
+bash "${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:-}}/hooks/plan-state.sh" set <slug> failed --note "<what broke>"   # escalating, or handing off with verification unresolved
 ```
 
 Direct implementation on the **`Dispatch: skipped`** path must not be the one
@@ -959,7 +993,7 @@ is not already loaded.
 On **Deliver plan only**, run:
 
 ```bash
-bash "${CLAUDE_PLUGIN_ROOT}/hooks/approve-plan.sh" --deliver
+bash "${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:-}}/hooks/approve-plan.sh" --deliver
 ```
 
 Same validation + release, then **follow the DELIVER-ONLY directive it prints** —
@@ -969,7 +1003,7 @@ this session.
 On **Hand off to next agent**, run:
 
 ```bash
-bash "${CLAUDE_PLUGIN_ROOT}/hooks/approve-plan.sh" --handoff
+bash "${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:-}}/hooks/approve-plan.sh" --handoff
 ```
 
 Same validation + release, then **follow the hand-off directive it prints** —
@@ -1058,8 +1092,8 @@ option, then immediately say "no, that wasn't approved yet". Re-arming the gate 
 obvious half of the fix and the only half people remember, so state the rest here:
 
 ```bash
-bash "${CLAUDE_PLUGIN_ROOT}/hooks/begin-plan.sh"                                       # re-arm the gate
-bash "${CLAUDE_PLUGIN_ROOT}/hooks/plan-state.sh" set <slug> draft --note "approval retracted"
+bash "${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:-}}/hooks/begin-plan.sh"                                       # re-arm the gate
+bash "${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:-}}/hooks/plan-state.sh" set <slug> draft --note "approval retracted"
 ```
 
 **Confirm the re-arm actually took before telling the user it did.** `begin-plan.sh`
@@ -1067,7 +1101,7 @@ can now refuse outright — a live legacy repo-global `.planning` marker fail-cl
 against every worktree, this one included:
 
 ```bash
-bash "${CLAUDE_PLUGIN_ROOT}/hooks/plan-state.sh" gate   # expect ARMED
+bash "${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:-}}/hooks/plan-state.sh" gate   # expect ARMED
 ```
 
 Anything other than `ARMED` means `begin-plan.sh` printed a refusal above instead of
@@ -1082,7 +1116,7 @@ it, and re-arming the gate here does not change that. Re-own it before the next
 approval, the same as any cross-worktree resume:
 
 ```bash
-bash "${CLAUDE_PLUGIN_ROOT}/hooks/plan-state.sh" init <slug>   # re-owns to THIS worktree, last-init-wins
+bash "${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:-}}/hooks/plan-state.sh" init <slug>   # re-owns to THIS worktree, last-init-wins
 ```
 
 Skip this line only when you are certain this is the same worktree that drafted the

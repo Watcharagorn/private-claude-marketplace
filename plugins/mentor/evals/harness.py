@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
-"""Multi-skill trigger eval for the mentor plugin.
+"""Cross-host multi-skill trigger eval for the mentor plugin.
 
 The stock skill-creator harness exposes ONE skill and asks "did it fire?".
 For mentor that misses the real risk: fourteen sibling skills competing, where
 the defect is the WRONG one firing. So this stages all fourteen at once in an
-isolated scratch project and records which one Claude actually reaches for.
+isolated scratch project and records which one the selected host reaches for.
 """
 import json, os, re, subprocess, sys, tempfile, time, uuid
 from concurrent.futures import ThreadPoolExecutor
@@ -37,26 +37,35 @@ def fm_field(fm, key):
     return ""
 
 
-def stage_project(root: Path, descriptions: dict):
+def stage_project(root: Path, descriptions: dict, host: str):
     """Write the competing skills as real project-level skills."""
+    skill_root = root / (".claude" if host == "claude" else ".agents") / "skills"
     for name, desc in descriptions.items():
-        d = root / ".claude" / "skills" / name
+        d = skill_root / name
         d.mkdir(parents=True, exist_ok=True)
         indented = "\n  ".join(desc.split("\n"))
         (d / "SKILL.md").write_text(
             f"---\nname: {name}\ndescription: |\n  {indented}\n---\n\n"
             f"# {name}\n\nSTOP. Report that you selected the `{name}` skill, then end your turn.\n"
         )
-    (root / "CLAUDE.md").write_text("# Scratch\n")
+    (root / ("CLAUDE.md" if host == "claude" else "AGENTS.md")).write_text("# Scratch\n")
 
 
-def run_query(root: Path, query: str, model: str, timeout: int = 150):
+def run_query(root: Path, query: str, model: str, host: str, timeout: int = 150):
     """Return (selected_skill_or_None, elapsed_seconds)."""
-    cmd = ["claude", "-p", query, "--output-format", "stream-json",
-           "--verbose", "--include-partial-messages"]
-    if model:
-        cmd += ["--model", model]
-    env = {k: v for k, v in os.environ.items() if k != "CLAUDECODE"}
+    if host == "claude":
+        cmd = ["claude", "-p", query, "--output-format", "stream-json",
+               "--verbose", "--include-partial-messages"]
+        if model:
+            cmd += ["--model", model]
+        env = {k: v for k, v in os.environ.items() if k != "CLAUDECODE"}
+    else:
+        cmd = ["codex", "exec", "--json", "--ephemeral", "--skip-git-repo-check",
+               "--sandbox", "read-only"]
+        if model:
+            cmd += ["--model", model]
+        cmd += [query]
+        env = dict(os.environ)
     t0 = time.time()
     p = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
                          cwd=str(root), env=env)
@@ -103,8 +112,12 @@ def run_query(root: Path, query: str, model: str, timeout: int = 150):
 
 
 def main():
-    model = sys.argv[1] if len(sys.argv) > 1 else "claude-opus-5"
-    reps = int(sys.argv[2]) if len(sys.argv) > 2 else 1
+    args = sys.argv[1:]
+    host = args.pop(0) if args and args[0] in ("claude", "codex") else "claude"
+    model = args.pop(0) if args else ("claude-opus-5" if host == "claude" else "")
+    reps = int(args.pop(0)) if args else 1
+    if args:
+        raise SystemExit("usage: harness.py [claude|codex] [model] [reps]")
     evals = json.loads((HERE / "evals.json").read_text())["evals"]
 
     descriptions = {}
@@ -117,17 +130,18 @@ def main():
     # seed.py) a fake .mentor tree, none of which belongs in version control.
     workdir = Path(os.environ.get("MENTOR_EVAL_WORKDIR",
                                   Path(tempfile.gettempdir()) / "mentor-trigger-eval"))
-    root = workdir / "project"
+    root = workdir / f"project-{host}"
     root.mkdir(parents=True, exist_ok=True)
-    stage_project(root, descriptions)
-    print(f"staged {len(descriptions)} skills in {root}", flush=True)
-    print(f"results -> {workdir}/results.json", flush=True)
+    stage_project(root, descriptions, host)
+    results_path = workdir / f"results-{host}.json"
+    print(f"staged {len(descriptions)} skills for {host} in {root}", flush=True)
+    print(f"results -> {results_path}", flush=True)
 
     jobs = [(e, r) for e in evals for r in range(reps)]
 
     def work(job):
         e, r = job
-        sel, secs = run_query(root, e["query"], model)
+        sel, secs = run_query(root, e["query"], model, host)
         ok = (sel or "none") == e["expected"]
         print(f"  [{'PASS' if ok else 'FAIL'}] #{e['id']} rep{r} "
               f"expected={e['expected']:<16} got={sel or 'none':<16} ({secs}s)", flush=True)
@@ -139,7 +153,7 @@ def main():
         results = list(ex.map(work, jobs))
 
     results.sort(key=lambda x: (x["id"], x["rep"]))
-    (workdir / "results.json").write_text(json.dumps(results, indent=2))
+    results_path.write_text(json.dumps(results, indent=2))
     passed = sum(1 for r in results if r["pass"])
     print(f"\n=== {passed}/{len(results)} correct ({100*passed//len(results)}%) ===")
     for r in results:

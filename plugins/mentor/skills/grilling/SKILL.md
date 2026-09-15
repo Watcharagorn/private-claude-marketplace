@@ -14,6 +14,10 @@ description: >
 
 # Grilling — Sharpen the Design Before You Build
 
+## Host portability
+
+Use a structured question UI when the host offers one; otherwise ask the same focused question directly and wait for the answer. If delegated agents are unavailable or prohibited, perform the required research, review, or implementation serially and retain the same evidence, scope, and verification contract. Treat Mentor helpers as optional host integrations: resolve them with `PLUGIN_ROOT` first, then `CLAUDE_PLUGIN_ROOT`; if neither is available, work from the repository's durable `.mentor/` artifacts and report any state action that cannot be performed safely. This rule overrides later host-specific tool names, preserving user choice and plan continuity across hosts.
+
 This skill interrogates **you** (the user) to pressure-test a plan or design and resolve its open decisions *before* a plan is locked or any code is written. It walks down each branch of the design tree one decision at a time, recommending an answer for every question, until you reach a shared understanding.
 
 It is a **conversation**, not an implementation. It makes **no repo edits** during the interview and does not draft or rewrite the plan — when it surfaces a changed decision, the plan flow re-renders it.
@@ -50,8 +54,8 @@ Figure out *what* you are grilling, in this order:
 1. **Explicit argument.** If the user passed a topic (via `/mentor:grill <topic>` or in the message), grill that design.
 2. **Current mentor plan.** Otherwise, ask mentor which plan is current:
    ```bash
-   [ -d "${CLAUDE_PLUGIN_ROOT}/hooks" ] || { echo "ERROR: CLAUDE_PLUGIN_ROOT unresolved or stale — do not search the plugin cache or hardcode a version path; ask the user to /reload-plugins or restart" >&2; exit 1; }
-   bash "${CLAUDE_PLUGIN_ROOT}/hooks/plan-state.sh" current
+   [ -d "${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:-}}/hooks" ] || { echo "ERROR: Mentor helper unavailable — set PLUGIN_ROOT (or use the Claude compatibility fallback) or use the documented artifact fallback" >&2; exit 1; }
+   bash "${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:-}}/hooks/plan-state.sh" current
    ```
    `Read` the `PLAN:` path it prints (the `.md` is canonical) and grill it. Do **not** edit it.
    If `GROUP:` is not `-`, the plan is one slice of a `/plan-split` group and the script
@@ -63,7 +67,7 @@ Figure out *what* you are grilling, in this order:
 subject — branches 1 and 3 in particular never touch plan state on their own:
 
 ```bash
-bash "${CLAUDE_PLUGIN_ROOT}/hooks/plan-state.sh" list
+bash "${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:-}}/hooks/plan-state.sh" list
 ```
 
 A plan on the same or an adjacent topic — especially one `draft`, `in_progress`, or
@@ -82,7 +86,7 @@ If there is genuinely nothing to grill, say so in one line and stop.
 **Check the context before committing to the interview.** A grill runs mostly on `AskUserQuestion` round-trips, not fresh prompts, and those supply nothing for `context-gate.sh`'s WARN tier to re-fire on (`UserPromptSubmit`-only); the one prompt shape an interview does generate on its own — a dispatched `Explore` agent's inbound report, from the codebase-research bullet below — is `SYNTHETIC=1`, which `context-gate.sh`'s own WARN tier deliberately skips. So a long grill gets at most the one nudge that landed before it started, plus whatever rate-limited `context-checkpoint.sh` advisories land between rounds (v2.37.0) — nothing that stops and asks:
 
 ```bash
-bash "${CLAUDE_PLUGIN_ROOT}/hooks/plan-state.sh" context
+bash "${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:-}}/hooks/plan-state.sh" context
 ```
 
 - **`CONTEXT: ASK`** — ask the user the two-option question the script prints (hand off, or bypass for this session) before starting the interview.
@@ -111,7 +115,7 @@ When you reach shared understanding:
 
 1. Re-run the context check before the recap:
    ```bash
-   bash "${CLAUDE_PLUGIN_ROOT}/hooks/plan-state.sh" context
+   bash "${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:-}}/hooks/plan-state.sh" context
    ```
    `CONTEXT: WARN`/`ASK` surfaces the same way Step 2's pre-interview check does — but the
    reading **arms** the close, it never preempts it: deliver the recap below first (a few
@@ -124,8 +128,8 @@ When you reach shared understanding:
 4. Point to the natural next step: `/mentor:plan` (to author/refresh the plan) or, if a locked plan now looks solid, `/plan-review` then approve.
 5. **If the grill settled it and the work turns out trivial** — one file, nothing material left to decide — say so and offer to implement it directly rather than routing a two-line change through the plan flow. Two conditions, both required: this worktree's gate reads **not armed** — check it fresh, `current` (Step 1) never reports the marker at all:
    ```bash
-   [ -d "${CLAUDE_PLUGIN_ROOT}/hooks" ] || { echo "ERROR: CLAUDE_PLUGIN_ROOT unresolved or stale — do not search the plugin cache or hardcode a version path; ask the user to /reload-plugins or restart" >&2; exit 1; }
-   [ "$(bash "${CLAUDE_PLUGIN_ROOT}/hooks/plan-state.sh" gate)" = "ARMED" ] && echo "GATE: ARMED — trivial-implement branch does not apply"
+   [ -d "${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:-}}/hooks" ] || { echo "ERROR: Mentor helper unavailable — set PLUGIN_ROOT (or use the Claude compatibility fallback) or use the documented artifact fallback" >&2; exit 1; }
+   [ "$(bash "${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:-}}/hooks/plan-state.sh" gate)" = "ARMED" ] && echo "GATE: ARMED — trivial-implement branch does not apply"
    ```
    and you state plainly that plan ceremony was skipped, why, and the command you ran (with its
    output) to confirm the change works — a re-read of the file alone doesn't count. Two cases that

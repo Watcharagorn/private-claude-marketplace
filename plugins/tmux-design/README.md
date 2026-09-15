@@ -12,9 +12,12 @@ Two skills split the job cleanly:
 | `console` | pane **wiring** and verification | adding a pane, refresh loops, lnav formats, auditing a session, "I edited it but nothing changed" |
 | `decorate` | the **visual vocabulary** | themes, boxes, charts, badges, status bar, pane borders, popups, "make it prettier", misaligned columns |
 
-## Commands
+## Entry points
 
-| Command | Args | Does |
+Claude Code exposes these command facades. In Codex, select the `console` or `decorate` skill (or
+ask for the same outcome in plain language); do not assume Claude slash commands exist there.
+
+| Claude Code command | Args | Does |
 |---|---|---|
 | `/tmux-design:console` | `[setup \| redesign \| audit] [target]` | wire up, reformat, or sweep panes, then verify live |
 | `/tmux-design:decorate` | `[theme \| frame \| chrome \| popup] [target]` | apply a palette, restyle a pane, theme tmux chrome, build an overlay |
@@ -62,6 +65,14 @@ Two skills split the job cleanly:
 
 No hooks.
 
+## Bundled files on either host
+
+The skills use `<tmux-design-root>` for the absolute plugin directory. Resolve it per shell call:
+use `PLUGIN_ROOT` when provided, then `CLAUDE_PLUGIN_ROOT` for Claude Code compatibility; otherwise
+derive it by walking two directories up from the absolute path of the loaded `SKILL.md`. The skill
+entrypoints include a copy-paste resolver. Replace the placeholder in the examples below with the
+resolved absolute path; it is not a literal filesystem directory.
+
 ## Usage
 
 ```
@@ -81,9 +92,9 @@ dashboard pane prettier" or "my columns go crooked with Japanese text" reaches `
 See the whole vocabulary rendered before writing anything:
 
 ```bash
-python3 …/tmux-design/scripts/renderer_template.py demo --theme catppuccin-mocha
-python3 …/tmux-design/scripts/renderer_template.py demo --depth 16 --ascii
-…/tmux-design/scripts/tmux_theme.sh --list
+python3 "<tmux-design-root>/scripts/renderer_template.py" demo --theme catppuccin-mocha
+python3 "<tmux-design-root>/scripts/renderer_template.py" demo --depth 16 --ascii
+"<tmux-design-root>/scripts/tmux_theme.sh" --list
 ```
 
 ## The three things this exists to prevent

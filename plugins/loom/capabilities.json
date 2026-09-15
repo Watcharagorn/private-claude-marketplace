@@ -1,0 +1,40 @@
+{
+  "$schema": "../../marketplace/capabilities.schema.json",
+  "schemaVersion": 1,
+  "tier": "host-specialized",
+  "hosts": {
+    "claude": { "status": "supported", "commands": true, "hooks": true },
+    "codex": { "status": "partial", "commands": false, "hooks": false }
+  },
+  "workflows": [
+    {
+      "name": "publish-plugin",
+      "skills": ["publish-plugin"],
+      "fallback": "Run scripts/marketplace directly from the marketplace repository.",
+      "claude": { "status": "supported", "test": "plugins/loom/tests/test-publish-contract.sh" },
+      "codex": { "status": "supported", "test": "plugins/loom/tests/test-publish-contract.sh" }
+    },
+    {
+      "name": "session-learning",
+      "skills": ["harvest-automations", "audit-plugin", "learn", "track"],
+      "fallback": "Export or supply the source session explicitly and maintain the resulting plugin with the portable publish workflow.",
+      "claude": { "status": "supported", "test": "plugins/loom/evals/evals.json" },
+      "codex": { "status": "unsupported", "test": null }
+    },
+    {
+      "name": "scheduled-automation",
+      "skills": ["automate", "daily-report", "onboard"],
+      "fallback": "Use the host scheduler and reporting tools directly; Loom's bundled runner currently invokes Claude Code.",
+      "claude": { "status": "supported", "test": "plugins/loom/scripts/automate/tests/test-daily-run.sh" },
+      "codex": { "status": "unsupported", "test": null }
+    }
+  ],
+  "waiver": {
+    "owner": "NTBX",
+    "rationale": "Loom's session ingestion and unattended runner depend on Claude Code transcript, hook, and CLI contracts; marketplace publishing is already portable.",
+    "missingCapability": "A host-neutral supplied-session import format and runner adapter for Codex.",
+    "fallback": "Use publish-plugin on either host; run harvest, learning, and scheduled automation from Claude Code until the adapter ships.",
+    "reviewBy": "2026-12-31",
+    "exitCriteria": "Codex can ingest an explicit session bundle, run the learning loop without Claude transcript paths, and pass an isolated automation fixture."
+  }
+}

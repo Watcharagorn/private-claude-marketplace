@@ -1,0 +1,755 @@
+#!/usr/bin/env python3
+"""Generate and verify the marketplace's Claude Code and Codex projections.
+
+Canonical sources are marketplace/catalog.json, plugins/*/plugin.json, and
+plugins/*/capabilities.json. Generated manifests and catalog files must never
+be edited by hand; `sync` is their only writer.
+"""
+
+from __future__ import annotations
+
+import argparse
+import json
+import os
+import re
+import subprocess
+import sys
+from datetime import date
+from pathlib import Path
+from typing import Any
+
+
+PORTABLE_SCHEMA = "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json"
+NAME_RE = re.compile(r"^[a-z0-9][a-z0-9-]*$")
+SEMVER_RE = re.compile(
+    r"^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$"
+)
+INSTALLATION_VALUES = {"NOT_AVAILABLE", "AVAILABLE", "INSTALLED_BY_DEFAULT"}
+AUTHENTICATION_VALUES = {"ON_INSTALL", "ON_USE"}
+SKILL_FRONTMATTER_KEYS = {"name", "description", "license", "metadata", "allowed-tools"}
+
+
+class MarketplaceError(ValueError):
+    """A canonical source or generated projection is invalid."""
+
+
+def default_root() -> Path:
+    return Path(__file__).resolve().parents[1]
+
+
+def json_bytes(value: Any) -> bytes:
+    return (json.dumps(value, indent=2, ensure_ascii=False) + "\n").encode("utf-8")
+
+
+def markdown_bytes(value: str) -> bytes:
+    return (value.rstrip() + "\n").encode("utf-8")
+
+
+def read_json(path: Path) -> dict[str, Any]:
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except FileNotFoundError as exc:
+        raise MarketplaceError(f"missing {path}") from exc
+    except json.JSONDecodeError as exc:
+        raise MarketplaceError(f"invalid JSON in {path}: {exc}") from exc
+    if not isinstance(data, dict):
+        raise MarketplaceError(f"{path} must contain a JSON object")
+    return data
+
+
+def write_json(path: Path, data: dict[str, Any]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_bytes(json_bytes(data))
+
+
+def require_string(value: Any, label: str) -> str:
+    if not isinstance(value, str) or not value:
+        raise MarketplaceError(f"{label} must be a non-empty string")
+    return value
+
+
+def resolve_repo_file(root: Path, relative_path: str, label: str) -> Path:
+    candidate_path = Path(relative_path)
+    if candidate_path.is_absolute() or ".." in candidate_path.parts:
+        raise MarketplaceError(f"{label} must stay within the marketplace repository")
+    candidate = (root / candidate_path).resolve()
+    try:
+        candidate.relative_to(root.resolve())
+    except ValueError as exc:
+        raise MarketplaceError(f"{label} resolves outside the marketplace repository") from exc
+    if not candidate.is_file():
+        raise MarketplaceError(f"{label} does not exist: {relative_path}")
+    return candidate
+
+
+def validate_skill(path: Path) -> None:
+    text = path.read_text(encoding="utf-8")
+    if not text.startswith("---\n") or "\n---\n" not in text[4:]:
+        raise MarketplaceError(f"{path} must begin with YAML frontmatter")
+    frontmatter = text[4 : text.index("\n---\n", 4)]
+    fields: dict[str, list[str]] = {}
+    current_key: str | None = None
+    for line in frontmatter.splitlines():
+        if line and not line[0].isspace():
+            match = re.fullmatch(r"([A-Za-z][A-Za-z0-9_-]*):(?:\s*(.*))?", line)
+            if not match:
+                raise MarketplaceError(f"{path} has invalid frontmatter line: {line}")
+            current_key = match.group(1)
+            if current_key in fields:
+                raise MarketplaceError(f"{path} repeats frontmatter key {current_key}")
+            fields[current_key] = [match.group(2) or ""]
+        elif current_key is not None:
+            fields[current_key].append(line.strip())
+
+    unknown = set(fields) - SKILL_FRONTMATTER_KEYS
+    if unknown:
+        raise MarketplaceError(
+            f"{path} has non-portable skill frontmatter: {', '.join(sorted(unknown))}"
+        )
+    for required in ("name", "description"):
+        if required not in fields:
+            raise MarketplaceError(f"{path} is missing frontmatter key {required}")
+    skill_name = fields["name"][0].strip(" '\"")
+    if skill_name != path.parent.name or not NAME_RE.fullmatch(skill_name):
+        raise MarketplaceError(f"{path}.name must match its skill directory")
+    description_parts = fields["description"][:]
+    if description_parts and description_parts[0] in {">", ">-", "|", "|-"}:
+        description_parts.pop(0)
+    description = " ".join(part for part in description_parts if part).strip(" '\"")
+    if not description:
+        raise MarketplaceError(f"{path}.description must be non-empty")
+    if "<" in description or ">" in description:
+        raise MarketplaceError(f"{path}.description cannot contain angle brackets")
+
+
+def load_sources(
+    root: Path, plugin_name: str | None = None
+) -> tuple[dict[str, Any], list[tuple[dict[str, Any], dict[str, Any], dict[str, Any]]]]:
+    catalog_path = root / "marketplace" / "catalog.json"
+    catalog = read_json(catalog_path)
+    validate_catalog(catalog, catalog_path)
+
+    entries = [entry for entry in catalog["plugins"] if plugin_name is None or entry["name"] == plugin_name]
+    if plugin_name is not None and not entries:
+        raise MarketplaceError(f"plugin {plugin_name} is not in marketplace/catalog.json")
+
+    sources: list[tuple[dict[str, Any], dict[str, Any], dict[str, Any]]] = []
+    for entry in entries:
+        plugin_dir = root / entry["path"]
+        plugin = read_json(plugin_dir / "plugin.json")
+        capabilities = read_json(plugin_dir / "capabilities.json")
+        validate_plugin(plugin, plugin_dir / "plugin.json", entry["name"])
+        validate_capabilities(capabilities, plugin_dir / "capabilities.json", root, plugin_dir)
+        if plugin["name"] != entry["name"]:
+            raise MarketplaceError(
+                f"{plugin_dir / 'plugin.json'} name must match catalog entry {entry['name']}"
+            )
+        skill_files = list((plugin_dir / "skills").glob("*/SKILL.md"))
+        if not skill_files:
+            raise MarketplaceError(f"{plugin_dir} must contain at least one skills/<name>/SKILL.md")
+        for skill_file in skill_files:
+            validate_skill(skill_file)
+        codex_hooks = plugin["extensions"]["com.openai"]["hooks"]
+        if capabilities["hosts"]["codex"]["hooks"] != bool(codex_hooks):
+            raise MarketplaceError(
+                f"{plugin_dir / 'capabilities.json'} Codex hook support must match plugin.json"
+            )
+        for hook_path in codex_hooks:
+            if not isinstance(hook_path, str) or not hook_path.startswith("./"):
+                raise MarketplaceError(f"{plugin_dir / 'plugin.json'} Codex hooks must be relative paths")
+            resolve_repo_file(plugin_dir, hook_path, f"{plugin_dir / 'plugin.json'} Codex hook path")
+        if capabilities["hosts"]["claude"]["hooks"] and not (plugin_dir / "hooks" / "hooks.json").is_file():
+            raise MarketplaceError(
+                f"{plugin_dir / 'capabilities.json'} enables Claude hooks but hooks/hooks.json is missing"
+            )
+        sources.append((entry, plugin, capabilities))
+    return catalog, sources
+
+
+def validate_catalog(catalog: dict[str, Any], path: Path) -> None:
+    required = {"$schema", "schemaVersion", "name", "displayName", "owner", "plugins"}
+    unknown = set(catalog) - required
+    if unknown:
+        raise MarketplaceError(f"{path} has unsupported keys: {', '.join(sorted(unknown))}")
+    if catalog.get("$schema") != "./catalog.schema.json":
+        raise MarketplaceError(f"{path} must reference ./catalog.schema.json")
+    if catalog.get("schemaVersion") != 1:
+        raise MarketplaceError(f"{path} schemaVersion must be 1")
+    name = require_string(catalog.get("name"), f"{path}.name")
+    if not NAME_RE.fullmatch(name):
+        raise MarketplaceError(f"{path}.name must be lowercase kebab case")
+    require_string(catalog.get("displayName"), f"{path}.displayName")
+    owner = catalog.get("owner")
+    if not isinstance(owner, dict) or set(owner) != {"name"}:
+        raise MarketplaceError(f"{path}.owner must contain only name")
+    require_string(owner.get("name"), f"{path}.owner.name")
+    entries = catalog.get("plugins")
+    if not isinstance(entries, list):
+        raise MarketplaceError(f"{path}.plugins must be an array")
+    seen: set[str] = set()
+    for index, entry in enumerate(entries):
+        label = f"{path}.plugins[{index}]"
+        if not isinstance(entry, dict) or set(entry) != {"name", "path", "category", "policy"}:
+            raise MarketplaceError(f"{label} must contain name, path, category, and policy only")
+        plugin_name = require_string(entry.get("name"), f"{label}.name")
+        if not NAME_RE.fullmatch(plugin_name):
+            raise MarketplaceError(f"{label}.name must be lowercase kebab case")
+        if plugin_name in seen:
+            raise MarketplaceError(f"{path} contains duplicate plugin {plugin_name}")
+        seen.add(plugin_name)
+        if entry.get("path") != f"plugins/{plugin_name}":
+            raise MarketplaceError(f"{label}.path must be plugins/{plugin_name}")
+        require_string(entry.get("category"), f"{label}.category")
+        policy = entry.get("policy")
+        if not isinstance(policy, dict) or set(policy) != {"installation", "authentication"}:
+            raise MarketplaceError(f"{label}.policy must contain installation and authentication only")
+        if policy.get("installation") not in INSTALLATION_VALUES:
+            raise MarketplaceError(f"{label}.policy.installation is invalid")
+        if policy.get("authentication") not in AUTHENTICATION_VALUES:
+            raise MarketplaceError(f"{label}.policy.authentication is invalid")
+
+
+def validate_interface(interface: Any, label: str) -> None:
+    required = {
+        "displayName",
+        "shortDescription",
+        "longDescription",
+        "developerName",
+        "category",
+        "capabilities",
+        "defaultPrompt",
+    }
+    if not isinstance(interface, dict) or set(interface) != required:
+        raise MarketplaceError(f"{label} is incomplete")
+    for key in required - {"capabilities", "defaultPrompt"}:
+        require_string(interface.get(key), f"{label}.{key}")
+    for key in ("capabilities", "defaultPrompt"):
+        values = interface.get(key)
+        if not isinstance(values, list) or not values or not all(isinstance(value, str) and value for value in values):
+            raise MarketplaceError(f"{label}.{key} must be a non-empty string array")
+    if len(interface["defaultPrompt"]) > 3 or any(len(prompt) > 128 for prompt in interface["defaultPrompt"]):
+        raise MarketplaceError(f"{label}.defaultPrompt exceeds Codex limits")
+
+
+def validate_plugin(plugin: dict[str, Any], path: Path, expected_name: str) -> None:
+    required = {"$schema", "name", "version", "description", "author", "keywords", "extensions"}
+    unknown = set(plugin) - required
+    if unknown or set(plugin) != required:
+        raise MarketplaceError(
+            f"{path} must contain only $schema, name, version, description, author, keywords, and extensions"
+        )
+    if plugin.get("$schema") != PORTABLE_SCHEMA:
+        raise MarketplaceError(f"{path} must use the portable agent-plugins schema")
+    if plugin.get("name") != expected_name or not NAME_RE.fullmatch(expected_name):
+        raise MarketplaceError(f"{path}.name must be {expected_name}")
+    version = require_string(plugin.get("version"), f"{path}.version")
+    if not SEMVER_RE.fullmatch(version):
+        raise MarketplaceError(f"{path}.version must be semantic versioning")
+    require_string(plugin.get("description"), f"{path}.description")
+    author = plugin.get("author")
+    if not isinstance(author, dict) or set(author) != {"name"}:
+        raise MarketplaceError(f"{path}.author must contain only name")
+    require_string(author.get("name"), f"{path}.author.name")
+    keywords = plugin.get("keywords")
+    if not isinstance(keywords, list) or not keywords or not all(isinstance(item, str) and item for item in keywords):
+        raise MarketplaceError(f"{path}.keywords must be a non-empty string array")
+    extensions = plugin.get("extensions")
+    if not isinstance(extensions, dict) or set(extensions) != {"com.openai"}:
+        raise MarketplaceError(f"{path}.extensions must contain only com.openai")
+    openai = extensions["com.openai"]
+    if not isinstance(openai, dict) or set(openai) != {"hooks", "interface"}:
+        raise MarketplaceError(f"{path}.extensions.com.openai must contain hooks and interface")
+    hooks = openai["hooks"]
+    if not isinstance(hooks, list) or len(hooks) > 1:
+        raise MarketplaceError(f"{path}.extensions.com.openai.hooks must be an array with at most one path")
+    validate_interface(openai["interface"], f"{path}.extensions.com.openai.interface")
+
+
+def validate_capabilities(capabilities: dict[str, Any], path: Path, root: Path, plugin_dir: Path) -> None:
+    required = {"$schema", "schemaVersion", "tier", "hosts", "workflows", "waiver"}
+    if set(capabilities) != required:
+        raise MarketplaceError(
+            f"{path} must contain only $schema, schemaVersion, tier, hosts, workflows, and waiver"
+        )
+    if capabilities.get("$schema") != "../../marketplace/capabilities.schema.json":
+        raise MarketplaceError(f"{path} must reference ../../marketplace/capabilities.schema.json")
+    if capabilities.get("schemaVersion") != 1:
+        raise MarketplaceError(f"{path}.schemaVersion must be 1")
+    tier = capabilities.get("tier")
+    if tier not in {"dual-core", "dual-enhanced", "host-specialized"}:
+        raise MarketplaceError(f"{path}.tier is invalid")
+    hosts = capabilities.get("hosts")
+    if not isinstance(hosts, dict) or set(hosts) != {"claude", "codex"}:
+        raise MarketplaceError(f"{path}.hosts must contain claude and codex")
+    for host_name, host in hosts.items():
+        if not isinstance(host, dict) or set(host) != {"status", "commands", "hooks"}:
+            raise MarketplaceError(f"{path}.hosts.{host_name} is incomplete")
+        if host["status"] not in {"supported", "partial", "unsupported"}:
+            raise MarketplaceError(f"{path}.hosts.{host_name}.status is invalid")
+        if not isinstance(host["commands"], bool) or not isinstance(host["hooks"], bool):
+            raise MarketplaceError(f"{path}.hosts.{host_name} commands and hooks must be booleans")
+
+    waiver = capabilities.get("waiver")
+    if tier.startswith("dual-"):
+        if waiver is not None or any(hosts[name]["status"] != "supported" for name in ("claude", "codex")):
+            raise MarketplaceError(f"{path}: dual tiers require both hosts supported and no waiver")
+    else:
+        waiver_keys = {"owner", "rationale", "missingCapability", "fallback", "reviewBy", "exitCriteria"}
+        if not isinstance(waiver, dict) or set(waiver) != waiver_keys:
+            raise MarketplaceError(f"{path}: host-specialized requires a complete waiver")
+        for key in waiver_keys:
+            require_string(waiver.get(key), f"{path}.waiver.{key}")
+        try:
+            review_by = date.fromisoformat(waiver["reviewBy"])
+        except ValueError as exc:
+            raise MarketplaceError(f"{path}.waiver.reviewBy must be YYYY-MM-DD") from exc
+        if review_by < date.today():
+            raise MarketplaceError(f"{path}.waiver expired on {review_by.isoformat()}")
+
+    workflows = capabilities.get("workflows")
+    if not isinstance(workflows, list) or not workflows:
+        raise MarketplaceError(f"{path}.workflows must be a non-empty array")
+    covered: set[str] = set()
+    workflow_names: set[str] = set()
+    for index, workflow in enumerate(workflows):
+        label = f"{path}.workflows[{index}]"
+        required_workflow = {"name", "skills", "fallback", "claude", "codex"}
+        if not isinstance(workflow, dict) or set(workflow) != required_workflow:
+            raise MarketplaceError(f"{label} is incomplete")
+        workflow_name = require_string(workflow.get("name"), f"{label}.name")
+        if workflow_name in workflow_names:
+            raise MarketplaceError(f"{path} contains duplicate workflow {workflow_name}")
+        workflow_names.add(workflow_name)
+        require_string(workflow.get("fallback"), f"{label}.fallback")
+        skills = workflow.get("skills")
+        if not isinstance(skills, list) or not skills or not all(isinstance(skill, str) and NAME_RE.fullmatch(skill) for skill in skills):
+            raise MarketplaceError(f"{label}.skills must be a non-empty skill-name array")
+        duplicate_skills = covered.intersection(skills)
+        if duplicate_skills:
+            raise MarketplaceError(f"{path} maps skills more than once: {', '.join(sorted(duplicate_skills))}")
+        covered.update(skills)
+        for host_name in ("claude", "codex"):
+            host_workflow = workflow[host_name]
+            if not isinstance(host_workflow, dict) or set(host_workflow) != {"status", "test"}:
+                raise MarketplaceError(f"{label}.{host_name} is incomplete")
+            status = host_workflow["status"]
+            test_path = host_workflow["test"]
+            if status not in {"supported", "partial", "unsupported"}:
+                raise MarketplaceError(f"{label}.{host_name}.status is invalid")
+            if status == "supported":
+                require_string(test_path, f"{label}.{host_name}.test")
+                resolve_repo_file(root, test_path, f"{label}.{host_name}.test")
+            elif test_path is not None:
+                raise MarketplaceError(f"{label}.{host_name}.test must be null unless status is supported")
+            if tier.startswith("dual-") and status != "supported":
+                raise MarketplaceError(f"{label}.{host_name} must be supported for {tier}")
+
+    for host_name in ("claude", "codex"):
+        statuses = [workflow[host_name]["status"] for workflow in workflows]
+        expected_status = (
+            "supported"
+            if all(status == "supported" for status in statuses)
+            else "unsupported"
+            if all(status == "unsupported" for status in statuses)
+            else "partial"
+        )
+        if hosts[host_name]["status"] != expected_status:
+            raise MarketplaceError(
+                f"{path}.hosts.{host_name}.status must be {expected_status} to match its workflows"
+            )
+
+    actual_skills = {skill.parent.name for skill in (plugin_dir / "skills").glob("*/SKILL.md")}
+    if covered != actual_skills:
+        missing = actual_skills - covered
+        unknown = covered - actual_skills
+        details = []
+        if missing:
+            details.append("unmapped skills: " + ", ".join(sorted(missing)))
+        if unknown:
+            details.append("unknown skills: " + ", ".join(sorted(unknown)))
+        raise MarketplaceError(f"{path} capability coverage mismatch ({'; '.join(details)})")
+
+
+def render_support_matrix(
+    sources: list[tuple[dict[str, Any], dict[str, Any], dict[str, Any]]]
+) -> bytes:
+    status_labels = {
+        "supported": "Supported",
+        "partial": "Partial",
+        "unsupported": "Unsupported",
+    }
+    lines = [
+        "# Marketplace host support",
+        "",
+        "Generated from `plugins/*/capabilities.json` by `scripts/marketplace sync`. Do not edit by hand.",
+        "",
+        "| Plugin | Tier | Workflow | Claude Code | Codex | Fallback |",
+        "| --- | --- | --- | --- | --- | --- |",
+    ]
+    waivers: list[tuple[str, dict[str, Any]]] = []
+    for _, plugin, capabilities in sources:
+        for workflow in capabilities["workflows"]:
+            fallback = workflow["fallback"].replace("|", "\\|").replace("\n", " ")
+            lines.append(
+                "| "
+                + " | ".join(
+                    [
+                        plugin["name"],
+                        capabilities["tier"],
+                        workflow["name"],
+                        status_labels[workflow["claude"]["status"]],
+                        status_labels[workflow["codex"]["status"]],
+                        fallback,
+                    ]
+                )
+                + " |"
+            )
+        if capabilities["waiver"] is not None:
+            waivers.append((plugin["name"], capabilities["waiver"]))
+
+    lines.extend(["", "## Active portability waivers", ""])
+    if not waivers:
+        lines.append("None.")
+    for plugin_name, waiver in waivers:
+        lines.extend(
+            [
+                f"### {plugin_name}",
+                "",
+                f"- Owner: {waiver['owner']}",
+                f"- Review by: {waiver['reviewBy']}",
+                f"- Missing capability: {waiver['missingCapability']}",
+                f"- Fallback: {waiver['fallback']}",
+                f"- Exit criteria: {waiver['exitCriteria']}",
+                f"- Rationale: {waiver['rationale']}",
+                "",
+            ]
+        )
+    return markdown_bytes("\n".join(lines))
+
+
+def build_projections(root: Path, plugin_name: str | None = None) -> dict[Path, bytes]:
+    catalog, all_sources = load_sources(root)
+    sources = [
+        source for source in all_sources if plugin_name is None or source[0]["name"] == plugin_name
+    ]
+    if plugin_name is not None and not sources:
+        raise MarketplaceError(f"plugin {plugin_name} is not in marketplace/catalog.json")
+    projections: dict[Path, bytes] = {}
+    claude_entries: list[dict[str, Any]] = []
+    codex_entries: list[dict[str, Any]] = []
+
+    for entry, plugin, capabilities in sources:
+        plugin_dir = root / entry["path"]
+        shared = {
+            "name": plugin["name"],
+            "description": plugin["description"],
+            "version": plugin["version"],
+            "author": plugin["author"],
+        }
+        projections[plugin_dir / ".claude-plugin" / "plugin.json"] = json_bytes(shared)
+
+        openai_extension = plugin["extensions"]["com.openai"]
+        codex_manifest = {
+            **shared,
+            "skills": "./skills/",
+            "interface": openai_extension["interface"],
+        }
+        if openai_extension["hooks"]:
+            codex_manifest["hooks"] = openai_extension["hooks"][0]
+        projections[plugin_dir / ".codex-plugin" / "plugin.json"] = json_bytes(codex_manifest)
+
+    for entry, plugin, _ in all_sources:
+        claude_entries.append(
+            {
+                "name": plugin["name"],
+                "description": plugin["description"],
+                "source": f"./{entry['path']}",
+                "category": entry["category"],
+            }
+        )
+        codex_entries.append(
+            {
+                "name": plugin["name"],
+                "source": {"source": "local", "path": f"./{entry['path']}"},
+                "policy": entry["policy"],
+                "category": entry["category"],
+            }
+        )
+
+    claude_catalog = {
+        "name": catalog["name"],
+        "owner": catalog["owner"],
+        "plugins": claude_entries,
+    }
+    codex_catalog = {
+        "name": catalog["name"],
+        "interface": {"displayName": catalog["displayName"]},
+        "plugins": codex_entries,
+    }
+    projections[root / ".claude-plugin" / "marketplace.json"] = json_bytes(claude_catalog)
+    projections[root / ".agents" / "plugins" / "marketplace.json"] = json_bytes(codex_catalog)
+    projections[root / "marketplace" / "support-matrix.md"] = render_support_matrix(all_sources)
+    return projections
+
+
+def sync(root: Path, plugin_name: str | None = None) -> int:
+    for path, content in build_projections(root, plugin_name).items():
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(content)
+        print(f"generated {path.relative_to(root)}")
+    return 0
+
+
+def validate(root: Path, plugin_name: str | None = None) -> int:
+    schema_paths = [
+        root / "marketplace" / "catalog.schema.json",
+        root / "marketplace" / "capabilities.schema.json",
+    ]
+    for path in schema_paths:
+        read_json(path)
+    projections = build_projections(root, plugin_name)
+    drifted = [
+        path.relative_to(root)
+        for path, expected in projections.items()
+        if not path.is_file() or path.read_bytes() != expected
+    ]
+    if drifted:
+        raise MarketplaceError("generated projection drift: " + ", ".join(map(str, drifted)) + "; run scripts/marketplace sync")
+    suffix = f" for {plugin_name}" if plugin_name else ""
+    print(f"validated {len(projections)} generated projections with no byte drift{suffix}")
+    return 0
+
+
+def default_capabilities(name: str, category: str) -> dict[str, Any]:
+    del category
+    test_path = f"plugins/{name}/tests/test-skill.sh"
+    return {
+        "$schema": "../../marketplace/capabilities.schema.json",
+        "schemaVersion": 1,
+        "tier": "dual-core",
+        "hosts": {
+            "claude": {"status": "supported", "commands": False, "hooks": False},
+            "codex": {"status": "supported", "commands": False, "hooks": False},
+        },
+        "workflows": [
+            {
+                "name": name,
+                "skills": [name],
+                "fallback": "Use the portable skill directly from ordinary conversation.",
+                "claude": {"status": "supported", "test": test_path},
+                "codex": {"status": "supported", "test": test_path},
+            }
+        ],
+        "waiver": None,
+    }
+
+
+def new_plugin(root: Path, args: argparse.Namespace) -> int:
+    name = args.name
+    if not NAME_RE.fullmatch(name):
+        raise MarketplaceError("new plugin name must be lowercase kebab case")
+    catalog_path = root / "marketplace" / "catalog.json"
+    catalog = read_json(catalog_path)
+    validate_catalog(catalog, catalog_path)
+    plugin_dir = root / "plugins" / name
+    if plugin_dir.exists() or any(entry["name"] == name for entry in catalog["plugins"]):
+        raise MarketplaceError(f"plugin {name} already exists")
+    description = args.description or f"Reusable {name.replace('-', ' ')} workflow guidance."
+    display_name = " ".join(part.capitalize() for part in name.split("-"))
+    plugin_dir.mkdir(parents=True)
+    skill_dir = plugin_dir / "skills" / name
+    skill_dir.mkdir(parents=True)
+    write_json(
+        plugin_dir / "plugin.json",
+        {
+            "$schema": PORTABLE_SCHEMA,
+            "name": name,
+            "version": args.version,
+            "description": description,
+            "author": {"name": "NTBX"},
+            "keywords": [name, "workflow"],
+            "extensions": {
+                "com.openai": {
+                    "hooks": [],
+                    "interface": {
+                        "displayName": display_name,
+                        "shortDescription": f"Reusable {display_name} workflow.",
+                        "longDescription": f"Reusable guidance for the {display_name} workflow.",
+                        "developerName": "NTBX",
+                        "category": args.category,
+                        "capabilities": ["Read"],
+                        "defaultPrompt": [f"Help me with {display_name}."],
+                    },
+                }
+            },
+        },
+    )
+    write_json(plugin_dir / "capabilities.json", default_capabilities(name, args.category))
+    (skill_dir / "SKILL.md").write_text(
+        f"---\nname: {name}\ndescription: {description}\n---\n\n# {name.replace('-', ' ').title()}\n\nHelp the user with this workflow.\n",
+        encoding="utf-8",
+    )
+    test_dir = plugin_dir / "tests"
+    test_dir.mkdir()
+    test_path = test_dir / "test-skill.sh"
+    test_path.write_text(
+        "#!/usr/bin/env bash\n"
+        "set -euo pipefail\n"
+        "plugin_root=\"$(cd \"$(dirname \"$0\")/..\" && pwd -P)\"\n"
+        f"test -f \"$plugin_root/skills/{name}/SKILL.md\"\n",
+        encoding="utf-8",
+    )
+    test_path.chmod(0o755)
+    catalog["plugins"].append(
+        {
+            "name": name,
+            "path": f"plugins/{name}",
+            "category": args.category,
+            "policy": {"installation": "AVAILABLE", "authentication": "ON_INSTALL"},
+        }
+    )
+    write_json(catalog_path, catalog)
+    print(f"created canonical plugin plugins/{name}")
+    return sync(root)
+
+
+def bumped_version(version: str, bump: str) -> str:
+    match = SEMVER_RE.fullmatch(version)
+    if not match:
+        raise MarketplaceError(f"cannot bump invalid semantic version {version}")
+    major, minor, patch = (int(match.group(index)) for index in range(1, 4))
+    if bump == "major":
+        return f"{major + 1}.0.0"
+    if bump == "minor":
+        return f"{major}.{minor + 1}.0"
+    return f"{major}.{minor}.{patch + 1}"
+
+
+def publish(root: Path, args: argparse.Namespace) -> int:
+    catalog, sources = load_sources(root, args.name)
+    del catalog
+    entry, plugin, _ = sources[0]
+    next_version = bumped_version(plugin["version"], args.bump)
+    plugin["version"] = next_version
+    write_json(root / entry["path"] / "plugin.json", plugin)
+    sync(root)
+    validate(root)
+    if not os.environ.get("MARKETPLACE_NESTED_PUBLISH_TEST"):
+        test_result = run_tests(root, args.name)
+        if test_result:
+            return test_result
+    print(f"prepared {args.name} {next_version}; no commit, tag, or push was performed")
+    return 0
+
+
+def run_tests(root: Path, plugin_name: str | None = None) -> int:
+    validate(root, plugin_name)
+    source_root = default_root()
+    environment = os.environ.copy()
+    environment["MARKETPLACE_ROOT"] = str(root)
+    environment["MARKETPLACE_CLI"] = str(source_root / "scripts" / "marketplace")
+    environment["MARKETPLACE_NESTED_PUBLISH_TEST"] = "1"
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "unittest",
+            "discover",
+            "-s",
+            str(source_root / "tests" / "marketplace"),
+            "-p",
+            "test_*.py",
+        ],
+        cwd=root,
+        env=environment,
+        check=False,
+    )
+    if result.returncode:
+        return result.returncode
+    return run_capability_evidence(root, plugin_name, environment)
+
+
+def run_capability_evidence(
+    root: Path, plugin_name: str | None, environment: dict[str, str]
+) -> int:
+    _, sources = load_sources(root, plugin_name)
+    evidence_paths = {
+            workflow[host]["test"]
+            for _, _, capabilities in sources
+            for workflow in capabilities["workflows"]
+            for host in ("claude", "codex")
+            if workflow[host]["status"] == "supported"
+        }
+    for entry, _, _ in sources:
+        plugin_dir = root / entry["path"]
+        evidence_paths.update(
+            str(test_path.relative_to(root))
+            for test_path in plugin_dir.glob("**/tests/test-*.sh")
+            if test_path.is_file()
+        )
+    for relative_path in sorted(evidence_paths):
+        path = resolve_repo_file(root, relative_path, "capability evidence")
+        print(f"running capability evidence {relative_path}")
+        if path.suffix == ".sh":
+            command = ["bash", str(path)]
+        elif path.suffix == ".py":
+            command = [sys.executable, str(path)]
+        elif path.suffix == ".json":
+            read_json(path)
+            print(f"validated JSON capability evidence {relative_path}")
+            continue
+        else:
+            raise MarketplaceError(f"unsupported capability evidence type: {relative_path}")
+        result = subprocess.run(command, cwd=root, env=environment, check=False)
+        if result.returncode:
+            print(f"marketplace: capability evidence failed: {relative_path}", file=sys.stderr)
+            return result.returncode
+    return 0
+
+
+def parser() -> argparse.ArgumentParser:
+    command_parser = argparse.ArgumentParser(description=__doc__)
+    command_parser.add_argument("--root", type=Path, default=default_root(), help=argparse.SUPPRESS)
+    commands = command_parser.add_subparsers(dest="command", required=True)
+
+    new = commands.add_parser("new", help="create a canonical plugin and generated projections")
+    new.add_argument("name")
+    new.add_argument("--description")
+    new.add_argument("--version", default="0.1.0")
+    new.add_argument("--category", default="Developer Tools")
+
+    sync_command = commands.add_parser("sync", help="generate host-specific manifests and catalogs")
+    sync_command.add_argument("plugin", nargs="?", help="generate one plugin plus shared catalogs")
+    validate_command = commands.add_parser("validate", help="validate canonical sources and byte-exact projections")
+    validate_command.add_argument("plugin", nargs="?", help="validate one plugin plus shared catalogs")
+    test_command = commands.add_parser("test", help="run marketplace validation and unit tests")
+    test_command.add_argument("plugin", nargs="?", help="limit validation to one plugin")
+
+    publish = commands.add_parser("publish", help="bump a canonical version and regenerate; no VCS actions")
+    publish.add_argument("name")
+    publish.add_argument("--bump", choices=("major", "minor", "patch"), required=True)
+    return command_parser
+
+
+def main(argv: list[str] | None = None) -> int:
+    args = parser().parse_args(argv)
+    root = args.root.resolve()
+    try:
+        if args.command == "new":
+            return new_plugin(root, args)
+        if args.command == "sync":
+            return sync(root, args.plugin)
+        if args.command == "validate":
+            return validate(root, args.plugin)
+        if args.command == "test":
+            return run_tests(root, args.plugin)
+        if args.command == "publish":
+            return publish(root, args)
+        raise AssertionError(f"unknown command {args.command}")
+    except MarketplaceError as exc:
+        print(f"marketplace: error: {exc}", file=sys.stderr)
+        return 1
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

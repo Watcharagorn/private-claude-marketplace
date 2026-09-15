@@ -101,7 +101,7 @@ TOKENS="$(mentor_context_tokens "$TRANSCRIPT")"
 
 SESSION_ID="$(printf '%s' "$INPUT" | jq -r '.session_id // ""' 2>/dev/null)" || true
 state_dir="$(mentor_state_dir "$repo_root")"
-[ -z "$state_dir" ] && state_dir="${HOME}/.claude/mentor/_no-repo"
+[ -z "$state_dir" ] && state_dir="$(mentor_no_repo_state_dir)"
 
 ASK_AT="$(mentor_context_threshold "$repo_root" "${MENTOR_CONTEXT_BLOCK_TOKENS:-}" context_block_tokens 350000)"
 WARN_AT="$(mentor_context_threshold "$repo_root" "${MENTOR_CONTEXT_WARN_TOKENS:-}" context_warn_tokens 200000)"

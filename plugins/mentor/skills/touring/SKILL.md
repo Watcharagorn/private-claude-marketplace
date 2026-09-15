@@ -1,29 +1,27 @@
 ---
 name: touring
 description: |
-  Editable guided-tour review artifact — mentor's post-approval acceptance
-  surface. Use whenever the user wants a shareable page to hands-on review,
-  test, or sign off on delivered work, even if they don't say "tour":
-  "editable review artifact", "guided tour / walkthrough page", "UAT or
-  acceptance review", "let reviewers mark pass/not-pass and leave feedback",
-  "update/revise the tour", "re-publish the review page with these fixes",
-  "/tour". Builds one self-contained HTML page per audience (end-user
-  walkthrough / technical deep-dive) from an agent-derived scenario manifest —
-  scenario cards, checklists, pass/not-pass toggles, feedback capture, report
-  export — published via the Artifact tool to a stable URL that revisions
-  republish in place. Subject defaults to the newest mentor plan but works
-  standalone from any topic.
-  Distinct from /mentor:zoom, which renders local-only, never-published
-  visual pages of any subject with no reviewer interaction — a tour is
-  published on purpose and captures pass/not-pass verdicts.
+  Create an editable post-approval guided review set for a feature or plan.
+  Triggered by tour, walkthrough, UAT, acceptance review, or pass/not-pass
+  feedback requests. Builds a self-contained HTML page plus Markdown and JSON
+  deliverables under `.mentor/tours/`, with scenario cards, checklists,
+  reviewer marks, feedback, and report export. The subject may be a plan or
+  standalone topic. Claude Artifact hosting is optional after local delivery.
+  Distinct from zoom: tours are editable acceptance reviews, never dependent on
+  a hosted URL.
 ---
 
 # Tour — Editable Guided-Review Artifact
 
-Generate (and iterate) an **editable review page**: a guided tour of a system's scenarios that a
-reviewer walks hands-on, marking each scenario **pass / not-pass** with feedback, all in one
-self-contained HTML artifact with a stable URL. The tour is a **post-approval deliverable** — it is
-not the plan, not a zoom, and never lives in `plans/`.
+## Host portability
+
+Use a structured question UI when the host offers one; otherwise ask the same focused question directly and wait for the answer. If delegated agents are unavailable or prohibited, perform the required research, review, or implementation serially and retain the same evidence, scope, and verification contract. Treat Mentor helpers as optional host integrations: resolve them with `PLUGIN_ROOT` first, then `CLAUDE_PLUGIN_ROOT`; if neither is available, work from the repository's durable `.mentor/` artifacts and report any state action that cannot be performed safely. This rule overrides later host-specific tool names, preserving user choice and plan continuity across hosts.
+
+Generate (and iterate) an **editable local review set**: a guided tour of a system's scenarios that
+a reviewer walks hands-on, marking each scenario **pass / not-pass** with feedback. Always write a
+self-contained HTML page plus companion Markdown and JSON files; their shared local path is the
+portable deliverable. A host may additionally publish the HTML. The tour is a **post-approval
+deliverable** — it is not the plan, not a zoom, and never lives in `plans/`.
 
 ## When to use
 
@@ -39,23 +37,29 @@ not the plan, not a zoom, and never lives in `plans/`.
   pre-approval review) or `/mentor:grill` (decision interview), not a tour.
 - The user wants a **read-only visual view of a subject** (a plan topic, a subsystem, a design) —
   that is the `zoom` skill (`.mentor/zooms/<slug>/`, local-open only, explicitly never published,
-  no marks to record). A tour is different: an editable acceptance page, published on purpose.
+  no marks to record). A tour is different: an editable acceptance page with local review exports.
 - The subject has no walkable behavior (pure docs/config with nothing to exercise).
 
 ---
 
 ## Step 0 — Guard, state dir, and subject resolution
 
-Derive the project-scoped mentor state dir and check the planning gate (same derivation as
-`hooks/lib/state.sh` — never hardcode paths; not in a git repo → fall back to
-`~/.claude/mentor/_no-repo`):
+Derive the project-scoped mentor state dir and check the planning gate. When available,
+`plan-state.sh dir` owns both worktree and non-repository resolution, including the portable state
+home; never hardcode a host configuration directory:
 
 ```bash
-state_dir="$(bash "${CLAUDE_PLUGIN_ROOT}/hooks/plan-state.sh" dir)"   # worktree-safe; _no-repo fallback
-[ -n "$state_dir" ] || { echo "ERROR: mentor state dir unresolved — is CLAUDE_PLUGIN_ROOT set? do not search the plugin cache or hardcode a version path; ask the user to /reload-plugins or restart" >&2; exit 1; }
+plugin_root="${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:-}}"
+if [ -n "$plugin_root" ] && [ -x "$plugin_root/hooks/plan-state.sh" ]; then
+  state_dir="$(bash "$plugin_root/hooks/plan-state.sh" dir)"
+else
+  state_dir="$(git rev-parse --show-toplevel 2>/dev/null || pwd)/.mentor"
+fi
 ls -t "$state_dir"/plans/*/plan.md 2>/dev/null | head -3   # candidate plan subjects (newest first)
-sibling_wts="$(bash "${CLAUDE_PLUGIN_ROOT}/hooks/plan-state.sh" gate --verbose | sed -n 's/^elsewhere=\([^ ]*\).*/\1/p')"
-[ -n "$sibling_wts" ] && bash "${CLAUDE_PLUGIN_ROOT}/hooks/plan-state.sh" list --owners   # cross-check OWNER col below
+if [ -n "$plugin_root" ] && [ -x "$plugin_root/hooks/plan-state.sh" ]; then
+  sibling_wts="$(bash "$plugin_root/hooks/plan-state.sh" gate --verbose | sed -n 's/^elsewhere=\([^ ]*\).*/\1/p')"
+  [ -n "$sibling_wts" ] && bash "$plugin_root/hooks/plan-state.sh" list --owners
+fi
 ```
 
 - **Resolve the subject**, in priority order:
@@ -75,7 +79,7 @@ sibling_wts="$(bash "${CLAUDE_PLUGIN_ROOT}/hooks/plan-state.sh" gate --verbose |
 ## Step 1 — Audience gate (one question, skippable)
 
 If the argument already names the audience (`user` | `dev` | `both`), skip this step. Otherwise ask
-**one** `AskUserQuestion` (single-select, header "Audience") — **every question stands on its own**,
+**one structured-or-direct question** (single-select when supported, header "Audience") — **every question stands on its own**,
 answered from the question screen alone, never sending the user to a file, a plan section, a coined
 id or code, or an earlier turn to learn what it means:
 
@@ -83,10 +87,10 @@ id or code, or an earlier turn to learn what it means:
 2. **Technical deep-dive** — every workflow variant and condition, exact commands/YAML, internals.
 3. **Both** — two artifacts sharing one scenario manifest, each fitted to its audience.
 
-## Step 2 — Scenario inventory (ONE dispatched agent)
+## Step 2 — Scenario inventory (one bounded research pass)
 
-Dispatch **one `Explore` agent** over the subject + the relevant repo paths (scripts, manifests,
-docs, workflow definitions). Its prompt must require the **SCENARIO MANIFEST** return contract —
+Dispatch **one read-only research agent** when the host supports delegation; otherwise perform the
+same bounded survey in the main thread. The result must meet the **SCENARIO MANIFEST** contract —
 structured, machine-usable, **no prose padding and no word cap on the manifest itself** (a card list
 cannot fit a 400-word summary contract without truncating coverage):
 
@@ -100,7 +104,7 @@ cannot fit a 400-word summary contract without truncating coverage):
 - Plus **OPEN QUESTIONS** (anything unverifiable). No raw file dumps beyond the per-card snippets.
 
 The main thread holds only this manifest — it does not re-read the repo (the same orchestrator
-contract `dispatch-agents` enforces for implementation). This dispatch also follows the
+contract `dispatch-agents` enforces for implementation). A delegated pass also follows the
 `dispatch-agents` **"Async runtime & lifecycle"** rules: the prompt requires delivery before idling,
 idle-with-no-manifest gets one nudge, and the agent is stopped/released once the manifest is consumed.
 
@@ -136,42 +140,47 @@ render agent). One self-contained HTML file **per audience**, fixed anatomy:
 - **Audience fitting** — the end-user artifact rewrites steps in plain language, showing commands
   only where the reviewer must actually run one; the dev artifact keeps exact commands/YAML,
   variants, and evidence refs.
-- Fully self-contained (inline CSS/JS, no external requests — the Artifact CSP blocks them);
-  theme-aware (light/dark); default visual theme: **space-efficient**.
+- Fully self-contained (inline CSS/JS, no external requests), theme-aware (light/dark), and
+  space-efficient by default.
 
-**Design pass — runtime discovery, never hardcoded:** read the most recent active-skills
-system-reminder and pick the strongest design/UX skill present (e.g. `ui-ux-pro-max` when installed);
-otherwise use the built-in `artifact-design` skill (required before Artifact publishing anyway). If
-neither is listed, degrade gracefully with the one-line notice
+**Design pass — runtime discovery, never hardcoded:** read the current host's available design/UX
+capabilities and use the strongest relevant one. If none is available, degrade gracefully with the one-line notice
 `Design pass: skipped — no design skill in session.`
 
-## Step 5 — Publish (stable URL; mechanics note printed once)
+## Step 5 — Write local deliverables; optionally publish
 
 ```bash
-# Re-derive: Step 1's block was a separate Bash call and its variables are gone. An unset
-# $state_dir would write the tour to /tours at the filesystem root instead of the repo.
-state_dir="$(bash "${CLAUDE_PLUGIN_ROOT}/hooks/plan-state.sh" dir)"   # worktree-safe
-[ -n "$state_dir" ] || { echo "ERROR: mentor state dir unresolved — is CLAUDE_PLUGIN_ROOT set? do not search the plugin cache or hardcode a version path; ask the user to /reload-plugins or restart" >&2; exit 1; }
-mkdir -p "$state_dir/tours"   # bare on purpose: tours are meant to be shared, not 700
+# Re-derive: each shell call is independent. `plan-state.sh dir` supplies the portable
+# state home when available; the fallback is the current repository's durable tree.
+plugin_root="${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:-}}"
+if [ -n "$plugin_root" ] && [ -x "$plugin_root/hooks/plan-state.sh" ]; then
+  state_dir="$(bash "$plugin_root/hooks/plan-state.sh" dir)"
+else
+  state_dir="$(git rev-parse --show-toplevel 2>/dev/null || pwd)/.mentor"
+fi
+mkdir -p "$state_dir/tours"
 tour_file="$state_dir/tours/<slug>-<audience>.html"
-[ -f "$tour_file" ] && echo "EXISTS"    # decides the mechanics note below
+tour_md="$state_dir/tours/<slug>-<audience>.md"
+tour_json="$state_dir/tours/<slug>-<audience>.json"
 ```
 
-- Write the HTML to `tour_file` — **`tours/` is a sibling of `plans/`, never inside `plans/`**
+- Write the HTML to `tour_file`, a Markdown review/report template to `tour_md`, and the scenario
+  manifest plus initial review state to `tour_json` — **`tours/` is a sibling of `plans/`, never inside `plans/`**
   (the plan resolution helpers glob `plans/*/plan.md` and must never see tour files; the
   `.mentor/.gitignore` whitelist keeps `tours/` out of git automatically).
-- Publish via the **Artifact tool** with a stable `<title>` and a stable favicon. Same file path →
-  same URL on every republish. For a tour first published in an *earlier* session, pass the existing
-  artifact URL (`action: "list"` to find it) so the link is preserved. This is the one mentor
-  artifact that is *meant* to be published — unlike zoom files, which stay local.
-- **Only if the file did not exist before this run**, print the mechanics note once:
-  marking semantics (hollow → ✓/✗ toggle), localStorage persistence, the MD/JSON export, and the
-  republish contract ("same tour → same URL; just tell me what to change"). On any revision,
-  **never re-explain these** — report only what changed and the URL.
+- The HTML's export buttons may generate a reviewer-completed MD/JSON report at review time, but
+  the authored companion files above must exist before delivery. Report all three local paths.
+- **Claude enhancement only:** if a Claude Artifact capability is available and the user asks for
+  hosting, publish the already-written HTML with a stable title and preserve its URL on revisions.
+  A missing Artifact capability is not an error and never changes the local deliverable contract.
+- On first delivery, explain marking semantics (hollow → ✓/✗ toggle), localStorage persistence,
+  and the MD/JSON exports. On a revision, report the changed local paths; include a hosted URL only
+  when one was explicitly created or updated.
 
 ## Step 6 — Revision loop + parity rule
 
-- A revision edits the **same file** and republishes the **same URL**. Keep the slug stable.
+- A revision edits the **same local files**. Keep the slug stable; when a hosted enhancement exists,
+  republish its same URL too.
 - **Card `id`s are immutable across revisions** — never renumber existing cards; new cards get new
   ids — so a reviewer's persisted marks never shift to the wrong card.
 - **A pasted-back exported report is revision input**: treat each not-passed card's feedback as the
@@ -188,9 +197,9 @@ tour_file="$state_dir/tours/<slug>-<audience>.html"
   it; the main thread does not re-read it). A tour writes only under `.mentor/tours/`, which the
   edit gate exempts, so an armed planning gate is not a reason to abort — mention it if the
   subject is a plan still being drafted, since the tour will describe a moving target.
-- Do **not** write anything into `plans/` or `zooms/` (tour files live in `tours/`), and do **not**
-  publish the plan or a zoom artifact via the Artifact tool — the `zoom` skill's local-only
-  prohibition still stands; only the tour page is published.
+- Do **not** write anything into `plans/` or `zooms/` (tour files live in `tours/`), and do not
+  publish a plan or zoom. A tour may be hosted only as an optional enhancement after its local
+  HTML, Markdown, and JSON deliverables exist.
 - Do **not** dispatch a rendering agent — the main thread renders; only the scenario inventory is
   delegated.
 - Do **not** hardcode a design plugin name as a dependency — discover at runtime, degrade gracefully.

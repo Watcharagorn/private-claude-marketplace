@@ -14,6 +14,10 @@ description: >
 
 # mentor Constitution
 
+## Host portability
+
+Use a structured question UI when the host offers one; otherwise ask the same focused question directly and wait for the answer. If delegated agents are unavailable or prohibited, perform the required research, review, or implementation serially and retain the same evidence, scope, and verification contract. Treat Mentor helpers as optional host integrations: resolve them with `PLUGIN_ROOT` first, then `CLAUDE_PLUGIN_ROOT`; if neither is available, work from the repository's durable `.mentor/` artifacts and report any state action that cannot be performed safely. This rule overrides later host-specific tool names, preserving user choice and plan continuity across hosts.
+
 A **constitution** is the supreme rulebook for how work is planned and built in a
 repo: a short list of named principles, each declarative and testable, plus a
 governance block that records how the document is versioned and amended. Once it
@@ -36,7 +40,7 @@ The flow: guard → load any existing constitution → collect/derive principles
 ## Step 1 — Guard {#guard}
 
 ```bash
-[ -d "${CLAUDE_PLUGIN_ROOT}/hooks" ] || { echo "ERROR: CLAUDE_PLUGIN_ROOT unresolved or stale — do not search the plugin cache or hardcode a version path; ask the user to /reload-plugins or restart" >&2; exit 1; }
+[ -d "${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:-}}/hooks" ] || { echo "ERROR: Mentor helper unavailable — set PLUGIN_ROOT (or use the Claude compatibility fallback) or use the documented artifact fallback" >&2; exit 1; }
 git_common="$(git rev-parse --git-common-dir 2>/dev/null || true)"
 if [ -z "$git_common" ]; then
   echo "NOT-A-REPO"
@@ -48,7 +52,7 @@ else
   # (only a SIBLING worktree's marker is live) must NOT count — otherwise
   # constitution work would deadlock repo-wide any time any worktree is mid-plan,
   # the exact disease the per-worktree gate exists to cure.
-  if [ "$(bash "${CLAUDE_PLUGIN_ROOT}/hooks/plan-state.sh" gate)" = "ARMED" ]; then
+  if [ "$(bash "${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:-}}/hooks/plan-state.sh" gate)" = "ARMED" ]; then
     echo "PLANNING-ACTIVE"
   else
     echo "PLANNING-IDLE"

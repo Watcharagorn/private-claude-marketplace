@@ -1,7 +1,8 @@
 ---
 name: learn
-description: Learn from EVERY unanalyzed session that used one plugin, across every project of the active config dir — or from ONE named session — improving the plugin with both audit + enhance lenses. With just <plugin>, discovers matching sessions across all project folders of `$cfg/projects`, filters already-analyzed ones via a per-plugin ledger + watermark, then processes each ONE AT A TIME, oldest first — analyze, expert-review, AUTO-implement approved improvements, COMMIT per session — publishing one release when the backlog drains (--review confirms each session, --dry-run previews; --headless processes exactly ONE session per invocation and never prompts, for the daily runner's loop); with <plugin> <session-id>, analyzes just that session interactively (no discovery, ledger/watermark untouched). Invoke for "learn <plugin>", "learn from all sessions that used <plugin>", "audit and enhance <plugin> from session <id>", or "/learn <plugin>". For a quick misbehavior-only pass on one session, use audit-plugin.
-version: 1.1.1
+description: Learn from EVERY unanalyzed session that used one plugin, across every project of the active config dir — or from ONE named session — improving the plugin with both audit + enhance lenses. With just PLUGIN, discovers matching sessions across all project folders of `$cfg/projects`, filters already-analyzed ones via a per-plugin ledger + watermark, then processes each ONE AT A TIME, oldest first — analyze, expert-review, AUTO-implement approved improvements, COMMIT per session — publishing one release when the backlog drains (--review confirms each session, --dry-run previews; --headless processes exactly ONE session per invocation and never prompts, for the daily runner's loop); with PLUGIN SESSION_ID, analyzes just that session interactively (no discovery, ledger/watermark untouched). Invoke for "learn PLUGIN", "learn from all sessions that used PLUGIN", "audit and enhance PLUGIN from session SESSION_ID", or "/learn PLUGIN". For a quick misbehavior-only pass on one session, use audit-plugin.
+metadata:
+  version: "1.1.1"
 ---
 
 # learn — audit + enhance one plugin from its sessions

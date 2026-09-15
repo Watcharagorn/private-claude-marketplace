@@ -7,7 +7,7 @@ description: >
   should run, references existing artifacts (the plan file, PRDs, ADRs, issues,
   commits, diffs) by path/URL instead of duplicating them, and redacts secrets.
   Saved inside the plan-topic folder it belongs to — the repo's gitignored
-  .mentor/plans/<topic>/handoffs/ dir — so the plan and its handoffs live
+  .mentor/plans/[topic]/handoffs/ dir — so the plan and its handoffs live
   together and `git status` stays clean. Writing a note supersedes the topic's
   older notes (stamped into resolved/), keeping exactly one live resume point
   per topic. Ends by printing a copy-paste resume prompt so the next session
@@ -15,6 +15,10 @@ description: >
 ---
 
 # Handoff — Compact the Session for the Next Agent
+
+## Host portability
+
+Use a structured question UI when the host offers one; otherwise ask the same focused question directly and wait for the answer. If delegated agents are unavailable or prohibited, perform the required research, review, or implementation serially and retain the same evidence, scope, and verification contract. Treat Mentor helpers as optional host integrations: resolve them with `PLUGIN_ROOT` first, then `CLAUDE_PLUGIN_ROOT`; if neither is available, work from the repository's durable `.mentor/` artifacts and report any state action that cannot be performed safely. This rule overrides later host-specific tool names, preserving user choice and plan continuity across hosts.
 
 This skill turns the current conversation into a **self-contained handoff document** a fresh agent
 can use to continue the work — without re-reading this entire session. The document is saved
@@ -94,20 +98,20 @@ the plan gate, so the write is always allowed.) Resolve `topic` first:
 ```bash
 topic="<topic>"  # ← REPLACE per the rule above (kebab-case; the plan's slug, or the focus slug)
 slug="session"   # ← REPLACE with a short kebab-case of the next-session focus, e.g. "auth-retry-fix"
-out="$(bash "${CLAUDE_PLUGIN_ROOT}/hooks/plan-state.sh" handoff-path "$topic" "$slug")"
-[ -n "$out" ] || { echo "ERROR: handoff path unresolved — see the actual reason on stderr above (a bad topic/slug, a path-confinement refusal) or, if nothing printed, check CLAUDE_PLUGIN_ROOT is set; do not search the plugin cache or hardcode a version path; ask the user to /reload-plugins or restart" >&2; exit 1; }
+out="$(bash "${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:-}}/hooks/plan-state.sh" handoff-path "$topic" "$slug")"
+[ -n "$out" ] || { echo "ERROR: handoff path unresolved — inspect stderr for an invalid topic/slug or path-confinement refusal; if helpers are unavailable, use the repository .mentor/handoffs fallback described by this skill" >&2; exit 1; }
 echo "$out"
 ```
 
 `handoff-path` resolves the worktree-safe mentor dir, confines + creates `<topic>`'s private
 `handoffs/` dir, writes the mentor-dir gitignore (in-repo only; never clobbers a user-tweaked file),
 and prints the timestamped path — the one call, so there is exactly one
-`${CLAUDE_PLUGIN_ROOT}` substitution to get right, not several.
+portable plugin-root resolution to get right, not several.
 
 Derive `slug` from the focus you resolved in Step 1 (short kebab-case, ≤40 chars). Set both `topic=`
 and `slug=` **before** running the snippet — never leave a literal `<…>` placeholder in the path. If
-you have no specific focus, the `session` default is a valid filename. (If not inside a git repo, the
-snippet falls back to `$HOME/.claude/mentor/_no-repo/plans/<topic>/handoffs/`.)
+you have no specific focus, the `session` default is a valid filename. Outside a git repository,
+`plan-state.sh dir` resolves the configured portable state home; do not construct that path yourself.
 
 > **The directory AND filename are computed by the snippet above — never infer them from an existing
 > file.** The canonical location is `<repo>/.mentor/plans/<topic>/handoffs/<YYYYMMDD-HHMMSS>-<slug>.md`.
@@ -148,7 +152,7 @@ it — Step 5's self-check catches that before you report.
 - **What happened** — a tight summary of the conversation and the progress made. Narrative, not a transcript.
 - **Current state** — branch, what is done vs pending, any failing checks or known-broken bits.
   Paste a rendering of
-  `bash "${CLAUDE_PLUGIN_ROOT}/hooks/plan-state.sh" query` here. A table of real plan states
+  `bash "${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:-}}/hooks/plan-state.sh" query` here. A table of real plan states
   beats a prose recollection of what got built, and it is exactly what the next agent needs before
   running `/mentor:track`. Use `query`, **not** `list`: `list` only tables topics that already
   have a `plan.md`, so on work done outside a plan it prints "No plans …" and you will wrongly
@@ -158,7 +162,7 @@ it — Step 5's self-check catches that before you report.
   A note usually wants the unfinished work, not all of it, and that is a filter rather than a
   post-hoc trim: `query --open` drops everything already `implemented`/`superseded`, and
   `--format table` renders it directly so there is no JSON left to transcribe by hand.
-  Also run `bash "${CLAUDE_PLUGIN_ROOT}/hooks/plan-state.sh" gate --verbose` and record its verdict
+  Also run `bash "${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:-}}/hooks/plan-state.sh" gate --verbose` and record its verdict
   here, rather than inferring the gate by hand (a raw `test -f .mentor/plans/.planning` collapses
   all four states into one bucket and drops who holds it). `gate` prints exactly one of four tokens
   on line 1 — `ARMED` (this worktree's own marker, or the legacy repo-global one, is live), `STALE`
@@ -208,7 +212,7 @@ it — Step 5's self-check catches that before you report.
     analysis script — and would otherwise vanish once the session ends: copy them into
     `<repo>/.mentor/plans/<topic>/{scripts,data}/` (siblings of `handoffs/`, gitignored by
     `handoff-path`'s gitignore write — re-derive `<repo>/.mentor` via
-    `bash "${CLAUDE_PLUGIN_ROOT}/hooks/plan-state.sh" dir`, never off a stale variable, since
+    `bash "${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:-}}/hooks/plan-state.sh" dir`, never off a stale variable, since
     variables don't survive between Bash calls) *before* writing this note, then link the copied
     paths here, e.g. `mkdir -p "<repo>/.mentor/plans/<topic>/data" && cp -R /tmp/my-sweep/* "<repo>/.mentor/plans/<topic>/data/"`.
     Skip this when it is already reproducible from a command recorded in this note (re-running it is
@@ -364,7 +368,7 @@ Step 3 sits between this call and the Step 2 one, so Step 2's `$out` is gone her
 
 ```bash
 out="<absolute note path from Step 2>"   # ← REPLACE — the file you just wrote
-bash "${CLAUDE_PLUGIN_ROOT}/hooks/plan-state.sh" handoff-selfcheck "$out"
+bash "${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:-}}/hooks/plan-state.sh" handoff-selfcheck "$out"
 ```
 
 `handoff-selfcheck` first verifies `$out` is actually on disk — **before** touching anything else —

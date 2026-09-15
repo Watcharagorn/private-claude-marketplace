@@ -46,7 +46,7 @@ a CJK locale, with iTerm2's "ambiguous-width = double" setting, or on a CJK Wind
 There is no fix inside the string. Ship an ASCII border mode and select it at setup:
 
 ```bash
-python3 "${CLAUDE_PLUGIN_ROOT}/scripts/renderer_template.py" demo --ascii   # or TMUX_DESIGN_BORDER=ascii
+python3 "<tmux-design-root>/scripts/renderer_template.py" demo --ascii   # or TMUX_DESIGN_BORDER=ascii
 ```
 
 **Prefer EAW=N marks for fixed-width slots** — they are 1 column everywhere:
