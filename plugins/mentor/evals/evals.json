@@ -1,5 +1,5 @@
 {
-  "eval_name": "mentor-v3.1.0-cross-host-skill-routing",
+  "eval_name": "mentor-v4.0.0-cross-host-skill-routing",
   "note": "Cross-host multi-class routing: every query is scored on WHICH mentor skill fires, not whether one does. 'none' means no mentor skill should be consulted.",
   "skills_in_play": [
     "planning",
@@ -11,7 +11,7 @@
     "resuming",
     "handoff-note",
     "touring",
-    "zooming",
+    "previewing",
     "merging",
     "shipping",
     "deferring",
@@ -140,32 +140,32 @@
     },
     {
       "id": 21,
-      "expected": "zooming",
-      "tests": "core trigger, 'zoom into' phrasing",
+      "expected": "previewing",
+      "tests": "core trigger, the retired command's verb in user phrasing still routes to previewing",
       "query": "zoom into the auth flow for me — i want to actually see how the token refresh hangs together instead of reading another wall of markdown"
     },
     {
       "id": 22,
-      "expected": "zooming",
-      "tests": "core trigger, html page + explicit no-publish",
+      "expected": "previewing",
+      "tests": "core trigger, html page + explicit no-publish (the page stays local; publishing is only offered)",
       "query": "can you render the payment module as an html page i can just open in the browser? dont publish it anywhere, local file is fine"
     },
     {
       "id": 23,
-      "expected": "zooming",
-      "tests": "core trigger, NO plan exists — subject is the codebase",
+      "expected": "previewing",
+      "tests": "core trigger, NO plan exists — subject is the codebase (current state, no Before/After)",
       "query": "give me a diagram page for the ingestion pipeline. theres no plan written for it, its just the code thats already sitting in the repo"
     },
     {
       "id": 24,
-      "expected": "zooming",
-      "tests": "core trigger, both dimensions named (topic x perspective)",
+      "expected": "previewing",
+      "tests": "core trigger, perspective phrasing from the retired topic × perspective skill now lands on the one-page preview",
       "query": "id like to see the checkout redesign from a QA persons point of view and from the end users — as separate pages i can open side by side"
     },
     {
       "id": 25,
       "expected": "touring",
-      "tests": "NEAR-MISS vs zoom: reviewers mark pass/not-pass and it gets shared = tour, not a local visual",
+      "tests": "NEAR-MISS vs previewing: reviewers mark pass/not-pass and it gets shared = tour, not a review page",
       "query": "i need a page i can send the reviewers where they walk each scenario, tick pass or not pass, and leave me feedback"
     },
     {
@@ -177,13 +177,13 @@
     {
       "id": 27,
       "expected": "plan-review",
-      "tests": "NEAR-MISS vs zoom: 'a proper look' but the ask is a quality verdict on a written plan",
+      "tests": "NEAR-MISS vs previewing: 'a proper look' but the ask is a quality verdict on a written plan",
       "query": "before i approve the billing plan i want a proper look at it — is the approach actually sound or are we going to regret the queue thing"
     },
     {
       "id": 28,
       "expected": "none",
-      "tests": "NEAR-MISS keyword bait: 'zoom' the video product, nothing to do with mentor",
+      "tests": "NEAR-MISS keyword bait: a video-call meeting, nothing to do with mentor's review page",
       "query": "can you set up a zoom with the vendor for thursday afternoon and send round the invite?"
     },
     {
@@ -206,8 +206,8 @@
     },
     {
       "id": 32,
-      "expected": "zooming",
-      "tests": "RE-ENTRY trigger: an existing zoom is stale and needs regenerating, not creating",
+      "expected": "previewing",
+      "tests": "RE-ENTRY trigger: an existing review page is stale and needs regenerating (previewing §7), not creating",
       "query": "the plan changed a fair bit since you made those zoom pages — can you refresh them? the auth one especially, it's still showing the old token flow"
     },
     {
@@ -219,7 +219,7 @@
     {
       "id": 34,
       "expected": "touring",
-      "tests": "NEAR-MISS vs zooming's new update triggers: 'update the html review page' overlaps, but reviewers ticking scenarios = tour",
+      "tests": "NEAR-MISS vs previewing's refresh triggers: 'update the html review page' overlaps, but reviewers ticking scenarios = tour",
       "query": "can you update that html review page? its the one i sent the QA folks so they could tick off each scenario"
     },
     {
@@ -272,8 +272,8 @@
     },
     {
       "id": 44,
-      "expected": "zooming",
-      "tests": "NEAR-MISS vs touring: one static read-only diagram, no pass/not-pass interaction and nothing published",
+      "expected": "previewing",
+      "tests": "NEAR-MISS vs touring: a read-only page of the current flow, no pass/not-pass interaction and nothing published",
       "query": "just show me a diagram of the current auth flow, one page is fine"
     },
     {
@@ -341,6 +341,30 @@
       "expected": "dispatch-agents",
       "tests": "NEAR-MISS vs deferring: a verification gap that blocks the plan's OWN goal is remediated through the failure loop and re-verified, never parked. Opens on the same 'the verifier flagged X' phrasing as id 48 but asks for a fix, not a capture — deferral is manual only as of v2.33.0, so a verifier finding alone must never reach deferring",
       "query": "topic 2's verifier came back FAIL — the migration never runs on a fresh db, and thats the whole point of this plan. get that fixed and run the verification for that topic again"
+    },
+    {
+      "id": 56,
+      "expected": "previewing",
+      "tests": "core trigger: a plan previewed with clickable mockups of every screen and its error cases, before approval",
+      "query": "preview the checkout plan with clickable mockups of each screen and the error cases — i want to click through it before i approve"
+    },
+    {
+      "id": 57,
+      "expected": "plan-review",
+      "tests": "NEAR-MISS vs previewing: 'review the plan' asks for a quality verdict, not a page",
+      "query": "review the plan, is it any good? i dont need a page, just tell me whether the approach holds up"
+    },
+    {
+      "id": 58,
+      "expected": "touring",
+      "tests": "NEAR-MISS vs previewing: a UAT page with pass/not-pass marks per scenario = tour",
+      "query": "make me a UAT page for the release where the reviewers tick pass or not-pass on every scenario"
+    },
+    {
+      "id": 59,
+      "expected": "previewing",
+      "tests": "core trigger: a comment box per scenario whose text is copied back into chat",
+      "query": "i want to leave a comment on each scenario of the onboarding plan and copy it back to you here so you can fix things"
     }
   ]
 }

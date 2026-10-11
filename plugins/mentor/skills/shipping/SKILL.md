@@ -525,7 +525,7 @@ assignment preserves `mode`, `constitution_path` and the context-gate keys, and
 the `&&` means a `jq` failure leaves the original byte-identical — so there is
 no second backup-and-restore dance to keep true for the same file. On the
 create branch, a config written without `.mentor/.gitignore` beside it would
-leave `plans/`, `zooms/` and `tours/` committable, so run
+leave `plans/`, `reviews/` and `tours/` committable, so run
 `mentor_ensure_gitignore` (as every hook that writes this file does) or create
 the config only in a repo that already planned.
 

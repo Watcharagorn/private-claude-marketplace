@@ -9,8 +9,8 @@ description: >
   architecture, its containers, external systems, and the edges between them)
   and the Markdown plan to carry a before/after C4-model view — diff-highlighted
   Mermaid Context / Container (/ Component) diagrams, rendering only the C4
-  levels the change actually moves. No extra agent; a polished HTML/CSS C4
-  diagram is reserved for the opt-in HTML zoom (`mentor:zooming`).
+  levels the change actually moves. No extra agent; a polished C4 diagram
+  is reserved for the opt-in review page (`mentor:previewing`).
 ---
 
 # Architecture (C4) Planning Domain
@@ -82,7 +82,7 @@ L4 is never rendered. Pick levels by **where the delta lives** (a plan may rende
   changes.
 - **L3 Component** — render **only** when **one container gains/changes significant internal
   components**. Pair it with a minimal **L2 locator** (one box) so the reviewer knows which container
-  it zooms into.
+  it opens up.
 - **Greenfield** (no meaningful "before"): render the target state with every element tagged **NEW**.
 - **Deployment (supplementary, pairs with L2)** — render when the change adds, moves, or duplicates a
   **physical deployment target**: a cluster, VPC/network boundary, region/account, or a
@@ -175,13 +175,13 @@ This domain composes with others: when `backend-api` also matched, the C4 Contai
 its contract tables are **complementary** (system shape vs. endpoint contracts) — do not redraw a
 sequence flow as a C4 diagram here; each answers a different question.
 
-## HTML zoom (opt-in)
+## Review page (opt-in)
 
-When the user explicitly requests a visual zoom of this domain's area (`mentor:zooming`, via `plan`
-Step 5), the zoom
-html file may carry a **polished HTML/CSS C4 diagram** for the requested level(s) only: boxes with
-name + technology sub-label + one-line responsibility, connectors carrying the relationship label
-(protocol / sync·async), people and external systems styled distinctly (person glyph / muted
-"external" treatment), diff-highlighted with a legend (NEW added-green, CHANGED amber, REMOVED
-struck/red, UNCHANGED plain), and a `C4 L1/L2/L3` header per diagram. Pure HTML/CSS with inline SVG
-for connectors — self-contained per `mentor:zooming` Step 3. The `.md` plan stays the source of truth.
+When the user explicitly requests a review page (`mentor:previewing`, via `plan` Step 5), its
+Architecture section carries a **polished C4 diagram** for each level the change moves, drawn with
+diagram-design (or that skill's hand-drawn fallback): boxes with name + technology sub-label +
+one-line responsibility, connectors carrying the relationship label (protocol / sync·async), people
+and external systems styled distinctly (person glyph / muted "external" treatment), diff-highlighted
+with a legend (NEW added-green, CHANGED amber, REMOVED struck/red, UNCHANGED plain), and a
+`C4 L1/L2/L3` header per diagram — inline SVG with per-diagram id prefixes per `mentor:previewing`
+§2. The `.md` plan stays the source of truth.

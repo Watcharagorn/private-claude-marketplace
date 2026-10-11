@@ -37,8 +37,8 @@
     },
     {
       "name": "visual-artifacts",
-      "skills": ["touring", "zooming"],
-      "fallback": "Write self-contained local HTML plus Markdown or JSON; hosted Artifact publication is optional.",
+      "skills": ["touring", "previewing"],
+      "fallback": "Write local HTML under .mentor (tours: self-contained, with Markdown and JSON companions; review pages: pinned CDN scripts allowed); hosted Artifact publication is optional.",
       "claude": { "status": "supported", "test": "plugins/mentor/tests/test-dual-host-contract.sh" },
       "codex": { "status": "supported", "test": "plugins/mentor/tests/test-dual-host-contract.sh" }
     },

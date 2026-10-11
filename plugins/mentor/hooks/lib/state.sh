@@ -8,7 +8,8 @@
 #   <repo_root>/.mentor/
 #   ├── .gitignore        # commit config.json + constitution.md; ignore transient state
 #   ├── config.json       # {"mode": "plan|plan-only", "dispatch": "agents|verify-only",
-#   │                     #   "context_gate", "context_*_tokens", "test_command" ...}
+#   │                     #   "context_gate", "context_*_tokens", "test_command",
+#   │                     #   "diagram_renderer": "diagram-design|fallback" (previewing) ...}
 #   ├── constitution.md   # governing principles (committed; managed by /mentor:constitution)
 #   ├── plans/            # one .planning.<wt-id> gate marker PER WORKTREE (v2.23.0,
 #   │                     #   mentor_worktree_id/mentor_plan_marker below) + one <slug>/
@@ -29,8 +30,8 @@
 #   │       │                #   mixed-version sidecars read back with any missing key
 #   │       │                #   jq-defaulted to []/null/"")
 #   │       └── handoffs/ #   <ts>-<slug>.md; solved/superseded notes → handoffs/resolved/
-#   ├── zooms/            # mentor:zooming artifacts — <subject-slug>/<topic>-<perspective>.html
-#   │                     #   (+ hidden .*.opened sidecars; pre-v2.12 they lived in plans/<slug>/zoom/)
+#   ├── reviews/          # mentor:previewing pages — <subject-slug>/review.html, _ids.md,
+#   │                     #   _plan.md, _parts/ (fragments) and shots/ (captured pictures)
 #   └── handoffs/         # legacy flat notes (pre-v2.10 — still read, never written)
 #   (.context-warned-<session_id> markers live at the .mentor/ root.)
 #   Not inside a git repo → callers use mentor_no_repo_state_dir. New installs

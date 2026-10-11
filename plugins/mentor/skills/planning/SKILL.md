@@ -19,14 +19,16 @@ The flow: resolve the mode & load the constitution → clarify if needed →
 research (delegation suggested) → domain routing → resolve open decisions
 with the user → write the Markdown plan
 (with a Constitution Check when a constitution exists) → (optional
-topic × perspective HTML zooms via `mentor:zooming`, on request) → approve & release →
+review page via `mentor:previewing`, on request) → approve & release →
 routed implementation (dispatch-agents decides main thread vs subagents).
 
 While this worktree's `.planning.<wt-id>` marker is armed — or the legacy,
 repo-global `.planning` marker, which blocks every worktree at once —
 `plan-gate.sh` blocks every Write/Edit/MultiEdit/NotebookEdit inside the repo
 working tree. The only files written during planning are the plan and its
-opt-in zoom artifacts, all inside the gate-exempt `.mentor/` tree. Do not run
+opt-in review page (plus, when that page's first build asks about
+diagram-design, the `diagram_renderer` key in `.mentor/config.json`), all
+inside the gate-exempt `.mentor/` tree. Do not run
 repo-mutating shell commands during planning either; Bash is not enforced,
 but the rule is the same.
 
@@ -81,7 +83,7 @@ always offered there, and you never ask the user to pick a mode upfront:
   the WARN row of Step 6's option set (it leads with **"Hand off to next agent"**).
   Nothing about *how* you plan changes.
 - **`CONTEXT: HANDOFF`** — critically large, and the user already chose to proceed
-  (gate bypassed). Everything WARN does, plus: do not propose a zoom (Step 5) or
+  (gate bypassed). Everything WARN does, plus: do not propose a review page (Step 5) or
   plan-review yourself — an explicit user ask for any of these is still
   honored — and use the HANDOFF row at Step 6. "Keep the plan lean", if the command
   layer said it, means exactly those omissions: Step 4's content spec never shrinks.
@@ -289,7 +291,7 @@ domain skill's own "researching directly" clause), then fold the deliverable.
 
 | Domain | Trigger signals | Skill to invoke | Extra plan deliverable |
 |---|---|---|---|
-| frontend | UX/UI — components, pages, styles, layout, design systems, theming, responsive; also a message/notification surface rendered by a THIRD-PARTY client (chat embed, push notification, email chrome) | `Skill(skill="mentor:plan-domain-frontend")` | ASCII wireframes + delta/token tables (or a payload-shape table for a platform-rendered surface); live mockups only in an HTML zoom combo (`mentor:zooming`, Step 5) |
+| frontend | UX/UI — components, pages, styles, layout, design systems, theming, responsive; also a message/notification surface rendered by a THIRD-PARTY client (chat embed, push notification, email chrome) | `Skill(skill="mentor:plan-domain-frontend")` | ASCII wireframes + delta/token tables (or a payload-shape table for a platform-rendered surface); live mockups only on the opt-in review page (`mentor:previewing`, Step 5) |
 | backend-api | API/endpoint/route/handler/schema/DTO/contract — or the data model behind it, in ANY storage shape: a migration, table, column, index, constraint, enum, RLS policy (SQL) — or the equivalent entity/relationship change in a config file, CSV, spreadsheet-backed store, or ORM model; also the async edge — queue, topic, subscription, cron/scheduled job — its message contract and delivery semantics (retry, visibility timeout, idempotency, DLQ) | `Skill(skill="mentor:plan-domain-backend-api")` | Before/after contract diff tables + schema diffs + Mermaid sequence flow; on a DDL-or-equivalent change also a per-column delta table + Mermaid ER diff of the changed entities |
 | architecture (C4) | Structural change — new/changed/removed service, container, datastore, queue, external integration, component, or data flow (NOT pure content/config/doc/style/refactor) | `Skill(skill="mentor:plan-domain-architecture")` | Diff-highlighted C4-style Mermaid flowcharts, only the levels that change |
 | dynamic (fallback) | no registered domain matched — and no available skill substitutes (above) | `Skill(skill="mentor:plan-domain-dynamic")` | Domain best-practices section (practice→step mapping) |
@@ -413,7 +415,7 @@ option what it changes and what it costs:
   small on screen can truncate the call mid-string and fail validation —
   costing a whole turn to retry. **If the comparison needs a frame, a grid,
   or aligned columns to be legible, it is not a `preview`**: say so in the
-  decision brief and offer an HTML zoom (Step 5 / `mentor:zooming`) instead —
+  decision brief and offer a review page (Step 5 / `mentor:previewing`) instead —
   the user asking is the opt-in that step requires.
 
 Each answer becomes a plan input. An "Other" answer may open new questions —
@@ -731,40 +733,33 @@ carrying a number forward from research recall. A wrong headline count caught
 here costs nothing; the same number caught later, once a reviewer's own count
 check flags it, costs a multi-section sweep to fix everywhere it was restated.
 
-## Step 5 — Optional HTML zoom (explicit user opt-in only) {#html-zoom}
+## Step 5 — Optional review page (explicit user opt-in only) {#preview}
 
-The topic × perspective HTML zoom is its own skill — `zoom` — and this step is
-pure delegation. Only when the **user asks** for an HTML zoom / visual preview
-— never by default — invoke `Skill(skill="mentor:zooming")` and follow it end to
-end with the plan as the subject:
+The review page is its own skill — `previewing` — and this step is pure
+delegation. Only when the **user asks** for a review page / visual preview —
+never by default — invoke `Skill(skill="mentor:previewing")` and follow it end
+to end with the plan as the subject:
 
-- **Subject = the current plan** (`${plan_dir}/plan.md`), so per the zoom
-  skill's plan-slug contract its artifacts land in
-  `.mentor/zooms/<plan-slug>/<topic>-<perspective>.html`.
-- Candidate **topics** derive from the plan itself — its `## Approach`
-  subsections, `Proposed UI changes per surface` entries, or
-  implementation-step groupings.
-- The constitution path resolved at Step 0 is the one the zoom skill's
-  Reviewer/Architect combos consume.
+- **Subject = the current plan** (`${plan_dir}/plan.md`), so per that skill's
+  plan-slug contract the page lands at `.mentor/reviews/<plan-slug>/review.html`.
 
-EVERY zoom ask re-enters the zoom skill's contract (its sticky re-entry rule)
-— the first one, the Nth one, a free-text follow-up ("update the review
-artifact", "add a zoom for X"), a mid-revision regeneration, at any point in
-the plan lifecycle.
+EVERY preview ask re-enters that skill's contract (its re-entry rule) — the
+first one, a free-text follow-up ("refresh the preview", "add the error
+case"), a mid-revision regeneration, at any point in the plan lifecycle.
 
-**Revision completeness.** When a plan revision or a product decision
-invalidates prior zooms, re-enter `mentor:zooming` and follow its re-zoom rule
-(grep the invalidated term across `.mentor/zooms/<plan-slug>/*.html` and
-re-dispatch EVERY matching combo in one batched message). Wait for those
-agents to complete before dispatching `plan-review`, so a reviewer never reads
-a zoom mid-write.
+**The plan and its page change together.** When the plan has a page
+(`.mentor/reviews/<plan-slug>/review.html` exists), end every turn that changed
+`plan.md` content by running `previewing` §7 once, after the last plan edit, so
+the page never shows a plan that no longer exists. Step progress marks,
+`.state.json` and handoff notes are not plan changes. Finish that regeneration
+before dispatching `plan-review`, so a reviewer never reads a page mid-write.
 
 ## Step 6 — Approve & release {#approve}
 
 > **🚫 No edits or implementation until the plan is APPROVED.** During planning,
 > only read-only agents (Explore, Plan, plan-review reviewers) may be
-> dispatched — the sole exception is `mentor:zooming`'s combo agents (Step 5),
-> which write ONLY zoom artifacts under `.mentor/zooms/` (gate-exempt
+> dispatched — the sole exception is `mentor:previewing`'s workers (Step 5),
+> which write ONLY under `.mentor/reviews/<slug>/` (gate-exempt
 > `.mentor/` tree) — never repo source files.
 > Every editing/implementation agent comes AFTER approval.
 

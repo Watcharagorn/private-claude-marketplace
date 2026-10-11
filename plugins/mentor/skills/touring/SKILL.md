@@ -7,8 +7,9 @@ description: |
   deliverables under `.mentor/tours/`, with scenario cards, checklists,
   reviewer marks, feedback, and report export. The subject may be a plan or
   standalone topic. Claude Artifact hosting is optional after local delivery.
-  Distinct from zoom: tours are editable acceptance reviews, never dependent on
-  a hosted URL.
+  Distinct from preview (mentor:previewing, a read-only review page of a plan
+  or any subject, with comments copied back to chat): tours are editable
+  acceptance reviews, never dependent on a hosted URL.
 ---
 
 # Tour — Editable Guided-Review Artifact
@@ -21,7 +22,7 @@ Generate (and iterate) an **editable local review set**: a guided tour of a syst
 a reviewer walks hands-on, marking each scenario **pass / not-pass** with feedback. Always write a
 self-contained HTML page plus companion Markdown and JSON files; their shared local path is the
 portable deliverable. A host may additionally publish the HTML. The tour is a **post-approval
-deliverable** — it is not the plan, not a zoom, and never lives in `plans/`.
+deliverable** — it is not the plan, not a review page, and never lives in `plans/`.
 
 ## When to use
 
@@ -35,9 +36,10 @@ deliverable** — it is not the plan, not a zoom, and never lives in `plans/`.
 
 - The user wants the **plan content** reviewed — that is `/plan-review` (the two-stage 4-topic
   pre-approval review) or `/mentor:grill` (decision interview), not a tour.
-- The user wants a **read-only visual view of a subject** (a plan topic, a subsystem, a design) —
-  that is the `zoom` skill (`.mentor/zooms/<slug>/`, local-open only, explicitly never published,
-  no marks to record). A tour is different: an editable acceptance page with local review exports.
+- The user wants to **see a plan or subject as a read-only page** (scenarios, mockups, diagrams,
+  per-scenario comments copied back to chat; a built subsystem renders as it is today) — that is the
+  `previewing` skill (`.mentor/reviews/<slug>/review.html`, no pass/not-pass marks). A tour is different: an editable
+  acceptance page with local review exports.
 - The subject has no walkable behavior (pure docs/config with nothing to exercise).
 
 ---
@@ -197,8 +199,8 @@ tour_json="$state_dir/tours/<slug>-<audience>.json"
   it; the main thread does not re-read it). A tour writes only under `.mentor/tours/`, which the
   edit gate exempts, so an armed planning gate is not a reason to abort — mention it if the
   subject is a plan still being drafted, since the tour will describe a moving target.
-- Do **not** write anything into `plans/` or `zooms/` (tour files live in `tours/`), and do not
-  publish a plan or zoom. A tour may be hosted only as an optional enhancement after its local
+- Do **not** write anything into `plans/` or `reviews/` (tour files live in `tours/`), and do not
+  publish a plan or a review page. A tour may be hosted only as an optional enhancement after its local
   HTML, Markdown, and JSON deliverables exist.
 - Do **not** dispatch a rendering agent — the main thread renders; only the scenario inventory is
   delegated.

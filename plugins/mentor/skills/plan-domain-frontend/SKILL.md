@@ -7,9 +7,9 @@ description: >
   shaping applied. Shapes the research prompts and
   the Markdown plan body: a before/after delta table, ASCII zone wireframe,
   and token table per changed surface, all derived from the project's REAL
-  design tokens and source. The live before/after HTML/CSS mockup contract
-  (prompt token mentor:frontend-mockup) belongs to `mentor:zooming` and applies
-  only when the user explicitly requests a visual zoom of a UI surface.
+  design tokens and source. The live before/after mockup contract (prompt
+  token mentor:frontend-mockup) belongs to `mentor:previewing` and applies
+  only when the user explicitly requests a review page.
 ---
 
 # Frontend Planning Domain
@@ -22,20 +22,20 @@ Invoked by `plan`'s Step 3 domain routing when the task touches UX/UI — compon
 styles, layout, design systems, theming, responsive work — or directly whenever you want this
 domain's shaping. Standalone, apply §1 to whatever research is underway and §2–3 to whichever
 plan or document you are authoring. This skill adds directives to research and plan-writing; the
-live mockup contract for an opt-in HTML zoom lives with the skill that generates zooms
-(`mentor:zooming` → `references/ui-mockup-contract.md`).
+live mockup contract for an opt-in review page lives with the skill that builds it
+(`mentor:previewing` → `references/surface-mockup-contract.md`).
 
 The plan deliverable (Markdown, always): a **before/after delta table + ASCII zone wireframe +
 token table** per changed surface (§3), precise about *what* changes and approximate about layout.
-When the user explicitly requests a visual zoom of a UI surface, that combo's zoom html file
-carries **live before/after HTML/CSS mockups** faithful to the project's real design tokens, fonts,
-and component structure — see §4 for who owns that contract.
+When the user explicitly requests a review page, its scenario cards carry **live before/after
+HTML/CSS mockups** faithful to the project's real design tokens, fonts, and component structure —
+see §4 for who owns that contract.
 
 ## Visualization quality bar (the point of this skill)
 
 The before/after rendering exists for ONE reason: a human reviewing the plan must instantly and
 richly understand the UI change **before** approving. Everything below serves that review
-experience. The full bar applies to zoom mockups; items 3, 6, and 7 apply directly to the Markdown
+experience. The full bar applies to review-page mockups; items 3, 6, and 7 apply directly to the Markdown
 delta rendering too. A mockup MUST hit items 1–3; include 4–7 when the change touches them (never
 pad identical panes):
 
@@ -51,8 +51,8 @@ pad identical panes):
 ## Preflight — invoke a design skill (runtime discovery, never hardcoded)
 
 When this domain matches, the main thread invokes ONE design/UX skill **once**, before writing the
-plan, and distills its design principles for the plan body (§2) and any later UI combo-agent prompt
-(§4). Pick it by **runtime discovery** (the same idiom `tour` uses): read the most recent
+plan, and distills its design principles for the plan body (§2) and any later review-page cells-worker
+brief (§4). Pick it by **runtime discovery** (the same idiom `tour` uses): read the most recent
 active-skills system-reminder and pick the strongest design/UX skill present —
 `frontend-design:frontend-design` when installed, else the strongest alternative (e.g.
 `ui-ux-pro-max`). Do not require a host-specific artifact-design capability. If no relevant design
@@ -64,9 +64,9 @@ Three global rules govern everything in this domain (restated as hard rules in �
 1. The discovered design skill controls design and review decisions — invoke it first.
 2. All design work derives from **REAL front-end source files** — never invented structure.
 3. **Never create mockup HTML files inside the repo source tree** (`docs/`, `mockups/`, or any
-   documentation directory). The opt-in zoom html lives in mentor's zooms dir at
-   `<repo>/.mentor/zooms/<subject-slug>/…` (exempt from the plan gate, so the write is allowed) —
-   so that is the one compliant place for mockup markup.
+   documentation directory). The opt-in review page lives in mentor's reviews dir at
+   `<repo>/.mentor/reviews/<subject-slug>/review.html` (exempt from the plan gate, so the write is
+   allowed) — so that is the one compliant place for mockup markup.
 
 ## Platform-rendered surfaces — a narrower fidelity source
 
@@ -89,9 +89,9 @@ visual, user-facing surface), just with the fidelity source relocated:
 - **§3 (deliverable)** — the token table becomes a **payload-shape/limits table**
   (`Field · Constraint · Current value`) instead of a CSS-token table; the delta table
   and callouts are unchanged.
-- **§4 (mockup, opt-in zoom only)** — the mockup approximates the platform's own
-  chrome faithfully **from its documented render spec**, labeled plainly as an
-  approximation (the platform renders it for real; this pane cannot). The *payload
+- **§4 (mockup, opt-in review page only)** — the page draws the platform's chrome as a grey
+  schematic labelled with the host, with no vendor logo, colour or font (`mentor:previewing` →
+  `references/surface-mockup-contract.md` §6). The *payload
   content* inside that chrome — copy, field values, colors actually sent — still comes
   ONLY from the repo's real payload-building code, same as any other surface: never
   invent copy or values that aren't in the emitting source.
@@ -112,8 +112,8 @@ frontend-relevant research agents' prompts; when researching directly, cover the
 
 The research return contract is unchanged (FINDINGS ≤ ~400 words / EVIDENCE `file:line` / OPEN
 QUESTIONS). EVIDENCE **must** include the `file:line` of the token, theme, and font sources —
-do not inline token values into FINDINGS; whoever renders the deltas (and the zoom combo agent, if
-a zoom is later requested) reads the source itself.
+do not inline token values into FINDINGS; whoever renders the deltas (and the review page's cells
+worker, if a page is later requested) reads the source itself.
 
 ## 2 — Shape the plan body (`plan` Step 4)
 
@@ -124,7 +124,7 @@ Apply these requirements when writing the plan:
 - Apply the distilled design principles from the Preflight's discovered design skill.
 - Emit an itemized **`## Proposed UI changes per surface`** section — one entry per changed
   surface, each naming the surface, its source file(s), and the concrete visual deltas. This
-  section drives the delta rendering (§3) and is the zoom combo agent's mockup spec if a zoom is
+  section drives the delta rendering (§3) and is the review page's mockup spec if a page is
   requested (§4); without it the AFTER cannot be authored.
 - When a change makes a surface **full-bleed/full-height**, repositions it, or alters its
   **z-order**, call out the **stacking-context / overlap / hit-test risk** (which existing surface it
@@ -150,25 +150,25 @@ order:
 
 State plainly in each surface's section that the plan shows the **deltas precisely (table) and
 layout approximately (ASCII)** — it is **not** a live or pixel-faithful preview (that is the opt-in
-HTML zoom's `<iframe>` mockup, §4). For a surface with **no visual delta**, a one-line "no visual
+review page's live mockup, §4). For a surface with **no visual delta**, a one-line "no visual
 change" note suffices. The §2 stacking-context / overlap / z-order risk prose still applies (it was
 always prose, never the rendering). Per `plan` Step 4's anti-duplication rule, the delta table
 + ASCII wireframe IS the surface's visualization — do not also emit a separate per-topic UI diagram
 for the same surface.
 
-## 4 — Mockup contract (HTML zoom only)
+## 4 — Mockup contract (review page only)
 
-When the user asks for an HTML zoom of a UI surface, the zoom's combo agents author live
-before/after mockup panes. That contract — which perspectives get panes, the no-JS
-`iframe srcdoc` isolation rule, the seven prompt inputs, the escaping order — lives with
-the skill that dispatches those agents: **`mentor:zooming` →
-`references/ui-mockup-contract.md`**. Read it there when you need to know what a UI zoom
-will produce; do not restate it here, since a second copy is how the panes and the plan
+When the user asks for a review page, its cells workers author live before/after mockups of
+every surface a scenario reaches, screens included. That contract — hops and edge cards, the
+CSS-only switching, provenance marks, the worker brief and its `mentor:frontend-mockup` token —
+lives with the skill that dispatches those workers: **`mentor:previewing` →
+`references/surface-mockup-contract.md`**. Read it there when you need to know what a review
+page will produce; do not restate it here, since a second copy is how the mockups and the plan
 drift apart.
 
 What this skill owes that contract is the material it consumes: §3's
 `Proposed UI changes per surface` entries, the real component/token/font file paths from
-research EVIDENCE, and §1's distilled design principles. A zoom whose combos get those is
+research EVIDENCE, and §1's distilled design principles. A page whose workers get those is
 faithful; one that gets a paraphrase is not.
 
 ## Constraints recap (hard rules)
@@ -178,5 +178,5 @@ faithful; one that gets a paraphrase is not.
    distill it, or record the explicit no-capability fallback.
 2. Delta renderings, mockups, and implementation steps derive ONLY from real front-end source
    files.
-3. No mockup files inside the repo source tree, ever — the opt-in zoom html (in the gate-exempt
-   `.mentor/zooms/<subject-slug>/` dir) is the only mockup surface.
+3. No mockup files inside the repo source tree, ever — the opt-in review page (in the gate-exempt
+   `.mentor/reviews/<subject-slug>/` dir) is the only mockup surface.

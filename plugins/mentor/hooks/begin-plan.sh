@@ -82,7 +82,7 @@ if [ -n "$verdict" ]; then
   read -r level tokens warn_at ask_at <<<"$verdict"
   case "$level" in
     HANDOFF)
-      context_warn="CONTEXT: HANDOFF (~${tokens} tokens ≥ ${ask_at}) — critically large (gate bypassed this session): do not propose a zoom or plan-review; at the approval step lead with \"Hand off to next agent (Recommended)\"."
+      context_warn="CONTEXT: HANDOFF (~${tokens} tokens ≥ ${ask_at}) — critically large (gate bypassed this session): do not propose a preview or plan-review; at the approval step lead with \"Hand off to next agent (Recommended)\"."
       ;;
     ASK)
       hook_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -224,72 +224,38 @@ while IFS= read -r stale; do
   echo "[mentor] Pruned stale sibling plan gate marker .planning.${suffix} (session ${s_session:-unknown}, age ~${s_age:-unknown}m) — released."
 done < <(find "$plans_dir" -maxdepth 1 -name '.planning.*' -mmin "+${MENTOR_PLAN_MARKER_STALE_MIN}" 2>/dev/null || true)
 
-# One-shot migration (v2.2.0): flat <slug>.md + <slug>-*.html → <slug>/plan.md +
-# <slug>/zoom/<topic>-<perspective>.html. Longest slug first, so "auth-retry"'s
-# zooms are never captured by a shorter "auth" plan. Orphan html with no matching
-# .md is left in place (harmless, gitignored).
+# One-shot migration (v2.2.0): flat <slug>.md → <slug>/plan.md. Longest slug
+# first, kept from the original layout migration. Flat html files beside the
+# old .md are left where they are (harmless, gitignored).
 while IFS= read -r f; do
   [ -f "$f" ] || continue
   slug="$(basename "$f" .md)"
   mentor_ensure_private_dir "$(mentor_state_dir "$repo_root")" "${plans_dir}/${slug}"
   mv -n "$f" "${plans_dir}/${slug}/plan.md" 2>/dev/null || true
-  for h in "${plans_dir}/${slug}-"*.html; do
-    [ -f "$h" ] || continue
-    mentor_ensure_private_dir "$(mentor_state_dir "$repo_root")" "${plans_dir}/${slug}/zoom"
-    base="${h##*/}"
-    mv -n "$h" "${plans_dir}/${slug}/zoom/${base#"$slug"-}" 2>/dev/null || true
-  done
 done < <(ls "${plans_dir}"/*.md 2>/dev/null | awk '{ print length, $0 }' | sort -rn | cut -d' ' -f2- || true)
 
-# One-shot relocation (v2.12.0): zoom artifacts moved out of the per-plan dirs
-# into the flat zooms tree — plans/<slug>/zoom/*.html → zooms/<slug>/ (the
-# mentor:zooming skill's plan-slug contract). Sidecars move too; mv -n never
-# clobbers; the emptied zoom/ dir is removed. Runs AFTER the v2.2.0 migration
-# above, so freshly-migrated flat zooms take both hops in one arm. Idempotent.
-zooms_dir="$(mentor_state_dir "$repo_root")/zooms"
-for zdir in "${plans_dir}"/*/zoom; do
-  [ -d "$zdir" ] || continue
-  slug="$(basename "$(dirname "$zdir")")"
-  mentor_ensure_private_dir "$(mentor_state_dir "$repo_root")" "${zooms_dir}/${slug}"
-  for f in "$zdir"/*.html "$zdir"/.*.opened; do
-    [ -e "$f" ] || continue
-    mv -n "$f" "${zooms_dir}/${slug}/" 2>/dev/null || true
-  done
-  rmdir "$zdir" 2>/dev/null || true
-done
-
-# Clear ".opened" sidecars (dot-hidden beside plans and zooms; legacy flat ones
-# swept too): plan/zoom paths are slug-derived, so a stale sidecar from a prior
-# session would suppress plan-open.sh's first-creation open for the same slug.
+# Clear ".opened" sidecars (dot-hidden beside plans; legacy flat ones swept
+# too): plan paths are slug-derived, so a stale sidecar from a prior session
+# would suppress plan-open.sh's first-creation open for the same slug.
 # Ownership-scoped (v2.23.0): a plan dir owned by a DIFFERENT, still-live
 # worktree must not have its sidecars swept out from under it — only unowned
-# or THIS-worktree-owned plan/zoom dirs are cleared. Zoom dirs carry no sidecar
-# of their own: a zoom dir's owner resolves via the plan-slug contract —
-# plans/<same-slug>'s owner when that plan dir exists, else unowned. Tour
-# sidecars under plans/<slug>/tour/ inherit the plan dir's owner for free,
-# because each plan dir is swept with its OWN recursive `find` (which descends
-# into tour/ on its own) rather than one flat find over all of plans_dir.
+# or THIS-worktree-owned plan dirs are cleared. Each plan dir is swept at its
+# top level and in its tour/ folder only (tour sidecars inherit the plan dir's
+# owner), never recursively, so no other folder a plan dir holds is touched.
 for pd in "$plans_dir"/*/; do
   [ -d "$pd" ] || continue
   pd="${pd%/}"
   pd_owner="$(mentor_plan_owner "$pd")"
   if [ -z "$pd_owner" ] || [ "$pd_owner" = "$wt_id" ]; then
-    find "$pd" \( -name '*.opened' -o -name '.*.opened' \) -delete 2>/dev/null || true
-  fi
-done
-for zd in "$zooms_dir"/*/; do
-  [ -d "$zd" ] || continue
-  zd="${zd%/}"
-  zd_owner=""
-  [ -d "${plans_dir}/$(basename "$zd")" ] && zd_owner="$(mentor_plan_owner "${plans_dir}/$(basename "$zd")")"
-  if [ -z "$zd_owner" ] || [ "$zd_owner" = "$wt_id" ]; then
-    find "$zd" \( -name '*.opened' -o -name '.*.opened' \) -delete 2>/dev/null || true
+    find "$pd" -maxdepth 1 \( -name '*.opened' -o -name '.*.opened' \) -delete 2>/dev/null || true
+    if [ -d "$pd/tour" ]; then
+      find "$pd/tour" -maxdepth 1 \( -name '*.opened' -o -name '.*.opened' \) -delete 2>/dev/null || true
+    fi
   fi
 done
 # Legacy flat .opened (pre-v2.2.0 layout: <slug>.md.opened directly under
-# plans_dir/zooms_dir, no slug dir to carry ownership) — always cleared.
+# plans_dir, no slug dir to carry ownership) — always cleared.
 find "$plans_dir" -maxdepth 1 \( -name '*.opened' -o -name '.*.opened' \) -delete 2>/dev/null || true
-find "$zooms_dir" -maxdepth 1 \( -name '*.opened' -o -name '.*.opened' \) -delete 2>/dev/null || true
 
 # Metadata body, not an empty file: session + cwd + worktree let a blocked
 # agent (plan-gate.sh's deny path) tell "I armed this myself and forgot to

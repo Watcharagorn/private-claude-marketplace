@@ -175,7 +175,7 @@ The point of SDD: quality through narrow focus, and a lean main thread.
   (diff + command output) as inputs. If it fails again, surface to the user — only then
   may the main thread read the files and take over. **A hand-back is not a failure and
   does not spend that re-dispatch:** any dispatched agent — implementer, verifier,
-  reviewer, a `zoom` combo or a `plan-split` child author — that delivers partial work
+  reviewer, a `previewing` worker or a `plan-split` child author — that delivers partial work
   plus a remainder brief did what the standing contract asks of it, so verify what it
   actually claims and dispatch the same role fresh with the remainder as its `Inputs:`.
   This holds wherever the return lands, the verification failure loop below included.
@@ -591,8 +591,8 @@ standing no-subagents policy at the same time.
   so next to that result, not leave it implied. A solo diff review is reported **as** a
   solo diff review, because reporting the substitute as though the full step ran is what
   turns a judgment call into a false green. **This is not a license** — it does not cover
-  work that forbids running solo at all (`zoom` never hand-renders in the main thread,
-  `plan-split` never hand-authors a child, and verification's "No escape hatch" above has
+  work that forbids running solo at all (`plan-split` never hand-authors a child, and
+  verification's "No escape hatch" above has
   no fallback beyond the one named allowance): there, a solo attempt is a contract
   violation to stop and flag, never a substitution to disclose.
 - **No busy-wait.** Waiting is not work: never chain `sleep`s, fire no-op Bash calls,
@@ -608,7 +608,7 @@ standing no-subagents policy at the same time.
   the poll unasked. (Why `ScheduleWakeup` fails here specifically, and why a sleep chain
   breaks in the middle: `references/rationale.md` → **No busy-wait**.)
 - **A batch dispatched together is joined together.** When one message dispatches N
-  agents as one fan-out (a `zoom` combo set, `plan-review`'s reviewer round, any
+  agents as one fan-out (a `previewing` worker wave, `plan-review`'s reviewer round, any
   parallel batch), the batch isn't done until its **last** agent's signal arrives —
   don't act on or narrate the batch after its first, third, or ninth idle/report
   while others are still outstanding. This is the same single **end the turn** from
@@ -648,7 +648,7 @@ standing no-subagents policy at the same time.
   stalled or failed step, and before any prose claim that a batch is
   "done"/"closed out"/"finished"** — a flow with more than one dispatch round
   (stage-1 reviewers, then a stage-2 fan-out; a plan-review pass followed by a
-  zoom pass) makes each intermediate closure claim as real a checkpoint as the
+  preview pass) makes each intermediate closure claim as real a checkpoint as the
   session's last one — enumerate live tasks: in Claude Code that is `TaskList`
   (`select:SendMessage,TaskList,TaskStop` in one `ToolSearch` call loads all
   three async-lifecycle tools together), diffed against this session's own dispatch tree,

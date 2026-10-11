@@ -50,17 +50,20 @@ dead agent already landed, report the reset time, and end the turn.
 ## Follow-up vs re-dispatch
 
 A small fix or clarification on work an agent already owns — idle **or still running** →
-send ONE message to that same agent (its context is warm; use your runtime's
-agent-messaging tool — in Claude Code that is `SendMessage`, which, like
+choose per case between ONE message to that same agent and a fresh agent with the original
+brief plus the fix. A message is usually cheaper, because the agent's context is warm; a
+fresh agent fits when the first one has finished and its context no longer helps, or when
+resuming it would leave the fix running where you cannot wait for it. To message, use your
+runtime's agent-messaging tool — in Claude Code that is `SendMessage`, which, like
 `TaskList`/`TaskStop`, may need fetching via `ToolSearch` first;
 `select:SendMessage,TaskList,TaskStop` in one call loads all three async-lifecycle tools
-together, so whichever of them you reach for first primes the rest). State that the
-correction must be applied before the agent returns.
+together, so whichever of them you reach for first primes the rest. Either way, state that
+the correction must be applied before the agent returns.
 
 This matters most when something you learn *after* dispatching invalidates part of a brief
 already in flight — a reviewer's finding landing while a writer works from the superseded
 version. Correcting it in place beats both alternatives: letting a known-wrong artifact
-land, or re-dispatching a whole combo that was 90% right. A failed `Done when:` needing a
+land, or re-dispatching a whole brief that was 90% right. A failed `Done when:` needing a
 clean rebrief → re-dispatch the role once, per the orchestrator contract.
 
 **Verify the correction landed.** Sending the message is not the same as it taking effect,

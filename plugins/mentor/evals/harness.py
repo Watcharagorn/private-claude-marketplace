@@ -14,7 +14,7 @@ HERE = Path(__file__).parent.resolve()
 REPO_SKILLS = (HERE / ".." / "skills").resolve()
 SKILLS = ["planning", "plan-split", "plan-track", "plan-review",
           "grilling", "dispatch-agents", "resuming", "handoff-note",
-          "touring", "zooming", "merging", "shipping",
+          "touring", "previewing", "merging", "shipping",
           "deferring", "constitution-authoring"]
 
 

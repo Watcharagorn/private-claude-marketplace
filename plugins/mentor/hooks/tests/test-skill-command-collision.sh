@@ -15,8 +15,8 @@
 #      the command's, so the skill can never be reached conversationally either — the
 #      trigger phrases the author wrote are dead text.
 #
-# Nine pairs collided up to v2.17.0 (constitution defer handoff merge plan resume ship
-# tour zoom); v2.18.0 renamed every skill away from its command name. The two pairs that
+# Nine pairs collided up to v2.17.0 (listed in the README's "Changes in v2.18.0");
+# v2.18.0 renamed every skill away from its command name. The two pairs that
 # were already split (grill/grilling, track/plan-track) are the control: they delivered
 # their skill body on the first call. This test fails if the defect ever comes back.
 #

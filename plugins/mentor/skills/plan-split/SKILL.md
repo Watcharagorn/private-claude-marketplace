@@ -324,9 +324,17 @@ the children were just written, so re-arming would stamp a fresh marker mtime an
 approval refuse them all as older than it.
 
 Say plainly what the set is: draft plans carrying the parent's state, **each approved on
-its own before it is built** — there is no blanket yes over the group. An HTML zoom is
-still available on any child (`Skill(skill="mentor:zooming")`), the same as it would have
+its own before it is built** — there is no blanket yes over the group. A review page is
+still available on any child (`Skill(skill="mentor:previewing")`), the same as it would have
 been pre-split; mention it rather than making the user rediscover it by asking.
+
+**Keep review pages in step with the split.** When the parent has a page
+(`.mentor/reviews/<parent-slug>/review.html`), regenerate it with `previewing` §7 before
+the turn ends, so it reads as superseded and names the children that now own its
+scenarios, and offer a page for each child, built fresh under the child's own slug — a
+stale parent page would otherwise keep collecting comments on work that moved. The same
+holds for any other plan whose `plan.md` this skill changed (the Step 7 citation sweep):
+if it has a page, run `previewing` §7 for it once, after the last edit.
 
 ### Retiring a superseded plan later
 
@@ -399,7 +407,7 @@ the split hasn't been through `/plan-review` yet, say so before deleting.
    never end up pointing at a path that no longer exists.
 7. **Sweep for orphaned review artifacts the delete won't reach on its own.** Two artifact
    classes live **outside** the plan directory and will NOT be removed by deleting it:
-   - `.mentor/zooms/<retiring-slug>/` (`mentor:zooming`'s `zoom_dir`)
+   - `.mentor/reviews/<retiring-slug>/` (`mentor:previewing`'s `review_dir`)
    - `.mentor/tours/<retiring-slug>-*.html` (`mentor:touring`'s acceptance tours)
 8. **Verify.** Both checks are now a filter each, so neither needs reading the whole array:
    `query --parent <retiring-slug> --format count` must print `0`, and `query --deps-missing

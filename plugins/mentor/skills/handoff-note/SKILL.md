@@ -81,8 +81,8 @@ ambiguity is usually meant) / defer the whole thing, record it as the next sessi
 ## Step 2 — Compute the save path
 
 Notes live **inside the plan-topic folder they belong to** — `<repo>/.mentor/plans/<topic>/handoffs/`
-— so a plan and its handoffs share one directory (its zoom visual aids sit beside it at
-`.mentor/zooms/<topic>/`), and `/mentor:resume` can show which topic each note continues. (The `.mentor/` tree is exempt from
+— so a plan and its handoffs share one directory (its review page, if any, is at
+`.mentor/reviews/<topic>/review.html`), and `/mentor:resume` can show which topic each note continues. (The `.mentor/` tree is exempt from
 the plan gate, so the write is always allowed.) Resolve `topic` first:
 
 - **The session's work is tied to a mentor plan** — you created or followed
@@ -201,8 +201,8 @@ it — Step 5's self-check catches that before you report.
 - **Recommended mentor commands for the next agent** — see the mapping below.
 - **Referenced artifacts (do not duplicate)** — link by **path/URL**, never paste the contents:
   - the current mentor plan file at `<repo>/.mentor/plans/<topic>/plan.md` (if one exists —
-    with the Step 2 layout it sits right next to this note), plus its zoom visual aids at
-    `<repo>/.mentor/zooms/<topic>/*.html` when relevant,
+    with the Step 2 layout it sits right next to this note), plus its review page at
+    `<repo>/.mentor/reviews/<topic>/review.html` when one exists,
   - PRDs / ADRs / design docs by path,
   - issue / PR / MR URLs,
   - key commit SHAs (`git rev-parse --short HEAD`, relevant ancestors),

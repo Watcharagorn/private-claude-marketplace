@@ -14,8 +14,8 @@ description: >
   and the Markdown plan to carry a before/after contract comparison —
   per-endpoint diff tables, schema diffs, a per-column delta table plus a
   Mermaid ER diff when DDL, and a Mermaid sequence-flow per
-  changed flow. No mockup contract; styled panels are reserved
-  for the opt-in HTML zoom (`mentor:zooming`).
+  changed flow. Styled panels are reserved for the opt-in review
+  page (`mentor:previewing`).
 ---
 
 # Backend-API Planning Domain
@@ -149,11 +149,13 @@ Realize each artifact in the `.md` as follows:
 Per `plan` Step 4's anti-duplication rule: the table/diagram IS the artifact — do not also
 restate its contents in prose (a one-line caption + the legend are the only adjacent prose).
 
-## HTML zoom (opt-in)
+## Review page (opt-in)
 
-When the user explicitly requests a visual zoom of this domain's area (`mentor:zooming`, via `plan`
-Step 5), the
-zoom html file may carry the richer treatment for the requested endpoints only: status tokens
+When the user explicitly requests a review page (`mentor:previewing`, via `plan` Step 5), each
+changed endpoint, error and event is drawn as a wire exchange on its scenario card, per
+`mentor:previewing` → `references/surface-mockup-contract.md`. Its sequence diagrams (drawn
+under the scenario that starts each flow, or in Sequences when no scenario does) and its Data and
+contracts section may carry the richer treatment for the changed endpoints only: status tokens
 rendered as visually distinct NEW/CHANGED/BREAKING/DEPRECATED badges, colorized `+`/`-`/`~` schema
 lines, a styled sequence-flow diagram with new/removed/changed hops visually distinct plus a
 legend, and side-by-side before/after JSON contract panels in `<pre><code>` (escape `&`/`<`/`>`).

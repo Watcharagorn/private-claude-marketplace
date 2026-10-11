@@ -126,11 +126,14 @@ the primary plan:
 plan_dir="<the dirname of the PLAN: path above>"
 plans_dir="$(dirname "$plan_dir")"
 repo_root="$(cd "$plans_dir/../.." && pwd)"
-zoom_dir="$(dirname "$plans_dir")/zooms/$(basename "$plan_dir")"   # mentor:zooming's plan-slug contract
+review_dir="$(dirname "$plans_dir")/reviews/$(basename "$plan_dir")"   # mentor:previewing's plan-slug contract
 ls -t "$plans_dir"/*/plan.md 2>/dev/null              # ALL plans, newest first, incl. superseded — see below
 bash "${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:-}}/hooks/plan-state.sh" list # STATE per slug — a LABEL on the paths above, never a filter
 grep -A6 -i '^## Critical files' "$plans_dir"/*/plan.md 2>/dev/null   # the overlap signal: same files ⇒ related
-ls    "$zoom_dir"/*.html 2>/dev/null                  # the primary plan's supplementary zoom artifacts
+ls    "$review_dir"/review.html 2>/dev/null           # the primary plan's review page, if one exists
+plan_sha="$(sed 's/ *✅//g' "$plan_dir/plan.md" | { sha256sum 2>/dev/null || shasum -a 256; } | cut -d' ' -f1)"   # ✅ ticks excluded, as previewing stamps
+page_sha="$(sed -n 's/.*name="mentor-plan-sha256" content="\([0-9a-f]*\)".*/\1/p' "$review_dir/review.html" 2>/dev/null | head -1)"
+[ -n "$page_sha" ] && { [ "$page_sha" = "$plan_sha" ] && echo "review page: current" || echo "review page: STALE (built from ${page_sha:0:8})"; }
 const_rel="$(jq -r '.constitution_path // empty' "$repo_root/.mentor/config.json" 2>/dev/null)"
 const_path="${repo_root}/${const_rel:-.mentor/constitution.md}"
 [ -f "$const_path" ] && echo "$const_path"            # the resolved constitution (default or constitution_path)
@@ -527,16 +530,17 @@ must contain:
 1. `Act as a spec-consistency analyzer. You analyze the plan (and its related planning artifacts) for internal and cross-artifact consistency. You are NOT implementing it, and NOT judging whether the approach is good.`
 2. The primary plan path with `Read this file first.`, then the related-artifact
    list from Step 1 (other plans' `plan.md`s — each labeled `path — state — critical
-   files it touches` — the primary plan's zooms at `$zoom_dir/*.html`, the resolved
+   files it touches` — the primary plan's review page at `$review_dir/review.html` with its
+   stamp verdict from Step 1, the resolved
    constitution `$const_path`) with `Full-read a plan when its Critical files overlap
    the primary's, or its topic is adjacent. For a non-group plan with no file overlap
    whose state is 'implemented' or 'superseded', the name+state+files line is enough —
    read it in full only if that line suggests overlap. Never skip a plan in the
    primary's split group, regardless of its state.`
 3. **Lane guard:** `Judge only coherence, traceability, and agreement — not feasibility, requirement coverage vs reality, or design cleanliness. If a finding is really one of those, DROP it; another reviewer owns it. One bounded exception: you MAY grep the repo to check a count the plan states about itself (the count-mismatch category below), the same way the Critical-files check already reads the repo. That is the plan's own arithmetic, not a judgment about the requirement.`
-   Plus one cycle-scoped exclusion: `Ignore zoom html staleness relative to
+   Plus one cycle-scoped exclusion: `Ignore review-page staleness relative to
    plan edits made in this review cycle — the plan was just revised and its
-   zooms lag by construction; the closing report owns the re-zoom reminder.
+   page lags by construction; the closing report owns the regeneration reminder.
    Flag orphan/stale-artifact only when the mismatch predates this review.`
    Plus one lane clarification for the recommend criterion in the Step 6
    tagging contract: naming a recommended resolution is still a choice made
@@ -589,7 +593,8 @@ must contain:
      `cross-contradiction` (two artifacts conflict), `cross-drift` (same concept,
      different term across artifacts), `cross-overlap` (two plans describe the
      same work), `dangling-reference` (references a section/artifact that doesn't
-     exist), `orphan/stale-artifact` (an `.html` zoom out of sync with the `.md`).
+     exist), `orphan/stale-artifact` (a review page out of sync with the `.md`: its
+     `mentor-plan-sha256` stamp differs from the plan's hash).
 6. **Tagging:** the tagging contract above, plus the category defaults:
    `Category defaults: terminology-drift, duplication, dangling-reference, and
    pure-wording ambiguity are usually MECHANICAL; contradiction, coverage-gap,
@@ -764,9 +769,10 @@ summary — never a bare code: **applied** (MECHANICAL fixes and
 verdict-accepted resolutions), **left open** (findings the user left open or
 skipped, plus the consistency reviewer's coverage map + metrics as-is), and
 **dead lanes** (if any reviewer died). If the Step 5 fold or either Step 7
-pass touched content covered by an existing `$zoom_dir/*.html`, add a reminder
-that those zooms need re-dispatch — re-zooming belongs to `mentor:zooming`, never
-done from inside this skill.
+pass touched plan content and the plan has a page at `$review_dir/review.html`, add a
+reminder that the page must be regenerated with `mentor:previewing` §7 before the turn
+ends, and report a page that Step 1 already found STALE — regeneration belongs to
+`mentor:previewing`, never done from inside this skill.
 
 **Show the report.** Always — even when the underlying goal was "just get
 approval", and even on a resumed session re-asking an interrupted approval. It is
@@ -816,5 +822,5 @@ what someone wanted then, not what this plan looks like now.
 ### Do NOT
 
 - Do **not** run `approve-plan.sh` from inside this skill — review never releases the gate.
-- Plan-file writes from inside this skill are limited to exactly two moments — Step 5 (the user's fold verdicts, walked and batched) and Step 7 (the MECHANICAL auto-fold pass plus the user's verdicts, walked and batched). Never apply an edit or resolution the user did not explicitly accept, never touch zoom artifacts or repo source files, and always follow `plan` Step 4's re-write-in-place rule.
+- Plan-file writes from inside this skill are limited to exactly two moments — Step 5 (the user's fold verdicts, walked and batched) and Step 7 (the MECHANICAL auto-fold pass plus the user's verdicts, walked and batched). Never apply an edit or resolution the user did not explicitly accept, never touch review pages or repo source files, and always follow `plan` Step 4's re-write-in-place rule.
 - Do **not** detect domains or ask the user to select topics — the review topics are fixed (see the dimension table above).
