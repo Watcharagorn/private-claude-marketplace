@@ -15,7 +15,8 @@
     "merging",
     "shipping",
     "deferring",
-    "constitution-authoring"
+    "constitution-authoring",
+    "frontend-self-ex-review"
   ],
   "evals": [
     {
@@ -365,6 +366,90 @@
       "expected": "previewing",
       "tests": "core trigger: a comment box per scenario whose text is copied back into chat",
       "query": "i want to leave a comment on each scenario of the onboarding plan and copy it back to you here so you can fix things"
+    },
+    {
+      "id": 60,
+      "expected": "frontend-self-ex-review",
+      "tests": "core trigger: 'ux review' carrying the self-explanatory signal (banners explaining things)",
+      "query": "can someone give our billing page a ux review before we ship it? theres a plan picker, a usage chart, an invoices table and like four banners explaining things. it just feels like too much is going on"
+    },
+    {
+      "id": 61,
+      "expected": "frontend-self-ex-review",
+      "tests": "plain-wording trigger: casual 'ui review' + people keep missing the button",
+      "query": "ui review pls - the orders screen in our admin panel. support says people keep missing the refund button, its in a ... menu at the end of each row"
+    },
+    {
+      "id": 62,
+      "expected": "frontend-self-ex-review",
+      "tests": "core trigger: 'textless' / minimal-copy request",
+      "query": "i want our app to feel almost textless. strip the marketing fluff, the inspirational quotes and the 'welcome to your dashboard' paragraphs out of the in-app screens and make it obvious what to click next"
+    },
+    {
+      "id": 63,
+      "expected": "frontend-self-ex-review",
+      "tests": "core trigger: usability concern with no 'review' keyword",
+      "query": "new users land on our signup screen and dont know what to do first - theres a big slogan, two paragraphs about the product and a button that just says Go. how should this screen work?"
+    },
+    {
+      "id": 64,
+      "expected": "plan-review",
+      "tests": "NEAR-MISS vs frontend-self-ex-review: 'review' + UI, but the ask is a verdict on a written plan",
+      "query": "before i greenlight it, is the invoice plan any good? it touches a bunch of ui on the invoice screen and i want to know if the plan itself holds up"
+    },
+    {
+      "id": 65,
+      "expected": "touring",
+      "tests": "NEAR-MISS vs frontend-self-ex-review: UI screens + review, but a pass/fail acceptance page",
+      "query": "make me a page i can send QA where they click through each of the new onboarding screens, mark every one pass or fail and leave notes"
+    },
+    {
+      "id": 66,
+      "expected": "none",
+      "tests": "NEAR-MISS keyword bait: descriptions + quotes in prose, the text IS the task",
+      "query": "tighten up the descriptions and pull quotes in our launch blog post, it reads way too long and the quotes drag"
+    },
+    {
+      "id": 67,
+      "expected": "none",
+      "tests": "NEAR-MISS vs frontend-self-ex-review: a purely aesthetic restyle is a design-skill job",
+      "query": "redesign our marketing landing page hero so it looks bold and memorable - new display font, a gradient mesh, some motion. go wild"
+    },
+    {
+      "id": 68,
+      "expected": "previewing",
+      "tests": "NEAR-MISS vs frontend-self-ex-review: 'frontend' + look, but a local visual page of a subsystem",
+      "query": "make me a review page of our frontend as it is today - the component tree, state stores and routing. theres no plan for it, just the current code. i want to open it locally"
+    },
+    {
+      "id": 69,
+      "expected": "frontend-self-ex-review",
+      "tests": "plain-wording trigger: too much text, nobody reads it",
+      "query": "our reports page has so much text on it that nobody reads any of it. can you look at it and tell me how to make it so people just get it?"
+    },
+    {
+      "id": 70,
+      "expected": "frontend-self-ex-review",
+      "tests": "plain-wording trigger: the screen should explain itself, no tooltip",
+      "query": "users keep asking support what the sync toggle on the integrations screen does. i dont want to slap a tooltip on it, i want the screen to explain itself"
+    },
+    {
+      "id": 71,
+      "expected": "frontend-self-ex-review",
+      "tests": "plain-wording trigger: too wordy + don't know which button to press",
+      "query": "the checkout page is way too wordy and people dont know which button to press. what should we change?"
+    },
+    {
+      "id": 72,
+      "expected": "none",
+      "tests": "NEAR-MISS vs frontend-self-ex-review: a general UI review with no self-explanatory goal",
+      "query": "can you do a ui review of our settings page - check the spacing, alignment and whether it matches our design system"
+    },
+    {
+      "id": 73,
+      "expected": "none",
+      "tests": "NEAR-MISS vs frontend-self-ex-review: 'review' + a UI component, but a code review",
+      "query": "review the SettingsForm component code - any bugs, or anything that makes it re-render too much?"
     }
   ]
 }

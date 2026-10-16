@@ -2,18 +2,19 @@
 
 `hooks/tests/` proves the scripts behave. This proves the **descriptions** do: that a
 user's phrasing reaches the skill it should, and — more importantly — not one of its
-thirteen siblings.
+fourteen siblings.
 
-mentor ships fourteen overlapping user-facing skills (`planning`, `plan-split`,
+mentor ships fifteen overlapping user-facing skills (`planning`, `plan-split`,
 `plan-track`, `plan-review`, `grilling`, `dispatch-agents`, `resuming`, `handoff-note`,
-`touring`, `previewing`, `merging`, `shipping`, `deferring`, `constitution-authoring`).
+`touring`, `previewing`, `merging`, `shipping`, `deferring`, `constitution-authoring`,
+`frontend-self-ex-review`).
 The risk that
 matters is not "does `plan-split` trigger" but "does `plan-split` fire when the user
 meant `plan-track`" — or, since v4.0.0, "does `previewing` steal `touring`'s
 acceptance-page queries, or `plan-review`'s 'review the plan'" (all three look at a plan;
 they differ on page against verdict, and on pass/not-pass interaction).
 A description tuned on its own can score perfectly and still
-collide, so this harness stages **all fourteen at once** and records which one wins.
+collide, so this harness stages **all fifteen at once** and records which one wins.
 
 Note the skill names are the **skill** names, not the command names: since v2.18.0 no
 skill shares a name with a command (`/mentor:plan` → skill `planning`, and so on), which
@@ -28,7 +29,7 @@ python3 harness.py claude claude-opus-5 2  # <host> <model> <reps-per-query>
 python3 harness.py codex gpt-5.6-sol 2
 ```
 
-Needs the selected host CLI on PATH and its normal authentication. ~59 queries × reps run six
+Needs the selected host CLI on PATH and its normal authentication. ~73 queries × reps run six
 at a time. The scratch projects and `results-<host>.json` files are written to
 `$TMPDIR/mentor-trigger-eval/` (override with `MENTOR_EVAL_WORKDIR`) — never into the repo.
 Keep Claude and Codex baselines separate because model routing behavior is not interchangeable.
@@ -50,6 +51,19 @@ Baseline at v4.0.0 (Claude, `claude-opus-5-5`, 2 reps, 2026-10-11): **98/116**, 
 #59 (0/2, before the onboarding plan joined the fixture), and no miss went to a wrong
 skill. A 6-rep re-measure on the current fixture, new skills against 3.1.0: #59 6/6
 (new query), #34 5/6 vs 5/6, #8 5/6 vs 5/6, #37 2/6 vs 4/6.
+
+**v4.1.0** stages 15 skills (`frontend-self-ex-review` joined) and adds queries 60–73: core
+and plain-wording triggers for a self-explanatory screen (#60–63, #69–71), near-misses for
+`plan-review` (#64), `touring` (#65) and `previewing` (#68), and four `none` baits (blog-copy
+editing #66, an aesthetic restyle #67, a general UI review with no self-explanatory goal #72, a
+component code review #73). Measured on the shipped description (Claude, `claude-opus-5-5`,
+2026-10-16): #60–62, #66, #69, #72 and #73 at 4 reps went **28/28**; the 17 queries the new skill
+could plausibly steal (#7, 9, 21–27, 34, 40, 43, 44, 56–59) plus #63–65, #67, #68, #70 and #71 at
+2 reps went **46/48**. The two misses, #34 and #57, went to no skill in the slow 30–45s band, not
+to the new skill; #57 scored 4/4 with and 4/4 without the skill staged in a same-day run. Two
+earlier description drafts are not comparable: one that read as review-only lost "make it
+textless" requests (#62 0/2) until the description said to use the skill first even when the
+user asks for the change. A full-suite re-baseline is still pending.
 
 ## Seed the fixture first — this is not optional
 

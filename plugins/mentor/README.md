@@ -110,9 +110,10 @@ another host, invoke the matching skill or describe the same intent naturally.
 | `plan-split`* | Split an oversized plan into independently buildable sibling plans, each with explicit scope isolation; also offered as **Split into multiple plans** at the approval gate when a plan is oversized. |
 | `plan-review`* | Staged review of the current plan: a judgment pass (practicality, comprehensiveness) with a **fold gate** that walks the **CRITICAL and HIGH** recommended edits one question at a time — each question carries the reviewer's case with the key words bolded — and resolves the rest in **one batched question**; then — against the updated plan — a mechanical pass (cleanliness + spec-kit-`analyze`-style **consistency** across related artifacts) whose safe fixes **auto-fold**; decision-level findings surface as a one-line **digest**, only **CRITICAL** ones asked one at a time and the rest resolved in **one batched question**, applied only on your verdict. The mechanical stage is invocable alone ("check plan consistency"). Also offered as **Review the plan (staged)** at the proceed gate. |
 | `dispatch-agents`* | **Routes each kind of work** between the main thread and subagents, then carries the annotation grammar and the async runtime contract. Verification, review and research always dispatch — an independent grader is the deliverable there, not a speed-up. Implementation earns dispatch only when 2+ file-disjoint steps can run at once, or a single step's context cost would flood the orchestrator; otherwise it stays in the main thread behind a stated `Dispatch: skipped` reason. Verification dispatch never skips on a mentor plan. |
+| `frontend-self-ex-review`* | **Self-explanatory UI review, feedback only** — say "make this screen self-explanatory", "make it textless", "too much text", or "users don't know what to click". Reviews a screen, component, flow, screenshot, or proposed design in one of two modes: **audit** (the default — findings tied to `file:line`, each with its proposed change tagged *small fix* or *needs a plan*) and **verify** (checks a change already made: states, ~360px, keyboard — reported as observed / executed / inferred / not tested). It writes no files and no plans; applying the feedback is follow-on work. A general UX/UI review without that goal doesn't trigger it. Cuts decorative and redundant copy by *purpose*, never by keyword, and keeps labels, constraints, consequences, and user content. Isolated from the rest of mentor: beyond the host-portability paragraph every mentor skill carries, it reads no mentor state and calls no mentor helper, so the folder can be copied into any project's skills directory. |
 
 \* skill trigger phrases, not registered slash commands — there is no `/plan-split`,
-`/plan-review`, or `/dispatch-agents` command. They invoke only via
+`/plan-review`, `/dispatch-agents`, or `/frontend-self-ex-review` command. They invoke only via
 `Skill({"skill": "mentor:<name>"})` or natural language matching the skill's
 `description:` (which may not be the literal name above).
 
@@ -634,10 +635,43 @@ extra deliverable. Instruction-only — no hooks.
 
 | Domain | Triggers | Extra plan deliverable |
 |---|---|---|
-| `plan-domain-frontend` | UX/UI — components, pages, styles, layout, design systems, theming, responsive; also a message/notification surface rendered by a third-party client (chat embed, push notification, email chrome) | ASCII zone wireframes + delta/token tables (a payload-shape table for a platform-rendered surface); live mockups only on the opt-in review page (`/mentor:preview`). |
+| `plan-domain-frontend` | UX/UI — components, pages, styles, layout, design systems, theming, responsive; also a message/notification surface rendered by a third-party client (chat embed, push notification, email chrome) | ASCII zone wireframes + delta/token tables (a payload-shape table for a platform-rendered surface), with copy/action decisions from its own action-first UX lens; live mockups only on the opt-in review page (`/mentor:preview`). |
 | `plan-domain-backend-api` | API/endpoint/route/handler/schema/DTO/contract — or the data model behind it: migration, table, column, index, constraint, enum, RLS policy | Before/after contract diff tables, schema diffs, Mermaid sequence flows; on a DDL change also a per-column delta table + a Mermaid ER diff of the changed entities. |
 | `plan-domain-architecture` | Structural change — services, containers, datastores, queues, integrations, data flows (not pure content/config/doc/style/refactor) | Diff-highlighted C4-style Mermaid flowcharts, only the levels that change; a provenance list for any changed datastore field. |
 | `plan-domain-dynamic` | No registered domain matched, and no already-available project/plugin skill names the technology (fallback) | A dispatched domain-definer names the domain and returns a best-practices brief; the plan gains a practice→step mapping. A substituted available skill can supply the brief instead. |
+
+## Changes in v4.1.0
+
+**A self-explanatory UI review skill: `frontend-self-ex-review`.** Ask for a screen that explains
+itself — "self-explanatory", "textless", "minimal copy", or plainly "too much text", "users don't
+know what to click", "make it obvious what to do next" — and mentor reviews it against one
+principle: *remove the need to explain the interface, not the labels and cues that make it
+understandable.* Every visible string is classified by purpose (essential · redundant ·
+decorative · contextual help · user content), never by element name or keyword — a
+`Description` column of user data or a `Quotes` page of quotation records survives a "remove the
+descriptions and quotes" ask. Conflicts resolve safety and accessibility first, then task
+clarity, then less copy, then minimalism; word count is never the evidence. A general UX/UI or
+visual review with no self-explanatory goal does not trigger it.
+
+- **Feedback only, two modes.** *Audit* (default) returns findings tied to `file:line`, each
+  with its proposed change tagged **small fix** or **needs a plan**; *verify* checks a change
+  already made (runs what the project has; reports observed · executed · inferred · not tested,
+  and never rounds an unrun check up to a pass). The skill writes no files and no plans —
+  applying the fixes or planning the bigger ones is follow-on work for the session.
+- **Isolated from the rest of mentor.** The skill reads no `.mentor/` state, calls no mentor
+  helper, and never names a mentor command; only the standard host-portability paragraph every
+  mentor skill carries mentions the plugin. No other mentor skill calls it: it runs only when
+  the ask is for a self-explanatory screen.
+- **`plan-domain-frontend` gains its own UX lens.** Research now captures each surface's copy,
+  primary action, and states; the plan's delta rows carry content/interaction decisions made by
+  purpose, never by keyword; UI steps get automatable `Done when:` checks and the plan's
+  Verification section gets one hands-on check as its own topic. Its rule 1 splits ownership
+  with no overlap: the design skill owns visual design, the UX lens owns content and interaction.
+- **Capability matrix.** New `ux-review` workflow, supported on Claude Code and Codex.
+- **Twelve acceptance cases** ship in `references/acceptance-tests.md`, each with a concrete
+  fixture and failure conditions; fourteen trigger-eval queries (60–73) cover core and
+  plain-wording triggers and near-misses against `plan-review`, `touring`, `previewing`,
+  blog-copy editing, an aesthetic restyle, a general UI review, and a component code review.
 
 ## Changes in v4.0.0
 

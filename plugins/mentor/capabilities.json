@@ -22,6 +22,13 @@
       "codex": { "status": "supported", "test": "plugins/mentor/tests/test-dual-host-contract.sh" }
     },
     {
+      "name": "ux-review",
+      "skills": ["frontend-self-ex-review"],
+      "fallback": "Use the portable skill directly from ordinary conversation; it needs no Mentor helper or .mentor state.",
+      "claude": { "status": "supported", "test": "plugins/mentor/tests/test-dual-host-contract.sh" },
+      "codex": { "status": "supported", "test": "plugins/mentor/tests/test-dual-host-contract.sh" }
+    },
+    {
       "name": "durable-state",
       "skills": ["plan-track", "deferring", "resuming", "handoff-note"],
       "fallback": "Read and update the host-neutral .mentor files through plan-state.sh.",

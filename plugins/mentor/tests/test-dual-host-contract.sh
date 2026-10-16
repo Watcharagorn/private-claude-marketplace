@@ -20,7 +20,7 @@ assert capabilities["hosts"]["claude"]["status"] == "supported"
 assert capabilities["hosts"]["codex"]["status"] == "supported"
 
 skills = sorted((root / "skills").glob("*/SKILL.md"))
-assert len(skills) == 18, len(skills)
+assert len(skills) == 19, len(skills)
 for skill in skills:
     text = skill.read_text()
     assert "Use a structured question UI when the host offers one" in text, skill

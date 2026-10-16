@@ -61,12 +61,28 @@ Context.
 
 Three global rules govern everything in this domain (restated as hard rules in §Constraints):
 
-1. The discovered design skill controls design and review decisions — invoke it first.
+1. The discovered design skill controls **visual design** decisions — invoke it first. Content and
+   interaction decisions belong to the action-first UX lens (§2). The boundary is fixed below.
 2. All design work derives from **REAL front-end source files** — never invented structure.
 3. **Never create mockup HTML files inside the repo source tree** (`docs/`, `mockups/`, or any
    documentation directory). The opt-in review page lives in mentor's reviews dir at
    `<repo>/.mentor/reviews/<subject-slug>/review.html` (exempt from the plan gate, so the write is
    allowed) — so that is the one compliant place for mockup markup.
+
+**Who decides what — no overlap.** Every UI decision has exactly one owner. On a platform-rendered
+surface the Preflight is skipped (below), so the platform's documented render and payload limits
+own the visual row:
+
+| Decision area | Owner |
+|---|---|
+| Visual design — layout geometry, spacing, color, typography, imagery, iconography style, motion, component styling | the discovered design skill |
+| Content and interaction — which text is shown, labels and wording, which action is primary, the order and grouping of actions, states (loading / empty / error / disabled / success / permission), what is disclosed on demand | the action-first UX lens (§2) |
+
+An element that carries both is split on the same line: *whether* a hero, banner, quote, or
+paragraph appears at all is content (the lens decides); *how* a surviving element looks is
+visual (the design skill decides). The design skill never re-adds content the lens removed, and
+the lens never restyles — when it needs more emphasis on an action, it states the need and the
+design skill decides the treatment.
 
 ## Platform-rendered surfaces — a narrower fidelity source
 
@@ -109,6 +125,9 @@ frontend-relevant research agents' prompts; when researching directly, cover the
   files, styled-system tokens — and the **font definitions**.
 - Capture the **current styles per surface** (layout, key colors, spacing idiom) and any
   **shared primitives** (buttons, cards, form controls) the proposal should reuse.
+- Capture the **visible copy, primary action, and designed states** (loading / empty / error /
+  disabled / success / permission) per surface, plus where its strings live (inline vs locale files) —
+  the UX lens in §2 classifies them.
 
 The research return contract is unchanged (FINDINGS ≤ ~400 words / EVIDENCE `file:line` / OPEN
 QUESTIONS). EVIDENCE **must** include the `file:line` of the token, theme, and font sources —
@@ -122,8 +141,21 @@ Apply these requirements when writing the plan:
 - Implementation steps target **REAL component files** (from research EVIDENCE) — never repo
   mockup files, never new files in documentation directories.
 - Apply the distilled design principles from the Preflight's discovered design skill.
+- **Apply the action-first UX lens once** over every surface in scope: classify each visible
+  string by purpose, never by keyword; give each task context one primary action whose label
+  names its outcome; keep common actions visible and reachable without hover; and design every
+  state that can occur (loading / empty / error / disabled / success / permission). It yields
+  action-first delta rows (what copy to remove, keep, rename, regroup, or disclose, which action
+  is primary, and which states change, each with its UX reason; essential copy a reader might
+  expect to be cut gets a row too — "kept — format constraint"), per-step `Done when:` checks
+  that automated tests can prove (a component or unit test that renders each changed state and
+  asserts the new labels and accessible names, plus the project's typecheck and lint), and one
+  hands-on check (changed states, ~360px, keyboard only — screens the product draws itself). Fold the rows into the delta
+  tables (§3), the step checks into the UI implementation steps, and the hands-on check into the
+  plan's `## Verification` section as its own `Topic N —` (with a `Pass when:`) — no separate
+  review section.
 - Emit an itemized **`## Proposed UI changes per surface`** section — one entry per changed
-  surface, each naming the surface, its source file(s), and the concrete visual deltas. This
+  surface, each naming the surface, its source file(s), and the concrete deltas — visual changes and the UX lens's content/interaction rows. This
   section drives the delta rendering (§3) and is the review page's mockup spec if a page is
   requested (§4); without it the AFTER cannot be authored.
 - When a change makes a surface **full-bleed/full-height**, repositions it, or alters its
@@ -150,8 +182,8 @@ order:
 
 State plainly in each surface's section that the plan shows the **deltas precisely (table) and
 layout approximately (ASCII)** — it is **not** a live or pixel-faithful preview (that is the opt-in
-review page's live mockup, §4). For a surface with **no visual delta**, a one-line "no visual
-change" note suffices. The §2 stacking-context / overlap / z-order risk prose still applies (it was
+review page's live mockup, §4). For a surface with **no delta of any kind** — visual, content, or
+interaction — a one-line "no visual change" note suffices. The §2 stacking-context / overlap / z-order risk prose still applies (it was
 always prose, never the rendering). Per `plan` Step 4's anti-duplication rule, the delta table
 + ASCII wireframe IS the surface's visualization — do not also emit a separate per-topic UI diagram
 for the same surface.
@@ -175,8 +207,11 @@ faithful; one that gets a paraphrase is not.
 
 1. Invoke ONE design skill once before writing the plan — discovered at runtime per the Preflight
    (`frontend-design:frontend-design` when installed, else the strongest present alternative);
-   distill it, or record the explicit no-capability fallback.
+   distill it, or record the explicit no-capability fallback. It owns visual design only — the
+   §Preflight boundary table assigns content and interaction to the UX lens.
 2. Delta renderings, mockups, and implementation steps derive ONLY from real front-end source
    files.
 3. No mockup files inside the repo source tree, ever — the opt-in review page (in the gate-exempt
    `.mentor/reviews/<subject-slug>/` dir) is the only mockup surface.
+4. Copy is cut by purpose, never by keyword — functional labels, constraints, and user content
+   survive.

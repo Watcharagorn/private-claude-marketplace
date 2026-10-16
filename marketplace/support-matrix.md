@@ -6,6 +6,7 @@ Generated from `plugins/*/capabilities.json` by `scripts/marketplace sync`. Do n
 | --- | --- | --- | --- | --- | --- |
 | mentor | dual-enhanced | planning | Supported | Supported | Use ordinary conversation for decisions and persist the plan under .mentor; Codex does not require an edit hook. |
 | mentor | dual-enhanced | review-and-dispatch | Supported | Supported | Run independent checks serially in the current task when delegation is unavailable. |
+| mentor | dual-enhanced | ux-review | Supported | Supported | Use the portable skill directly from ordinary conversation; it needs no Mentor helper or .mentor state. |
 | mentor | dual-enhanced | durable-state | Supported | Supported | Read and update the host-neutral .mentor files through plan-state.sh. |
 | mentor | dual-enhanced | delivery | Supported | Supported | Use the host's ordinary shell and approval flow when slash-command facades are unavailable. |
 | mentor | dual-enhanced | visual-artifacts | Supported | Supported | Write local HTML under .mentor (tours: self-contained, with Markdown and JSON companions; review pages: pinned CDN scripts allowed); hosted Artifact publication is optional. |
