@@ -11,21 +11,17 @@
 # exactly the cadence that closes the blind spot.
 #
 # ADVISORY ONLY, BY RULING — this hook NEVER exits 2 (on PostToolBatch, exit 2 stops
-# the agentic loop dead: mid-step, half-edited tree, no handoff note, no failed --note
-# — safety bought at the price of everything the run would otherwise have written
-# down). Every tier injects text via hookSpecificOutput.additionalContext and exits 0.
-# The guarantee is "never blind", not "forced stop": a run CAN still exhaust the window
-# if it ignores the directive — that trade was chosen explicitly (2026-08-20) over an
-# exit-2 backstop.
+# the agentic loop dead: mid-step, half-edited tree, no failed --note — safety bought at
+# the price of everything the run would otherwise have written down). Every tier injects
+# a one-line warning via hookSpecificOutput.additionalContext and exits 0. The guarantee
+# is "never blind", not "forced stop" — that trade was chosen explicitly (2026-08-20)
+# over an exit-2 backstop. Like the gate (v4.2.0), it warns only: no handoff steer.
 #
-# Fires the same three tiers as the gate (WARN / WARN-HIGH / ASK), from the same
+# Fires the same three tiers as the gate (WARN / WARN-HIGH / HIGH), from the same
 # thresholds, but rate-limited by its own marker (.context-checkpoint-<session_id>,
 # storing "<tier> <tokens>"): a batch-frequency hook that spoke every batch would bury
 # the transcript in its own advisories. It speaks when the tier RISES, or when the
-# count has grown a quarter of the warn threshold since it last spoke. The ASK tier
-# text is a directive to END THE TURN at the current step boundary — it deliberately
-# does not restate the gate's AskUserQuestion contract, because mid-batch there may be
-# nobody in the turn to answer; the boundary itself is where the question belongs.
+# count has grown a quarter of the warn threshold since it last spoke.
 #
 # Fail-soft everywhere: no jq / no transcript / unmeasurable / malformed input →
 # exit 0 silently. Never brick a session. Kill switches: the gate's own
@@ -88,17 +84,13 @@ printf '%s %s' "$tier" "$TOKENS" > "$marker" 2>/dev/null || true
 
 case "$tier" in
   3)
-    if [ -e "${state_dir}/.context-bypass-${SESSION_ID:-nosession}" ]; then
-      MSG="[mentor] CONTEXT CHECKPOINT: ~${TOKENS} tokens ≥ ${ASK_AT} (gate bypassed for this session). Keep the run lean: finish the current unit of work, then hand off at the next natural boundary (/mentor:handoff → /mentor:resume in a fresh session)."
-    else
-      MSG="[mentor] CONTEXT CHECKPOINT: ~${TOKENS} tokens ≥ ${ASK_AT}. If you are in the middle of a long autonomous stretch: finish ONLY the unit of work in flight, record its outcome (tick it, or plan-state.sh set <slug> failed --note), write the handoff (Skill mentor:handoff-note), and END THE TURN — do not start another. If a human is in the turn, surface the handoff question now instead. (Advisory only — this hook never blocks.)"
-    fi
+    MSG="[mentor] CONTEXT CHECKPOINT: ~${TOKENS} tokens ≥ ${ASK_AT} — over the limit. Keep the rest of this run small and lean. (Advisory only — this hook never blocks.)"
     ;;
   2)
-    MSG="[mentor] CONTEXT CHECKPOINT: ~${TOKENS} of ${ASK_AT} tokens — nearing the handoff threshold. Steer toward a natural boundary: finish the work in flight, avoid opening new large workstreams, and prefer ending the turn at the next boundary over starting another unit of work."
+    MSG="[mentor] CONTEXT CHECKPOINT: ~${TOKENS} of ${ASK_AT} tokens — nearing the limit. Avoid opening new large workstreams."
     ;;
   *)
-    MSG="[mentor] CONTEXT CHECKPOINT: ~${TOKENS} tokens ≥ ${WARN_AT} and still mid-run. At the next natural step boundary, consider wrapping up and handing off (/mentor:handoff → /mentor:resume in a fresh session). (Re-fires on tier rise or every ~${rearm_delta} tokens of growth.)"
+    MSG="[mentor] CONTEXT CHECKPOINT: ~${TOKENS} tokens ≥ ${WARN_AT} and still mid-run. (Re-fires on tier rise or every ~${rearm_delta} tokens of growth.)"
     ;;
 esac
 

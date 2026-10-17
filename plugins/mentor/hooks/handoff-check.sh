@@ -3,11 +3,8 @@
 #
 # Advisory nudge: when a session opens fresh in a repo that already carries a live
 # (unresolved) mentor handoff note, print a one-line notice pointing at it so the
-# session doesn't restate work a prior one already recorded. mentor's only other
-# handoff-awareness (context-gate.sh's ASK tier) is reactive — it checks for a fresh
-# note purely to suppress its own context-limit question once context has already
-# ballooned past the ask threshold. This fires at the start instead, while context is
-# still small. Fires on "startup" and "clear" — both put the next prompt in front of a
+# session doesn't restate work a prior one already recorded. It fires at the start,
+# while context is still small. Fires on "startup" and "clear" — both put the next prompt in front of a
 # thread with nothing about the note in it; "resume" and "compact" already carry the
 # thread, so re-announcing here would just be noise.
 #

@@ -328,22 +328,18 @@ ctx() { ( cd "$REPO" && env -u MENTOR_CONTEXT_GATE -u MENTOR_CONTEXT_BLOCK_TOKEN
 mktx "$TXDIR/sess.jsonl" 400000
 out="$(ctx)"; rc=$?
 chk "over ask → exit 0"                 test "$rc" = "0"
-chk "over ask → CONTEXT: ASK"           has "CONTEXT: ASK" "$out"
-chk "over ask → offers the handoff"     has "mentor:handoff-note" "$out"
-chk "over ask → offers the bypass"      has "bypass-context.sh" "$out"
-chk "over ask → does not dispatch yet"  has "Do NOT dispatch implementation yet" "$out"
-# The user already chose to continue: this command must NEVER then refuse them.
-# Being stricter than the gate itself is the bug this guards.
-: > "$REPO/.mentor/.context-bypass-sess"
-out="$(ctx)"
-chk "bypassed → CONTEXT: HANDOFF"       has "CONTEXT: HANDOFF" "$out"
-chk "bypassed → proceeds, no ASK"       hasnt "CONTEXT: ASK" "$out"
-chk "bypassed → still says hand off next" has "/mentor:handoff" "$out"
-rm -f "$REPO/.mentor/.context-bypass-sess"
+chk "over ask → CONTEXT: HIGH"          has "CONTEXT: HIGH" "$out"
+chk "over ask → proceeds"               has "then proceed" "$out"
+# v4.2.0 warn-only: this command must NEVER refuse, ask, or steer toward a handoff —
+# being stricter than the gate itself is the bug this guards.
+chk "over ask → no handoff suggestion"  hasnt "handoff" "$out"
+chk "over ask → no bypass"              hasnt "bypass" "$out"
+chk "over ask → no dispatch refusal"    hasnt "Do NOT dispatch" "$out"
 mktx "$TXDIR/sess.jsonl" 230000
 out="$(ctx)"
 chk "over warn → CONTEXT: WARN"         has "CONTEXT: WARN" "$out"
-chk "over warn → no ASK directive"      hasnt "CONTEXT: ASK" "$out"
+chk "over warn → no HIGH verdict"       hasnt "CONTEXT: HIGH" "$out"
+chk "over warn → no handoff suggestion" hasnt "handoff" "$out"
 mktx "$TXDIR/sess.jsonl" 50000
 out="$( cd "$REPO" && env -u MENTOR_CONTEXT_BLOCK_TOKENS -u MENTOR_CONTEXT_WARN_TOKENS \
         HOME="$SANDBOX" CLAUDE_CONFIG_DIR="$SANDBOX/.claude" CLAUDE_CODE_SESSION_ID=sess \

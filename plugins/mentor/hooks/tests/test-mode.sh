@@ -186,8 +186,8 @@ chk "fresh arm → marker carries cwd= line"     sh -c "command grep -q '^cwd=' 
 chk "fresh arm → marker carries worktree= line" sh -c "command grep -q '^worktree=' '$MARKER'"
 chk "fresh arm → ARMED banner still printed"   sh -c "printf '%s' \"\$0\" | grep -q 'Plan phase ARMED'" "$out"
 
-# Same session re-arming (the CONTEXT: ASK -> bypass-context.sh -> re-run path, or an
-# accidental double /mentor:plan) must NOT be treated as a foreign collision.
+# Same session re-arming (e.g. an accidental double /mentor:plan) must NOT be treated
+# as a foreign collision.
 out="$( cd "$REPO" && HOME="$SANDBOX" MENTOR_CONTEXT_GATE=off CLAUDE_CODE_SESSION_ID=sess-A bash "$BEGIN" 2>&1 )"
 chk "same-session re-arm → ARMED (not blocked)" sh -c "printf '%s' \"\$0\" | grep -q 'Plan phase ARMED'" "$out"
 chk "same-session re-arm → no collision notice" sh -c "! printf '%s' \"\$0\" | grep -q 'NOT armed'" "$out"

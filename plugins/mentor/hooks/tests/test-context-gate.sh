@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
-# test-context-gate.sh — regression tests for context-gate.sh (UserPromptSubmit),
-# begin-plan.sh's plan-start context check, and bypass-context.sh (v2.8.0: the gate
-# never blocks/erases — the top tier ASKS the user, with a session bypass marker).
+# test-context-gate.sh — regression tests for context-gate.sh (UserPromptSubmit) and
+# begin-plan.sh's plan-start context check (v4.2.0: warn-only — no tier blocks, asks a
+# question, or suggests a handoff; the top tier is a CONTEXT: HIGH notice).
 #
 # Builds a real git repo (project-scoped .mentor/ state) and a set of transcript
 # fixtures, then drives the hook with UserPromptSubmit JSON across the full tier
 # matrix: passthroughs, kill switch, threshold precedence, once-per-session warn,
-# the ask tier and its degradations, transcript extraction edge cases, and
+# the HIGH tier, synthetic-prompt detection, transcript extraction edge cases, and
 # fail-soft robustness.
 #
 # Since v2.34.0 this hook also carries the planning-intent nudge as tier 2 (see
@@ -135,71 +135,15 @@ chk "synthetic at warn → no marker burned"  test ! -e "$(marker warnsyn)"
 run "hello" warnsyn "$TX_WARN"
 chk "human after synthetic → still warns"   contains "getting large" "$OUT"
 chk "human after synthetic → marker now set" test -e "$(marker warnsyn)"
-
-echo "== B2. Warn-high tier (near-limit, re-fires) =="
-TX_HIGH="$ROOT/high.jsonl"; mktx "$TX_HIGH" usage:320000   # ≥ 315000 (90% of 350k), < 350000
-run "hello" hi1 "$TX_HIGH"
-chk "320k → exit 0"                          test "$RC" = "0"
-chk "320k → near-limit notice"               contains "nearing the handoff" "$OUT"
-run "hello again" hi1 "$TX_HIGH"
-chk "same session → re-fires (no marker)"    contains "nearing the handoff" "$OUT"
-printf '{"context_warn_high_tokens":100000}\n' > "$CONF"
-run "hello" hi2 "$TX_UNDER"
-chk "config context_warn_high_tokens honored (150k ≥ 100k)" contains "nearing the handoff" "$OUT"
-rm -f "$CONF"
-
-echo "== C. Ask tier (top tier — never blocks) =="
-run "please do a thing" ask1 "$TX_ASK"
-chk "365k plain prompt → exit 0"          test "$RC" = "0"
-chk "365k → CONTEXT: ASK directive"       contains "CONTEXT: ASK" "$OUT"
-chk "365k → names AskUserQuestion"        contains "AskUserQuestion" "$OUT"
-chk "365k → names bypass script"          contains "bypass-context.sh" "$OUT"
-chk "365k → nothing on stderr"            test -z "$ERR"
-run "and again" ask1 "$TX_ASK"
-chk "same session → re-asks (no marker)"  contains "CONTEXT: ASK" "$OUT"
-# Bypass marker degrades the ask to a one-line advisory.
-: > "$STATE/.context-bypass-askbp"
-run "do a thing" askbp "$TX_ASK"
-chk "bypassed session → exit 0"           test "$RC" = "0"
-chk "bypassed → one-line advisory"        contains "bypassed for this session" "$OUT"
-chk "bypassed → no ask directive"         sh -c '! printf "%s" "$1" | grep -q "CONTEXT: ASK"' _ "$OUT"
-rm -f "$STATE/.context-bypass-askbp"
-# A fresh handoff note (<30 min, in its plan-topic dir) suppresses the question and
-# points at /mentor:resume.
-mkdir -p "$STATE/plans/test-topic/handoffs"
-: > "$STATE/plans/test-topic/handoffs/20260722-101500-test-focus.md"
-run "do a thing" askh "$TX_ASK"
-chk "fresh handoff note → exit 0"         test "$RC" = "0"
-chk "fresh handoff → resume pointer"      contains "/mentor:resume test-focus" "$OUT"
-chk "fresh handoff → no ask directive"    sh -c '! printf "%s" "$1" | grep -q "CONTEXT: ASK"' _ "$OUT"
-# Once the note is stamped resolved (work done / superseded), the suppression stops applying.
-mkdir -p "$STATE/plans/test-topic/handoffs/resolved"
-mv "$STATE/plans/test-topic/handoffs/20260722-101500-test-focus.md" \
-   "$STATE/plans/test-topic/handoffs/resolved/"
-run "do a thing" askr "$TX_ASK"
-chk "resolved handoff → ask returns"      contains "CONTEXT: ASK" "$OUT"
-rm -rf "$STATE/plans/test-topic"
-# Legacy flat-dir notes (pre-v2.10) still suppress the ask.
-mkdir -p "$STATE/handoffs"
-: > "$STATE/handoffs/20260722-101500-legacy-focus.md"
-run "do a thing" askl "$TX_ASK"
-chk "legacy flat-dir note → resume pointer" contains "/mentor:resume legacy-focus" "$OUT"
-rm -rf "$STATE/handoffs"
-run "/mentor:handoff \"x\"" ask2 "$TX_ASK"
-chk "slash /mentor:handoff passes"        test "$RC" = "0"
-chk "slash /mentor:handoff → silent"      test -z "$OUT$ERR"
-run "/compact" ask3 "$TX_ASK"
-chk "slash /compact passes"               test "$RC" = "0"
-chk "slash /compact → silent"             test -z "$OUT$ERR"
-run "" ask4 "$TX_ASK"
-chk "empty prompt passes"                 test "$RC" = "0"
-chk "empty prompt → silent"               test -z "$OUT$ERR"
-# Harness-synthetic prompts at ask level: measured, advised loudly, never questioned.
+chk "warn → no handoff suggestion"          sh -c '! printf "%s" "$1" | grep -qi "handoff\|mentor:resume"' _ "$OUT"
+# Synthetic-prompt detection, proven where it changes the output: at the WARN tier a
+# detected synthetic prompt is silent and burns no marker.
 #
 # SYNTHETIC_SHAPES is the observed wire contract, kept as verbatim first lines so a
 # harness wording change is a one-line fixture edit rather than an archaeology dig.
-# Every entry MUST assert all three properties — an `exit 0` check alone proves nothing
-# here, since the gate never blocks and an UNDETECTED prompt also exits 0.
+# Every entry MUST assert both silence and the unburned marker — an `exit 0` check
+# alone proves nothing here, since the gate never blocks and an UNDETECTED prompt
+# also exits 0.
 SYNTHETIC_SHAPES=(
   # wrapper form — the tag is on line 2, so the bare-tag patterns cannot match it
   $'Another Claude session sent a message:\n<teammate-message teammate_id="etl-research" color="green">\n{"type":"idle_notification","from":"etl-research"}\n</teammate-message>'
@@ -218,17 +162,71 @@ i=0
 for shape in "${SYNTHETIC_SHAPES[@]}"; do
   i=$((i+1))
   label="$(printf '%s' "$shape" | head -1 | cut -c1-46)"
-  run "$shape" "asksyn$i" "$TX_ASK"
-  chk "synthetic [$label] → exit 0"              test "$RC" = "0"
-  chk "synthetic [$label] → loud advisory"       contains "agent report" "$OUT"
-  chk "synthetic [$label] → no AskUserQuestion"  sh -c '! printf "%s" "$1" | grep -q "AskUserQuestion"' _ "$OUT"
+  run "$shape" "warnsyn$i" "$TX_WARN"
+  chk "synthetic [$label] → exit 0"            test "$RC" = "0"
+  chk "synthetic [$label] → silent at warn"    test -z "$OUT"
+  chk "synthetic [$label] → no marker burned"  test ! -e "$(marker "warnsyn$i")"
 done
-# NEGATIVE: a HUMAN prompt that merely quotes a synthetic phrase must still be asked.
+# NEGATIVE: a HUMAN prompt that merely quotes a synthetic phrase must still be warned.
 # This is what forbids relaxing the anchored patterns into leading-wildcard matches.
-run 'why did I see "3 background agents were stopped by the user" in my log?' asksynneg "$TX_ASK"
-chk "human quoting a synthetic phrase → still asks" contains "CONTEXT: ASK" "$OUT"
-run 'summarize what Another Claude session sent a message: means' asksynneg2 "$TX_ASK"
-chk "human quoting the wrapper mid-sentence → still asks" contains "CONTEXT: ASK" "$OUT"
+run 'why did I see "3 background agents were stopped by the user" in my log?' warnsynneg "$TX_WARN"
+chk "human quoting a synthetic phrase → still warns" contains "getting large" "$OUT"
+run 'summarize what Another Claude session sent a message: means' warnsynneg2 "$TX_WARN"
+chk "human quoting the wrapper mid-sentence → still warns" contains "getting large" "$OUT"
+
+echo "== B2. Warn-high tier (near-limit, re-fires) =="
+TX_HIGH="$ROOT/high.jsonl"; mktx "$TX_HIGH" usage:320000   # ≥ 315000 (90% of 350k), < 350000
+run "hello" hi1 "$TX_HIGH"
+chk "320k → exit 0"                          test "$RC" = "0"
+chk "320k → near-limit notice"               contains "nearing the limit" "$OUT"
+chk "320k → no handoff suggestion"           sh -c '! printf "%s" "$1" | grep -qi "handoff\|mentor:resume"' _ "$OUT"
+run "hello again" hi1 "$TX_HIGH"
+chk "same session → re-fires (no marker)"    contains "nearing the limit" "$OUT"
+printf '{"context_warn_high_tokens":100000}\n' > "$CONF"
+run "hello" hi2 "$TX_UNDER"
+chk "config context_warn_high_tokens honored (150k ≥ 100k)" contains "nearing the limit" "$OUT"
+rm -f "$CONF"
+
+echo "== C. HIGH tier (top tier — warn-only) =="
+# 'bypassPermissions' legitimately appears in begin-plan's ARMED text — match the retired
+# context bypass only.
+nohandoff() { ! printf '%s' "$1" | grep -qi 'AskUserQuestion\|handoff\|mentor:resume\|bypass-context\|bypass for'; }
+run "please do a thing" high1 "$TX_ASK"
+chk "365k plain prompt → exit 0"          test "$RC" = "0"
+chk "365k → CONTEXT: HIGH warning"        contains "CONTEXT: HIGH" "$OUT"
+chk "365k → one line"                     test "$(printf '%s\n' "$OUT" | grep -c .)" = "1"
+chk "365k → no question/handoff/bypass"   nohandoff "$OUT"
+chk "365k → nothing on stderr"            test -z "$ERR"
+run "and again" high1 "$TX_ASK"
+chk "same session → re-fires (no marker)" contains "CONTEXT: HIGH" "$OUT"
+# A leftover pre-v4.2.0 bypass marker is ignored — the warning is the same.
+: > "$STATE/.context-bypass-highbp"
+run "do a thing" highbp "$TX_ASK"
+chk "legacy bypass marker → same warning" contains "CONTEXT: HIGH" "$OUT"
+chk "legacy bypass marker → no bypass text" nohandoff "$OUT"
+rm -f "$STATE/.context-bypass-highbp"
+# A fresh handoff note no longer changes the output: there is no question to suppress.
+mkdir -p "$STATE/plans/test-topic/handoffs"
+: > "$STATE/plans/test-topic/handoffs/20260722-101500-test-focus.md"
+run "do a thing" highh "$TX_ASK"
+chk "fresh handoff note → same warning"   contains "CONTEXT: HIGH" "$OUT"
+chk "fresh handoff note → no resume pointer" nohandoff "$OUT"
+rm -rf "$STATE/plans/test-topic"
+# Synthetic prompts are measured too and get the same warning.
+run "<task-notification>reviewer finished</task-notification>" highsyn "$TX_ASK"
+chk "synthetic at HIGH → exit 0"          test "$RC" = "0"
+chk "synthetic at HIGH → warned"          contains "CONTEXT: HIGH" "$OUT"
+run "/mentor:handoff \"x\"" high2 "$TX_ASK"
+chk "slash /mentor:handoff passes"        test "$RC" = "0"
+chk "slash /mentor:handoff → silent"      test -z "$OUT$ERR"
+run "/compact" high3 "$TX_ASK"
+chk "slash /compact passes"               test "$RC" = "0"
+chk "slash /compact → silent"             test -z "$OUT$ERR"
+run "" high4 "$TX_ASK"
+chk "empty prompt passes"                 test "$RC" = "0"
+chk "empty prompt → silent"               test -z "$OUT$ERR"
+[ -e "$HOOKS/bypass-context.sh" ] && FAILBP=1 || FAILBP=0
+chk "bypass-context.sh retired"           test "$FAILBP" = "0"
 
 echo "== D. Kill switch =="
 run "do thing" ks1 "$TX_ASK" MENTOR_CONTEXT_GATE=off
@@ -241,23 +239,23 @@ rm -f "$CONF"
 
 echo "== E. Threshold precedence (env > config > default) =="
 run "do thing" p1 "$TX_UNDER" MENTOR_CONTEXT_BLOCK_TOKENS=1000
-chk "env lowers ask threshold → CONTEXT: ASK" contains "CONTEXT: ASK" "$OUT"
+chk "env lowers ask threshold → CONTEXT: HIGH" contains "CONTEXT: HIGH" "$OUT"
 chk "env lowers → still exit 0"            test "$RC" = "0"
 printf '{"context_block_tokens":1000}\n' > "$CONF"
 run "do thing" p2 "$TX_UNDER"
-chk "config lowers → CONTEXT: ASK"         contains "CONTEXT: ASK" "$OUT"
+chk "config lowers → CONTEXT: HIGH"        contains "CONTEXT: HIGH" "$OUT"
 printf '{"context_block_tokens":999999999}\n' > "$CONF"
 run "do thing" p3 "$TX_UNDER" MENTOR_CONTEXT_BLOCK_TOKENS=1000
-chk "env beats config → CONTEXT: ASK"      contains "CONTEXT: ASK" "$OUT"
+chk "env beats config → CONTEXT: HIGH"     contains "CONTEXT: HIGH" "$OUT"
 rm -f "$CONF"
 run "do thing" p4 "$TX_UNDER" MENTOR_CONTEXT_BLOCK_TOKENS=abc
-chk "non-numeric env → default (150k<350k, no ask)" test "$RC" = "0"
+chk "non-numeric env → default (150k<350k, no HIGH)" test "$RC" = "0"
 chk "non-numeric env → silent"             test -z "$OUT$ERR"
 
-echo "== F. Transcript extraction edge cases (ask-level unless noted) =="
+echo "== F. Transcript extraction edge cases (HIGH-level unless noted) =="
 mktx "$ROOT/sm.jsonl" sidechain_mask:365000
 run "do thing" f1 "$ROOT/sm.jsonl"
-chk "trailing sidechain doesn't mask 365k → asks" contains "CONTEXT: ASK" "$OUT"
+chk "trailing sidechain doesn't mask 365k → HIGH" contains "CONTEXT: HIGH" "$OUT"
 chk "trailing sidechain → exit 0"              test "$RC" = "0"
 mktx "$ROOT/as.jsonl" all_sidechain
 run "do thing" f2 "$ROOT/as.jsonl"
@@ -269,16 +267,16 @@ chk "compact_boundary(5000) after 365k → exit 0" test "$RC" = "0"
 chk "compact_boundary(5000) → silent"          test -z "$OUT$ERR"
 mktx "$ROOT/uac.jsonl" usage_after_compact:365000
 run "do thing" f4 "$ROOT/uac.jsonl"
-chk "usage after compact → asks"               contains "CONTEXT: ASK" "$OUT"
+chk "usage after compact → HIGH"               contains "CONTEXT: HIGH" "$OUT"
 mktx "$ROOT/gb.jsonl" garbage:365000
 run "do thing" f5 "$ROOT/gb.jsonl"
-chk "garbage lines interleaved → asks"         contains "CONTEXT: ASK" "$OUT"
+chk "garbage lines interleaved → HIGH"         contains "CONTEXT: HIGH" "$OUT"
 mktx "$ROOT/ul.jsonl" usageless:365000
 run "do thing" f6 "$ROOT/ul.jsonl"
-chk "usage-less assistant skipped → asks"      contains "CONTEXT: ASK" "$OUT"
+chk "usage-less assistant skipped → HIGH"      contains "CONTEXT: HIGH" "$OUT"
 mktx "$ROOT/syn.jsonl" synthetic_trailing:365000
 run "do thing" f7 "$ROOT/syn.jsonl"
-chk "trailing <synthetic> all-zero after 365k → asks" contains "CONTEXT: ASK" "$OUT"
+chk "trailing <synthetic> all-zero after 365k → HIGH" contains "CONTEXT: HIGH" "$OUT"
 
 echo "== G. Robustness =="
 run_nojq "do thing" g1 "$TX_ASK"
@@ -309,42 +307,19 @@ bp() { # <transcript-tokens|none> → sets RC/OUT; cleans marker first
       CLAUDE_CONFIG_DIR="$CFG" CLAUDE_CODE_SESSION_ID="$SESS" bash "$BEGIN" 2>&1 )" || RC=$?
 }
 bp 400000
-chk "over-ask, no bypass → CONTEXT: ASK printed" contains "CONTEXT: ASK" "$OUT"
-chk "over-ask → names bypass script"         contains "bypass-context.sh" "$OUT"
-chk "over-ask → no gate marker created"      no_marker
-chk "over-ask → not armed"                   sh -c '! printf "%s" "$1" | grep -q "Plan phase ARMED"' _ "$OUT"
-: > "$STATE/.context-bypass-$SESS"
-bp 400000
-chk "bypassed over-ask → armed"              contains "Plan phase ARMED" "$OUT"
-chk "bypassed over-ask → CONTEXT: HANDOFF"   contains "CONTEXT: HANDOFF" "$OUT"
-chk "bypassed over-ask → gate marker created" has_marker
-rm -f "$STATE/.context-bypass-$SESS"
+chk "over-ask → armed (never refuses)"       contains "Plan phase ARMED" "$OUT"
+chk "over-ask → gate marker created"         has_marker
+chk "over-ask → CONTEXT: HIGH printed"       contains "CONTEXT: HIGH" "$OUT"
+chk "over-ask → lean-planning advisory"      sh -c 'printf "%s" "$1" | grep -qw "lean"' _ "$OUT"
+chk "over-ask → no question/handoff/bypass"  nohandoff "$OUT"
 bp 230000
 chk "warn → armed + CONTEXT: WARN"           contains "CONTEXT: WARN" "$OUT"
 chk "warn → gate marker created"             has_marker
 chk "warn → no lean-planning advisory" sh -c '! printf "%s" "$1" | grep -qw "lean"' _ "$OUT"
+chk "warn → no handoff suggestion"           nohandoff "$OUT"
 bp none
 chk "no transcript → arms silently (no CONTEXT line)" sh -c '! printf "%s" "$1" | grep -q "CONTEXT:"' _ "$OUT"
 chk "no transcript → gate marker created"    has_marker
-
-echo "== I. bypass-context.sh =="
-BYPASS="$HOOKS/bypass-context.sh"
-[ -f "$BYPASS" ] || { echo "FATAL: not found: $BYPASS" >&2; exit 1; }
-rm -f "$STATE"/.context-bypass-*
-RC=0; OUT="$( cd "$REPO" && CLAUDE_CODE_SESSION_ID=bysess bash "$BYPASS" 2>&1 )" || RC=$?
-chk "bypass → exit 0"                        test "$RC" = "0"
-chk "bypass → confirmation printed"          contains "bypassed for this session" "$OUT"
-chk "bypass → marker created"                test -e "$STATE/.context-bypass-bysess"
-RC=0; OUT="$( cd "$REPO" && CLAUDE_CODE_SESSION_ID=bysess bash "$BYPASS" 2>&1 )" || RC=$?
-chk "bypass re-run (idempotent) → exit 0"    test "$RC" = "0"
-: > "$STATE/.context-bypass-old"
-touch -t "$(date -v-25H +%Y%m%d%H%M 2>/dev/null || date -d '25 hours ago' +%Y%m%d%H%M)" "$STATE/.context-bypass-old" 2>/dev/null || true
-RC=0; OUT="$( cd "$REPO" && CLAUDE_CODE_SESSION_ID=bysess2 bash "$BYPASS" 2>&1 )" || RC=$?
-chk "25h-old bypass marker pruned"           test ! -e "$STATE/.context-bypass-old"
-RC=0; OUT="$( cd "$REPO" && env -u CLAUDE_CODE_SESSION_ID bash "$BYPASS" 2>&1 )" || RC=$?
-chk "no session id → exit 0 (nosession)"     test "$RC" = "0"
-chk "no session id → nosession marker"       test -e "$STATE/.context-bypass-nosession"
-rm -f "$STATE"/.context-bypass-*
 
 echo "== J. Tier independence (v2.34.0 merge) =="
 # The merge's one real hazard: tier 1 returning early — kill switch off, unmeasurable
@@ -377,27 +352,27 @@ chk "gate silent + nudge → exit 0"               test "$RC" = "0"
 # 2. Gate KILLED + nudge matches → the nudge is untouched by the gate's kill switch.
 rm -rf "$NUDGE_HOME"; mkdir -p "$NUDGE_HOME"
 run_both "help me plan the billing rewrite" j2 "$TX_ASK" MENTOR_CONTEXT_GATE=off
-chk "MENTOR_CONTEXT_GATE=off → gate silent"      test -z "$(printf '%s' "$OUT" | grep -c 'CONTEXT: ASK' | grep -v '^0$')"
+chk "MENTOR_CONTEXT_GATE=off → gate silent"      test -z "$(printf '%s' "$OUT" | grep -c 'CONTEXT: HIGH' | grep -v '^0$')"
 chk "MENTOR_CONTEXT_GATE=off → nudge still runs" contains "This looks like a planning request" "$OUT"
 
 # 3. Nudge KILLED + gate over the ask threshold → the gate is untouched by the nudge's
 #    kill switch, and the two verdicts never cross-suppress.
 rm -rf "$NUDGE_HOME"; mkdir -p "$NUDGE_HOME"
-rm -f "$STATE"/.context-bypass-* "$STATE"/.context-warned-*
+rm -f "$STATE"/.context-warned-*
 run_both "help me plan the billing rewrite" j3 "$TX_ASK" MENTOR_PLANNING_INTENT=off
-chk "MENTOR_PLANNING_INTENT=off → gate still asks" contains "CONTEXT: ASK" "$OUT"
+chk "MENTOR_PLANNING_INTENT=off → gate still warns" contains "CONTEXT: HIGH" "$OUT"
 chk "MENTOR_PLANNING_INTENT=off → nudge silent"    test "$(printf '%s' "$OUT" | grep -c 'This looks like a planning request')" = "0"
 
 # 4. Both fire on one prompt → both lines land, gate verdict FIRST (hooks.json order).
 rm -rf "$NUDGE_HOME"; mkdir -p "$NUDGE_HOME"
-rm -f "$STATE"/.context-bypass-* "$STATE"/.context-warned-*
+rm -f "$STATE"/.context-warned-*
 run_both "help me plan the billing rewrite" j4 "$TX_ASK"
-chk "both tiers fire → gate line present"        contains "CONTEXT: ASK" "$OUT"
+chk "both tiers fire → gate line present"        contains "CONTEXT: HIGH" "$OUT"
 chk "both tiers fire → nudge line present"       contains "This looks like a planning request" "$OUT"
-gate_ln="$(printf '%s\n' "$OUT" | grep -n 'CONTEXT: ASK' | head -1 | cut -d: -f1)"
+gate_ln="$(printf '%s\n' "$OUT" | grep -n 'CONTEXT: HIGH' | head -1 | cut -d: -f1)"
 nudge_ln="$(printf '%s\n' "$OUT" | grep -n 'This looks like a planning request' | head -1 | cut -d: -f1)"
 chk "both tiers fire → gate verdict precedes the nudge" test "${gate_ln:-999}" -lt "${nudge_ln:-0}"
-rm -f "$STATE"/.context-bypass-* "$STATE"/.context-warned-*
+rm -f "$STATE"/.context-warned-*
 
 echo
 echo "RESULT: PASS=$PASS FAIL=$FAIL"

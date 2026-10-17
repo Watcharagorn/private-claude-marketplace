@@ -10,38 +10,29 @@
 # MEASURES them; the nudge skips them). See each tier's own banner below.
 #
 # TIER 1 — the mentor CONTEXT GATE. Measures the live context size from the session transcript
-# and acts in three tiers — it NEVER blocks or erases a prompt (warn-only + ask-first):
-#   • WARN  (≥ warn threshold, default 200000): exit 0 with a one-line stdout notice
-#     (UserPromptSubmit stdout is injected as context, so Claude can proactively offer a
-#     handoff). RE-ARMS on growth — a `.context-warned-<session_id>` marker in the state
-#     dir stores the token count at the last fire, and WARN fires again once the live count
-#     has grown by a quarter of the warn threshold (~50000 tokens at defaults) past that —
-#     a session that keeps climbing gets more than one nudge before WARN-HIGH takes over,
-#     instead of one notice at 200k and silence all the way to ~315k. Stale markers (>24h)
-#     are pruned so new sessions re-warn; a marker from before this change (empty file)
-#     reads as "never warned" and re-arms immediately.
-#   • WARN-HIGH (≥ warn-high threshold, default 90% of the effective ask threshold):
-#     a near-limit nudge that RE-FIRES on every prompt in the zone — no marker — so the
-#     agent steers toward a natural handoff boundary before the ask tier.
-#   • ASK (≥ ask threshold, default 350000): stdout DIRECTIVE + exit 0 — the model must
-#     first ask the user via AskUserQuestion: hand off now (recommended), or bypass the
-#     gate for this session. "Bypass" runs bypass-context.sh, which writes a
-#     `.context-bypass-<session_id>` marker; with the marker present this tier degrades
-#     to a one-line advisory. A fresh handoff note (<30 min old) also suppresses the
-#     question — the handoff already happened; the advisory just points at it.
-#     (The ask-threshold knob keeps its historical name: MENTOR_CONTEXT_BLOCK_TOKENS /
+# and WARNS in three tiers. Warn-only (v4.2.0): it never blocks, never asks a question, and
+# never suggests a handoff — every tier is a one-line stdout notice (UserPromptSubmit stdout
+# is injected as context) and exit 0.
+#   • WARN  (≥ warn threshold, default 200000). RE-ARMS on growth — a
+#     `.context-warned-<session_id>` marker in the state dir stores the token count at the
+#     last fire, and WARN fires again once the live count has grown by a quarter of the warn
+#     threshold (~50000 tokens at defaults) past that, so a session that keeps climbing gets
+#     more than one notice before WARN-HIGH takes over. Stale markers (>24h) are pruned so
+#     new sessions re-warn; an empty legacy marker reads as "never warned".
+#   • WARN-HIGH (≥ warn-high threshold, default 90% of the effective limit):
+#     near-limit notice that RE-FIRES on every prompt in the zone — no marker.
+#   • HIGH (≥ limit, context_block_tokens, default 350000): over-the-limit notice, also every prompt.
+#     (The knob keeps its historical name: MENTOR_CONTEXT_BLOCK_TOKENS /
 #     context_block_tokens.)
 #
 # Escape hatches ALWAYS pass: an empty prompt, or any prompt starting with "/" (slash
-# commands like /mentor:handoff, /compact, /mentor:mode) — checked FIRST, before any
-# measurement, so the gate can never slow down the tools that fix it.
+# commands like /compact, /mentor:mode) — checked FIRST, before any measurement, so the
+# gate can never slow down the tools that fix it.
 #
 # Harness-synthetic prompts (an inbound agent/teammate report, a task notification, a
 # background-agent stop notice — no actionable human REQUEST behind them) are MEASURED
-# like any prompt but never get the ASK question: there is nothing to act on, nobody is
-# necessarily there to answer, and a question would stall an autonomous flow. They pass
-# with a loud stdout advisory instead. They also never consume the once-per-session WARN
-# (see the WARN tier) — that notice belongs to the human's next real prompt.
+# like any prompt but never consume the re-arming WARN (see the WARN tier) — that notice
+# belongs to the human's next real prompt.
 #
 # Fail-soft everywhere: no jq / no transcript / no usage record in the tail window /
 # malformed input → exit 0. Never brick a session.
@@ -63,7 +54,7 @@ PROMPT="$(printf '%s' "$INPUT" | jq -r '.prompt // ""' 2>/dev/null)" || exit 0
 [ -z "$PROMPT" ] && exit 0
 case "$PROMPT" in /*) exit 0 ;; esac
 
-# Harness-synthetic prompt? Still measured below, but never asked a question (see header).
+# Harness-synthetic prompt? Still measured below, but never consumes the WARN re-arm (see header).
 # Patterns are ANCHORED at position 0 on purpose: a leading `*…*` would exempt a real
 # human prompt that merely QUOTES one of these phrases (e.g. asking about a log line).
 # Shapes below were measured against this machine's transcript corpus (2026-08-04); the
@@ -89,8 +80,8 @@ repo_root="$(mentor_repo_root "$CWD")"
 # planning-intent nudge below must still run when this half returns early (kill switch
 # off, unmeasurable transcript, or a tier that already fired). Under the two separate
 # hooks this merge replaced, that independence was free; here `return 0` is what buys it.
-# Bodies are deliberately NOT re-indented: the ASK tier's heredoc terminator has to stay
-# at column 0, and an indent-only diff would hide the real change in review.
+# Bodies are deliberately NOT re-indented: an indent-only diff would hide real changes in
+# review.
 mentor_context_tiers() {
 # Kill switch (env or per-repo config).
 [ "$(mentor_context_gate_state "$repo_root")" = "on" ] || return 0
@@ -105,48 +96,18 @@ state_dir="$(mentor_state_dir "$repo_root")"
 
 ASK_AT="$(mentor_context_threshold "$repo_root" "${MENTOR_CONTEXT_BLOCK_TOKENS:-}" context_block_tokens 350000)"
 WARN_AT="$(mentor_context_threshold "$repo_root" "${MENTOR_CONTEXT_WARN_TOKENS:-}" context_warn_tokens 200000)"
-# Near-limit tier defaults to 90% of the EFFECTIVE ask threshold so it tracks overrides.
+# Near-limit tier defaults to 90% of the EFFECTIVE limit so it tracks overrides.
 WARN_HIGH_AT="$(mentor_context_threshold "$repo_root" "${MENTOR_CONTEXT_WARN_HIGH_TOKENS:-}" context_warn_high_tokens $(( ASK_AT * 9 / 10 )))"
 
-# --- ASK tier (top tier — never blocks; degradations checked first) ----------
+# --- HIGH tier (over the limit; re-fires every prompt) -----------------------
 if [ "$TOKENS" -ge "$ASK_AT" ]; then
-  # 1) The user already chose to bypass this session → one-line advisory only.
-  if [ -e "${state_dir}/.context-bypass-${SESSION_ID:-nosession}" ]; then
-    echo "[mentor] Context gate bypassed for this session (~${TOKENS} tokens ≥ ${ASK_AT}) — still prefer wrapping the current unit of work and handing off at the next natural boundary (/mentor:handoff → /mentor:resume in a fresh session)."
-    return 0
-  fi
-  # 2) A fresh handoff note (<30 min) exists → the handoff already happened; point at it.
-  latest_handoff="$(mentor_latest_handoff "$repo_root")"
-  if [ -n "$latest_handoff" ] && [ -n "$(find "$latest_handoff" -mmin -30 2>/dev/null)" ]; then
-    slug="${latest_handoff##*/}"; slug="${slug%.md}"
-    slug="${slug#[0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9]-[0-9][0-9][0-9][0-9][0-9][0-9]-}"
-    echo "[mentor] Context is over the ask threshold (~${TOKENS} tokens ≥ ${ASK_AT}) but a fresh handoff note already exists (${latest_handoff}). Answer briefly and remind the user they can continue in a fresh session with: /mentor:resume ${slug}"
-    return 0
-  fi
-  # 3) Synthetic agent report → never a question; consume the result, advise loudly.
-  if [ "$SYNTHETIC" = "1" ]; then
-    echo "[mentor] Context is over the ask threshold (~${TOKENS} tokens ≥ ${ASK_AT}) and this prompt is a harness-generated agent report. Consume this result, then hand off at the next natural boundary — /mentor:handoff (→ /mentor:resume in a fresh session) or /compact — BEFORE dispatching more work."
-    return 0
-  fi
-  # 4) Human prompt, no bypass, no fresh handoff → the user decides first.
-  cat <<EOF
-[mentor] CONTEXT: ASK (~${TOKENS} tokens ≥ ${ASK_AT}). Do NOT act on this prompt yet.
-FIRST ask the user via AskUserQuestion (header "Context", two options):
-  1. "Hand off to next agent (Recommended)" — then invoke Skill(skill="mentor:handoff-note")
-     with a focus describing the work in flight, write the handoff doc, print its
-     copy-paste /mentor:resume prompt, and STOP.
-  2. "Proceed anyway (bypass for this session)" — then run
-     \`bash ${HOOK_DIR}/bypass-context.sh\` and immediately fulfill the user's original
-     request above. Warnings continue; a fresh session re-arms the gate.
-(Threshold: "context_block_tokens" in .mentor/config.json or MENTOR_CONTEXT_BLOCK_TOKENS;
-disable entirely with MENTOR_CONTEXT_GATE=off.)
-EOF
+  echo "[mentor] CONTEXT: HIGH (~${TOKENS} tokens ≥ ${ASK_AT}) — over the limit; answers degrade this deep into a session. Keep the remaining work small and lean. (Tune \"context_block_tokens\" in .mentor/config.json, or MENTOR_CONTEXT_GATE=off.)"
   return 0
 fi
 
 # --- WARN-HIGH tier (near-limit, re-fires every prompt in the zone) ----------
 if [ "$TOKENS" -ge "$WARN_HIGH_AT" ]; then
-  echo "[mentor] Context is nearing the handoff threshold (~${TOKENS} of ${ASK_AT} tokens). Steer toward a natural boundary now — wrap the current unit of work, then /mentor:handoff (→ /mentor:resume in a fresh session) or /compact. Avoid opening new large workstreams. (Re-fires each prompt; tune \"context_warn_high_tokens\" / \"context_block_tokens\" in .mentor/config.json if your repo uses a different budget.)"
+  echo "[mentor] Context is nearing the limit (~${TOKENS} of ${ASK_AT} tokens). Avoid opening new large workstreams. (Re-fires each prompt; tune \"context_warn_high_tokens\" / \"context_block_tokens\" in .mentor/config.json if your repo uses a different budget.)"
   return 0
 fi
 
@@ -154,7 +115,7 @@ fi
 # Synthetic prompts skip this tier entirely: in a fan-out-heavy session the prompt that
 # first crosses the threshold is almost always an inbound agent report — burning the
 # re-arm there spends the human's next warning on a turn they never see. WARN-HIGH and
-# ASK are unconditional, so nothing is lost above them.
+# HIGH are unconditional, so nothing is lost above them.
 if [ "$SYNTHETIC" = "0" ] && [ "$TOKENS" -ge "$WARN_AT" ]; then
   # Prune stale warn markers (>24h) so a long-lived repo re-warns in later sessions.
   find "$state_dir" -maxdepth 1 -name '.context-warned-*' -mmin +1440 -delete 2>/dev/null || true
@@ -171,7 +132,7 @@ if [ "$SYNTHETIC" = "0" ] && [ "$TOKENS" -ge "$WARN_AT" ]; then
     mkdir -p -m 700 "$state_dir" 2>/dev/null || true
     [ -n "$repo_root" ] && mentor_ensure_gitignore "$state_dir"
     printf '%s' "$TOKENS" > "$marker" 2>/dev/null || true
-    echo "[mentor] Context is getting large (~${TOKENS} tokens ≥ ${WARN_AT}). At a natural stopping point, consider /mentor:handoff (then /mentor:resume in a fresh session) or /compact. (Re-fires every ~${rearm_delta} tokens of further growth; thresholds: \"context_warn_tokens\" / \"context_block_tokens\" in .mentor/config.json.)"
+    echo "[mentor] Context is getting large (~${TOKENS} tokens ≥ ${WARN_AT}). (Re-fires every ~${rearm_delta} tokens of further growth; thresholds: \"context_warn_tokens\" / \"context_block_tokens\" in .mentor/config.json.)"
   fi
 fi
 
@@ -227,7 +188,7 @@ marker="${scratch_dir}/.planning-intent-${SESSION_ID:-nosession}"
 [ -e "$marker" ] && return 0
 mkdir -p "$scratch_dir" 2>/dev/null || true
 # Prune stale nudge markers (>24h) so the scratch dir doesn't grow one empty file
-# per matching session forever — same idiom as context-gate.sh / bypass-context.sh.
+# per matching session forever — same idiom as the context gate's warn markers above.
 find "$scratch_dir" -maxdepth 1 -name '.planning-intent-*' -mmin +1440 -delete 2>/dev/null || true
 : > "$marker" 2>/dev/null || true
 

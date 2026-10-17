@@ -8,14 +8,8 @@
 #                prints the subagents-first (SDD) execution directive.
 #   --deliver  — approve, but the plan file is the DELIVERABLE: prints a
 #                DELIVER-ONLY soft-stop directive (no implementation).
-#   --handoff  — approve, then hand off: prints a directive to write a
-#                /mentor:handoff doc for the next agent and STOP.
-#   anything else — usage error, exit 1, marker untouched.
-#
-# There is deliberately NO flag for "hand off WITHOUT approving". That option
-# ("Pause — still drafting") runs no script at all: the gate stays armed and the
-# plan stays `draft`. Adding a --handoff-draft flag here would re-create the
-# `approved` promotion below as a side effect, which is the bug it exists to avoid.
+#   anything else — usage error, exit 1, marker untouched. (--handoff retired in
+#                v4.2.0 with the approval step's "Hand off to next agent" option.)
 #
 # Marker resolution (v2.23.0 — per-worktree gates): this worktree's OWN marker
 # (`.planning.<wt-id>`) is used if present. Otherwise, a live LEGACY bare
@@ -41,15 +35,14 @@
 # apart.
 #
 # Idempotent-directive rule: when the gate is already open, validation and
-# release are skipped, but --deliver/--handoff STILL print their directive —
+# release are skipped, but --deliver STILL prints its directive —
 # a re-run must never silently downgrade a no-implementation instruction.
 #
-# Plan state (v2.4.0, widened v2.14.0): EVERY approval path — no-arg, --handoff,
-# --deliver — promotes this session's plans to `approved` in their .state.json
-# sidecars. Approval is approval: the flags only change what happens NEXT
-# (implement now / hand off / deliver), not whether the plan was approved. Leaving
-# --handoff plans at `draft` made plan-track refuse them in the next session
-# ("the gate never released" — but it did). See the promotion block for why the
+# Plan state (v2.4.0, widened v2.14.0): EVERY approval path — no-arg and --deliver —
+# promotes this session's plans to `approved` in their .state.json sidecars. Approval
+# is approval: the flag only changes what happens NEXT (implement now / deliver), not
+# whether the plan was approved. Leaving a flagged approval at `draft` made plan-track
+# refuse it in the next session ("the gate never released" — but it did). See the promotion block for why the
 # candidate set is snapshotted before the marker is deleted. Promotion also
 # stamps `owner`/`owner_session` (this worktree) on any previously-unowned plan
 # it promotes — see _promote_plan below.
@@ -66,10 +59,10 @@ set -euo pipefail
 
 flag="${1:-}"
 case "$flag" in
-  ""|--handoff|--deliver) ;;
+  ""|--deliver) ;;
   *)
     echo "[mentor approve-plan] Unknown flag: ${flag}" >&2
-    echo "Usage: approve-plan.sh [--deliver | --handoff]" >&2
+    echo "Usage: approve-plan.sh [--deliver]" >&2
     echo "This script takes no plan argument — it releases the gate and promotes every" >&2
     echo "plan newer than the .planning marker. To approve ONE plan by slug, use:" >&2
     echo "  plan-state.sh set <slug> approved --note \"…\"" >&2
@@ -300,7 +293,7 @@ else
   # No marker keeps no history once it's gone, so this branch can never know which
   # cause applies (another session's approve-plan.sh, plan-gate's stale self-heal, a
   # manual rm — or the gate was simply never armed this session, e.g. begin-plan.sh's
-  # CONTEXT: ASK or foreign-marker guard exiting 0 without arming). Name the
+  # foreign-marker guard exiting 0 without arming). Name the
   # candidates instead of asserting one, and point at a command that actually
   # answers "did MY plan promote?" (`list`, not `query` — the latter is
   # JSON-only and repo-wide, the wrong shape here).
@@ -316,10 +309,9 @@ else
   [ -n "$newest_plan" ] && echo "  plan (repo-wide newest, may not be yours): ${newest_plan}"
 fi
 
-# Promote plan state on EVERY approval path — this must run before the --handoff/
-# --deliver early exits. `approved` records the user's decision; whether
-# implementation happens now, next session (handoff), or never (deliver) is the
-# directives' business. plan-track trusts this state: a stored `draft` reads as
+# Promote plan state on EVERY approval path — this must run before the --deliver
+# early exit. `approved` records the user's decision; whether implementation happens
+# now, in a later session, or never (deliver) is the directives' business. plan-track trusts this state: a stored `draft` reads as
 # "the gate never released", so skipping promotion here falsely blocks the plan
 # in the very next session.
 #
@@ -337,7 +329,7 @@ fi
 # ambiguous: it reads identically to the promotion block never running at all (a stale
 # cached plugin predating it), which is exactly how a plan left at `draft` after a
 # successful-looking approval went unnoticed until the next session refused to build it.
-# One `state:` line always prints, before the --handoff/--deliver early exits below.
+# One `state:` line always prints, before the --deliver early exit below.
 if [ -n "$newly_planned" ] || [ -n "$unowned_skipped" ]; then
   promoted=""; swept=""; deferred_skipped=""; candidates=0
   while IFS= read -r plan_path; do
@@ -387,18 +379,6 @@ if [ -n "$newly_planned" ] || [ -n "$unowned_skipped" ]; then
   fi
 else
   echo "  state: unchanged — no plans written this session, nothing to promote"
-fi
-
-if [ "$flag" = "--handoff" ]; then
-  cat <<EOF
-
-HAND-OFF REQUESTED — plan APPROVED and gate released. Do NOT implement and do NOT
-dispatch implementation agents in this session. The approved plan file is:
-  ${newest_plan:-(no plan file on record)}
-Invoke Skill(skill="mentor:handoff-note") now to write the handoff document so the next
-agent can pick up implementation from this plan, then STOP.
-EOF
-  exit 0
 fi
 
 if [ "$flag" = "--deliver" ]; then

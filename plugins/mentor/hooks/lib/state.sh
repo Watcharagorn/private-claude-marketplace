@@ -39,9 +39,8 @@
 #
 # CONTRACT: callers run under `set -euo pipefail`. Every function here exits with
 # status 0. All helpers are fail-soft: bad input echoes empty, never aborts the caller.
-# The exceptions are the predicates `mentor_plan_state_valid` and
-# `mentor_context_bypassed`, which return 1 for false — always call those from an
-# `if`/`&&` condition, never bare.
+# The exception is the predicate `mentor_plan_state_valid`, which returns 1 for
+# false — always call it from an `if`/`&&` condition, never bare.
 
 # mentor_repo_root <cwd> — echo the repo root (main worktree, via git-common-dir,
 # so linked worktrees share one state dir). Echoes empty when not in a repo.
@@ -1380,29 +1379,19 @@ mentor_find_transcript() {
   return 0
 }
 
-# mentor_context_bypassed <repo_root> — status 0 when the user already chose to bypass
-# the context gate for THIS session (bypass-context.sh wrote the marker). Predicate:
-# call it from a condition only.
-mentor_context_bypassed() {
-  local state_dir
-  state_dir="$(mentor_state_dir "${1:-}")"
-  [ -n "$state_dir" ] || return 1
-  [ -e "${state_dir}/.context-bypass-${CLAUDE_CODE_SESSION_ID:-nosession}" ]
-}
-
-# mentor_context_verdict <repo_root> [cwd] — echo "<OK|WARN|ASK|HANDOFF> <tokens>
-# <warn_at> <ask_at>", or empty when the gate is off or the context is unmeasurable
-# (no transcript / no jq / no usage record in the tail window).
+# mentor_context_verdict <repo_root> [cwd] — echo "<OK|WARN|HIGH> <tokens> <warn_at>
+# <ask_at>", or empty when the gate is off or the context is unmeasurable (no transcript
+# / no jq / no usage record in the tail window).
 #
-# The single implementation of the ask-first context check (v2.8.0), shared by
-# begin-plan.sh at arm time and by plan-state.sh `context`, which /mentor:track calls
-# before it dispatches — hooks/context-gate.sh passes every slash-prefixed prompt, so a
-# slash command that starts an implementation has no other backstop.
+# The single implementation of the context reading shared by begin-plan.sh at arm time
+# and by plan-state.sh `context`, which /mentor:track calls before it dispatches —
+# hooks/context-gate.sh passes every slash-prefixed prompt, so a slash command that
+# starts an implementation would otherwise get no reading at all.
 #
-# The tiers mirror the gate's own policy, deliberately: over the ask threshold the USER
-# decides (ASK), unless they already chose to continue this session, in which case the
-# work proceeds with a lean-mode advisory (HANDOFF). A caller must never be stricter
-# than the gate — refusing someone who explicitly opted to keep going is a bug.
+# Warn-only (v4.2.0): every level is advisory and every caller proceeds. HIGH is the
+# level at or over the limit (the historical context_block_tokens knob; it
+# replaced the retired ASK/HANDOFF pair). A caller must never be stricter than the
+# gate, which only warns.
 mentor_context_verdict() {
   local repo_root="${1:-}" cwd="${2:-$PWD}" tx tokens ask_at warn_at
   [ "$(mentor_context_gate_state "$repo_root")" = "on" ] || { echo ""; return 0; }
@@ -1412,11 +1401,7 @@ mentor_context_verdict() {
   ask_at="$(mentor_context_threshold "$repo_root" "${MENTOR_CONTEXT_BLOCK_TOKENS:-}" context_block_tokens 350000)"
   warn_at="$(mentor_context_threshold "$repo_root" "${MENTOR_CONTEXT_WARN_TOKENS:-}" context_warn_tokens 200000)"
   if [ "$tokens" -ge "$ask_at" ]; then
-    if mentor_context_bypassed "$repo_root"; then
-      echo "HANDOFF ${tokens} ${warn_at} ${ask_at}"
-    else
-      echo "ASK ${tokens} ${warn_at} ${ask_at}"
-    fi
+    echo "HIGH ${tokens} ${warn_at} ${ask_at}"
   elif [ "$tokens" -ge "$warn_at" ]; then
     echo "WARN ${tokens} ${warn_at} ${ask_at}"
   else

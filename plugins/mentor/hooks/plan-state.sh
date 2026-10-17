@@ -222,10 +222,10 @@
 #       <slug>`, or `query --roots --open-counts` for every root at once.
 #
 #   context
-#       CONTEXT: ASK|HANDOFF|WARN|OK|UNKNOWN (~N tokens), plus the handoff/compact
-#       steer on ASK. /mentor:track calls this before dispatching: context-gate.sh passes
-#       every slash-prefixed prompt, so a slash command that starts an implementation
-#       has no other backstop.
+#       CONTEXT: HIGH|WARN|OK|UNKNOWN (~N tokens) — advisory only, every level proceeds.
+#       /mentor:track calls this before dispatching: context-gate.sh passes every
+#       slash-prefixed prompt, so a slash command that starts an implementation would
+#       otherwise get no reading.
 #
 #   dir [--plans]
 #       The repo-scoped mentor dir (<repo_root>/.mentor via git-common-dir, so linked
@@ -385,7 +385,7 @@ Usage: plan-state.sh <subcommand>
                                          no-subagents instruction on record?" The printed
                                          token is the verdict; exit 2 iff the check
                                          could not run
-  context                               CONTEXT: ASK|HANDOFF|WARN|OK|UNKNOWN (~N tokens)
+  context                               CONTEXT: HIGH|WARN|OK|UNKNOWN (~N tokens)
   dir [--plans]                         the repo-scoped mentor dir (or its plans dir)
   gate [--verbose]                      ARMED|STALE|ARMED_ELSEWHERE|RELEASED — read-only marker
                                          status for THIS worktree (--verbose adds per-token fields;
@@ -416,31 +416,14 @@ if [ "$sub" = "context" ]; then
   fi
   read -r level tokens warn_at ask_at <<<"$verdict"
   case "$level" in
-    ASK)
-      cat <<EOF
-CONTEXT: ASK (~${tokens} tokens ≥ ${ask_at})
-[mentor] Do NOT dispatch implementation yet — the user decides first. An
-implementation started this deep into a session degrades partway through.
-Ask via AskUserQuestion (header "Context", two options):
-  1. "Hand off & build in a fresh session (Recommended)" — invoke
-     Skill(skill="mentor:handoff-note") with the chosen plan as the focus, write the
-     handoff doc, print its copy-paste /mentor:resume prompt, and STOP.
-  2. "Proceed anyway (bypass for this session)" — run
-     \`bash ${hook_dir}/bypass-context.sh\`, then re-run this command and continue.
-(Threshold: "context_block_tokens" in .mentor/config.json or MENTOR_CONTEXT_BLOCK_TOKENS;
-disable entirely with MENTOR_CONTEXT_GATE=off.)
-EOF
-      ;;
-    HANDOFF)
-      echo "CONTEXT: HANDOFF (~${tokens} tokens ≥ ${ask_at})"
-      echo "[mentor] Critically large, but the user already chose to continue this"
-      echo "session — proceed. Build ONE plan, keep it lean, and hand off before the"
-      echo "next one (/mentor:handoff → /mentor:resume)."
+    HIGH)
+      echo "CONTEXT: HIGH (~${tokens} tokens ≥ ${ask_at})"
+      echo "[mentor] Over the limit — surface this to the user, then proceed. Keep the"
+      echo "work in this session small and lean."
       ;;
     WARN)
       echo "CONTEXT: WARN (~${tokens} tokens ≥ ${warn_at})"
-      echo "[mentor] Surface this to the user: one plan is fine, but recommend a fresh"
-      echo "session (/mentor:handoff → /mentor:resume) before starting the next one."
+      echo "[mentor] Session is getting large — surface this to the user, then proceed."
       ;;
     *)
       echo "CONTEXT: OK (~${tokens} tokens)"
@@ -2684,7 +2667,7 @@ case "$sub" in
   # the CONTEXT verdict (folds planning/SKILL.md's separately-mandated pre-ask
   # context re-check into the one command the agent already calls reliably, rather
   # than a second command observed skipped before half this session's asks; the
-  # calling skill still decides how to act on ASK/HANDOFF/WARN via `context` itself).
+  # calling skill still decides how to surface HIGH/WARN via `context` itself).
   verify)
     slug="${1:-}"; [ "$#" -gt 0 ] && shift
     if [ "$#" -gt 0 ]; then

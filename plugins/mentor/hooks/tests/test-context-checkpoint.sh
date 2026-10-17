@@ -59,14 +59,19 @@ chk "under warn → silent"            test "$RC" = "0" -a -z "$OUT"
 run s-a "$TX_WARN"
 chk "warn tier → exit 0"             test "$RC" = "0"
 chk "warn tier → valid JSON payload" sh -c "printf '%s' \"\$0\" | jq -e '.hookSpecificOutput.hookEventName == \"PostToolBatch\"'" "$OUT"
-chk "warn text names the boundary"   sh -c "printf '%s' \"\$0\" | grep -q 'natural step boundary'" "$(ctx)"
+chk "warn text says still mid-run"   sh -c "printf '%s' \"\$0\" | grep -q 'still mid-run'" "$(ctx)"
 run s-b "$TX_HIGH"
 chk "warn-high tier → exit 0"        test "$RC" = "0"
-chk "warn-high text steers"          sh -c "printf '%s' \"\$0\" | grep -q 'nearing the handoff threshold'" "$(ctx)"
+chk "warn-high text warns"           sh -c "printf '%s' \"\$0\" | grep -q 'nearing the limit'" "$(ctx)"
 run s-c "$TX_ASK"
-chk "ask tier → exit 0 (NEVER 2)"    test "$RC" = "0"
-chk "ask text directs end-the-turn"  sh -c "printf '%s' \"\$0\" | grep -q 'END THE TURN'" "$(ctx)"
-chk "ask text names failed --note"   sh -c "printf '%s' \"\$0\" | grep -q 'failed --note'" "$(ctx)"
+chk "high tier → exit 0 (NEVER 2)"   test "$RC" = "0"
+chk "high text warns over the limit" sh -c "printf '%s' \"\$0\" | grep -q 'over the limit'" "$(ctx)"
+# v4.2.0 warn-only: no tier steers toward a handoff or ends the turn.
+for tx in "$TX_WARN" "$TX_HIGH" "$TX_ASK"; do
+  rm -f "$STATE"/.context-checkpoint-s-nh
+  run s-nh "$tx"
+  chk "no handoff/end-turn steer ($(basename "$tx"))" sh -c "! printf '%s' \"\$0\" | grep -qi 'handoff\|mentor:resume\|END THE TURN'" "$(ctx)"
+done
 
 echo "== B. rate limit: same tier + small growth stays silent; re-fires on delta or rise =="
 run s-r "$TX_WARN"
@@ -81,12 +86,11 @@ run s-r "$TX_ASK"
 chk "tier rise → fires despite delta bookkeeping" test -n "$OUT"
 chk "marker written per session"     test -e "$STATE/.context-checkpoint-s-r"
 
-echo "== C. ask-tier degradation: session bypass marker → milder advisory =="
+echo "== C. a leftover pre-v4.2.0 bypass marker changes nothing =="
 touch "$STATE/.context-bypass-s-d"
 run s-d "$TX_ASK"
-chk "bypassed → exit 0"              test "$RC" = "0"
-chk "bypassed → no END THE TURN directive" sh -c "! printf '%s' \"\$0\" | grep -q 'END THE TURN'" "$(ctx)"
-chk "bypassed → still names handoff" sh -c "printf '%s' \"\$0\" | grep -q 'mentor:handoff'" "$(ctx)"
+chk "legacy bypass marker → exit 0"   test "$RC" = "0"
+chk "legacy bypass marker → same high warning" sh -c "printf '%s' \"\$0\" | grep -q 'over the limit'" "$(ctx)"
 
 echo "== D. kill switches (distinct) =="
 run s-k1 "$TX_ASK" MENTOR_CONTEXT_GATE=off
@@ -108,7 +112,7 @@ chk "empty payload → exit 0, silent" test "$RC" = "0" -a -z "$OUT"
 
 echo "== F. threshold overrides flow through =="
 run s-g "$TX_UNDER" MENTOR_CONTEXT_WARN_TOKENS=100000 MENTOR_CONTEXT_BLOCK_TOKENS=140000
-chk "lowered thresholds → ask tier at 150k" sh -c "printf '%s' \"\$0\" | grep -q 'END THE TURN'" "$(ctx)"
+chk "lowered thresholds → high tier at 150k" sh -c "printf '%s' \"\$0\" | grep -q 'over the limit'" "$(ctx)"
 
 echo
 echo "RESULT: PASS=$PASS FAIL=$FAIL"

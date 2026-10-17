@@ -45,7 +45,6 @@ PINNED_REGISTRATIONS="$(printf '%s\n' \
 PINNED_CLIS="$(printf '%s\n' \
   "approve-plan.sh" \
   "begin-plan.sh" \
-  "bypass-context.sh" \
   "plan-state.sh" \
   "set-mode.sh" \
   | sort)"

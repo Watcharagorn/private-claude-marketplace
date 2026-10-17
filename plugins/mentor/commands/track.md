@@ -21,10 +21,9 @@ Do these in order:
    bash "${CLAUDE_PLUGIN_ROOT}/hooks/plan-state.sh" context
    ```
 
-   On **`CONTEXT: ASK`**, do not start an implementation — ask the user the two-option
-   question the script prints (hand off, or bypass for this session) and follow their
-   answer. This is the only context check on the path to a build; the skill's Step 0
-   explains why nothing else covers it.
+   On **`CONTEXT: WARN`** or **`CONTEXT: HIGH`**, surface the warning and continue —
+   no tier stops a build. This is the only context reading on the path to a build; the
+   skill's Step 0 explains why nothing else covers it.
 
 2. **Call `Skill({"skill": "mentor:plan-track"})` and follow it end to end.**
    It renders the repo-wide hierarchy (plans, step progress, deps, deferred stubs, live

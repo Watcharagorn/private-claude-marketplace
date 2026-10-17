@@ -52,14 +52,14 @@ reads — `context` answers only the second:
 
 ```bash
 bash "${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:-}}/hooks/plan-state.sh" query --slug <slug> --fields state --format tsv
-bash "${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:-}}/hooks/plan-state.sh" context    # CONTEXT: ASK|HANDOFF|WARN|OK|UNKNOWN
+bash "${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:-}}/hooks/plan-state.sh" context    # CONTEXT: HIGH|WARN|OK|UNKNOWN
 ```
 
 - **The plan is not `draft`.** A `draft` plan is one the approval gate never
   released, and dispatching against it implements something nobody approved.
-- **The session is big enough to finish.** Dispatching a full implementation with
-  nothing measuring the session is how a run dies mid-plan with no handoff — act on
-  the tier `context` prints rather than noting it and carrying on.
+- **The session has room to finish.** Dispatching a full implementation with
+  nothing measuring the session is how a run dies mid-plan — surface a `WARN`/`HIGH`
+  reading to the user before dispatching, and on `HIGH` keep the fan-out small.
 
 Executing a plan this session didn't author — a fresh session, a handoff, one of a
 `/plan-split` group — is what `/mentor:track` is for: it picks the plan, reads its
@@ -448,13 +448,10 @@ Step 1 instead. A verification round moves the plan with `set`.
     an earlier reading. A verification round runs mostly on harness-synthetic prompts
     (inbound agent reports), which `context-gate.sh`'s own WARN tier deliberately skips,
     so a round can grow well past WARN with only `context-checkpoint.sh`'s rate-limited
-    advisories having said so. Those advisories are **advisory by ruling — no tier
-    blocks** — so obey them when they arrive; nothing will stop the run for you
-    (`references/rationale.md` → **Why the context checkpoint is advisory-only**). This is a **context
-    guard, not a disposition question**: at `WARN`, `ASK`, or `HANDOFF`, ask the one
-    question the round gets — **remediate now, or hand off to a fresh session?** — and at
-    `ASK` answer it with the two-option directive `context` prints itself rather than
-    inventing a competing one. At `OK` or `UNKNOWN`, ask nothing and remediate. So a round
+    advisories having said so — heed them, because no tier blocks and nothing will stop
+    the run for you (`references/rationale.md` → **Why the context checkpoint is
+    advisory-only**). At `WARN` or `HIGH`, carry the reading into the closing report and
+    keep the remediation lean; ask nothing about it. So a round
     whose gaps are all `[GOAL]` runs silently through to close-out; that is intended — the
     user asked not to be consulted about work the goal requires — and the closing report is
     where it surfaces.
@@ -658,13 +655,12 @@ standing no-subagents policy at the same time.
   background work. **The same checkpoints are also the right moment to
   re-check context** — run `bash "${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:-}}/hooks/plan-state.sh"
   context` here too, not only on the failure loop's remediation path
-  ("Verifying the plan (execution-time)" above, which carries the reason). Its
-  remediate-or-hand-off question does not apply here — there is nothing left to
-  remediate. This second site exists because an all-PASS
-  round never enters that loop at all, so a clean round can walk straight into
-  the final report on whatever context reading it last took, if any.
-  `CONTEXT: WARN` or higher belongs in the final report itself (a line naming
-  `/mentor:handoff`), not silently absorbed.
+  ("Verifying the plan (execution-time)" above, which carries the reason). This
+  second site exists because an all-PASS round never enters that loop at all, so
+  a clean round can walk straight into the final report on whatever context
+  reading it last took, if any. `CONTEXT: WARN` or `HIGH` belongs in the final
+  report itself (one line naming the size), not silently absorbed — a warning,
+  never a question.
 - **A live `Monitor` watch is not a dispatch — it has no stop tool.** A CI run, a
   deploy, or a long build tracked via `Monitor` should usually keep running
   (killing it is rarely what you want, unlike a stray dispatched agent). At the

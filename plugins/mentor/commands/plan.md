@@ -58,7 +58,7 @@ Do these in order:
      gate marker is still active.`** (the distinct first line), this is NOT "another
      session's plan gate" in the sense above — it is a pre-upgrade, repo-wide marker
      with no worktree attribution that fail-closed blocks every worktree, including
-     ones that never armed anything. The ASK-recovery advice for the branch above
+     ones that never armed anything. The recovery advice for the branch above
      (re-run once the user authorizes) does **not** apply here: surface the printed
      owner/age to the user and either wait for its owning session to approve/release
      it, or get the user's explicit authorization to remove the marker by hand. Do
@@ -67,39 +67,29 @@ Do these in order:
      informational — a live marker in a sibling worktree, reported so you know it
      exists. It does not block this worktree's gate: do not re-run `begin-plan.sh`,
      and do not wait for it.
-   - If stdout contains **`CONTEXT: ASK`**, do **not** call the plan skill yet — the
-     gate was intentionally not armed; the user decides first. Follow the printed
-     directive: ask via AskUserQuestion. On **"Hand off & plan in a fresh session"**
-     invoke `Skill(skill="mentor:handoff-note")` and STOP; on **"Proceed anyway"** run the
-     printed bypass script, re-run `begin-plan.sh`, then continue below — the re-run
-     prints `CONTEXT: HANDOFF`, so follow that line's guidance.
-   - If stdout contains **`CONTEXT: HANDOFF`**, the gate IS armed — surface the
-     advisory to the user, keep the plan lean, and at the approval step lead with
-     **Hand off to next agent (Recommended)**.
+   - If stdout contains **`CONTEXT: HIGH`**, the gate IS armed — surface the warning
+     to the user and keep the plan lean.
    - If stdout contains **`CONTEXT: WARN`**, mention it to the user and continue.
 
 2. **Immediately call `Skill({"skill": "mentor:planning"})` and follow it end
-   to end** (after resolving a `CONTEXT: ASK` per step 1).
+   to end.**
    At the approval step, take the option list from the **option-set table** in the
    skill's `{#approve}` section — it fixes the precedence between the `MODE:`
-   default, `CONTEXT: WARN` / `CONTEXT: HANDOFF`, and an oversized plan (which leads
-   with **Split into multiple plans**). Do not improvise the list here: one copy of
-   it, in the skill, is the only way it stays right. Each option maps to an
-   `approve-plan.sh` invocation the skill specifies; all of them validate the plan
-   and release the gate except Review, Split, Keep planning, and **Pause — still
-   drafting**, which stay in planning. Split returns to this same question with the
-   children's headers, where each child is approved individually — never one blanket
-   yes over the set. That last one runs no script at all: it writes
-   a handoff doc and stops with the gate still armed, so a session that runs out of
-   room mid-plan can continue next session without an approval it never gave.
+   default and an oversized plan (which leads with **Split into multiple plans**).
+   Do not improvise the list here: one copy of it, in the skill, is the only way it
+   stays right. Each option maps to an `approve-plan.sh` invocation the skill
+   specifies; all of them validate the plan and release the gate except Review,
+   Split, and Keep planning, which stay in planning. Split returns to this same
+   question with the children's headers, where each child is approved individually —
+   never one blanket yes over the set.
 
 3. **On an approving outcome that implements** — Proceed, or a Split's Proceed over the
    sibling set — the session continues into implementation via `mentor:dispatch-agents`'
    "Executing the dispatches"; once that closes, `/mentor:tour` (acceptance pass),
    `/mentor:defer` (park what's left) and `/mentor:ship` (open the PR) are the follow-on
-   offers — name them, never auto-run them. **Deliver plan only** and **Hand off to next
-   agent** release the gate and then STOP, exactly as the skill states — neither
-   implements, and neither dispatches in this session.
+   offers — name them, never auto-run them. **Deliver plan only** releases the gate and
+   then STOPs, exactly as the skill states — it neither implements nor dispatches in
+   this session.
 
 **Never re-run step 1 once it has run.** `begin-plan.sh` resets THIS worktree's
 `.planning.<wt-id>` marker's mtime (or the legacy `.planning`'s, in the empty-wt-id

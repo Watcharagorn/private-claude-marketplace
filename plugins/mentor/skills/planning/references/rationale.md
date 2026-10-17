@@ -34,9 +34,9 @@ every repo edit stays allowed for the whole session while Step 6 goes on showing
 planning that admits it isn't, so do not continue: say so in one line and ask the
 user to run `/mentor:plan <their request>`, which arms the gate and comes back here.
 
-Do **not** run `begin-plan.sh` yourself to patch this up — on a large session it
-answers `CONTEXT: ASK` and exits *without* arming, and resolving that with the user
-is the command's job, not this skill's.
+Do **not** run `begin-plan.sh` yourself to patch this up — arming the gate is the
+command's job, not this skill's, and the command carries the foreign-marker handling
+a bare script run would skip.
 
 ## Step 2 — why searching `.mentor/` needs `sweep`, not a grep
 
@@ -103,29 +103,24 @@ left.
 
 ## Step 6 — why the option rows are ordered the way they are
 
-Split leads on an oversized plan because handing one off whole only moves the problem
-to the next session, while the split's authoring cost lands in dispatched agents
-rather than in this thread. **`CONTEXT: HANDOFF` outranks even that**: at that size the
-safest possible act is to write the handoff and stop, and the split can happen in the
-fresh session with room to verify it — which is also why *Split* is the option that
-yields in the oversized **and** `CONTEXT: HANDOFF` row. Review stays visible in the
-oversized-only row because an oversized plan is exactly the kind most worth reviewing;
-*Keep planning* yields instead.
+Split leads on an oversized plan because building it whole only moves the problem to
+the next session, while the split's authoring cost lands in dispatched agents rather
+than in this thread. Review stays visible in the oversized row because an oversized
+plan is exactly the kind most worth reviewing; *Keep planning* yields instead — it is
+the one option that needs no button, since the user just keeps talking and planning
+continues. *Proceed* and *Deliver plan only* stay visible in every row: the `MODE:`
+default must always be offered (Step 0), and pushing the option that starts
+implementation into free text would make the highest-consequence answer the hardest
+one to give.
 
-**Why *Keep planning* yields to the new option once a context verdict fires.** Both
-mean "do not approve yet", so listing both wastes one of four slots — and of the two,
-*Keep planning* is the one that needs no button: the user just keeps talking and
-planning continues. "Pause — still drafting" cannot be improvised that way, because it
-has to write the handoff **without** approving, and every other listed option at that
-point releases the gate. *Proceed* and *Deliver plan only* both stay visible in every
-row: the `MODE:` default must always be offered (Step 0), and pushing the option that
-starts implementation into free text would make the highest-consequence answer the
-hardest one to give.
+The rows no longer vary with the context verdict (v4.2.0): the gate became warn-only,
+and the context-driven "Hand off to next agent" and "Pause — still drafting" rows went
+with it. A user who wants a handoff types `/mentor:handoff` into "Other".
 
 ## Retracting an approval — why each of the three steps is required
 
 The `plan-state.sh set <slug> draft` line in the first snippet above is not optional
-either. **Every** approval path — no-arg, `--deliver`, `--handoff` — promotes the
+either. **Every** approval path — no-arg and `--deliver` — promotes the
 plan's `.state.json` to `approved` before it exits, and `begin-plan.sh` touches only
 the marker. Re-arm alone therefore leaves a plan recorded as `approved` behind a
 closed gate: `/mentor:track` reads the sidecar, not the marker, so a later session

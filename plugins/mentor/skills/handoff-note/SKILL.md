@@ -182,10 +182,10 @@ it — Step 5's self-check catches that before you report.
   normalize `ARMED_ELSEWHERE` to "released" either — a sibling worktree still holds a live gate of its
   own, it simply doesn't block writes made from here. If the marker is `ARMED`,
   state plainly whether `owner_session` is **this session's own id** — unlike a *resumed* session
-  (where an armed marker is always a stranger's), a "Pause — still drafting" handoff is usually
+  (where an armed marker is always a stranger's), a handoff written mid-planning is usually
   written by the very session that armed it, so the ordinary case here is the opposite of
   `mentor:resuming`'s. Saying so up front is what lets the next agent read an armed gate as
-  deliberate rather than alarming (see the "Pause — still drafting" bullet above).
+  deliberate rather than alarming (see the never-approved-plan bullet under "Recommended-mentor-commands mapping" below).
   Record Step 1's close-out call here too: how many live tasks `TaskList` found tracing to this
   session's dispatch tree at the moment you ran it (`0`, or the ones you `TaskStop`ped). A note
   claiming the session is closed out with no `TaskList` result behind it is the same unbacked
@@ -239,8 +239,8 @@ manual walk-through is still required alongside it, give the numbers to aim at (
 press count) and mark the walk-through as confirmation only, not the primary evidence.
 
 - **Unclear approach / unfinished design** → `/mentor:plan <focus>` (runs the gated plan harness).
-- **A plan file exists but was never approved** (state `draft`, gate still armed — the
-  "Pause — still drafting" handoff) → `/mentor:plan <slug>`, continuing the existing draft at
+- **A plan file exists but was never approved** (state `draft`, gate still armed — a handoff
+  written mid-planning) → `/mentor:plan <slug>`, continuing the existing draft at
   `<repo>/.mentor/plans/<slug>/plan.md`. Four things to spell out, because the next agent cannot
   infer any of them: **reuse that slug** (a `/mentor:plan` derived from a re-typed request can mint
   a second plan dir and orphan this draft); **do not point at `/mentor:track`**, which refuses a
@@ -268,10 +268,7 @@ press count) and mark the walk-through as confirmation only, not the primary evi
     Step 3.5's decision resolution, and the Content spec, none of which this skill runs. Print a
     literal `/mentor:plan <topic>` line (the SAME `topic` resolved in Step 2 — never a placeholder)
     with this note itself as the task statement (same pattern as the static-artifact bullet above —
-    the note IS the artifact). Name the payoff so the user does not have to re-run `/mentor:handoff`
-    by hand afterward: **at that plan's Step 6 approval question, "Hand off to next agent" (or
-    "Pause — still drafting" if it needs more work first) writes the very handoff being asked for
-    now** — one command drives both the plan authoring and the handoff.
+    the note IS the artifact).
   - *Another planning framework owns this work* — you ran its commands this session (e.g. spec-kit's
     `/speckit-*`) → lead with **that framework's own next command**, and say plainly that mentor's
     *planning* commands do not apply here; `/mentor:handoff` and `/mentor:resume` still do. Do not

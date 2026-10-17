@@ -83,18 +83,17 @@ If there is genuinely nothing to grill, say so in one line and stop.
 
 ## Step 2 — The interview protocol
 
-**Check the context before committing to the interview.** A grill runs mostly on `AskUserQuestion` round-trips, not fresh prompts, and those supply nothing for `context-gate.sh`'s WARN tier to re-fire on (`UserPromptSubmit`-only); the one prompt shape an interview does generate on its own — a dispatched `Explore` agent's inbound report, from the codebase-research bullet below — is `SYNTHETIC=1`, which `context-gate.sh`'s own WARN tier deliberately skips. So a long grill gets at most the one nudge that landed before it started, plus whatever rate-limited `context-checkpoint.sh` advisories land between rounds (v2.37.0) — nothing that stops and asks:
+**Check the context before committing to the interview.** An interview runs on `AskUserQuestion` round-trips and synthetic `Explore` reports, neither of which `context-gate.sh`'s WARN tier fires on — so this reading, not the gate, is what tells the user how large the session already is:
 
 ```bash
 bash "${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:-}}/hooks/plan-state.sh" context
 ```
 
-- **`CONTEXT: ASK`** — ask the user the two-option question the script prints (hand off, or bypass for this session) before starting the interview.
-- **`CONTEXT: HANDOFF`** — they already chose to continue; proceed, but plan to hand off before this interview's work is done.
+- **`CONTEXT: HIGH`** — over the limit; surface it, then continue and keep the interview tight.
 - **`CONTEXT: WARN`** — surface it, then continue.
 - **`CONTEXT: OK` / `UNKNOWN`** — continue.
 
-Re-run the same check at Step 3's Close, before the recap — nothing in the interview itself stops and asks.
+Re-run the same check at Step 3's Close, before the recap.
 
 Interview the user relentlessly about every aspect of this plan until you reach a shared understanding. Walk down each branch of the design tree, resolving dependencies between decisions one-by-one. For each question, provide your **recommended answer** — the most practical and clean solution, never trade maintainability or reliability for implementation speed.
 
@@ -117,12 +116,8 @@ When you reach shared understanding:
    ```bash
    bash "${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:-}}/hooks/plan-state.sh" context
    ```
-   `CONTEXT: WARN`/`ASK` surfaces the same way Step 2's pre-interview check does — but the
-   reading **arms** the close, it never preempts it: deliver the recap below first (a few
-   hundred tokens; the handoff note it feeds costs far more), then route to
-   `/mentor:handoff`. A WARN/ASK reading also steers item 4's next-step pointer below —
-   recommend `/mentor:handoff` first and `/mentor:plan` in a fresh session, rather than
-   launching a full plan flow out of a session already this deep.
+   `CONTEXT: WARN`/`HIGH` surfaces the same way Step 2's pre-interview check does — a
+   warning in the recap, never a reason to skip or reroute the close.
 2. Summarize the **resolved decisions** and any **deferred / open items** in a short recap.
 3. If a mentor plan was the subject, **surface the deltas** between the plan and what you just resolved, and tell the user to fold them in by re-running the plan flow (`/mentor:plan`) or, if mid-plan, re-asking the proceed gate. **Do not edit the plan file yourself** if this worktree's gate is armed — surface the changes and let the plan flow re-render them. A second hazard the gate does **not** cover: a plan whose sidecar `owner` is a *different* worktree (check `.mentor/plans/<slug>/.state.json`'s `owner` field the same way you already read its `note` above) — no gate blocks editing that file, since the plan-gate deny is scoped to the owning worktree's writes, not to the file itself, and this worktree may be wide open while that plan is someone else's live draft. Treat a foreign-owned plan the same as an armed gate: surface the deltas, don't edit.
 4. Point to the natural next step: `/mentor:plan` (to author/refresh the plan) or, if a locked plan now looks solid, `/plan-review` then approve.

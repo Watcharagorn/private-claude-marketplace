@@ -60,10 +60,6 @@ reporting the mode, enter the harness yourself:
 bash "${CLAUDE_PLUGIN_ROOT}/hooks/begin-plan.sh"
 ```
 
-Read its stdout first (it carries the mode-aware instructions). **If that stdout contains
-`CONTEXT: ASK`**, do **not** invoke the plan skill yet — the user decides first: follow the
-printed directive and ask via AskUserQuestion; on "Hand off & plan in a fresh session"
-invoke `Skill(skill="mentor:handoff-note")` and STOP, on "Proceed anyway" run the printed bypass
-script, re-run `begin-plan.sh`, then continue. If it contains `CONTEXT: HANDOFF` (armed,
-critically large), surface it and keep the plan lean; if `CONTEXT: WARN`, mention it and
-continue. Then invoke `Skill(skill="mentor:planning", args="<the co-submitted request>")`.
+Read its stdout first (it carries the mode-aware instructions). If it contains
+`CONTEXT: HIGH` (over the limit), surface it and keep the plan lean; if `CONTEXT: WARN`,
+mention it and continue — neither stops the gate from arming. Then invoke `Skill(skill="mentor:planning", args="<the co-submitted request>")`.

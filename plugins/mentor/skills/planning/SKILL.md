@@ -79,14 +79,13 @@ always offered there, and you never ask the user to pick a mode upfront:
 
 `begin-plan.sh` may also print a **`CONTEXT:`** line (the context gate):
 
-- **`CONTEXT: WARN`** — the session is getting large. Surface it to the user and use
-  the WARN row of Step 6's option set (it leads with **"Hand off to next agent"**).
-  Nothing about *how* you plan changes.
-- **`CONTEXT: HANDOFF`** — critically large, and the user already chose to proceed
-  (gate bypassed). Everything WARN does, plus: do not propose a review page (Step 5) or
-  plan-review yourself — an explicit user ask for any of these is still
-  honored — and use the HANDOFF row at Step 6. "Keep the plan lean", if the command
-  layer said it, means exactly those omissions: Step 4's content spec never shrinks.
+- **`CONTEXT: WARN`** — the session is getting large. Surface it to the user. Nothing
+  about *how* you plan changes.
+- **`CONTEXT: HIGH`** — over the limit. Everything WARN does, plus: do not propose a
+  review page (Step 5) yourself — an explicit user ask is still honored. "Keep the plan
+  lean" means exactly that omission: Step 4's content spec never shrinks.
+
+The context gate only warns — it never calls for a handoff.
 
 **Load the constitution.** Resolve the constitution path (a repo may keep its
 governing doc outside `.mentor/` — `constitution_path` in `.mentor/config.json`
@@ -785,10 +784,9 @@ approved", "go ahead, I already okayed it") — ask it again before running
 `approve-plan.sh`. Prose selects no option, and this question is the only thing
 standing between planning and repo edits; releasing the gate on a remembered or
 claimed approval is the one failure this harness exists to prevent. It also costs you
-the routing: which flag to run — none, `--deliver`, `--handoff`, or **no script at
-all** for "Pause — still drafting", the one option that does not approve — is decided
-by *which option came back*, so an unanswered question means you are guessing the
-outcome as well as the consent. Re-surface the plan body only if it changed since the user last
+the routing: which flag to run — none or `--deliver` — is decided by *which option came
+back*, so an unanswered question means you are guessing the outcome as well as the
+consent. Re-surface the plan body only if it changed since the user last
 saw it (or never was surfaced); otherwise name its path and Rev and re-ask.
 
 ### Re-check context
@@ -796,7 +794,7 @@ saw it (or never was surfaced); otherwise name its path and Rev and re-ask.
 Decide this **before** asking too. Step 0's `CONTEXT:` line is a snapshot from
 before research, domain routing, and decision-resolution ran — precisely the
 steps that grow a session — so a plan that armed clean can still reach this
-question well past the WARN/HANDOFF thresholds with nothing in this skill
+question well past the WARN/HIGH thresholds with nothing in this skill
 having said so. Run this immediately before composing the question — **one call, both
 things the ask depends on**:
 
@@ -805,8 +803,8 @@ bash "${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:-}}/hooks/plan-state.sh" context
 grep -n -A 8 '^### The option set' "${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:-}}/skills/planning/SKILL.md"
 ```
 
-The `context` half decides which option row you use; the `grep` half re-reads that row's
-table. Both exist for the same reason — a reading taken earlier in the session is stale
+The `context` half decides what the question text must say about size; the `grep` half
+re-reads the option table. Both exist for the same reason — a reading taken earlier in the session is stale
 by the time it matters. Neither Step 0's `CONTEXT:` line nor an earlier `context-gate.sh`
 WARN substitutes for the first, and a remembered table does not substitute for the
 second: the option row has been reconstructed incorrectly from memory once already, late
@@ -814,15 +812,10 @@ in a long session, dropping the one button the situation called for. If "Verify 
 write" above just ran with nothing in between, its `CHECK: context` line already **is**
 the context half — you still need the `grep`.
 
-- **`CONTEXT: ASK`** — do not ask the approval question yet. Ask via
-  `AskUserQuestion` (header "Context", two options) exactly as the command
-  layer's arm-time ASK does: hand off & stop (`Skill(skill="mentor:handoff-note")`),
-  or bypass (`bash "${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:-}}/hooks/bypass-context.sh"`, then
-  continue below).
-- **`CONTEXT: HANDOFF`** or **`CONTEXT: WARN`** — use the matching row below,
-  even if Step 0 printed a lower tier or nothing at all.
-- **`CONTEXT: OK` / `UNKNOWN`** — no verdict; the table's "neither"/oversized-only
-  rows apply.
+- **`CONTEXT: WARN`** or **`CONTEXT: HIGH`** — name the size in the question text
+  ("this session is getting large" / "this session is over the context limit"), even if
+  Step 0 printed a lower tier or nothing at all. The option rows do not change.
+- **`CONTEXT: OK` / `UNKNOWN`** — nothing to add.
 
 ### Is the plan oversized?
 
@@ -846,56 +839,37 @@ The option table below is unchanged: the user reaches this by typing it into
 
 ### The option set
 
-`AskUserQuestion` caps at 4, and the oversize and context conditions fire together
-constantly — so the precedence is fixed here rather than left to judgment in the
-moment:
+`AskUserQuestion` caps at 4, so the precedence is fixed here rather than left to
+judgment in the moment:
 
 | Condition | Options, in order | Yields to "Other" |
 |---|---|---|
 | neither | Proceed · Deliver plan only · Review the plan (staged) · Keep planning | — |
-| `CONTEXT: WARN` only | Hand off to next agent · Pause — still drafting · Deliver plan only · Proceed | Review, Keep planning |
-| `CONTEXT: HANDOFF` only | **Hand off to next agent (Recommended)** · Pause — still drafting · Deliver plan only · Proceed | Review, Keep planning |
-| oversized only | **Split into multiple plans** · Proceed · Review the plan (staged) · Deliver plan only | Keep planning |
-| oversized **and** `CONTEXT: WARN` | **Split into multiple plans** · Hand off to next agent · Deliver plan only · Proceed | Review, Keep planning, Pause |
-| oversized **and** `CONTEXT: HANDOFF` | **Hand off to next agent (Recommended)** · Pause — still drafting · Deliver plan only · Proceed | Review, Keep planning, Split |
+| oversized | **Split into multiple plans** · Proceed · Review the plan (staged) · Deliver plan only | Keep planning |
 
 In the first row only, `MODE: plan-only` swaps the leading two so "Deliver plan only"
 comes first. Anything yielded to "Other" stays reachable — the user can just say it —
 but only if they know to: a listed option is a button the user recognizes on sight,
-while a yielded one is invisible unless the question text names it. Every row that
-yields **Review** or **Keep planning** should say so plainly ("still want to revise,
-or run the consistency check first? just say so"), the same way `CONTEXT: HANDOFF`
-rows already name the critically-large note below — otherwise the user re-types an
-intent that was reachable the whole time.
-Under `CONTEXT: HANDOFF`, also note in the question text that the session is
-critically large.
+while a yielded one is invisible unless the question text names it. The oversized row
+should say so plainly ("still want to revise? just say so") — otherwise the user
+re-types an intent that was reachable the whole time.
 
 Copy the matched row's option list into the call verbatim from the **fresh** read that
 "Re-check context" above just took — never from memory. Keep the table itself in exactly
 this one file: a copy pasted into `plan-state.sh` or any other script becomes a second
 place for it to drift out of sync with this one.
 
-**`/mentor:handoff` stays reachable in every row, including the ones that list no
-handoff option.** It is a command, not an option: it writes a handoff note and never
-calls `approve-plan.sh`, so it neither releases the gate nor needs the plan approved
-first. A user who wants a fresh agent to continue before any context verdict fires can
-type it into this question's always-present "Other" free text — the same route the
-trim-to-`## Out of scope` alternative takes above — rather than rejecting the question,
-which returns no answer and forces a re-ask. That covers the literal command; bare handoff *intent* in
-free text is still governed by the routing rule below.
+**`/mentor:handoff` stays reachable from every row.** It is a command, not an option:
+it writes a handoff note and never calls `approve-plan.sh`, so it neither releases the
+gate nor needs the plan approved first. A user who wants a fresh agent to continue can
+type it — or plain handoff intent — into this question's always-present "Other" free
+text: invoke `Skill(skill="mentor:handoff-note")` and stop, leaving the gate armed and
+the plan `draft`. Only when the same answer also approves ("looks good, hand it off")
+run `approve-plan.sh --deliver` first, then invoke `mentor:handoff-note` for the
+now-approved plan — the directive's STOP bars implementation, not the handoff asked for.
 
-**Whenever both handoff options are listed, say in the question text which options
-release the gate.** They differ only in consent — one approves, one does not — and a
-label alone cannot carry that. A user who is out of room reads "hand off" and picks
-the first match; if that silently approves, a fresh agent starts implementing a plan
-they never approved, which is the one failure this harness exists to prevent. Naming
-the consequence in the question costs a sentence and removes the guess.
-
-(Why Split leads on an oversized plan, why `CONTEXT: HANDOFF` outranks it, and why
-*Keep planning* is the option that yields once a context verdict fires:
-`references/rationale.md` → **Step 6 — why the option rows are ordered the way they
-are**. Change the table only after reading it — each row's order encodes a specific
-failure.)
+(Why Split leads on an oversized plan: `references/rationale.md` → **Step 6 — why the
+option rows are ordered the way they are**. Change the table only after reading it.)
 
 | Label | Description |
 |---|---|
@@ -904,8 +878,6 @@ failure.)
 | Review the plan (staged) | Run plan-review — a judgment pass (practicality, comprehensiveness) whose CRITICAL and HIGH edits you verdict one question at a time and whose smaller ones resolve in one batch, then a mechanical pass (cleanliness, consistency) whose safe fixes auto-fold; CRITICAL decision-level findings are asked one at a time, the rest resolved in one batched question. Stays in planning; ends back at this question. |
 | Keep planning | Do not release — keep refining, or say what to change. Re-write the plan file and ask again when ready. |
 | Split into multiple plans | Slice this plan into independently buildable sibling plans, each with explicit scope isolation. Stays in planning; asks again afterwards. |
-| Hand off to next agent | Approve and release, then write a handoff doc so a fresh agent implements it — this session is getting large. |
-| Pause — still drafting | Write a handoff doc and stop **without approving**: the gate stays armed and the plan stays `draft`, so the next session continues *planning*, not implementing. For when the session is out of room but the plan is not settled. |
 
 On a host without `approve-plan.sh`, use the user's returned choice as the same explicit
 consent boundary, keep the plan at its durable `.mentor/` path, and report that no
@@ -965,13 +937,6 @@ checklist's task sweep, is unrelated and still applies). Missing a transition
 is survivable — state also derives from the `✅` step ticks you mark as each step
 passes — but `failed` cannot be derived from ticks, so that one is worth remembering.
 
-**Blocking failures get an escape hatch too.** When direct implementation hits
-something that stops progress — a failing gate, an escalation only the user can
-resolve — and you raise your own ad hoc `AskUserQuestion` about it, include
-**Hand off to next agent** among the options. The user may want a fresh session
-on this rather than resolving it inline right now, and nothing else on this path
-offers that choice.
-
 **Close out the skipped path too.** There are no implementation agents to release,
 but there is still work to hand back: **sweep the report you're about to write** —
 every follow-up, gap, or known-broken item in it is **named** there, in plain terms,
@@ -994,51 +959,6 @@ bash "${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:-}}/hooks/approve-plan.sh" --deliver
 Same validation + release, then **follow the DELIVER-ONLY directive it prints** —
 report where the plan lives and STOP. Do not implement and do not dispatch in
 this session.
-
-On **Hand off to next agent**, run:
-
-```bash
-bash "${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:-}}/hooks/approve-plan.sh" --handoff
-```
-
-Same validation + release, then **follow the hand-off directive it prints** —
-invoke `Skill(skill="mentor:handoff-note")` for this approved plan and stop. Do not
-implement and do not dispatch in this session.
-
-An **"Other" answer expressing handoff intent** does *not* route here by default.
-There are two handoff outcomes now and they differ on consent, so free text like
-"let's hand this off" names the outcome without settling whether the plan is
-approved — exactly the inference the rule above forbids. Route it only when the
-answer also expresses approval ("looks good, hand it off"). Otherwise ask **one**
-follow-up `AskUserQuestion`: approve and hand off, or hand off still drafting.
-
-On **Pause — still drafting**, run **no script at all** — not
-`approve-plan.sh`, not with any flag. The gate must stay armed and the plan must
-stay `draft`; that is the whole point of the option, and every flag this skill
-has approves. Instead invoke `Skill(skill="mentor:handoff-note")` with a focus
-that states the planning is unfinished, then print its resume prompt and stop.
-
-Give the handoff note these four facts explicitly, because the next agent cannot
-infer them and each one has bitten a real session:
-
-- **The plan is `draft` and the gate is deliberately still ARMED** — `mentor:resuming`
-  tells the next agent to trust the marker over the note when they disagree, so an
-  armed marker with no explanation reads like a crashed session rather than an
-  intentional pause.
-- **Name the ARMING WORKTREE** — this worktree's id and the repo path it maps to
-  (the marker's own `worktree=` line, or `plan-state.sh gate --verbose`'s
-  `owner_worktree=`). The marker is scoped to THIS worktree only: a session resuming
-  from elsewhere finds no marker of its own at all (`gate` there reads `RELEASED` or
-  `ARMED_ELSEWHERE`, never `ARMED`), and without this fact it cannot tell "nothing is
-  armed" from "armed, but only over there — go there, or re-own here first."
-- **Continue the *existing* plan** at `.mentor/plans/<slug>/plan.md` — reuse that slug.
-  A fresh `/mentor:plan` derived from a re-typed request can mint a second plan dir and
-  orphan this draft.
-- **Re-write the plan file before approving it.** Whoever resumes runs `/mentor:plan`,
-  which re-arms the marker with a *fresh* mtime, and `approve-plan.sh` refuses any
-  `plan.md` older than the marker. Any real revision (a Rev bump) clears it; without
-  this line the next approval fails with "Newest plan predates this planning session"
-  and no hint of the cause.
 
 On **Review the plan (staged)**, invoke `Skill(skill="mentor:plan-review")` with
 this plan as the subject. Say which the user asked for — the full staged review, or
@@ -1117,8 +1037,8 @@ bash "${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:-}}/hooks/plan-state.sh" init <slug>  
 Skip this line only when you are certain this is the same worktree that drafted the
 plan — `init` is otherwise harmless to run either way (idempotent, never lowers state).
 
-The `set <slug> draft` line is not optional: **every** approval path — no-arg,
-`--deliver`, `--handoff` — promotes the sidecar to `approved` before exiting, while
+The `set <slug> draft` line is not optional: **every** approval path — no-arg and
+`--deliver` — promotes the sidecar to `approved` before exiting, while
 `begin-plan.sh` touches only the marker. Re-arming alone therefore leaves a plan
 recorded `approved` behind a closed gate, and `/mentor:track` reads the sidecar.
 
@@ -1129,7 +1049,3 @@ act** — if any step is already ticked, work has shipped, so surface that as a 
 decision rather than writing a `draft` state the tick derivation will outrank anyway.
 (Full mechanics: `references/rationale.md` → **Retracting an approval — why each of the
 three steps is required**.)
-
-The cleaner escape is not to need this: when the user is out of room but not ready to
-approve, "Pause — still drafting" hands off with the gate still armed and nothing to
-retract.

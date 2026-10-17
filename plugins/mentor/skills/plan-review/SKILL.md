@@ -431,13 +431,9 @@ fixes. If every edit was skipped, skip the write.
 Step 4's walk can spend real budget, and this skill has no earlier context
 reading of its own to have grown stale — nothing measures it before this
 point, whether entered via Step 5 or, in Stage-2-only mode, directly. Run
-`bash "${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:-}}/hooks/plan-state.sh" context` and follow its
-printed guidance verbatim rather than improvising a question: `ASK` hands you
-the exact `AskUserQuestion` to ask, with its hand-off and bypass options, and
-holds the dispatch below until it's answered; `HANDOFF`/`WARN` print a note to
-carry into Step 7's report and you proceed; `OK`/`UNKNOWN` proceed silently.
-This is the same backstop `mentor:track` already runs before its own
-dispatch — Stage 2 is this skill's equivalent moment.
+`bash "${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:-}}/hooks/plan-state.sh" context`: `HIGH`/`WARN`
+print a note to carry into Step 7's report and you proceed; `OK`/`UNKNOWN` proceed
+silently. No tier holds the dispatch.
 
 Dispatch **only after Step 5 completes** (the write, or the fold-nothing
 decision) — both reviewers read the UPDATED plan, so they also catch anything
@@ -780,7 +776,7 @@ the only place the applied/left-open/dead-lane summary ever reaches the user.
 
 **Approval is not this skill's to grant.** Review never releases the gate, and it
 never hand-rolls an approval question either — a freshly-invented option set drops
-the context re-check, the handoff option, and the re-ask rule that a real approval
+the context re-check, the oversized/Split row, and the re-ask rule that a real approval
 gate carries. Where to send the user depends on whether a gate is already open:
 
 - **Entered from a live approval gate** (the plan was drafted this session and the

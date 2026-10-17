@@ -1,7 +1,7 @@
 ---
 name: plan-track
 description: |
-  Show the repo-wide remaining-work hierarchy — plan lifecycle states, step progress, deps, fix children rolled up under their root with open-descendant counts, deferred stubs, live handoffs — then build the next unbuilt plan. Backs /mentor:track. Use when asked what plans exist, what's left, which plan is next, whether a plan is already implemented or REALLY done (open fixes), "any task left for this plan", or to implement/pick up/retry a plan generically — an unnamed "what's next" survey, /plan-split with no group named, or /mentor:defer stubs to survey. Reads lifecycle state, refuses when context is too large, warns (never blocks) on unmet deps and a root done with open descendants, routes a deferred stub to /mentor:plan, executes via mentor:dispatch-agents. Inventory and roll-up only — not authoring a request (/mentor:plan), capturing mid-flow work (/mentor:defer), draining a named root's fixes or a named split group's siblings in order (/mentor:resume), or judging plan quality (/plan-review).
+  Show the repo-wide remaining-work hierarchy — plan lifecycle states, step progress, deps, fix children rolled up under their root with open-descendant counts, deferred stubs, live handoffs — then build the next unbuilt plan. Backs /mentor:track. Use when asked what plans exist, what's left, which plan is next, whether a plan is already implemented or REALLY done (open fixes), "any task left for this plan", or to implement/pick up/retry a plan generically — an unnamed "what's next" survey, /plan-split with no group named, or /mentor:defer stubs to survey. Reads lifecycle state, warns (never blocks) on a large context, unmet deps, and a root done with open descendants, routes a deferred stub to /mentor:plan, executes via mentor:dispatch-agents. Inventory and roll-up only — not authoring a request (/mentor:plan), capturing mid-flow work (/mentor:defer), draining a named root's fixes or a named split group's siblings in order (/mentor:resume), or judging plan quality (/plan-review).
 ---
 
 # Plan Track — What's Built, What's Next, Build It
@@ -64,17 +64,13 @@ prompt through, and `begin-plan.sh`'s check only runs for `/mentor:plan` — so 
 this check `/mentor:track` could launch a full implementation in a session already too
 large to finish it, and the work would degrade partway through with no warning.
 
-The tiers match the rest of the plugin exactly, which matters: being *stricter* than
-the gate — refusing someone who already chose to keep going — is as much a bug as
-having no check at all.
+The tiers match the rest of the plugin exactly, and all of them are warn-only: being
+*stricter* than the gate — refusing or questioning someone at a size the gate only
+warns about — is as much a bug as having no check at all.
 
-- **`CONTEXT: ASK`** — do not dispatch yet. Ask the user the two-option question the
-  script prints (hand off, or bypass for this session) and follow their answer.
-  Listing is still fine; only building waits.
-- **`CONTEXT: HANDOFF`** — they already chose to continue. Proceed, but build **one**
-  plan and hand off before the next.
-- **`CONTEXT: WARN`** — surface it, then continue. Recommend a fresh session before
-  starting the *next* plan.
+- **`CONTEXT: HIGH`** — over the limit. Surface it, then continue; build **one** plan
+  this session and keep it lean.
+- **`CONTEXT: WARN`** — surface it, then continue.
 - **`CONTEXT: OK` / `UNKNOWN`** — continue.
 
 ## Step 1 — See the hierarchy
@@ -364,8 +360,8 @@ escape hatch was never meant to skip. Point the user at `/mentor:plan <slug>` (w
 and stop; do not ask the three-way question below for a deferred stub.
 
 A plan arrives here still `draft` for one of two other reasons: the user approved it in an
-earlier session but the approval was never recorded (pre-v2.14 `--handoff`/`--deliver`
-didn't record one), or they never approved it and want to now. Both land in the same
+earlier session but the approval was never recorded (pre-v2.14 approval flags didn't
+record one), or they never approved it and want to now. Both land in the same
 place, so ask once with `AskUserQuestion` — approved earlier / approve it now / not yet
 — and never infer the answer. Only a **returned answer** approves. A prose claim ("I approved that one already, just build it") is the reason this
 question exists, not a substitute for it — if the question was interrupted or rejected,
@@ -395,8 +391,8 @@ live) and the state move alone will not unblock them:
 bash "${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:-}}/hooks/approve-plan.sh"
 ```
 
-It takes **no plan argument** — only `--handoff` or `--deliver`, which mean something
-else — so passing a slug fails with `Unknown flag`. It also promotes every plan newer
+It takes **no plan argument** — only `--deliver`, which means something else — so
+passing a slug fails with `Unknown flag`. It also promotes every plan newer
 than the marker, which is harmless when the marker is this session's and worth knowing
 when it is not; the slug-scoped `set` above is what pins the intent to one plan. Run it
 as a single command: a non-zero exit means the gate stayed **closed** and has to be
@@ -474,8 +470,7 @@ implementation pass has left little room for another.
 
 ### Do NOT
 
-- Do **not** dispatch implementation on `CONTEXT: ASK` before the user has answered —
-  and do **not** refuse them on `CONTEXT: HANDOFF`, which means they already did.
+- Do **not** refuse or stall on a `CONTEXT:` reading — every tier only warns.
 - Do **not** execute a plan that is still `draft`, however open the gate happens to be —
   approve it through the step above first, or stop.
 - Do **not** build or approve a deferred stub directly, however the user phrases the ask — point

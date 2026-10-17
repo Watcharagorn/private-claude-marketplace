@@ -69,40 +69,22 @@ toplevel="$(git -C "$(pwd)" rev-parse --show-toplevel 2>/dev/null || true)"
 
 # --- context gate (plan start) ---------------------------------------------
 # begin-plan gets no hook stdin, so mentor_context_verdict locates the session
-# transcript itself and measures it. Over the ask threshold the USER decides first:
-# without a session bypass marker we print a CONTEXT: ASK directive (AskUserQuestion —
-# hand off, or bypass and plan lean) and do NOT arm yet; with the marker the gate arms
-# with a CONTEXT: HANDOFF advisory. The UserPromptSubmit gate never sees /mentor:plan
-# (slash passthrough), so we check here. The same helper backs `plan-state.sh context`,
-# which /mentor:track uses before it dispatches — so both entry points apply one policy.
+# transcript itself and measures it. Warn-only (v4.2.0): a large context never stops
+# the gate from arming — it prints a CONTEXT: line the plan skill surfaces to the user.
+# The UserPromptSubmit gate never sees /mentor:plan (slash passthrough), so we check
+# here. The same helper backs `plan-state.sh context`, which /mentor:track uses before
+# it dispatches — so both entry points apply one policy.
 # Fail-soft: unmeasurable → empty verdict → skip silently (like the not-a-repo grace).
 context_warn=""
 verdict="$(mentor_context_verdict "$repo_root" "$(pwd)")"
 if [ -n "$verdict" ]; then
   read -r level tokens warn_at ask_at <<<"$verdict"
   case "$level" in
-    HANDOFF)
-      context_warn="CONTEXT: HANDOFF (~${tokens} tokens ≥ ${ask_at}) — critically large (gate bypassed this session): do not propose a preview or plan-review; at the approval step lead with \"Hand off to next agent (Recommended)\"."
-      ;;
-    ASK)
-      hook_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-      cat <<EOF
-CONTEXT: ASK (~${tokens} tokens ≥ ${ask_at})
-[mentor] Plan gate NOT armed yet — the user decides first. Do NOT invoke the plan
-skill yet; ask via AskUserQuestion (header "Context", two options):
-  1. "Hand off & plan in a fresh session (Recommended)" — invoke
-     Skill(skill="mentor:handoff-note") with the plan request as the focus, write the
-     handoff doc, print its copy-paste /mentor:resume prompt, and STOP.
-  2. "Proceed anyway (bypass + lean plan)" — run \`bash ${hook_dir}/bypass-context.sh\`,
-     re-run \`bash ${hook_dir}/begin-plan.sh\`, then invoke the plan skill and follow
-     the CONTEXT: HANDOFF advisory the re-run prints.
-(Threshold: "context_block_tokens" in .mentor/config.json or MENTOR_CONTEXT_BLOCK_TOKENS;
-disable entirely with MENTOR_CONTEXT_GATE=off.)
-EOF
-      exit 0
+    HIGH)
+      context_warn="CONTEXT: HIGH (~${tokens} tokens ≥ ${ask_at}) — over the limit: surface to the user and keep the plan lean; do not propose a preview."
       ;;
     WARN)
-      context_warn="CONTEXT: WARN (~${tokens} tokens ≥ ${warn_at}) — surface to the user; prefer \"Hand off to next agent\" at the approval step."
+      context_warn="CONTEXT: WARN (~${tokens} tokens ≥ ${warn_at}) — surface to the user."
       ;;
   esac
 fi
@@ -115,8 +97,8 @@ fi
 # marker already IS this same legacy path (mentor_plan_marker's one fallback
 # site), so running this guard would refuse a session's own re-arm and turn
 # the design back into an un-armable repo-global lock — the foreign-session
-# guard below (which fail-softs on no session match) is what re-arming and the
-# CONTEXT: ASK → bypass → re-run path depend on in that case.
+# guard below (which fail-softs on no session match) is what same-session
+# re-arming depends on in that case.
 if [ -n "$wt_id" ] && [ -f "$legacy_marker" ]; then
   if ! mentor_marker_stale "$legacy_marker"; then
     other_session="$(mentor_marker_field "$legacy_marker" session)"
@@ -147,8 +129,7 @@ fi
 # stopped being newer than the marker the instant this ran, and approve-plan.sh
 # would refuse it forever afterwards ("predates this planning session") — the
 # other session's work stranded with no error until someone notices. Same-session
-# re-arms (the CONTEXT: ASK → bypass-context.sh → re-run path above) are expected
-# and harmless; only a marker armed by a genuinely DIFFERENT, still-live session is
+# re-arms are expected and harmless; only a marker armed by a genuinely DIFFERENT, still-live session is
 # a collision worth stopping for. A marker with no metadata (pre-upgrade) or no
 # session match can't be attributed — fail-soft, arm as before.
 #

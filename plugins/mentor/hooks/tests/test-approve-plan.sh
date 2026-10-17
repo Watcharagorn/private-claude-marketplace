@@ -3,9 +3,10 @@
 #
 # Contract: release the .planning gate ONLY when a non-empty Markdown plan
 # exists that is NEWER than the marker (i.e. written this planning session).
-# --handoff / --deliver print their directives (mode-agnostic — the persisted
-# mode is never read — and still printed when the gate is already open);
-# unknown flags are rejected before the marker is touched.
+# --deliver prints its directive (mode-agnostic — the persisted mode is never
+# read — and still printed when the gate is already open); unknown flags,
+# including the retired --handoff (v4.2.0), are rejected before the marker is
+# touched.
 #
 # v2.23.0 (worktree-scoped plan gate): the marker is now per-worktree —
 # `.planning.<wt-id>` — with a bare legacy `.planning` reserved as a
@@ -124,23 +125,15 @@ chk "already open → routing directive" sh -c "printf '%s' \"\$0\" | grep -q 'r
 out="$(ap --deliver)"; rc=$?
 chk "open + --deliver → exit 0"        test "$rc" = "0"
 chk "open + --deliver → directive"     sh -c "printf '%s' \"\$0\" | grep -q 'DELIVER-ONLY'" "$out"
-out="$(ap --handoff)"; rc=$?
-chk "open + --handoff → exit 0"        test "$rc" = "0"
-chk "open + --handoff → directive"     sh -c "printf '%s' \"\$0\" | grep -q 'HAND-OFF REQUESTED'" "$out"
 
-echo "== F. --handoff: approve + hand off, never implement =="
+echo "== F. --handoff retired (v4.2.0): usage error, marker untouched =="
 arm; fresh_plan
-out="$(ap --handoff)"; rc=$?
-chk "handoff → exit 0"                 test "$rc" = "0"
-chk "handoff → marker gone"            test ! -f "$MARKER"
-chk "handoff → sentinel + skill ref"   sh -c "printf '%s' \"\$0\" | grep -q 'HAND-OFF REQUESTED' && printf '%s' \"\$0\" | grep -q 'mentor:handoff-note'" "$out"
-# handoff with a stale plan: validation precedes the hand-off branch.
-clear_plans
-stale_plan; sleep 1; arm
-out="$(ap --handoff)"; rc=$?
-chk "handoff(stale) → exit 1"          test "$rc" = "1"
-chk "handoff(stale) → marker kept"     test -f "$MARKER"
-chk "handoff(stale) → no sentinel"     sh -c "! printf '%s' \"\$0\" | grep -q 'HAND-OFF REQUESTED'" "$out"
+out="$(ap --handoff 2>&1)"; rc=$?
+chk "handoff → exit 1"                 test "$rc" = "1"
+chk "handoff → marker kept"            test -f "$MARKER"
+chk "handoff → usage names --deliver only" sh -c "printf '%s' \"\$0\" | grep -q 'Usage: approve-plan.sh \[--deliver\]'" "$out"
+chk "handoff → no hand-off directive"  sh -c "! printf '%s' \"\$0\" | grep -q 'HAND-OFF REQUESTED'" "$out"
+rm -f "$MARKER"; clear_plans
 
 echo "== G. --deliver: mode-agnostic deliverable soft-stop =="
 sm plan
@@ -203,14 +196,11 @@ ap >/dev/null
 chk "superseded parent not flipped back"          test "$(st split-parent)" = "superseded"
 chk "split child promoted"                        test "$(st split-kid)" = "approved"
 
-# --deliver / --handoff approve too — the flags defer implementation, not approval.
-# (Leaving these at `draft` made plan-track refuse handoff-approved plans next session.)
+# --deliver approves too — the flag defers implementation, not approval.
+# (Leaving flagged approvals at `draft` made plan-track refuse them next session.)
 arm; newplan delivered
 ap --deliver >/dev/null
 chk "--deliver promotes to approved"              test "$(st delivered)" = "approved"
-arm; newplan handed-off
-ap --handoff >/dev/null
-chk "--handoff promotes to approved"              test "$(st handed-off)" = "approved"
 
 # No marker → no snapshot → nothing to promote. This is what stops a re-run from
 # stamping the whole repo.
@@ -230,10 +220,7 @@ out="$(ap)"
 chk "all-already-approved reports state"   sh -c "printf '%s' \"\$0\" | grep -q 'state: unchanged'" "$out"
 chk "already-approved plan stays approved"        test "$(st already-ok)" = "approved"
 
-# The flag paths early-exit after their directive — the state line must land BEFORE that.
-arm; newplan flagged-h
-out="$(ap --handoff)"
-chk "--handoff prints the state line"      sh -c "printf '%s' \"\$0\" | grep -q 'state: approved'" "$out"
+# The flag path early-exits after its directive — the state line must land BEFORE that.
 arm; newplan flagged-d
 out="$(ap --deliver)"
 chk "--deliver prints the state line"      sh -c "printf '%s' \"\$0\" | grep -q 'state: approved'" "$out"

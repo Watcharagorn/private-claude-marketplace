@@ -237,7 +237,7 @@ only surface that can speak inside a stretch of turns the user is not driving.
 **Why no tier blocks (user-ruled 2026-08-20).** On PostToolBatch, exit 2 stops the
 agentic loop dead — mid-edit, half-changed tree, no handoff note, nothing written down.
 The ruling chose "never blind" over "forced stop": every tier is advisory, and
-exhaustion stays possible if a run ignores the directive. The checkpoint's job is to
+exhaustion stays possible if a run ignores the warning. The checkpoint's job is to
 make sure nobody is *surprised* by it, not to prevent it by force. A rule that would
 have to abort a turn to be enforced is the wrong shape for this hook.
 

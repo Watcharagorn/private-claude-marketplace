@@ -359,10 +359,7 @@ bash "${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:-}}/hooks/plan-state.sh" context
 
 The tiers match the rest of the plugin — `mentor:plan-track`'s own Step 0 runs this identical call:
 
-- **`CONTEXT: ASK`** — do not act on the note yet; ask the user the two-option question the
-  script prints (hand off, or bypass for this session) before continuing below.
-- **`CONTEXT: HANDOFF`** — they already chose to continue; proceed, but plan to hand off again
-  before this note's work is done.
+- **`CONTEXT: HIGH`** — over the limit; surface it, then continue and keep the work lean.
 - **`CONTEXT: WARN`** — surface it, then continue.
 - **`CONTEXT: OK` / `UNKNOWN`** — continue.
 
@@ -427,8 +424,8 @@ checkpoints fire, and they speak only above the warn threshold).
 
    **`ARMED_ELSEWHERE` needs one more check before you decide it's someone else's problem: is it your
    own gate, just parked in a different worktree?** Compare each `elsewhere=` line's `worktree=` path
-   against the worktree the handoff note itself recorded arming (planning's "Pause — still drafting"
-   handoff now names the arming worktree explicitly, for exactly this comparison). A match means this
+   against the worktree the handoff note itself recorded arming (a handoff written mid-planning names
+   the arming worktree explicitly, for exactly this comparison). A match means this
    **is** your gate — still armed, just not from here: resume it in that worktree, or re-own it here
    first (next paragraph) before you can approve from this one. No match means it is genuinely a
    different, unrelated worktree's planning session — informational only, does not block you.
@@ -450,7 +447,7 @@ checkpoints fire, and they speak only above the warn threshold).
    **Do not assume Step 6's `/mentor:plan <slug>` route resolves this for you.** `begin-plan.sh`'s
    foreign-marker guard compares **session IDs only**, on this worktree's own marker — it has no
    notion of slug or plan — so it fires identically whether the marker belongs to a genuinely
-   unrelated plan *or* to the note's own plan left mid-draft by a "Pause — still drafting" handoff
+   unrelated plan *or* to the note's own plan left mid-draft by a mid-planning handoff
    (resuming is always a new session, so the ids never match either way). Read its output: `Plan phase
    ARMED.` means it re-armed for you, safe to continue; `Plan gate NOT armed — another session's plan
    gate is already active.` means it **declined** — the old marker is still sitting there un-owned by
@@ -524,8 +521,8 @@ checkpoints fire, and they speak only above the warn threshold).
    with the plan slug the note names — the bound is on which work and its scope, not on
    mirroring the note's slash token into `Skill()`, which only re-enters through the command
    wrapper for a second hop. Track is the better route for a resumed note because it re-enters at
-   the first unticked step instead of rebuilding from step 1, and it runs the context check that
-   decides whether this session is big enough to finish. Older notes phrase the recommendation as
+   the first unticked step instead of rebuilding from step 1, and it takes its own context reading
+   before it dispatches. Older notes phrase the recommendation as
    "implementation via `mentor:dispatch-agents`" — that is the same work; passing the slug to track
    means the user who already chose a note isn't asked to choose a plan again. Go to
    `Skill(skill="mentor:dispatch-agents")` directly when the note's work has no plan record at all,
@@ -744,8 +741,7 @@ Each queued item is planned and approved **standalone**, exactly as if the user 
 `/mentor:plan <item-slug>` for it — run that per item rather than re-implementing its steps here.
 A parked child's `origin` is `"deferred"` (`mentor:deferring` owns what that capture wrote and
 why), so the stub it left is what gets claimed and fleshed out. Nothing about the drain shortens
-that path: the item's own approval gate is where building starts, and a `CONTEXT: ASK` on the way
-in stops the drain exactly like it would stop a standalone `/mentor:plan`.
+that path: the item's own approval gate is where building starts.
 
 **Consent stays per item.** One approval never covers the rest of the queue — a 4-item subtree is 4
 separate approval questions, not one "approve everything" ask up front: each item is its own plan

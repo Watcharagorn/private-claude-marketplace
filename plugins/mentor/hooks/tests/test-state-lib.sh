@@ -8,6 +8,9 @@
 #
 # Runs against a SANDBOX $HOME so it never touches real user state.
 set -uo pipefail
+# The no-repo fallback reads these before $HOME, so a host value leaks past the
+# sandbox; cases that need one set it inline.
+unset CLAUDE_CONFIG_DIR MENTOR_STATE_HOME XDG_STATE_HOME
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 LIB="$(dirname "$SCRIPT_DIR")/lib/state.sh"
@@ -500,11 +503,10 @@ chk "existing Claude fallback remains readable" test "$(libsh "mentor_latest_han
 rm -rf "$SANDBOX/.claude/mentor"
 OVERRIDE_NR="$SANDBOX/custom-mentor-state/_no-repo"
 chk "MENTOR_STATE_HOME overrides no-repo base" test "$(HOME="$SANDBOX" MENTOR_STATE_HOME="$SANDBOX/custom-mentor-state" bash -c '. "'$LIB'"; mentor_no_repo_state_dir')" = "$OVERRIDE_NR"
-echo "== J. mentor_find_transcript / mentor_context_verdict (the shared ask-first check) =="
+echo "== J. mentor_find_transcript / mentor_context_verdict (the shared warn-only check) =="
 # One implementation, two callers: begin-plan.sh at arm time and `plan-state.sh
-# context`, which /mentor:track runs before it dispatches. The tiers mirror the gate's
-# own policy — over the ask threshold the USER decides (ASK), unless they already chose
-# to continue this session (HANDOFF). A caller must never be stricter than the gate.
+# context`, which /mentor:track runs before it dispatches. Warn-only (v4.2.0): over the
+# ask threshold the verdict is HIGH and every caller proceeds — never stricter than the gate.
 CFG="$ROOT/cfg"; mkdir -p "$CFG/projects/proj"
 mkverdict_tx() { python3 - "$CFG/projects/proj/sess.jsonl" "$1" <<'PY'
 import json,sys
@@ -518,20 +520,17 @@ CLEAN="unset MENTOR_CONTEXT_GATE MENTOR_CONTEXT_BLOCK_TOKENS MENTOR_CONTEXT_WARN
 chk "no transcript → empty path" \
   test -z "$(libsh "$CLEAN CLAUDE_CONFIG_DIR='$CFG' mentor_find_transcript '$expect_root'")"
 V="CLAUDE_CONFIG_DIR='$CFG' CLAUDE_CODE_SESSION_ID=sess"
-BYPASS="$STATE/.context-bypass-sess"
 mkverdict_tx 400000
 chk "session id locates the transcript exactly" \
   test "$(libsh "$CLEAN $V mentor_find_transcript '$expect_root'")" = "$CFG/projects/proj/sess.jsonl"
-chk "over ask, no bypass → ASK (user decides)" \
-  test "$(libsh "$CLEAN $V mentor_context_verdict '$expect_root'")" = "ASK 400000 200000 350000"
-: > "$BYPASS"
-chk "over ask, bypassed → HANDOFF, never a refusal" \
-  test "$(libsh "$CLEAN $V mentor_context_verdict '$expect_root'")" = "HANDOFF 400000 200000 350000"
-chk "bypass predicate true with the marker"  libsh "$CLEAN $V mentor_context_bypassed '$expect_root'"
-rm -f "$BYPASS"
-# `!` cannot follow env assignments, so negate a subshell instead of `VAR=x ! cmd`.
-chk "bypass predicate false without it"      libsh "$CLEAN ! ( $V mentor_context_bypassed '$expect_root' )"
-chk "bypass predicate false with no repo"    libsh "$CLEAN ! ( $V mentor_context_bypassed '' )"
+chk "over ask → HIGH (warn-only)" \
+  test "$(libsh "$CLEAN $V mentor_context_verdict '$expect_root'")" = "HIGH 400000 200000 350000"
+# A leftover pre-v4.2.0 bypass marker changes nothing.
+: > "$STATE/.context-bypass-sess"
+chk "over ask, legacy bypass marker → still HIGH" \
+  test "$(libsh "$CLEAN $V mentor_context_verdict '$expect_root'")" = "HIGH 400000 200000 350000"
+rm -f "$STATE/.context-bypass-sess"
+chk "bypass predicate retired"               libsh "$CLEAN ! type mentor_context_bypassed >/dev/null 2>&1"
 mkverdict_tx 230000
 chk "between warn and ask → WARN" \
   test "$(libsh "$CLEAN $V mentor_context_verdict '$expect_root'")" = "WARN 230000 200000 350000"
@@ -539,7 +538,7 @@ mkverdict_tx 50000
 chk "under warn → OK" \
   test "$(libsh "$CLEAN $V mentor_context_verdict '$expect_root'")" = "OK 50000 200000 350000"
 chk "env threshold override honored" \
-  test "$(libsh "$CLEAN $V MENTOR_CONTEXT_BLOCK_TOKENS=1000 mentor_context_verdict '$expect_root'")" = "ASK 50000 200000 1000"
+  test "$(libsh "$CLEAN $V MENTOR_CONTEXT_BLOCK_TOKENS=1000 mentor_context_verdict '$expect_root'")" = "HIGH 50000 200000 1000"
 chk "kill switch → empty verdict" \
   test -z "$(libsh "$CLEAN $V MENTOR_CONTEXT_GATE=off mentor_context_verdict '$expect_root'")"
 chk "unmeasurable → empty verdict" \
