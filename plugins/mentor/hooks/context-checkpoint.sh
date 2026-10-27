@@ -18,10 +18,12 @@
 # over an exit-2 backstop. Like the gate (v4.2.0), it warns only: no handoff steer.
 #
 # Fires the same three tiers as the gate (WARN / WARN-HIGH / HIGH), from the same
-# thresholds, but rate-limited by its own marker (.context-checkpoint-<session_id>,
-# storing "<tier> <tokens>"): a batch-frequency hook that spoke every batch would bury
-# the transcript in its own advisories. It speaks when the tier RISES, or when the
-# count has grown a quarter of the warn threshold since it last spoke.
+# thresholds (mentor_context_limits, v4.3.0), but rate-limited by its own marker
+# (.context-checkpoint-<session_id>, storing "<tier> <tokens>"): a batch-frequency hook
+# that spoke every batch would bury the transcript in its own advisories. It speaks when
+# the tier RISES, or when the count has grown by the gate's re-arm step (10% of the
+# window, or a quarter of the warn threshold with no window) since it last spoke. Every
+# message ends with the same progress-first sentence as the gate's.
 #
 # Fail-soft everywhere: no jq / no transcript / unmeasurable / malformed input →
 # exit 0 silently. Never brick a session. Kill switches: the gate's own
@@ -54,9 +56,7 @@ SESSION_ID="$(printf '%s' "$INPUT" | jq -r '.session_id // ""' 2>/dev/null)" || 
 state_dir="$(mentor_state_dir "$repo_root")"
 [ -z "$state_dir" ] && state_dir="$(mentor_no_repo_state_dir)"
 
-ASK_AT="$(mentor_context_threshold "$repo_root" "${MENTOR_CONTEXT_BLOCK_TOKENS:-}" context_block_tokens 350000)"
-WARN_AT="$(mentor_context_threshold "$repo_root" "${MENTOR_CONTEXT_WARN_TOKENS:-}" context_warn_tokens 200000)"
-WARN_HIGH_AT="$(mentor_context_threshold "$repo_root" "${MENTOR_CONTEXT_WARN_HIGH_TOKENS:-}" context_warn_high_tokens $(( ASK_AT * 9 / 10 )))"
+read -r WARN_AT WARN_HIGH_AT ASK_AT rearm_delta WINDOW <<<"$(mentor_context_limits "$repo_root" "$SESSION_ID")"
 
 [ "$TOKENS" -ge "$WARN_AT" ] || exit 0
 
@@ -64,7 +64,7 @@ tier=1
 [ "$TOKENS" -ge "$WARN_HIGH_AT" ] && tier=2
 [ "$TOKENS" -ge "$ASK_AT" ] && tier=3
 
-# Rate limit: speak on a tier RISE, or on growth ≥ WARN_AT/4 since the last time.
+# Rate limit: speak on a tier RISE, or on growth ≥ the re-arm step since the last time.
 find "$state_dir" -maxdepth 1 -name '.context-checkpoint-*' -mmin +1440 -delete 2>/dev/null || true
 marker="${state_dir}/.context-checkpoint-${SESSION_ID:-nosession}"
 last_tier=0; last_tokens=0
@@ -73,7 +73,6 @@ if [ -e "$marker" ]; then
 fi
 case "$last_tier" in ''|*[!0-9]*) last_tier=0 ;; esac
 case "$last_tokens" in ''|*[!0-9]*) last_tokens=0 ;; esac
-rearm_delta=$(( WARN_AT / 4 ))
 if [ "$tier" -le "$last_tier" ] && [ $(( TOKENS - last_tokens )) -lt "$rearm_delta" ]; then
   exit 0
 fi
@@ -82,15 +81,17 @@ mkdir -p -m 700 "$state_dir" 2>/dev/null || true
 [ -n "$repo_root" ] && mentor_ensure_gitignore "$state_dir"
 printf '%s %s' "$tier" "$TOKENS" > "$marker" 2>/dev/null || true
 
+SIZE="$(mentor_context_size "$TOKENS" "$WINDOW")"
+PROGRESS="$(mentor_context_progress_note)"
 case "$tier" in
   3)
-    MSG="[mentor] CONTEXT CHECKPOINT: ~${TOKENS} tokens ≥ ${ASK_AT} — over the limit. Keep the rest of this run small and lean. (Advisory only — this hook never blocks.)"
+    MSG="[mentor] CONTEXT CHECKPOINT: ${SIZE} ≥ ${ASK_AT} — over the limit. Keep the rest of this run small and lean. ${PROGRESS} (Advisory only — this hook never blocks.)"
     ;;
   2)
-    MSG="[mentor] CONTEXT CHECKPOINT: ~${TOKENS} of ${ASK_AT} tokens — nearing the limit. Avoid opening new large workstreams."
+    MSG="[mentor] CONTEXT CHECKPOINT: ${SIZE}, limit ${ASK_AT} — nearing the limit. Avoid opening new large workstreams. ${PROGRESS}"
     ;;
   *)
-    MSG="[mentor] CONTEXT CHECKPOINT: ~${TOKENS} tokens ≥ ${WARN_AT} and still mid-run. (Re-fires on tier rise or every ~${rearm_delta} tokens of growth.)"
+    MSG="[mentor] CONTEXT CHECKPOINT: ${SIZE} ≥ ${WARN_AT} and still mid-run. ${PROGRESS} (Re-fires on tier rise or every ~${rearm_delta} tokens of growth.)"
     ;;
 esac
 

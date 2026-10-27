@@ -516,7 +516,7 @@ open(sys.argv[1],"w").write(json.dumps({"type":"assistant","message":{"usage":{
 PY
 }
 # Pin the environment: a developer's own MENTOR_CONTEXT_* must not move an assertion.
-CLEAN="unset MENTOR_CONTEXT_GATE MENTOR_CONTEXT_BLOCK_TOKENS MENTOR_CONTEXT_WARN_TOKENS CLAUDE_CODE_SESSION_ID || true;"
+CLEAN="unset MENTOR_CONTEXT_GATE MENTOR_CONTEXT_BLOCK_TOKENS MENTOR_CONTEXT_WARN_TOKENS MENTOR_CONTEXT_WARN_HIGH_TOKENS MENTOR_CONTEXT_WINDOW CLAUDE_CODE_AUTO_COMPACT_WINDOW MENTOR_CONTEXT_WARN_RATIO MENTOR_CONTEXT_HIGH_RATIO CLAUDE_CODE_SESSION_ID || true;"
 chk "no transcript → empty path" \
   test -z "$(libsh "$CLEAN CLAUDE_CONFIG_DIR='$CFG' mentor_find_transcript '$expect_root'")"
 V="CLAUDE_CONFIG_DIR='$CFG' CLAUDE_CODE_SESSION_ID=sess"
@@ -537,8 +537,17 @@ chk "between warn and ask → WARN" \
 mkverdict_tx 50000
 chk "under warn → OK" \
   test "$(libsh "$CLEAN $V mentor_context_verdict '$expect_root'")" = "OK 50000 200000 350000"
-chk "env threshold override honored" \
-  test "$(libsh "$CLEAN $V MENTOR_CONTEXT_BLOCK_TOKENS=1000 mentor_context_verdict '$expect_root'")" = "HIGH 50000 200000 1000"
+# v4.3.0 clamp: a limit set below the warn cap pulls warn down with it (warn ≤ warn_high ≤ high).
+chk "env threshold override honored (warn clamped under the limit)" \
+  test "$(libsh "$CLEAN $V MENTOR_CONTEXT_BLOCK_TOKENS=1000 mentor_context_verdict '$expect_root'")" = "HIGH 50000 900 1000"
+# The verdict reads the same window as the hooks: a host-reported context-window file in
+# this session's dir (CLAUDE_CODE_SESSION_ID) turns on the percent thresholds.
+mkdir -p "$ROOT/vstate/sessions/sess"; echo 200000 > "$ROOT/vstate/sessions/sess/context-window"
+mkverdict_tx 120000
+chk "session context-window file → ratio thresholds (100000 / 130000)" \
+  test "$(libsh "$CLEAN $V MENTOR_STATE_HOME='$ROOT/vstate' mentor_context_verdict '$expect_root'")" = "WARN 120000 100000 130000"
+chk "no window source → the same 120000 reads OK against the caps" \
+  test "$(libsh "$CLEAN $V mentor_context_verdict '$expect_root'")" = "OK 120000 200000 350000"
 chk "kill switch → empty verdict" \
   test -z "$(libsh "$CLEAN $V MENTOR_CONTEXT_GATE=off mentor_context_verdict '$expect_root'")"
 chk "unmeasurable → empty verdict" \

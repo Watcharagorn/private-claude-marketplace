@@ -45,11 +45,19 @@ TX_GROW="$ROOT/grow.jsonl";   mktx "$TX_GROW"  270000   # +55k over TX_WARN: pas
 TX_HIGH="$ROOT/high.jsonl";   mktx "$TX_HIGH"  320000   # ≥ 90% of 350k → WARN-HIGH tier
 TX_ASK="$ROOT/ask.jsonl";     mktx "$TX_ASK"   365000
 
+# Pin the environment: a developer's own MENTOR_CONTEXT_* or a host-reported window must
+# not move an assertion; MENTOR_STATE_HOME keeps the session-dir window lookup sandboxed.
+STATE_HOME="$ROOT/state-home"
+PIN_ENV=(-u MENTOR_CONTEXT_GATE -u MENTOR_CONTEXT_CHECKPOINT -u MENTOR_CONTEXT_WARN_TOKENS
+  -u MENTOR_CONTEXT_BLOCK_TOKENS -u MENTOR_CONTEXT_WARN_HIGH_TOKENS -u MENTOR_CONTEXT_TAIL_LINES
+  -u MENTOR_CONTEXT_WINDOW -u CLAUDE_CODE_AUTO_COMPACT_WINDOW -u MENTOR_CONTEXT_WARN_RATIO
+  -u MENTOR_CONTEXT_HIGH_RATIO -u CLAUDE_CONFIG_DIR -u XDG_STATE_HOME -u MENTOR_STATE_HOME)
+
 # run <session> <transcript> [env overrides...] — drives the hook; captures stdout+rc.
 run() {
   local sid="$1" tx="$2"; shift 2
   OUT="$(printf '{"transcript_path":"%s","session_id":"%s","cwd":"%s"}' "$tx" "$sid" "$REPO" \
-        | env "$@" bash "$HOOK" 2>>"$ROOT/err")"; RC=$?
+        | env "${PIN_ENV[@]}" MENTOR_STATE_HOME="$STATE_HOME" "$@" bash "$HOOK" 2>>"$ROOT/err")"; RC=$?
 }
 ctx() { printf '%s' "$OUT" | jq -r '.hookSpecificOutput.additionalContext // empty' 2>/dev/null; }
 
@@ -113,6 +121,45 @@ chk "empty payload → exit 0, silent" test "$RC" = "0" -a -z "$OUT"
 echo "== F. threshold overrides flow through =="
 run s-g "$TX_UNDER" MENTOR_CONTEXT_WARN_TOKENS=100000 MENTOR_CONTEXT_BLOCK_TOKENS=140000
 chk "lowered thresholds → high tier at 150k" sh -c "printf '%s' \"\$0\" | grep -q 'over the limit'" "$(ctx)"
+# v4.3.0 clamp: a limit set under the warn cap pulls warn down with it. Before, the hook
+# exited at the warn check (150k < 200k) and a 150k session over a 140k limit heard nothing.
+run s-g2 "$TX_UNDER" MENTOR_CONTEXT_BLOCK_TOKENS=140000
+chk "limit alone under the warn cap → high tier at 150k" sh -c "printf '%s' \"\$0\" | grep -q 'over the limit'" "$(ctx)"
+
+echo "== G. known window (v4.3.0): ratio thresholds, percent text, re-arm step =="
+PROGRESS_LINE="Before compacting, record your progress in the plan: finished steps, what's in flight, findings, the exact next action. The summary is lossy; the plan is not."
+has() { case "$2" in *"$1"*) return 0;; *) return 1;; esac; }
+TX_105="$ROOT/w105.jsonl"; mktx "$TX_105" 105000
+TX_95="$ROOT/w95.jsonl";   mktx "$TX_95"  95000
+run s-w0 "$TX_95" MENTOR_CONTEXT_WINDOW=200000
+chk "200k window, 95k → silent"                     test "$RC" = "0" -a -z "$OUT"
+run s-w1 "$TX_105" MENTOR_CONTEXT_WINDOW=200000
+chk "200k window, 105k → warn tier, exit 0"         test "$RC" = "0"
+chk "200k window, 105k → ~N tokens (r% of window)"  has "~105000 tokens (52% of window)" "$(ctx)"
+run s-w2 "$TX_UNDER" MENTOR_CONTEXT_WINDOW=200000
+chk "200k window, 150k → over the 130000 limit"     has "over the limit" "$(ctx)"
+chk "200k window, 150k → % of window"               has "(75% of window)" "$(ctx)"
+# The session dir's context-window file, keyed by the hook's own session_id.
+mkdir -p "$STATE_HOME/sessions/s-wf"; echo 200000 > "$STATE_HOME/sessions/s-wf/context-window"
+run s-wf "$TX_105"
+chk "session context-window file → warns at 105k"   has "(52% of window)" "$(ctx)"
+# Re-arm step is 10% of a known window: +55k at 1M stays quiet (it re-fired at +50k before).
+run s-w3 "$TX_WARN" MENTOR_CONTEXT_WINDOW=1000000
+chk "1M window, 215k → warns at the 200k cap"       test -n "$OUT"
+run s-w3 "$TX_GROW" MENTOR_CONTEXT_WINDOW=1000000
+chk "1M window, +55k → silent (re-arm 100000)"      test "$RC" = "0" -a -z "$OUT"
+# No window → today's thresholds and no percent text.
+run s-w4 "$TX_105"
+chk "no window, 105k → silent (today's 200k warn)"  test "$RC" = "0" -a -z "$OUT"
+run s-w5 "$TX_WARN"
+chk "no window → no percent text"                   sh -c "! printf '%s' \"\$0\" | grep -q '% of window'" "$(ctx)"
+
+echo "== H. progress-first line on every tier =="
+for tx in "$TX_WARN" "$TX_HIGH" "$TX_ASK"; do
+  rm -f "$STATE"/.context-checkpoint-s-pf
+  run s-pf "$tx"
+  chk "progress-first line ($(basename "$tx"))"     has "$PROGRESS_LINE" "$(ctx)"
+done
 
 echo
 echo "RESULT: PASS=$PASS FAIL=$FAIL"

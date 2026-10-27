@@ -12,18 +12,22 @@
 # TIER 1 — the mentor CONTEXT GATE. Measures the live context size from the session transcript
 # and WARNS in three tiers. Warn-only (v4.2.0): it never blocks, never asks a question, and
 # never suggests a handoff — every tier is a one-line stdout notice (UserPromptSubmit stdout
-# is injected as context) and exit 0.
-#   • WARN  (≥ warn threshold, default 200000). RE-ARMS on growth — a
-#     `.context-warned-<session_id>` marker in the state dir stores the token count at the
-#     last fire, and WARN fires again once the live count has grown by a quarter of the warn
-#     threshold (~50000 tokens at defaults) past that, so a session that keeps climbing gets
+# is injected as context) and exit 0, ending with the progress-first sentence.
+# Thresholds come from mentor_context_limits (lib/state.sh, v4.3.0): a ratio of the
+# compaction window capped by the token knobs when the window is known, the token knobs
+# alone when it is not (the window is never guessed).
+#   • WARN  (≥ warn threshold: min(50% of window, 200000), 200000 with no window). RE-ARMS
+#     on growth — a `.context-warned-<session_id>` marker in the state dir stores the token
+#     count at the last fire, and WARN fires again once the live count has grown by the
+#     re-arm step (10% of the window, or a quarter of the warn threshold — ~50000 tokens
+#     at defaults — with no window) past that, so a session that keeps climbing gets
 #     more than one notice before WARN-HIGH takes over. Stale markers (>24h) are pruned so
 #     new sessions re-warn; an empty legacy marker reads as "never warned".
 #   • WARN-HIGH (≥ warn-high threshold, default 90% of the effective limit):
 #     near-limit notice that RE-FIRES on every prompt in the zone — no marker.
-#   • HIGH (≥ limit, context_block_tokens, default 350000): over-the-limit notice, also every prompt.
-#     (The knob keeps its historical name: MENTOR_CONTEXT_BLOCK_TOKENS /
-#     context_block_tokens.)
+#   • HIGH (≥ limit: min(65% of window, context_block_tokens), default 350000):
+#     over-the-limit notice, also every prompt. (The cap keeps its historical name:
+#     MENTOR_CONTEXT_BLOCK_TOKENS / context_block_tokens.)
 #
 # Escape hatches ALWAYS pass: an empty prompt, or any prompt starting with "/" (slash
 # commands like /compact, /mentor:mode) — checked FIRST, before any measurement, so the
@@ -38,8 +42,9 @@
 # malformed input → exit 0. Never brick a session.
 #
 # Kill switch: MENTOR_CONTEXT_GATE=off (env) or "context_gate":"off" (.mentor/config.json).
-# Thresholds: MENTOR_CONTEXT_{WARN,WARN_HIGH,BLOCK}_TOKENS (env) or
-# context_{warn,warn_high,block}_tokens (config).
+# Thresholds: MENTOR_CONTEXT_{WARN,WARN_HIGH,BLOCK}_TOKENS / MENTOR_CONTEXT_{WARN,HIGH}_RATIO
+# / MENTOR_CONTEXT_WINDOW (env) or context_{warn,warn_high,block,window}_tokens /
+# context_{warn,high}_ratio (config).
 
 set -euo pipefail
 
@@ -94,20 +99,24 @@ SESSION_ID="$(printf '%s' "$INPUT" | jq -r '.session_id // ""' 2>/dev/null)" || 
 state_dir="$(mentor_state_dir "$repo_root")"
 [ -z "$state_dir" ] && state_dir="$(mentor_no_repo_state_dir)"
 
-ASK_AT="$(mentor_context_threshold "$repo_root" "${MENTOR_CONTEXT_BLOCK_TOKENS:-}" context_block_tokens 350000)"
-WARN_AT="$(mentor_context_threshold "$repo_root" "${MENTOR_CONTEXT_WARN_TOKENS:-}" context_warn_tokens 200000)"
-# Near-limit tier defaults to 90% of the EFFECTIVE limit so it tracks overrides.
-WARN_HIGH_AT="$(mentor_context_threshold "$repo_root" "${MENTOR_CONTEXT_WARN_HIGH_TOKENS:-}" context_warn_high_tokens $(( ASK_AT * 9 / 10 )))"
+# One derivation for every context reading (window ratio + caps + clamp); the near-limit
+# tier defaults to 90% of the EFFECTIVE limit so it tracks overrides.
+read -r WARN_AT WARN_HIGH_AT ASK_AT rearm_delta WINDOW <<<"$(mentor_context_limits "$repo_root" "$SESSION_ID")"
+SIZE="$(mentor_context_size "$TOKENS" "$WINDOW")"
+PROGRESS="$(mentor_context_progress_note)"
+# The tuning hint names both knob families: with a known window a ratio can be the
+# binding limit, and raising a cap alone then changes nothing.
+KNOBS='"context_*_tokens" / "context_*_ratio" in .mentor/config.json'
 
 # --- HIGH tier (over the limit; re-fires every prompt) -----------------------
 if [ "$TOKENS" -ge "$ASK_AT" ]; then
-  echo "[mentor] CONTEXT: HIGH (~${TOKENS} tokens ≥ ${ASK_AT}) — over the limit; answers degrade this deep into a session. Keep the remaining work small and lean. (Tune \"context_block_tokens\" in .mentor/config.json, or MENTOR_CONTEXT_GATE=off.)"
+  echo "[mentor] CONTEXT: HIGH — ${SIZE} ≥ ${ASK_AT}, over the limit; answers degrade this deep into a session. Keep the remaining work small and lean. ${PROGRESS} (Thresholds: ${KNOBS}, or MENTOR_CONTEXT_GATE=off.)"
   return 0
 fi
 
 # --- WARN-HIGH tier (near-limit, re-fires every prompt in the zone) ----------
 if [ "$TOKENS" -ge "$WARN_HIGH_AT" ]; then
-  echo "[mentor] Context is nearing the limit (~${TOKENS} of ${ASK_AT} tokens). Avoid opening new large workstreams. (Re-fires each prompt; tune \"context_warn_high_tokens\" / \"context_block_tokens\" in .mentor/config.json if your repo uses a different budget.)"
+  echo "[mentor] Context is nearing the limit: ${SIZE}, limit ${ASK_AT}. Avoid opening new large workstreams. ${PROGRESS} (Re-fires each prompt; thresholds: ${KNOBS}.)"
   return 0
 fi
 
@@ -123,16 +132,16 @@ if [ "$SYNTHETIC" = "0" ] && [ "$TOKENS" -ge "$WARN_AT" ]; then
   last_warned=0
   [ -e "$marker" ] && last_warned="$(cat "$marker" 2>/dev/null)"
   case "$last_warned" in ''|*[!0-9]*) last_warned=0 ;; esac   # empty (legacy marker) / garbage → re-arm
-  # A quarter of the warn threshold (~50000 tokens at defaults): far enough apart that a
+  # rearm_delta (from mentor_context_limits) is 10% of the window, or a quarter of the
+  # warn threshold (~50000 tokens at defaults) with no window: far enough apart that a
   # session climbing steadily doesn't get spammed, close enough that a session sitting in
-  # the 200k-to-WARN-HIGH zone for a while (the exact gap a fan-out-heavy session can spend
+  # the WARN-to-WARN-HIGH zone for a while (the exact gap a fan-out-heavy session can spend
   # tens of turns inside) still gets more than the one notice at the bottom of the zone.
-  rearm_delta=$(( WARN_AT / 4 ))
   if [ "$last_warned" = 0 ] || [ $(( TOKENS - last_warned )) -ge "$rearm_delta" ]; then
     mkdir -p -m 700 "$state_dir" 2>/dev/null || true
     [ -n "$repo_root" ] && mentor_ensure_gitignore "$state_dir"
     printf '%s' "$TOKENS" > "$marker" 2>/dev/null || true
-    echo "[mentor] Context is getting large (~${TOKENS} tokens ≥ ${WARN_AT}). (Re-fires every ~${rearm_delta} tokens of further growth; thresholds: \"context_warn_tokens\" / \"context_block_tokens\" in .mentor/config.json.)"
+    echo "[mentor] Context is getting large: ${SIZE} ≥ ${WARN_AT}. ${PROGRESS} (Re-fires every ~${rearm_delta} tokens of further growth; thresholds: ${KNOBS}.)"
   fi
 fi
 
@@ -181,9 +190,10 @@ case "$PROMPT_LC" in
 esac
 
 # Once-per-session only. Marker lives under a machine-global scratch dir — NEVER
-# inside the target repo's .mentor/ (see header).
+# inside the target repo's .mentor/ (see header). The base follows MENTOR_STATE_HOME,
+# else CLAUDE_CONFIG_DIR, else ~/.claude (mentor_host_state_base).
 SESSION_ID="$(printf '%s' "$INPUT" | jq -r '.session_id // ""' 2>/dev/null)" || true
-scratch_dir="${HOME}/.claude/mentor/_prompt-nudges"
+scratch_dir="$(mentor_host_state_base claude)/_prompt-nudges"
 marker="${scratch_dir}/.planning-intent-${SESSION_ID:-nosession}"
 [ -e "$marker" ] && return 0
 mkdir -p "$scratch_dir" 2>/dev/null || true

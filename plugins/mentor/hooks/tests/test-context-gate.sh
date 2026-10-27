@@ -9,6 +9,10 @@
 # the HIGH tier, synthetic-prompt detection, transcript extraction edge cases, and
 # fail-soft robustness.
 #
+# Since v4.3.0 the thresholds come from mentor_context_limits: section K drives that
+# helper directly (window precedence, ratio parsing, the clamp, and no window → the
+# pre-v4.3.0 numbers) and section L drives the hook with a known window.
+#
 # Since v2.34.0 this hook also carries the planning-intent nudge as tier 2 (see
 # test-planning-nudge.sh). Every case here pins MENTOR_PLANNING_INTENT=off so the tiers
 # stay separately measurable; section J below is the one place both run at once, and it
@@ -76,13 +80,21 @@ chk() { local desc="$1"; shift
 contains() { case "$2" in *"$1"*) return 0;; *) return 1;; esac; }
 mkinput() { python3 -c 'import json,sys;print(json.dumps({"prompt":sys.argv[1],"transcript_path":sys.argv[2],"cwd":sys.argv[3],"session_id":sys.argv[4]}))' "$1" "$2" "$3" "$4"; }
 
+# Pin the environment: a developer's own MENTOR_CONTEXT_* or a host-reported window must
+# not move an assertion, and MENTOR_STATE_HOME points the session-dir window lookup (and
+# the nudge marker) at a sandbox instead of the real config dir.
+STATE_HOME="$ROOT/state-home"
+PIN_ENV=(-u MENTOR_CONTEXT_GATE -u MENTOR_CONTEXT_WARN_TOKENS -u MENTOR_CONTEXT_BLOCK_TOKENS
+  -u MENTOR_CONTEXT_WARN_HIGH_TOKENS -u MENTOR_CONTEXT_TAIL_LINES -u MENTOR_CONTEXT_WINDOW
+  -u CLAUDE_CODE_AUTO_COMPACT_WINDOW -u MENTOR_CONTEXT_WARN_RATIO -u MENTOR_CONTEXT_HIGH_RATIO
+  -u CLAUDE_CONFIG_DIR -u XDG_STATE_HOME -u MENTOR_STATE_HOME)
+
 # run <prompt> <session> <transcript> [env=val ...] → sets RC / OUT / ERR
 run() {
   local prompt="$1" sess="$2" tx="$3"; shift 3
   RC=0
   OUT="$(mkinput "$prompt" "$tx" "$REPO" "$sess" \
-    | env -u MENTOR_CONTEXT_GATE -u MENTOR_CONTEXT_WARN_TOKENS -u MENTOR_CONTEXT_BLOCK_TOKENS -u MENTOR_CONTEXT_TAIL_LINES \
-        MENTOR_PLANNING_INTENT=off "$@" bash "$HOOK" 2>"$ERRFILE")" || RC=$?
+    | env "${PIN_ENV[@]}" MENTOR_STATE_HOME="$STATE_HOME" MENTOR_PLANNING_INTENT=off "$@" bash "$HOOK" 2>"$ERRFILE")" || RC=$?
   ERR="$(cat "$ERRFILE")"
 }
 # run_nojq: same, but with a PATH where jq cannot be found. Input is fed from a FILE
@@ -303,7 +315,7 @@ bp() { # <transcript-tokens|none> → sets RC/OUT; cleans marker first
   if [ "$toks" = "none" ]; then rm -f "$CFG/projects/proj/$SESS.jsonl"
   else mktx "$CFG/projects/proj/$SESS.jsonl" "usage:$toks"; fi
   RC=0
-  OUT="$( cd "$REPO" && env -u MENTOR_CONTEXT_GATE -u MENTOR_CONTEXT_BLOCK_TOKENS -u MENTOR_CONTEXT_WARN_TOKENS \
+  OUT="$( cd "$REPO" && env "${PIN_ENV[@]}" MENTOR_STATE_HOME="$STATE_HOME" \
       CLAUDE_CONFIG_DIR="$CFG" CLAUDE_CODE_SESSION_ID="$SESS" bash "$BEGIN" 2>&1 )" || RC=$?
 }
 bp 400000
@@ -337,8 +349,7 @@ run_both() {
   local prompt="$1" sess="$2" tx="$3"; shift 3
   RC=0
   OUT="$(mkinput "$prompt" "$tx" "$REPO" "$sess" \
-    | env -u MENTOR_CONTEXT_GATE -u MENTOR_CONTEXT_WARN_TOKENS -u MENTOR_CONTEXT_BLOCK_TOKENS \
-          -u MENTOR_CONTEXT_TAIL_LINES -u MENTOR_PLANNING_INTENT HOME="$NUDGE_HOME" \
+    | env "${PIN_ENV[@]}" -u MENTOR_PLANNING_INTENT HOME="$NUDGE_HOME" \
           "$@" bash "$HOOK" 2>"$ERRFILE")" || RC=$?
   ERR="$(cat "$ERRFILE")"
 }
@@ -373,6 +384,116 @@ gate_ln="$(printf '%s\n' "$OUT" | grep -n 'CONTEXT: HIGH' | head -1 | cut -d: -f
 nudge_ln="$(printf '%s\n' "$OUT" | grep -n 'This looks like a planning request' | head -1 | cut -d: -f1)"
 chk "both tiers fire → gate verdict precedes the nudge" test "${gate_ln:-999}" -lt "${nudge_ln:-0}"
 rm -f "$STATE"/.context-warned-*
+
+# 5. The nudge's once-per-session marker follows CLAUDE_CONFIG_DIR (v4.3.0). It was
+#    hardcoded to ~/.claude, so a second Claude profile wrote into the default one.
+rm -rf "$NUDGE_HOME"; mkdir -p "$NUDGE_HOME"
+run_both "help me plan the billing rewrite" j5 "$TX_UNDER" CLAUDE_CONFIG_DIR="$ROOT/alt-cfg"
+chk "nudge marker lands under CLAUDE_CONFIG_DIR"  test -e "$ROOT/alt-cfg/mentor/_prompt-nudges/.planning-intent-j5"
+chk "nudge marker not under \$HOME/.claude"        test ! -e "$NUDGE_HOME/.claude/mentor/_prompt-nudges/.planning-intent-j5"
+
+echo "== K. mentor_context_limits (v4.3.0: window ratio, caps, clamp; the window is never guessed) =="
+LIB="$HOOKS/lib/state.sh"
+# lim [env=val ...] → "warn warn_high high rearm window" for $REPO and session $LIM_SID.
+LIM_SID="limsess"
+lim() { env "${PIN_ENV[@]}" MENTOR_STATE_HOME="$STATE_HOME" "$@" \
+  bash -c 'set -euo pipefail; . "$1"; mentor_context_limits "$2" "$3"' _ "$LIB" "$REPO" "$LIM_SID"; }
+w()  { lim "$@" | awk '{print $5}'; }
+wa() { lim MENTOR_CONTEXT_WINDOW=200000 "$@" | awk '{print $1}'; }
+TODAY="200000 315000 350000 50000 0"
+rm -f "$CONF"
+chk "no window source → today's thresholds ($TODAY)"   test "$(lim)" = "$TODAY"
+chk "CLAUDE_AUTOCOMPACT_PCT_OVERRIDE is a percent, never a window" \
+  test "$(lim CLAUDE_AUTOCOMPACT_PCT_OVERRIDE=70)" = "$TODAY"
+chk "a model name is never read as a window"           test "$(lim ANTHROPIC_MODEL='claude-opus-5-5[1m]')" = "$TODAY"
+# Window precedence: MENTOR_CONTEXT_WINDOW > config > CLAUDE_CODE_AUTO_COMPACT_WINDOW > session file.
+SDIR="$STATE_HOME/sessions/$LIM_SID"; mkdir -p "$SDIR"
+echo 180000 > "$SDIR/context-window"
+chk "session context-window file alone → 180000"       test "$(w)" = "180000"
+chk "CLAUDE_CODE_AUTO_COMPACT_WINDOW beats the file"   test "$(w CLAUDE_CODE_AUTO_COMPACT_WINDOW=300000)" = "300000"
+printf '{"context_window_tokens":400000}\n' > "$CONF"
+chk "config context_window_tokens beats CLAUDE_CODE_AUTO_COMPACT_WINDOW" \
+  test "$(w CLAUDE_CODE_AUTO_COMPACT_WINDOW=300000)" = "400000"
+chk "MENTOR_CONTEXT_WINDOW beats config"               test "$(w MENTOR_CONTEXT_WINDOW=200000 CLAUDE_CODE_AUTO_COMPACT_WINDOW=300000)" = "200000"
+chk "non-numeric env window falls through to config"   test "$(w MENTOR_CONTEXT_WINDOW=200k)" = "400000"
+chk "zero env window falls through to config"          test "$(w MENTOR_CONTEXT_WINDOW=0)" = "400000"
+rm -f "$CONF"
+echo garbage > "$SDIR/context-window"
+chk "non-numeric session file → unknown → today's"     test "$(lim)" = "$TODAY"
+rm -f "$SDIR/context-window"
+# A session id that would climb out of sessions/ is never used as a path.
+mkdir -p "$STATE_HOME/escape"; echo 200000 > "$STATE_HOME/escape/context-window"
+chk "path-traversal session id → file not read"       test "$(LIM_SID='../escape' lim)" = "$TODAY"
+rm -rf "$STATE_HOME/escape"
+chk "leading zeros read as decimal, not octal"        test "$(w MENTOR_CONTEXT_WINDOW=0200000)" = "200000"
+# warn = min(warn_ratio × window, warn cap); high = min(high_ratio × window, high cap).
+chk "200k window → 100000 / 117000 / 130000, re-arm 20000" \
+  test "$(lim MENTOR_CONTEXT_WINDOW=200000)" = "100000 117000 130000 20000 200000"
+chk "1M window → the caps win (200000 / 315000 / 350000)" \
+  test "$(lim MENTOR_CONTEXT_WINDOW=1000000)" = "200000 315000 350000 100000 1000000"
+chk "a lowered cap still caps a known window" \
+  test "$(lim MENTOR_CONTEXT_WINDOW=1000000 MENTOR_CONTEXT_WARN_TOKENS=150000 | awk '{print $1}')" = "150000"
+# Ratio precedence (env > config > default) and decimal parsing.
+printf '{"context_warn_ratio":0.4}\n' > "$CONF"
+chk "config ratio (JSON number 0.4) → warn 80000"      test "$(wa)" = "80000"
+chk "env ratio beats config → warn 60000"              test "$(wa MENTOR_CONTEXT_WARN_RATIO=0.3)" = "60000"
+chk "malformed env ratio falls through to config"      test "$(wa MENTOR_CONTEXT_WARN_RATIO=abc)" = "80000"
+rm -f "$CONF"
+chk "leading-dot decimal .45 accepted → 90000"         test "$(wa MENTOR_CONTEXT_WARN_RATIO=.45)" = "90000"
+chk "comma decimal 0,4 rejected → default 0.5"         test "$(wa MENTOR_CONTEXT_WARN_RATIO=0,4)" = "100000"
+chk "ratio above 1 rejected → default"                 test "$(wa MENTOR_CONTEXT_WARN_RATIO=1.5)" = "100000"
+chk "ratio 0 rejected → default"                       test "$(wa MENTOR_CONTEXT_WARN_RATIO=0)" = "100000"
+chk "negative ratio rejected → default"                test "$(wa MENTOR_CONTEXT_WARN_RATIO=-0.4)" = "100000"
+chk "comma-decimal locale still parses 0.4"            test "$(wa MENTOR_CONTEXT_WARN_RATIO=0.4 LC_ALL=de_DE.UTF-8)" = "80000"
+chk "high ratio env honored → high 120000" \
+  test "$(lim MENTOR_CONTEXT_WINDOW=200000 MENTOR_CONTEXT_HIGH_RATIO=0.6 | awk '{print $3}')" = "120000"
+chk "ratios alone, no window → today's"                test "$(lim MENTOR_CONTEXT_WARN_RATIO=0.1 MENTOR_CONTEXT_HIGH_RATIO=0.2)" = "$TODAY"
+# The clamp keeps warn ≤ warn_high ≤ high and only ever lowers a value.
+chk "inverted ratios (0.8 / 0.6) → clamped 108000 108000 120000" \
+  test "$(lim MENTOR_CONTEXT_WINDOW=200000 MENTOR_CONTEXT_WARN_RATIO=0.8 MENTOR_CONTEXT_HIGH_RATIO=0.6)" = "108000 108000 120000 20000 200000"
+chk "warn_high above the limit → clamped to the limit" test "$(lim MENTOR_CONTEXT_WARN_HIGH_TOKENS=500000)" = "200000 350000 350000 50000 0"
+chk "limit under the warn cap → warn pulled down"      test "$(lim MENTOR_CONTEXT_BLOCK_TOKENS=1000)" = "900 900 1000 225 0"
+chk "warn_high set low is kept, warn follows it down"  test "$(lim MENTOR_CONTEXT_WARN_HIGH_TOKENS=100000)" = "100000 100000 350000 25000 0"
+
+echo "== L. The gate with a known window (percent text, progress-first line) =="
+TX_95="$ROOT/w95.jsonl";   mktx "$TX_95"  usage:95000
+TX_105="$ROOT/w105.jsonl"; mktx "$TX_105" usage:105000
+TX_125="$ROOT/w125.jsonl"; mktx "$TX_125" usage:125000
+TX_135="$ROOT/w135.jsonl"; mktx "$TX_135" usage:135000
+PROGRESS_LINE="Before compacting, record your progress in the plan: finished steps, what's in flight, findings, the exact next action. The summary is lossy; the plan is not."
+run "hello" win1 "$TX_95" MENTOR_CONTEXT_WINDOW=200000
+chk "200k window, 95k → silent (under 50%)"            test -z "$OUT$ERR"
+run "hello" win1 "$TX_105" MENTOR_CONTEXT_WINDOW=200000
+chk "200k window, 105k → first warning (~100k)"        contains "getting large" "$OUT"
+chk "200k window, 105k → ~N tokens (r% of window)"     contains "~105000 tokens (52% of window)" "$OUT"
+chk "200k window, 105k → progress-first line"          contains "$PROGRESS_LINE" "$OUT"
+run "hello" win2 "$TX_125" MENTOR_CONTEXT_WINDOW=200000
+chk "200k window, 125k → near-limit (≥ 117000)"        contains "nearing the limit" "$OUT"
+chk "200k window, 125k → % of window"                  contains "(62% of window)" "$OUT"
+run "hello" win3 "$TX_135" MENTOR_CONTEXT_WINDOW=200000
+chk "200k window, 135k → CONTEXT: HIGH (≥ 130000)"     contains "CONTEXT: HIGH" "$OUT"
+chk "200k window, 135k → still one line"               test "$(printf '%s\n' "$OUT" | grep -c .)" = "1"
+chk "200k window, 135k → progress-first line"          contains "$PROGRESS_LINE" "$OUT"
+# Re-arm with a known window is 10% of it: +55k at a 1M window stays quiet.
+run "hello" win1m "$TX_WARN" MENTOR_CONTEXT_WINDOW=1000000
+chk "1M window, 215k → warns at the 200k cap"          contains "getting large" "$OUT"
+run "hello" win1m "$TX_WARN_BIG_GROW" MENTOR_CONTEXT_WINDOW=1000000
+chk "1M window, +55k → silent (re-arm 100000)"         test -z "$OUT"
+# The session dir's context-window file, keyed by the hook's own session_id.
+mkdir -p "$STATE_HOME/sessions/winfile"; echo 200000 > "$STATE_HOME/sessions/winfile/context-window"
+run "hello" winfile "$TX_105"
+chk "session context-window file → warns at 105k"      contains "(52% of window)" "$OUT"
+rm -rf "$STATE_HOME/sessions/winfile"
+# No window: today's thresholds, no percent, the progress-first line on every tier.
+run "hello" nowin1 "$TX_105"
+chk "no window, 105k → silent (today's 200k warn)"     test -z "$OUT$ERR"
+run "hello" nowin2 "$TX_WARN"
+chk "no window, WARN → no percent text"                sh -c '! printf "%s" "$1" | grep -q "% of window"' _ "$OUT"
+chk "no window, WARN → progress-first line"            contains "$PROGRESS_LINE" "$OUT"
+run "hello" nowin3 "$TX_HIGH"
+chk "no window, WARN-HIGH → progress-first line"       contains "$PROGRESS_LINE" "$OUT"
+run "hello" nowin4 "$TX_ASK"
+chk "no window, HIGH → progress-first line"            contains "$PROGRESS_LINE" "$OUT"
 
 echo
 echo "RESULT: PASS=$PASS FAIL=$FAIL"
