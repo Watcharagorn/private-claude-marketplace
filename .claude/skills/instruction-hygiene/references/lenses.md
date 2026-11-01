@@ -100,6 +100,9 @@ Hunt for:
 - Ordering conflicts — two flows each claiming to run "first"/"last" relative to the other.
 - Scope conflicts — a rule stated as universal in one file and carved out with exceptions in
   another, where a reader following only the first would be wrong.
+- The plugin's pinned core concept (`AGENTS.md` → `## <Plugin> core concept`) versus the
+  change: a new or edited rule that breaks one of its numbered rules. Always `Class: CONFIRM`;
+  the fix is either to revert the change or to amend the concept in the same commit.
 - Contract drift — a return contract, question budget, or output format described differently by
   producer and consumer.
 

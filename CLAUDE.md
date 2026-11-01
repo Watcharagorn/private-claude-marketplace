@@ -16,6 +16,15 @@ of truth.
 - This applies even when another workflow (e.g. loom harvest/tune) is driving the change: load `/skill-creator:skill-creator` first, then proceed.
 - Exceptions: pure version-number bumps and typo-only fixes that don't touch behavior or the description may skip it.
 
+### Plugin core concept gate (MANDATORY)
+
+**Before any change or maintenance under `plugins/<name>/`, read that plugin's pinned core
+concept in `AGENTS.md` (`## <Plugin> core concept`) and keep the change inside it.** A change
+that contradicts it amends the pinned section first, in the same commit, named in the commit
+body; headless automation never amends one and reports the conflict instead. A plugin
+regrows away from its purpose one defensible change at a time, and nothing else in the repo
+checks for that. See `AGENTS.md` → "Plugin core concepts".
+
 ### Skill prose convention (mentor and any skill that grows by accretion)
 
 When adding or amending a rule in a plugin `SKILL.md`, put the **imperative rule plus one

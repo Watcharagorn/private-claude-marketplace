@@ -24,6 +24,25 @@ UI integrations are adapters.
 - Do not claim equal host behavior when a capability is adapter-only. Update the
   capability matrix and its tests with the implementation.
 
+## Plugin core concepts
+
+A plugin's core concept is its governing contract, pinned in this file as
+`## <Plugin> core concept`. It binds every change and every maintenance pass under
+`plugins/<name>/`, whether made by hand or by automation (`/loom:learn`, `/loom:harvest`,
+`/loom:audit-plugin`, publish flows).
+
+- **Read it before you change the plugin.** Every skill, hook, command, script, eval, and
+  doc you touch must follow each numbered rule; a lesson or fix that cannot be expressed
+  within it is out of scope until the concept changes.
+- **A contradiction amends the concept first.** Edit the pinned section in the same commit,
+  deliberately, and say so in the commit body (`Core concept amended: <what and why>`).
+  Never let a plugin drift from its concept one defensible change at a time.
+- **Automation never amends a concept.** A headless run that finds its change would
+  contradict one leaves the change unapplied and reports it (in the commit body or run
+  report) for a human to decide.
+- **A plugin without a pinned concept** is governed by the purpose stated in its README
+  (its opening section) until one is pinned.
+
 ## Mentor core concept
 
 Pinned 2026-11-01. Every mentor skill, hook, command, and doc aligns with this.
