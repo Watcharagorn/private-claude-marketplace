@@ -10,6 +10,9 @@ change. Plans are durable **Mermaid-first Markdown** artifacts in the repository
 **`.mentor/`** directory (gitignored, shared across worktrees), and the portable skills run
 on Claude Code, Codex, or another capable agent.
 
+Install in Claude Code: `/plugin marketplace add Watcharagorn/private-claude-marketplace`, then
+`/plugin install mentor@private-marketplace`.
+
 Claude Code adds an enforcement adapter: its `/mentor:plan` facade arms a worktree plan-gate marker
 (`.planning.<wt-id>`) and a fail-closed `PreToolUse` hook blocks repo edits until approval. Preserve
 that stronger behavior when the adapter is installed. Hosts without compatible hooks use the same
@@ -75,7 +78,7 @@ In Claude Code, `/mentor:plan` additionally:
    (`skills/planning/references/verifier-contract.md`), and ticked only after a PASS row.
    A FAIL retries once, then re-plans (once per step, three times per run, never weakening a
    check), then `failed`. Every choice not in the plan gets a log row. The run pauses only for
-   always-pause items. When all steps are ticked, the `## Verification` topics are graded,
+   always-pause items or a stop word. When all steps are ticked, the `## Verification` topics are graded,
    the **Done review** is written (per scenario: expected, observed, evidence; a runbook
    when hand-over needs steps; leftovers), the Goal check is graded against it, and the
    deliverable is handed over — for code, via the playbook: a PR with the Done review in its body, then a
@@ -279,7 +282,7 @@ block. It is the one mentor artifact that lives **in the repo** — committed at
 
 ```
 /mentor:constitution                     # bootstrap from repo conventions, or
-/mentor:constitution "Test-First: every endpoint ships with a contract test"
+/mentor:constitution "Sources cited: every figure in a report cites its source"
 ```
 
 `/mentor:constitution` is a **standalone authoring flow** (it never arms the plan
@@ -537,6 +540,13 @@ Knobs — set under `env` in `~/.claude/settings.json` (a shell `export` won't r
 | `MENTOR_PLAN_OPENER` | `auto` (default) · `vscode` · `chrome` · `system` |
 | `MENTOR_PLAN_VSCODE_BIN` | Force the VSCode CLI binary (default: auto-detect `code` / `cursor` / `windsurf` / …) |
 | `MENTOR_PLAN_OPEN=off` | Disable auto-open entirely |
+
+## Changes in v6.0.1
+
+- `constitution-authoring`'s example principles are no longer software-only.
+- The approve-plan run directive and the Stop hook's block reason name stop words ("stop",
+  "pause", "wait") alongside always-pause items as a reason a run pauses.
+- Planning's no-repository fallback no longer names git; the README gains an install line.
 
 ## Changes in v6.0.0
 

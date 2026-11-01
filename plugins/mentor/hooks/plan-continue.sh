@@ -107,6 +107,6 @@ if [ -n "$next" ]; then
 else
   where="every step is ticked — grade ## Verification, write ## Done review, grade the ## Goal check against it, deliver"
 fi
-reason="continue ${slug}: ${where}. Re-read .mentor/plans/${slug}/plan.md and planning \"After Proceed\" + references/verifier-contract.md. Stop only at a terminal state: done (set implemented), paused on an always-pause item (set approved --note \"paused: row N\"), or failed (set failed --note)."
+reason="continue ${slug}: ${where}. Re-read .mentor/plans/${slug}/plan.md and planning \"After Proceed\" + references/verifier-contract.md. Stop only at a terminal state: done (set implemented), paused on an always-pause item or a stop word (set approved --note \"paused: row N\"), or failed (set failed --note)."
 jq -n --arg r "$reason" '{decision: "block", reason: $r}' 2>/dev/null || exit 0
 exit 0

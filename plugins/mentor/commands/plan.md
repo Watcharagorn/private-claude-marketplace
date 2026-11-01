@@ -64,7 +64,7 @@ Do these in order:
 
 3. **Proceed** — run the plan per the skill's `{#implement}` section until its Goal
    check passes: every step graded by an independent verifier, every decision logged,
-   pausing only for always-pause items, ending with a Done review. `approve-plan.sh`
+   pausing only for always-pause items or a stop word, ending with a Done review. `approve-plan.sh`
    writes the session's run marker, and the `plan-continue.sh` Stop hook keeps the run
    going until a terminal state. **Deliver plan only** releases the gate and then STOPs,
    exactly as the skill states — it does not implement in this session.

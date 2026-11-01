@@ -733,7 +733,7 @@ already is this reading.
 ### The option set
 
 This is the only human gate in the flow: after it, the run proceeds on its own and
-stops only for always-pause items (After Proceed). Offer exactly these three options,
+stops only for always-pause items or a stop word (After Proceed). Offer exactly these three options,
 in this order, with these descriptions — and keep this table in this one file only; a
 copy in a script drifts. (Why one gate and three options: `references/rationale.md` →
 **Step 6 — why there is one gate and three options**.)
@@ -788,8 +788,8 @@ and ask the approval question again.
 
 On **Keep planning**, do not run the script; return to planning.
 
-**Not in a git repo?** begin-plan reported the gate was NOT armed — skip
-`approve-plan.sh` (it would fail outside a repo) and honor the user's choice
+**No repository root?** begin-plan reported the gate was NOT armed — skip
+`approve-plan.sh` (it needs a repository root) and honor the user's choice
 directly.
 
 ### After Proceed — run until the Goal check passes {#implement}

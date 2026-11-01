@@ -133,18 +133,18 @@ of this flow is for creating or amending.
 Principles come from, in priority order: (1) what the user passed to
 `/mentor:constitution`; (2) the existing constitution (for an amendment); (3) the
 repo's own conventions when the user asked you to bootstrap one — skim
-`README`, `CLAUDE.md`/`AGENTS.md`, `CONTRIBUTING`, lint/CI config, and obvious
+`README`, `CLAUDE.md`/`AGENTS.md`, `CONTRIBUTING`, any tooling config, and obvious
 patterns to propose a first draft. **Respect a user-specified principle count** —
 do not pad to a fixed number.
 
 A good principle is:
 
-- **Named** — a short noun phrase (e.g. "Test-First", "Library-First", "No secrets in the repo").
+- **Named** — a short noun phrase (e.g. "Sources cited", "One owner per deliverable", "No secrets in the repo").
 - **Declarative & testable** — written in MUST / MUST NOT / SHOULD language, so a
   reviewer can objectively check a plan against it. This is what makes the
   downstream Constitution Check meaningful rather than a rubber stamp. Avoid
-  aspirational mush ("write good code"); prefer "Every new endpoint ships with a
-  contract test."
+  aspirational mush ("do good work"); prefer "Every figure in a report cites
+  its source."
 - **Justified** — one `Rationale:` line saying why it exists.
 
 Keep the whole document short and high-signal (typically 3–7 principles). Add an

@@ -405,7 +405,7 @@ Run the plan until its Goal check passes (planning → "After Proceed"):
   plan-state.sh set ${run_slug:-<slug>} in_progress, then build each step in order.
   After each step, dispatch a fresh verifier (planning/references/verifier-contract.md);
   tick only after its PASS row in ## Decision log. Log every decision you make.
-  Pause only for an always-pause item. When every step is ticked, grade the
+  Pause only for an always-pause item or a stop word ("stop", "pause", "wait"). When every step is ticked, grade the
   ## Verification topics, write ## Done review, grade the ## Goal check against it,
   deliver, then set the plan implemented — or failed, with --note "<why>".
 EOF
