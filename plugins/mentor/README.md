@@ -541,6 +541,10 @@ Knobs — set under `env` in `~/.claude/settings.json` (a shell `export` won't r
 | `MENTOR_PLAN_VSCODE_BIN` | Force the VSCode CLI binary (default: auto-detect `code` / `cursor` / `windsurf` / …) |
 | `MENTOR_PLAN_OPEN=off` | Disable auto-open entirely |
 
+## Changes in v6.0.2
+
+- Adds a monotone plugin icon (`.claude-plugin/icon.png`): a loop that ends in a check.
+
 ## Changes in v6.0.1
 
 - `constitution-authoring`'s example principles are no longer software-only.
