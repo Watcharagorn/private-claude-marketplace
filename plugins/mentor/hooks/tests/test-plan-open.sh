@@ -59,7 +59,7 @@ check "" "non-plan path -> no-op"                              "$ROOT/random.htm
 
 echo "== C2. Path pattern: only plans/<slug>/plan.md =="
 TOUR_HTML="$repo_root/.mentor/tours/sample-user.html"; mkdir -p "$repo_root/.mentor/tours"; : > "$TOUR_HTML"
-check "" "tour html in tours/ -> no-op (published, never auto-opened)" "$TOUR_HTML"
+check "" "leftover html in .mentor/tours/ -> no-op"     "$TOUR_HTML"
 LEGACY_HTML="$PLANS_DIR/legacy-flat.html"; : > "$LEGACY_HTML"
 check "" "legacy flat html in plans/ -> no-op"        "$LEGACY_HTML"
 LEGACY_MD="$PLANS_DIR/legacy-flat.md"; : > "$LEGACY_MD"

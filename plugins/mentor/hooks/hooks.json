@@ -10,16 +10,6 @@
             "timeout": 5
           }
         ]
-      },
-      {
-        "matcher": "Task|Agent",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "bash \"${CLAUDE_PLUGIN_ROOT}/hooks/dispatch-contract.sh\"",
-            "timeout": 5
-          }
-        ]
       }
     ],
     "PostToolUse": [
@@ -41,17 +31,6 @@
           {
             "type": "command",
             "command": "bash \"${CLAUDE_PLUGIN_ROOT}/hooks/context-gate.sh\"",
-            "timeout": 5
-          }
-        ]
-      }
-    ],
-    "SessionStart": [
-      {
-        "hooks": [
-          {
-            "type": "command",
-            "command": "bash \"${CLAUDE_PLUGIN_ROOT}/hooks/handoff-check.sh\"",
             "timeout": 5
           }
         ]

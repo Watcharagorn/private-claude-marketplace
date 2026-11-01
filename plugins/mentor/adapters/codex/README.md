@@ -8,4 +8,4 @@ coverage fixtures prove it.
 
 When a host-native UI action is unavailable, use the portable fallback declared by
 the skill: ordinary conversation for questions, the current task for serial work,
-and local HTML/Markdown/JSON files for tours and handoffs.
+and local HTML/Markdown files for review pages.

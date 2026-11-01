@@ -10,12 +10,12 @@ Run a grilling session to pressure-test a plan or design **before any code is wr
 
 Immediately call `Skill({"skill": "mentor:grilling"})` and follow it end to end. It interviews you
 **one question at a time** (each with a recommended answer), walking the decision tree and resolving
-open choices until you reach a shared understanding — exploring the codebase via a dispatched
-subagent rather than asking what the code can answer.
+open choices until you reach a shared understanding — exploring the codebase directly rather than
+asking what the code can answer.
 
-This is the inverse of `/plan-review`: grill **sharpens the decisions** before a plan is locked;
-`/plan-review` **audits the finished plan** at the approve gate. Grilling makes no repo edits,
-beyond a settled trivial one-file change (the skill's Step 3 trivial-implement branch).
+Grill is also the plan-quality pass on a drafted plan: run it at the approve gate to judge whether
+the written plan is any good. Grilling makes no repo edits, beyond a settled trivial one-file change
+(the skill's Step 3 trivial-implement branch).
 
 The subject is **optional**:
 

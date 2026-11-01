@@ -31,7 +31,7 @@ file=$(printf '%s' "$input" | jq -r '.tool_input.file_path // ""' 2>/dev/null)
 
 # Only act on the canonical Markdown plan. Deliberately NOT matched: .mentor/reviews/
 # (previewing opens its own page, and assembles it with a shell command this hook never sees)
-# and .mentor/tours/ (published acceptance tours, never auto-opened).
+# or any other file under .mentor/.
 case "$file" in
   */.mentor/plans/*/plan.md) ;;
   *) exit 0 ;;

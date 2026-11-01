@@ -6,11 +6,11 @@ description: |
   reaches (web, mobile, CLI, chat, API, email, push, or a new one), with each edge case as its own card,
   plus C4 and sequence diagrams. Each scenario card has a comment box with Copy, to comment per scenario
   and paste back in chat. Writes a local .mentor/reviews/[subject-slug]/review.html and opens it
-  (published only on a yes). Use for /mentor:preview (and the old /mentor:zoom), "preview this plan",
+  (published only on a yes). Use for /mentor:preview, "preview this plan",
   "show me X as an HTML page", "render X as a local page", "make a diagram page for X", "a diagram of the
   current X flow", "from the end user's or QA's point of view", "mock up the screens and edge cases", "I
-  want to see this instead of reading markdown", "refresh the preview". Distinct from plan-review (a
-  verdict on a written plan, no page) and touring (a UAT page where reviewers mark pass or not-pass).
+  want to see this instead of reading markdown", "refresh the preview". Distinct from grilling (a
+  question-by-question stress test of a plan, no page).
 ---
 
 # Preview — one scenario-based review page
@@ -30,24 +30,22 @@ them, is in `references/rationale.md`; read it before overriding one.
 
 ## When to use
 
-- `/mentor:preview`, `/mentor:zoom` (the old name forwards here), or a request to see a plan, a subsystem or a
-  doc rendered as a page with mockups or diagrams.
+- `/mentor:preview`, or a request to see a plan, a subsystem or a doc rendered as a page with mockups or
+  diagrams.
 - `planning` Step 5 delegates here when the user opts into a review page.
 - A mentor plan that already has a page changed (§7).
 
 ## When NOT to use
 
-- The user wants a **quality verdict on a written plan**: that is `plan-review`, which folds edits into the
+- The user wants to **stress-test a written plan**: that is `grilling`, a conversation that sharpens the
   `.md`, not a page.
-- The user wants **acceptance testing**, a page where reviewers mark pass or not-pass on a built feature:
-  that is `touring`.
 - Nobody asked for a page. A review page is opt-in, never a default deliverable.
 - The plan itself needs writing or revising: that is `planning`. This skill draws what exists.
 
 ## Workspace
 
 ```text
-.mentor/reviews/<subject-slug>/      # gate-exempt, like plans/ and tours/
+.mentor/reviews/<subject-slug>/      # gate-exempt, like plans/
 ├── review.html     # the assembled page
 ├── _ids.md         # surfaces, sections, flows, cards, hops, variants, base: — append-only ids
 ├── _plan.md        # copy of the plan the ids and fragments were built from (plan subjects; §1, §7)
@@ -65,7 +63,7 @@ open them, since the theme and switching facts a run needs are in page-contract 
 ## §0 — State dir, subject and slug
 
 ```bash
-plugin_root="${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:-}}"
+plugin_root="${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT}}"
 # Neither set (some headless shells): this skill's own base directory, two levels up.
 [ -f "$plugin_root/hooks/plan-state.sh" ] || plugin_root="$(cd "<this skill's base directory>/../.." 2>/dev/null && pwd)"
 if [ -n "$plugin_root" ] && [ -f "$plugin_root/hooks/plan-state.sh" ]; then
@@ -90,8 +88,7 @@ fi
 3. the feature or system under discussion in the **current conversation**.
 
 Derive a kebab-case `<subject-slug>` that stays the same across runs. **When the subject is a mentor plan, the
-slug is the plan's dir name**, so `plan-review`, `plan-split` and `handoff-note` find its page without
-guessing. Then:
+slug is the plan's dir name**, so `plan-split` finds its page without guessing. Then:
 
 ```bash
 review_dir="$state_dir/reviews/<subject-slug>"
@@ -103,8 +100,8 @@ esac
 
 The helper is called with `bash`, so test it with `-f`, never `-x`: the file is not always executable, and
 an `-x` test silently skips every helper call. Replace `<this skill's base directory>` with the folder this
-`SKILL.md` was loaded from (the host names it when the skill loads): without a helper path the policy check
-cannot run, and the whole page silently falls back to serial.
+`SKILL.md` was loaded from (the host names it when the skill loads): without a helper path the state dir,
+the sibling-worktree check and the gitignore helper silently fall back.
 
 `.mentor/` is exempt from the plan edit gate, so previewing is legal while a plan gate is armed; workers write
 only under `$review_dir`, never repo source.
@@ -165,7 +162,7 @@ share one set of ids and one owner per hop: the main thread, or the trace worker
 thread pins before any other worker starts. Once they are pinned, copy the plan to `_plan.md` (plan subjects).
 
 **Tracing goes to one worker when the subject reaches several surfaces.** When the scenarios reach three or more
-surfaces, or code in two or more apps, run §3's policy check, then dispatch **one** read-only trace worker before
+surfaces, or code in two or more apps, start **one** read-only trace worker before
 any other worker. Its brief carries the source pack, the scenario list, the section plan, the existing `_ids.md`
 if any, and contract §1–§4, §8's Format bullets and catalog §2 by path; it may write only `_trace.md` and `_ids.md`. It writes its
 evidence to `_trace.md` (each scenario's hops with `guard=`, every `via=` value with its writer, `found=`, a
@@ -242,16 +239,8 @@ diagram-design's Google Fonts link only when that renderer is used.
 
 ## §3 — Fragments
 
-When helpers are available, run the pre-dispatch policy check before the first worker. `POLICY: SET` and
-`POLICY: NONE` let the workers below run: `verify-only` keeps plan *implementation* in the main thread, and
-building a review page is not implementation. On `POLICY: FOUND`, do not settle the repo-wide question from
-here: use the serial fallback for this run and say so (`dispatch-agents` asks it when a plan is implemented).
-On `POLICY: UNRESOLVED`, or without the helper, honour any live user restriction on delegation and use the
-serial fallback. Its `CONTRACT:` line says whether the no-nested-fan-out block reaches the workers.
-
-```bash
-[ -n "$plugin_root" ] && [ -f "$plugin_root/hooks/plan-state.sh" ] && bash "$plugin_root/hooks/plan-state.sh" policy
-```
+Use workers when the host supports delegation and the user has not restricted it; otherwise use the serial
+fallback below and say so.
 
 **Main thread** writes, from the `references/page-contract.md` templates: `00-head.html` (with the contents
 sidebar, which lists every included section and card, and the include line for the page CSS),
@@ -283,9 +272,7 @@ inlined as `<svg class="dd">` and must equal `diagrams`. Named fields make an ab
 would hide it.
 
 Launch every independent worker in the first wave, up to six cells workers; leftover cells slices go in a
-second wave. Waiting for workers and fixing a worker's output follow mentor's `dispatch-agents` guidance
-(its **No busy-wait** rule and `references/dispatch-recovery.md`). Never wait on a timer (a scheduled wakeup,
-`sleep`, a heartbeat): a worker that finishes early then sits idle until the timer fires.
+second wave.
 **Serial fallback:** without delegation, the main thread writes the same files in the same order and runs
 the same checks, one fragment at a time.
 
@@ -397,10 +384,9 @@ page change **together**.
 
 - any turn that changed `plan.md` content, whoever changed it: this skill's §6 loop, `planning`, `plan-split`,
   or a plain edit in chat (on Claude, mentor's plan-open hook reminds you after a Write or Edit of the plan);
-- the catch-up check at the start of every `previewing` run (`plan-review` only compares the stamp and
-  reports a stale page; it never regenerates one).
+- the catch-up check at the start of every `previewing` run.
 
-Step progress marks (`✅` ticks), `.state.json` and handoff notes are not plan changes. Run it **once per turn,
+Step progress marks (`✅` ticks) and `.state.json` are not plan changes. Run it **once per turn,
 after the last plan edit**, not after each edit. When `plan-split` supersedes the plan, regenerate only
 `00-head.html`, whose header then names the plan as superseded and lists the child plans, and reassemble.
 
@@ -452,14 +438,13 @@ Hand edits to `review.html` never flow back into the plan; the next regeneration
 - Do **not** write outside `.mentor/reviews/<subject-slug>/` except the three writes this skill names:
   `.mentor/.gitignore` through `mentor_ensure_gitignore` (§0), the `diagram_renderer` key in
   `.mentor/config.json` (§2), and a decision row (or a first `## Decisions` table) in a mentor plan (§6).
-  Never the repo source or `tours/`.
+  Never the repo source.
 - Do **not** edit the subject beyond that decision row.
 - Do **not** read `_trace.md` in the main thread (§1), or let mockup HTML into it while workers run; workers
   return paths and Self-check lines only. The serial fallback (§3) writes fragments in the main thread one at a
   time and does not re-read them.
 - Do **not** draw a plan's link as today's behaviour when the code's chain says otherwise.
 - Do **not** run a command against a running service, container or database during research (§1).
-- Do **not** wait for a worker on a timer (§3).
 - Do **not** put a `<script>` or switching CSS in a hop or flow file, or embed a picture as base64.
 - Do **not** open the page with anything but `open_page` (§5).
 - Do **not** renumber or reuse a card, edge-card letter, hop or variant id.

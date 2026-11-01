@@ -3,7 +3,7 @@
 #
 # The lib backs every hook, so it gets its own suite: project-scoped state-dir
 # derivation (<repo>/.mentor), `set -e` caller safety (sourced functions must never
-# abort a set -e hook), the config/mode readers, the .gitignore bootstrap, and the
+# abort a set -e hook), the config reader, the .gitignore bootstrap, and the
 # context-gate helpers (threshold precedence, kill switch, token extraction).
 #
 # Runs against a SANDBOX $HOME so it never touches real user state.
@@ -60,9 +60,8 @@ wt_root="$(libsh "mentor_repo_root '$WT'")"
 chk "linked worktree resolves to main repo root" test "$wt_root" = "$expect_root"
 
 echo "== C. set -e caller safety (functions must not abort the hook) =="
-chk "mentor_get_mode on nonexistent root" \
-  libsh 'm="$(mentor_get_mode /nonexistent/path)"; [ -z "$m" ]; echo done >/dev/null'
-chk "mentor_get_mode with no config"      libsh 'm="$(mentor_get_mode "'"$expect_root"'")"; [ -z "$m" ]'
+chk "mentor_config_get on nonexistent root" \
+  libsh 'm="$(mentor_config_get /nonexistent/path mode)"; [ -z "$m" ]; echo done >/dev/null'
 chk "mentor_config_get bad input"         libsh 'v="$(mentor_config_get "" "")"; [ -z "$v" ]'
 chk "mentor_context_tokens no file"       libsh 'v="$(mentor_context_tokens /nope.jsonl)"; [ -z "$v" ]'
 chk "mentor_context_gate_state no repo"   libsh 's="$(mentor_context_gate_state "")"; [ "$s" = "on" ]'
@@ -184,7 +183,7 @@ chk "sidecar group beats the header" test "$(libsh "mentor_plan_group '$PLANS/ki
 chk "sidecar order beats the header" test "$(libsh "mentor_plan_order '$PLANS/kid'")" = "9"
 rm -rf "$PLANS"
 
-echo "== B5. Back-compat: pre-2.17.0 4-field sidecar reads deps=[]/origin=null, no migration =="
+echo "== B5. Back-compat: pre-2.17.0 4-field sidecar reads deps=[], no migration =="
 mkdir -p "$PLANS/legacy4"
 printf '# legacy\n' > "$PLANS/legacy4/plan.md"
 cat > "$PLANS/legacy4/.state.json" <<'JSON'
@@ -194,7 +193,6 @@ chk "old 4-field sidecar: state reads back"        test "$(libsh "mentor_plan_st
 chk "old 4-field sidecar: group reads back"        test "$(libsh "mentor_plan_group '$PLANS/legacy4'")" = "old-parent"
 chk "old 4-field sidecar: order reads back"        test "$(libsh "mentor_plan_order '$PLANS/legacy4'")" = "2"
 chk "old 4-field sidecar: deps defaults to []"     test -z "$(libsh "mentor_plan_deps '$PLANS/legacy4'")"
-chk "old 4-field sidecar: origin defaults to null" test -z "$(libsh "mentor_plan_origin '$PLANS/legacy4'")"
 chk "old 4-field sidecar: effective state unaffected" test "$(libsh "mentor_plan_effective_state '$PLANS/legacy4'")" = "approved"
 # A later write upgrades it IN PLACE — no migration pass. state/group/order survive
 # because an omitted flag preserves the stored value; --note still always replaces.
@@ -206,21 +204,13 @@ chk "upgrading write preserves order"              test "$(libsh "mentor_plan_or
 chk "upgrading write clears note (--note always replaces)" test -z "$(libsh "mentor_plan_state_field '$PLANS/legacy4' note")"
 rm -rf "$PLANS"
 
-echo "== B6. mentor_plan_deps / mentor_plan_origin — dedicated array/scalar readers =="
+echo "== B6. mentor_plan_deps — dedicated array reader =="
 mkdir -p "$PLANS/dr1" "$PLANS/dr2"
 libsh "mentor_plan_state_write '$PLANS/dr1' --state draft --deps 'one,two,three'"
 chk "deps: one per output line" \
   test "$(libsh "mentor_plan_deps '$PLANS/dr1'")" = "$(printf 'one\ntwo\nthree')"
 chk "deps: empty when unset"           test -z "$(libsh "mentor_plan_deps '$PLANS/dr2'")"
 chk "deps: empty when no sidecar"      test -z "$(libsh "mentor_plan_deps '$PLANS/nope'")"
-chk "origin: unset reads empty"        test -z "$(libsh "mentor_plan_origin '$PLANS/dr1'")"
-libsh "mentor_plan_state_write '$PLANS/dr1' --origin deferred"
-chk "origin: deferred reads back"      test "$(libsh "mentor_plan_origin '$PLANS/dr1'")" = "deferred"
-libsh "mentor_plan_state_write '$PLANS/dr1' --origin ''"
-chk "origin: explicit empty clears it" test -z "$(libsh "mentor_plan_origin '$PLANS/dr1'")"
-# A bad --origin is rejected outright — no write, existing (cleared) value untouched.
-libsh "mentor_plan_state_write '$PLANS/dr1' --origin bogus"
-chk "bad --origin rejected: still empty" test -z "$(libsh "mentor_plan_origin '$PLANS/dr1'")"
 libsh "mentor_plan_state_write '$PLANS/dr1' --group g --deps ''"
 chk "--deps explicit empty clears the array"      test -z "$(libsh "mentor_plan_deps '$PLANS/dr1'")"
 chk "sibling field from the same write still lands" test "$(libsh "mentor_plan_group '$PLANS/dr1'")" = "g"
@@ -244,16 +234,6 @@ chk "3-node transitive cycle detected"  test "$(libsh "mentor_plan_would_cycle '
 chk "unknown dep slug is a dead end, not an error" test -z "$(libsh "mentor_plan_would_cycle '$PLANS' c-a 'does-not-exist'")"
 chk "fail-soft: no plans_dir → empty"   test -z "$(libsh "mentor_plan_would_cycle '' c-a 'c-b'")"
 chk "fail-soft: no slug → empty"        test -z "$(libsh "mentor_plan_would_cycle '$PLANS' '' 'c-b'")"
-rm -rf "$PLANS"
-
-echo "== B8. mentor_plan_live_handoffs — excludes handoffs/resolved/*, anchored =="
-mkdir -p "$PLANS/hf/handoffs/resolved"
-chk "no handoffs dir → empty"           test -z "$(libsh "mentor_plan_live_handoffs '$PLANS/nope'")"
-: > "$PLANS/hf/handoffs/live-one.md"
-: > "$PLANS/hf/handoffs/resolved/old-one.md"
-got="$(libsh "mentor_plan_live_handoffs '$PLANS/hf'")"
-chk "live handoff listed"               test "$got" = "live-one.md"
-chk "resolved handoff excluded"         sh -c '! printf "%s" "$0" | grep -q old-one' "$got"
 rm -rf "$PLANS"
 
 echo "== B9. mentor_plan_tick_counts — raw ticked/total (query's step-count rung) =="
@@ -369,8 +349,8 @@ chk "no ## Goal section → empty" test -z "$(libsh "mentor_plan_goal_line '$PLA
 chk "missing plan_md → empty, no crash" test -z "$(libsh "mentor_plan_goal_line '/nope.md'")"
 chk "empty arg → empty, no crash"       test -z "$(libsh "mentor_plan_goal_line ''")"
 
-# B11b. The `section` parameter — a plan-track "broader ask" digest reads an
-# ordinary plan's `## Context` instead of the `## Goal` no ordinary plan has.
+# B11b. The `section` parameter — a caller can read an ordinary plan's `## Context`
+# instead of the `## Goal` no ordinary plan has.
 mkdir -p "$PLANS/ctxonly"
 printf '# recommended-first-clean\n\n## Context\nRe-baselines the spec doc after the 4-phase split, adds a checklist.\n\n## Use case scenarios\nirrelevant here\n' > "$PLANS/ctxonly/plan.md"
 chk "no arg (default 'goal') on a plan with only ## Context → empty, unchanged from before this parameter existed" \
@@ -394,22 +374,18 @@ chk "section name is case-insensitive ('GOAL' matches '## Goal')" \
 
 rm -rf "$PLANS"
 
-echo "== D. mentor_get_mode / mentor_config_get =="
+echo "== D. mentor_config_get =="
 STATE="$expect_root/.mentor"
 RCONF="$STATE/config.json"
 mkdir -p "$STATE"
-printf '{"mode": "plan"}\n'      > "$RCONF"
-chk "mode=plan read back"      test "$(libsh "mentor_get_mode '$expect_root'")" = "plan"
-printf '{"mode": "plan-only"}\n' > "$RCONF"
-chk "mode=plan-only read back" test "$(libsh "mentor_get_mode '$expect_root'")" = "plan-only"
 printf '{"other": 1}\n'          > "$RCONF"
-chk "absent mode key → empty"  test -z "$(libsh "mentor_get_mode '$expect_root'")"
+chk "absent key → empty"       test -z "$(libsh "mentor_config_get '$expect_root' context_gate")"
 printf '{"context_block_tokens": 300000, "context_gate": "off"}\n' > "$RCONF"
 chk "config_get numeric coerced to string" test "$(libsh "mentor_config_get '$expect_root' context_block_tokens")" = "300000"
 chk "config_get string value"              test "$(libsh "mentor_config_get '$expect_root' context_gate")" = "off"
 chk "config_get missing key → empty"       test -z "$(libsh "mentor_config_get '$expect_root' nope")"
 rm -f "$RCONF"
-chk "no config file → empty mode"   test -z "$(libsh "mentor_get_mode '$expect_root'")"
+chk "no config file → empty"        test -z "$(libsh "mentor_config_get '$expect_root' context_gate")"
 
 echo "== E. mentor_context_threshold precedence (env > config > default) =="
 printf '{"context_block_tokens": 250000}\n' > "$RCONF"
@@ -464,48 +440,18 @@ chk "compact_boundary postTokens wins after usage" test "$(libsh "mentor_context
 printf 'not json\n{"type":"user"}\n' > "$TX"
 chk "no usage record → empty" test -z "$(libsh "mentor_context_tokens '$TX'")"
 
-echo "== I. mentor_latest_handoff / mentor_live_handoff_count (plan-topic + legacy flat; resolved stamped notes skipped) =="
-HAND_T="$STATE/plans/some-topic/handoffs"
-HAND_L="$STATE/handoffs"
-mkdir -p "$HAND_T" "$HAND_L"
-chk "no notes → empty"            test -z "$(libsh "mentor_latest_handoff '$expect_root'")"
-chk "no notes → count 0"          test "$(libsh "mentor_live_handoff_count '$expect_root'")" = "0"
-: > "$HAND_L/20260101-000000-legacy-note.md"
-chk "legacy flat note found"      test "$(libsh "mentor_latest_handoff '$expect_root'")" = "$HAND_L/20260101-000000-legacy-note.md"
-chk "one legacy note → count 1"   test "$(libsh "mentor_live_handoff_count '$expect_root'")" = "1"
-sleep 1
-: > "$HAND_T/20260102-000000-topic-note.md"
-chk "newest wins across locations" test "$(libsh "mentor_latest_handoff '$expect_root'")" = "$HAND_T/20260102-000000-topic-note.md"
-chk "two conforming notes → count 2" test "$(libsh "mentor_live_handoff_count '$expect_root'")" = "2"
-sleep 1
-: > "$HAND_T/not-a-handoff.md"    # newest mtime, but non-conforming name → skipped
-chk "non-conforming name skipped" test "$(libsh "mentor_latest_handoff '$expect_root'")" = "$HAND_T/20260102-000000-topic-note.md"
-chk "non-conforming name not counted" test "$(libsh "mentor_live_handoff_count '$expect_root'")" = "2"
-mkdir -p "$HAND_T/resolved"
-mv "$HAND_T/20260102-000000-topic-note.md" "$HAND_T/resolved/"   # the resolve stamp
-chk "resolved-stamped note skipped" test "$(libsh "mentor_latest_handoff '$expect_root'")" = "$HAND_L/20260101-000000-legacy-note.md"
-chk "resolved note drops out of count" test "$(libsh "mentor_live_handoff_count '$expect_root'")" = "1"
-rm -rf "$STATE/plans" "$HAND_L"
-# No repo → defaults to the portable state tree (where the handoff skill writes
-# no-repo notes), while preserving an existing Claude-era tree.
-chk "no repo + no _no-repo notes → empty" test -z "$(libsh "mentor_latest_handoff ''")"
-chk "no repo + no _no-repo notes → count 0" test "$(libsh "mentor_live_handoff_count ''")" = "0"
-NR="$SANDBOX/.local/state/mentor/_no-repo/plans/nr-topic/handoffs"
-mkdir -p "$NR"
-: > "$NR/20260103-000000-nr-note.md"
-chk "no repo → _no-repo fallback note found" test "$(libsh "mentor_latest_handoff ''")" = "$NR/20260103-000000-nr-note.md"
-chk "no repo → _no-repo fallback count 1" test "$(libsh "mentor_live_handoff_count ''")" = "1"
-rm -rf "$SANDBOX/.local/state/mentor"
-LEGACY_NR="$SANDBOX/.claude/mentor/_no-repo/plans/legacy/handoffs"
-mkdir -p "$LEGACY_NR"
-: > "$LEGACY_NR/20260104-000000-legacy-note.md"
-chk "existing Claude fallback remains readable" test "$(libsh "mentor_latest_handoff ''")" = "$LEGACY_NR/20260104-000000-legacy-note.md"
+echo "== I. mentor_no_repo_state_dir — portable default, existing Claude-era tree kept, override wins =="
+chk "default → XDG state tree" \
+  test "$(libsh "mentor_no_repo_state_dir")" = "$SANDBOX/.local/state/mentor/_no-repo"
+mkdir -p "$SANDBOX/.claude/mentor/_no-repo"
+chk "existing Claude fallback stays in use" \
+  test "$(libsh "mentor_no_repo_state_dir")" = "$SANDBOX/.claude/mentor/_no-repo"
 rm -rf "$SANDBOX/.claude/mentor"
 OVERRIDE_NR="$SANDBOX/custom-mentor-state/_no-repo"
 chk "MENTOR_STATE_HOME overrides no-repo base" test "$(HOME="$SANDBOX" MENTOR_STATE_HOME="$SANDBOX/custom-mentor-state" bash -c '. "'$LIB'"; mentor_no_repo_state_dir')" = "$OVERRIDE_NR"
 echo "== J. mentor_find_transcript / mentor_context_verdict (the shared warn-only check) =="
 # One implementation, two callers: begin-plan.sh at arm time and `plan-state.sh
-# context`, which /mentor:track runs before it dispatches. Warn-only (v4.2.0): over the
+# context`. Warn-only (v4.2.0): over the
 # ask threshold the verdict is HIGH and every caller proceeds — never stricter than the gate.
 CFG="$ROOT/cfg"; mkdir -p "$CFG/projects/proj"
 mkverdict_tx() { python3 - "$CFG/projects/proj/sess.jsonl" "$1" <<'PY'
@@ -578,8 +524,8 @@ chk "fail-soft on empty args"        libsh "mentor_ensure_private_dir '' ''"
 chk "fail-soft on unwritable parent" libsh "mentor_ensure_private_dir '$PSTATE' '/proc/nope/x'"
 
 echo "== mentor_confine_path — canonicalize + refuse anything outside <state_dir> =="
-# Shared by handoff-path/handoff-selfcheck (ensure-dir keeps its own older inline copy) —
-# a model-chosen path segment (a plan slug, a handoff topic) reaches an mkdir/mv call site,
+# The shared confinement guard (ensure-dir keeps its own older inline copy) —
+# a model-chosen path segment (such as a plan slug) reaches an mkdir/mv call site,
 # so refusing anything that resolves outside <state_dir> is the one thing this must get right.
 out="$(libsh "mentor_confine_path '$PSTATE' '$PSTATE/plans/slug'")"; rc=$?
 chk "inside → exit 0"                     test "$rc" = "0"
@@ -703,7 +649,7 @@ libsh "mentor_plan_state_write '$PLANS/ow1' --state draft --owner wt-main-111 --
 chk "owner stored"         test "$(libsh "mentor_plan_owner '$PLANS/ow1'")" = "wt-main-111"
 chk "owner_session stored" test "$(libsh "mentor_plan_state_field '$PLANS/ow1' owner_session")" = "sess-1"
 # Omitted --owner on a plain write PRESERVES the stored value — the same
-# omit=preserve contract --group/--order/--deps/--origin already carry.
+# omit=preserve contract --group/--order/--deps already carry.
 libsh "mentor_plan_state_write '$PLANS/ow1' --state approved"
 chk "owner preserved across a write that omits --owner"     test "$(libsh "mentor_plan_owner '$PLANS/ow1'")" = "wt-main-111"
 chk "owner_session preserved too"                            test "$(libsh "mentor_plan_state_field '$PLANS/ow1' owner_session")" = "sess-1"
@@ -713,14 +659,14 @@ chk "explicit empty --owner clears it"                        test -z "$(libsh "
 chk "clearing --owner alone leaves owner_session untouched"  test "$(libsh "mentor_plan_state_field '$PLANS/ow1' owner_session")" = "sess-1"
 libsh "mentor_plan_state_write '$PLANS/ow1' --owner-session ''"
 chk "explicit empty --owner-session clears it"                test -z "$(libsh "mentor_plan_state_field '$PLANS/ow1' owner_session")"
-# Re-owning (the init/claim re-stamp path): a fresh --owner set wins outright.
+# Re-owning (the init/relocate re-stamp path): a fresh --owner set wins outright.
 libsh "mentor_plan_state_write '$PLANS/ow1' --owner wt-b-222 --owner-session sess-2"
 chk "re-owning sets the new owner"         test "$(libsh "mentor_plan_owner '$PLANS/ow1'")" = "wt-b-222"
 chk "re-owning sets the new owner_session" test "$(libsh "mentor_plan_state_field '$PLANS/ow1' owner_session")" = "sess-2"
 
 # Readback of an OLD sidecar (pre-2.23.0, no owner/owner_session keys at all — or one an
 # older cached plugin copy rewrote without them) must still work: mentor_plan_owner
-# jq-defaults a missing key to unowned, same as deps/origin.
+# jq-defaults a missing key to unowned, same as deps.
 mkdir -p "$PLANS/oldsc"
 cat > "$PLANS/oldsc/.state.json" <<'JSON'
 {"state":"approved","group":null,"order":null,"note":"","deps":[],"origin":null}
@@ -734,205 +680,22 @@ chk "upgrading write preserves the pre-existing state" test "$(libsh "mentor_pla
 chk "upgrading write adds the owner"                    test "$(libsh "mentor_plan_owner '$PLANS/oldsc'")" = "wt-c-333"
 rm -rf "$PLANS"
 
-echo "== O2. mentor_plan_state_write --priority — closed vocabulary, set / preserve-on-omit / clear-on-explicit-empty (v2.24.0) =="
-chk "priority_valid accepts every tier" \
-  libsh 'for p in critical high medium low noise; do mentor_plan_priority_valid "$p" || exit 1; done'
-chk "priority_valid rejects a typo"     libsh '! mentor_plan_priority_valid hgih'
-chk "priority_valid rejects empty"      libsh '! mentor_plan_priority_valid ""'
-chk "priority_valid is a predicate, safe under set -e" \
-  libsh 'if mentor_plan_priority_valid nope; then :; fi; echo ok >/dev/null'
-
-mkdir -p "$PLANS/pr1"
-libsh "mentor_plan_state_write '$PLANS/pr1' --state draft --priority critical --note 'n'"
-chk "priority stored"                   test "$(libsh "mentor_plan_priority '$PLANS/pr1'")" = "critical"
-# Omitted --priority on a plain write PRESERVES — the same omit=preserve contract
-# --group/--order/--deps/--origin/--owner already carry. This is the property the
-# whole feature rests on: a tier set once must survive every later state transition.
-libsh "mentor_plan_state_write '$PLANS/pr1' --state approved"
-chk "priority preserved across a write that omits it" test "$(libsh "mentor_plan_priority '$PLANS/pr1'")" = "critical"
-chk "the state still moved"                            test "$(libsh "mentor_plan_state_field '$PLANS/pr1' state")" = "approved"
-# Explicit empty CLEARS — the deliberate un-tier path.
-libsh "mentor_plan_state_write '$PLANS/pr1' --priority ''"
-chk "explicit empty --priority clears it"              test -z "$(libsh "mentor_plan_priority '$PLANS/pr1'")"
-chk "clearing --priority leaves the state untouched"   test "$(libsh "mentor_plan_state_field '$PLANS/pr1' state")" = "approved"
-# An INVALID tier rejects the WHOLE write, fail-soft (status 0, nothing changed) —
-# same shape as an invalid --state or --origin. A half-applied write that dropped only
-# the bad field would look to a caller exactly like a successful one.
-libsh "mentor_plan_state_write '$PLANS/pr1' --priority high"
-libsh "mentor_plan_state_write '$PLANS/pr1' --state draft --priority hgih"
-chk "invalid --priority → whole write rejected (state unchanged)"    test "$(libsh "mentor_plan_state_field '$PLANS/pr1' state")" = "approved"
-chk "invalid --priority → whole write rejected (priority unchanged)" test "$(libsh "mentor_plan_priority '$PLANS/pr1'")" = "high"
-chk "invalid --priority never aborts a set -e caller" \
-  libsh "mentor_plan_state_write '$PLANS/pr1' --priority nope; echo ok >/dev/null"
-
-# Readback of an OLD sidecar (pre-2.24.0, no priority key at all — or one an older
-# cached plugin copy rewrote without it) must read as UNPRIORITIZED, never a default.
-mkdir -p "$PLANS/prold"
-cat > "$PLANS/prold/.state.json" <<'JSON'
-{"state":"implemented","group":null,"order":null,"note":"","deps":[],"origin":null,"owner":"wt-x","owner_session":"s"}
+echo "== O2. mentor_plan_state_write MERGES — pre-5.0 keys it no longer manages survive every write (v5.0.0) =="
+mkdir -p "$PLANS/legacy5"
+cat > "$PLANS/legacy5/.state.json" <<'JSON'
+{"state":"draft","note":"n","origin":"deferred","parent":"root-plan","priority":"high","category":"fix","deferred_from":"src-plan","foo":1}
 JSON
-chk "old sidecar (no priority key): reads empty"    test -z "$(libsh "mentor_plan_priority '$PLANS/prold'")"
-chk "old sidecar (no priority key): state reads back" test "$(libsh "mentor_plan_state_field '$PLANS/prold' state")" = "implemented"
-libsh "mentor_plan_state_write '$PLANS/prold' --priority noise"
-chk "upgrading write adds the priority"             test "$(libsh "mentor_plan_priority '$PLANS/prold'")" = "noise"
-chk "upgrading write preserves the state"           test "$(libsh "mentor_plan_state_field '$PLANS/prold' state")" = "implemented"
-chk "upgrading write preserves the owner"           test "$(libsh "mentor_plan_owner '$PLANS/prold'")" = "wt-x"
+legacy_keys() { jq -cS '{origin, parent, priority, category, deferred_from, foo}' "$PLANS/legacy5/.state.json"; }
+before_keys="$(legacy_keys)"
+libsh "mentor_plan_state_write '$PLANS/legacy5' --state approved --deps a,b --owner wt-x --owner-session s"
+chk "managed fields land"             test "$(jq -c '[.state, .deps, .owner]' "$PLANS/legacy5/.state.json")" = '["approved",["a","b"],"wt-x"]'
+chk "unmanaged legacy keys untouched" test "$(legacy_keys)" = "$before_keys"
+# The retired flags are ignored (fail-soft), never applied and never fatal.
+libsh "mentor_plan_state_write '$PLANS/legacy5' --state implemented --origin '' --parent '' --priority bogus"
+chk "retired flags ignored: write still lands" test "$(jq -r .state "$PLANS/legacy5/.state.json")" = "implemented"
+chk "retired flags ignored: legacy keys kept"  test "$(legacy_keys)" = "$before_keys"
 rm -rf "$PLANS"
 
-echo "== O3. mentor_plan_state_write --category — closed vocabulary, set / preserve-on-omit / clear-on-explicit-empty (v2.25.0) =="
-chk "category_valid accepts every kind" \
-  libsh 'for c in feature fix refactor docs tooling; do mentor_plan_category_valid "$c" || exit 1; done'
-chk "category_valid rejects a typo"     libsh '! mentor_plan_category_valid featur'
-chk "category_valid rejects empty"      libsh '! mentor_plan_category_valid ""'
-# The vocabulary deliberately excludes anything test/verify-shaped — the scope rule
-# that keeps a deferred stub's Goal naming work to BUILD, never a check to run.
-chk "category_valid rejects 'test'"     libsh '! mentor_plan_category_valid test'
-chk "category_valid rejects 'verify'"   libsh '! mentor_plan_category_valid verify'
-chk "category_valid is a predicate, safe under set -e" \
-  libsh 'if mentor_plan_category_valid nope; then :; fi; echo ok >/dev/null'
-
-mkdir -p "$PLANS/ct1"
-libsh "mentor_plan_state_write '$PLANS/ct1' --state draft --category fix --note 'n'"
-chk "category stored"                   test "$(libsh "mentor_plan_category '$PLANS/ct1'")" = "fix"
-# Omitted --category on a plain write PRESERVES — the same omit=preserve contract
-# --group/--order/--deps/--origin/--owner/--priority already carry.
-libsh "mentor_plan_state_write '$PLANS/ct1' --state approved"
-chk "category preserved across a write that omits it" test "$(libsh "mentor_plan_category '$PLANS/ct1'")" = "fix"
-chk "the state still moved"                            test "$(libsh "mentor_plan_state_field '$PLANS/ct1' state")" = "approved"
-# Explicit empty CLEARS — the deliberate un-categorize path.
-libsh "mentor_plan_state_write '$PLANS/ct1' --category ''"
-chk "explicit empty --category clears it"              test -z "$(libsh "mentor_plan_category '$PLANS/ct1'")"
-chk "clearing --category leaves the state untouched"   test "$(libsh "mentor_plan_state_field '$PLANS/ct1' state")" = "approved"
-# An INVALID category rejects the WHOLE write, fail-soft (status 0, nothing changed) —
-# same shape as an invalid --state/--origin/--priority. A half-applied write that
-# dropped only the bad field would look to a caller exactly like a successful one.
-libsh "mentor_plan_state_write '$PLANS/ct1' --category tooling"
-libsh "mentor_plan_state_write '$PLANS/ct1' --state draft --category verify"
-chk "invalid --category → whole write rejected (state unchanged)"    test "$(libsh "mentor_plan_state_field '$PLANS/ct1' state")" = "approved"
-chk "invalid --category → whole write rejected (category unchanged)" test "$(libsh "mentor_plan_category '$PLANS/ct1'")" = "tooling"
-chk "invalid --category never aborts a set -e caller" \
-  libsh "mentor_plan_state_write '$PLANS/ct1' --category nope; echo ok >/dev/null"
-
-# Readback of an OLD sidecar (pre-2.25.0, no category key at all) must read as
-# UNCATEGORIZED, never a default.
-mkdir -p "$PLANS/ctold"
-cat > "$PLANS/ctold/.state.json" <<'JSON'
-{"state":"implemented","group":null,"order":null,"note":"","deps":[],"origin":null,"priority":"critical"}
-JSON
-chk "old sidecar (no category key): reads empty"      test -z "$(libsh "mentor_plan_category '$PLANS/ctold'")"
-chk "old sidecar (no category key): state reads back" test "$(libsh "mentor_plan_state_field '$PLANS/ctold' state")" = "implemented"
-libsh "mentor_plan_state_write '$PLANS/ctold' --category docs"
-chk "upgrading write adds the category"             test "$(libsh "mentor_plan_category '$PLANS/ctold'")" = "docs"
-chk "upgrading write preserves the state"           test "$(libsh "mentor_plan_state_field '$PLANS/ctold' state")" = "implemented"
-chk "upgrading write preserves the (unrelated) priority field too" \
-  test "$(libsh "mentor_plan_priority '$PLANS/ctold'")" = "critical"
-rm -rf "$PLANS"
-
-echo "== O4. mentor_plan_state_write --deferred-from / mentor_plan_deferred_from — UNVALIDATED pass-through, set / preserve-on-omit / clear-on-explicit-empty (v2.25.0) =="
-mkdir -p "$PLANS/df1"
-chk "unset deferred_from reads empty" test -z "$(libsh "mentor_plan_deferred_from '$PLANS/df1'")"
-libsh "mentor_plan_state_write '$PLANS/df1' --state draft --deferred-from some-plan --note 'n'"
-chk "deferred_from stored"            test "$(libsh "mentor_plan_deferred_from '$PLANS/df1'")" = "some-plan"
-# UNVALIDATED, like a `deps` target — any string is accepted, including a slug for a
-# plan dir that doesn't exist; the dangle is a render-time concern, not this layer's.
-libsh "mentor_plan_state_write '$PLANS/df1' --deferred-from no-such-plan-at-all"
-chk "deferred_from accepts a dangling slug (unvalidated)" \
-  test "$(libsh "mentor_plan_deferred_from '$PLANS/df1'")" = "no-such-plan-at-all"
-# Omitted --deferred-from on a plain write PRESERVES — the same omit=preserve
-# contract every other field here carries.
-libsh "mentor_plan_state_write '$PLANS/df1' --state approved"
-chk "deferred_from preserved across a write that omits it" \
-  test "$(libsh "mentor_plan_deferred_from '$PLANS/df1'")" = "no-such-plan-at-all"
-chk "the state still moved"                                  test "$(libsh "mentor_plan_state_field '$PLANS/df1' state")" = "approved"
-# Explicit empty CLEARS.
-libsh "mentor_plan_state_write '$PLANS/df1' --deferred-from ''"
-chk "explicit empty --deferred-from clears it"              test -z "$(libsh "mentor_plan_deferred_from '$PLANS/df1'")"
-chk "clearing --deferred-from leaves the state untouched"   test "$(libsh "mentor_plan_state_field '$PLANS/df1' state")" = "approved"
-
-# Readback of an OLD sidecar (pre-2.25.0, no deferred_from key at all) reads empty,
-# same as every other jq-defaulted field; a later write upgrades it in place.
-mkdir -p "$PLANS/dfold"
-cat > "$PLANS/dfold/.state.json" <<'JSON'
-{"state":"draft","group":null,"order":null,"note":"","deps":[],"origin":"deferred"}
-JSON
-chk "old sidecar (no deferred_from key): reads empty"        test -z "$(libsh "mentor_plan_deferred_from '$PLANS/dfold'")"
-chk "old sidecar (no deferred_from key): origin reads back"  test "$(libsh "mentor_plan_origin '$PLANS/dfold'")" = "deferred"
-libsh "mentor_plan_state_write '$PLANS/dfold' --deferred-from origin-plan"
-chk "upgrading write adds deferred_from"              test "$(libsh "mentor_plan_deferred_from '$PLANS/dfold'")" = "origin-plan"
-chk "upgrading write preserves origin"                test "$(libsh "mentor_plan_origin '$PLANS/dfold'")" = "deferred"
-rm -rf "$PLANS"
-
-echo "== P. mentor_plan_would_cycle_parent — self/2-node/3-node parent-cycle detection (v2.29.0) =="
-mkdir -p "$PLANS/p-a" "$PLANS/p-b" "$PLANS/p-c"
-chk "no cycle: giving p-a a parent p-b when neither has a parent chain" \
-  test -z "$(libsh "mentor_plan_would_cycle_parent '$PLANS' p-a p-b")"
-chk "direct self-parent detected"       test "$(libsh "mentor_plan_would_cycle_parent '$PLANS' p-a p-a")" = "cycle"
-# p-b's parent is p-a (stored). Giving p-a a parent of p-b would close p-a→p-b→p-a.
-libsh "mentor_plan_state_write '$PLANS/p-b' --parent p-a"
-chk "2-node cycle detected (p-b's parent already p-a)" \
-  test "$(libsh "mentor_plan_would_cycle_parent '$PLANS' p-a p-b")" = "cycle"
-# 3-node: p-c's parent is p-b, p-b's parent is p-a. Giving p-a a parent of p-c closes
-# p-a → p-c → p-b → p-a.
-libsh "mentor_plan_state_write '$PLANS/p-c' --parent p-b"
-chk "3-node transitive cycle detected"  test "$(libsh "mentor_plan_would_cycle_parent '$PLANS' p-a p-c")" = "cycle"
-chk "unknown tentative parent is a dead end, not an error" \
-  test -z "$(libsh "mentor_plan_would_cycle_parent '$PLANS' p-a does-not-exist")"
-chk "fail-soft: no plans_dir → empty"        test -z "$(libsh "mentor_plan_would_cycle_parent '' p-a p-b")"
-chk "fail-soft: no slug → empty"             test -z "$(libsh "mentor_plan_would_cycle_parent '$PLANS' '' p-b")"
-chk "fail-soft: no tentative parent → empty" test -z "$(libsh "mentor_plan_would_cycle_parent '$PLANS' p-a ''")"
-rm -rf "$PLANS"
-
-echo "== Q. mentor_plan_descendants — transitive descendants via parent chains, breadth-first (v2.29.0) =="
-mkdir -p "$PLANS/root" "$PLANS/child1" "$PLANS/child2" "$PLANS/grandchild"
-chk "no descendants → empty"  test -z "$(libsh "mentor_plan_descendants '$PLANS' root")"
-libsh "mentor_plan_state_write '$PLANS/child1' --parent root"
-libsh "mentor_plan_state_write '$PLANS/child2' --parent root"
-libsh "mentor_plan_state_write '$PLANS/grandchild' --parent child1"
-got="$(libsh "mentor_plan_descendants '$PLANS' root" | sort)"
-chk "descendants: children + grandchild, one per line" \
-  test "$got" = "$(printf '%s\n' child1 child2 grandchild | sort)"
-chk "a leaf slug (grandchild) has no descendants of its own" \
-  test -z "$(libsh "mentor_plan_descendants '$PLANS' grandchild")"
-chk "fail-soft: no plans_dir → empty" test -z "$(libsh "mentor_plan_descendants '' root")"
-chk "fail-soft: no slug → empty"      test -z "$(libsh "mentor_plan_descendants '$PLANS' ''")"
-rm -rf "$PLANS"
-
-echo "== R. mentor_plan_state_write --parent / mentor_plan_parent — set / preserve-on-omit / clear-on-explicit-empty, UNVALIDATED at this layer (v2.29.0) =="
-mkdir -p "$PLANS/pt1"
-chk "unset parent reads empty" test -z "$(libsh "mentor_plan_parent '$PLANS/pt1'")"
-libsh "mentor_plan_state_write '$PLANS/pt1' --state draft --parent some-root --note 'n'"
-chk "parent stored" test "$(libsh "mentor_plan_parent '$PLANS/pt1'")" = "some-root"
-# UNVALIDATED at this layer, like deps/deferred_from targets — existence+cycle
-# validation lives one layer up, in plan-state.sh's init/set-parent.
-libsh "mentor_plan_state_write '$PLANS/pt1' --parent no-such-plan-at-all"
-chk "parent accepts a dangling slug (unvalidated at this layer)" \
-  test "$(libsh "mentor_plan_parent '$PLANS/pt1'")" = "no-such-plan-at-all"
-# Omitted --parent on a plain write PRESERVES — the same omit=preserve contract
-# --group/--order/--deps/--origin/--owner/--priority/--category/--deferred-from
-# already carry.
-libsh "mentor_plan_state_write '$PLANS/pt1' --state approved"
-chk "parent preserved across a write that omits it" \
-  test "$(libsh "mentor_plan_parent '$PLANS/pt1'")" = "no-such-plan-at-all"
-chk "the state still moved" test "$(libsh "mentor_plan_state_field '$PLANS/pt1' state")" = "approved"
-# Explicit empty CLEARS — the deliberate detach-from-parent path.
-libsh "mentor_plan_state_write '$PLANS/pt1' --parent ''"
-chk "explicit empty --parent clears it" test -z "$(libsh "mentor_plan_parent '$PLANS/pt1'")"
-chk "clearing --parent leaves the state untouched" test "$(libsh "mentor_plan_state_field '$PLANS/pt1' state")" = "approved"
-
-# Readback of an OLD sidecar (pre-2.29.0, no parent key at all) reads empty, same as
-# every other jq-defaulted field; a later write upgrades it in place.
-mkdir -p "$PLANS/ptold"
-cat > "$PLANS/ptold/.state.json" <<'JSON'
-{"state":"implemented","group":null,"order":null,"note":"","deps":[],"origin":null,"priority":"high"}
-JSON
-chk "old sidecar (no parent key): reads empty"       test -z "$(libsh "mentor_plan_parent '$PLANS/ptold'")"
-chk "old sidecar (no parent key): state reads back"  test "$(libsh "mentor_plan_state_field '$PLANS/ptold' state")" = "implemented"
-libsh "mentor_plan_state_write '$PLANS/ptold' --parent root-plan"
-chk "upgrading write adds the parent"        test "$(libsh "mentor_plan_parent '$PLANS/ptold'")" = "root-plan"
-chk "upgrading write preserves the state"    test "$(libsh "mentor_plan_state_field '$PLANS/ptold' state")" = "implemented"
-chk "upgrading write preserves the (unrelated) priority field too" \
-  test "$(libsh "mentor_plan_priority '$PLANS/ptold'")" = "high"
-rm -rf "$PLANS"
 echo "== S. mentor_sweep_roots / mentor_sweep — the portable self-reporting search (v2.33.0) =="
 # A fixture that reproduces the actual bug: a directive parked in a note under a
 # `.mentor/` whose own .gitignore is `*`. A recursive grep rooted at or above that file
@@ -950,8 +713,10 @@ printf 'GITONLY-TOK\n'                            > "$SW/.git/planted.txt"
 BARESW="$ROOT/sweep-bare"                          # git repo, none of the three roots
 git init -q -b main "$BARESW" >/dev/null 2>&1
 
-chk "policy lists all 3 existing roots" \
-  test "$(libsh "mentor_sweep_roots '$SW' policy" | grep -c . )" = "3"
+chk "default set is plans" \
+  test "$(libsh "mentor_sweep_roots '$SW'")" = "$SW/.mentor/plans"
+chk "retired policy set echoes nothing" \
+  test -z "$(libsh "mentor_sweep_roots '$SW' policy")"
 chk "plans lists exactly the main repo's plans dir" \
   test "$(libsh "mentor_sweep_roots '$SW' plans")" = "$SW/.mentor/plans"
 chk "repo lists the worktree toplevel" \
@@ -960,28 +725,28 @@ chk "unknown set echoes nothing (the CLI owns the usage error)" \
   test -z "$(libsh "mentor_sweep_roots '$SW' bogus")"
 chk "non-git cwd → no roots for repo" \
   test -z "$(libsh "mentor_sweep_roots '$NONGIT' repo")"
-chk "non-git cwd → no roots for policy either" \
-  test -z "$(libsh "mentor_sweep_roots '$NONGIT' policy")"
-chk "a repo missing CLAUDE.md/.claude skips them rather than erroring" \
-  test -z "$(libsh "mentor_sweep_roots '$BARESW' policy")"
+chk "non-git cwd → no roots for plans either" \
+  test -z "$(libsh "mentor_sweep_roots '$NONGIT' plans")"
+chk "a repo with no .mentor/plans skips it rather than erroring" \
+  test -z "$(libsh "mentor_sweep_roots '$BARESW' plans")"
 
 # The counts line is `<roots> <files> <hits>`, always the FIRST line of output.
 sw_counts() { libsh "mentor_sweep $*" | head -1; }
-chk "gitignored note IS found (policy set)" \
-  test "$(sw_counts "'$SW' policy 'No subagents'" | cut -d' ' -f3)" = "1"
 chk "  hit line carries path:line: (the -H case)" \
   bash -c 'printf "%s\n" "$1" | grep -q "handoffs/n.md:3:"' _ \
-    "$(libsh "mentor_sweep '$SW' policy 'No subagents'")"
-chk "plans set also reaches it" \
+    "$(libsh "mentor_sweep '$SW' plans 'No subagents'")"
+chk "gitignored note IS found (plans set)" \
   test "$(sw_counts "'$SW' plans 'No subagents'" | cut -d' ' -f3)" = "1"
 chk "repo set reaches .mentor/ too" \
   test "$(sw_counts "'$SW' repo 'No subagents'" | cut -d' ' -f3)" = "1"
-chk "policy does NOT reach src/ (healthy negative)" \
-  test "$(sw_counts "'$SW' policy SRCONLY-TOK" | cut -d' ' -f3)" = "0"
+chk "plans does NOT reach src/ (healthy negative)" \
+  test "$(sw_counts "'$SW' plans SRCONLY-TOK" | cut -d' ' -f3)" = "0"
 chk "  …and its files= denominator is non-zero, so the zero is evidence" \
-  test "$(sw_counts "'$SW' policy SRCONLY-TOK" | cut -d' ' -f2)" -gt 0
+  test "$(sw_counts "'$SW' plans SRCONLY-TOK" | cut -d' ' -f2)" -gt 0
 chk "repo DOES reach src/" \
   test "$(sw_counts "'$SW' repo SRCONLY-TOK" | cut -d' ' -f3)" = "1"
+chk "repo DOES reach CLAUDE.md" \
+  test "$(sw_counts "'$SW' repo CLAUDEONLY-TOK" | cut -d' ' -f3)" = "1"
 chk "plans does NOT reach CLAUDE.md" \
   test "$(sw_counts "'$SW' plans CLAUDEONLY-TOK" | cut -d' ' -f3)" = "0"
 chk "repo PRUNES .git/ (planted token unreachable)" \
@@ -989,36 +754,34 @@ chk "repo PRUNES .git/ (planted token unreachable)" \
 chk "no roots → '0 0 0', never a bare empty line" \
   test "$(sw_counts "'$BARESW' plans anything")" = "0 0 0"
 chk "empty pattern → '0 0 0' (fail-soft, no stdin hang)" \
-  test "$(sw_counts "'$SW' policy ''")" = "0 0 0"
+  test "$(sw_counts "'$SW' plans ''")" = "0 0 0"
 chk "case-sensitive by default" \
-  test "$(sw_counts "'$SW' policy mixedcase-tok" | cut -d' ' -f3)" = "0"
+  test "$(sw_counts "'$SW' repo mixedcase-tok" | cut -d' ' -f3)" = "0"
 chk "ignore_case arg matches mixed case" \
-  test "$(sw_counts "'$SW' policy mixedcase-tok 1" | cut -d' ' -f3)" = "1"
+  test "$(sw_counts "'$SW' repo mixedcase-tok 1" | cut -d' ' -f3)" = "1"
 chk "files= equals an independent find count (plans)" \
   test "$(sw_counts "'$SW' plans 'No subagents'" | cut -d' ' -f2)" \
      = "$(find "$SW/.mentor/plans" -type f | wc -l | tr -d ' ')"
 chk "roots= counts the roots actually searched" \
-  test "$(sw_counts "'$SW' policy 'No subagents'" | cut -d' ' -f1)" = "3"
+  test "$(sw_counts "'$SW' plans 'No subagents'" | cut -d' ' -f1)" = "1"
 # Fail-soft under the caller CONTRACT: libsh runs `set -euo pipefail`, so a non-zero rc
 # here means the helper aborted its caller — the one thing lib/state.sh may never do.
 chk "mentor_sweep never aborts a set -e caller (no match)" \
-  libsh "mentor_sweep '$SW' policy DEFINITELY-ABSENT-XYZZY >/dev/null"
+  libsh "mentor_sweep '$SW' plans DEFINITELY-ABSENT-XYZZY >/dev/null"
 chk "mentor_sweep never aborts a set -e caller (no roots)" \
   libsh "mentor_sweep '$BARESW' plans x >/dev/null"
 chk "mentor_sweep_roots never aborts a set -e caller (bad set)" \
   libsh "mentor_sweep_roots '$SW' bogus >/dev/null"
 chk "mentor_sweep tolerates a pattern starting with a dash" \
-  libsh "mentor_sweep '$SW' policy '-not-a-flag' >/dev/null"
+  libsh "mentor_sweep '$SW' plans '-not-a-flag' >/dev/null"
 
-# Linked worktree: own CLAUDE.md, shared .mentor/plans. One resolution for both is wrong.
+# Linked worktree: repo = its OWN checkout, plans = the shared .mentor/plans.
 SWWT="$ROOT/sweep-wt"
 git -C "$SW" worktree add -q "$SWWT" -b sweep-wt >/dev/null 2>&1
 if [ -d "$SWWT" ]; then
   printf 'WTONLY-TOK\n' > "$SWWT/CLAUDE.md"
-  chk "linked worktree reads its OWN CLAUDE.md" \
-    test "$(sw_counts "'$SWWT' policy WTONLY-TOK" | cut -d' ' -f3)" = "1"
-  chk "…not the main worktree's" \
-    test "$(sw_counts "'$SWWT' policy CLAUDEONLY-TOK" | cut -d' ' -f3)" = "0"
+  chk "linked worktree's repo set reads its OWN CLAUDE.md" \
+    test "$(sw_counts "'$SWWT' repo WTONLY-TOK" | cut -d' ' -f3)" = "1"
   chk "…while plans still resolves to the MAIN repo's .mentor" \
     test "$(libsh "mentor_sweep_roots '$SWWT' plans")" = "$SW/.mentor/plans"
   chk "…so the shared directive is still found from the worktree" \

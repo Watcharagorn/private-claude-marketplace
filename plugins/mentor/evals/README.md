@@ -2,19 +2,15 @@
 
 `hooks/tests/` proves the scripts behave. This proves the **descriptions** do: that a
 user's phrasing reaches the skill it should, and — more importantly — not one of its
-fourteen siblings.
+seven siblings.
 
-mentor ships fifteen overlapping user-facing skills (`planning`, `plan-split`,
-`plan-track`, `plan-review`, `grilling`, `dispatch-agents`, `resuming`, `handoff-note`,
-`touring`, `previewing`, `merging`, `shipping`, `deferring`, `constitution-authoring`,
-`frontend-self-ex-review`).
-The risk that
-matters is not "does `plan-split` trigger" but "does `plan-split` fire when the user
-meant `plan-track`" — or, since v4.0.0, "does `previewing` steal `touring`'s
-acceptance-page queries, or `plan-review`'s 'review the plan'" (all three look at a plan;
-they differ on page against verdict, and on pass/not-pass interaction).
-A description tuned on its own can score perfectly and still
-collide, so this harness stages **all fifteen at once** and records which one wins.
+mentor ships eight overlapping user-facing skills (`planning`, `plan-split`, `grilling`,
+`previewing`, `merging`, `shipping`, `constitution-authoring`, `frontend-self-ex-review`).
+The risk that matters is not "does `plan-split` trigger" but "does `plan-split` fire when
+the user meant `planning`" — or "does `previewing` steal `frontend-self-ex-review`'s UI
+queries" (both look at screens; they differ on a review page against a self-explanatory
+verdict). A description tuned on its own can score perfectly and still collide, so this
+harness stages **all eight at once** and records which one wins.
 
 Note the skill names are the **skill** names, not the command names: since v2.18.0 no
 skill shares a name with a command (`/mentor:plan` → skill `planning`, and so on), which
@@ -29,7 +25,7 @@ python3 harness.py claude claude-opus-5 2  # <host> <model> <reps-per-query>
 python3 harness.py codex gpt-5.6-sol 2
 ```
 
-Needs the selected host CLI on PATH and its normal authentication. ~73 queries × reps run six
+Needs the selected host CLI on PATH and its normal authentication. ~42 queries × reps run six
 at a time. The scratch projects and `results-<host>.json` files are written to
 `$TMPDIR/mentor-trigger-eval/` (override with `MENTOR_EVAL_WORKDIR`) — never into the repo.
 Keep Claude and Codex baselines separate because model routing behavior is not interchangeable.
@@ -65,6 +61,14 @@ earlier description drafts are not comparable: one that read as review-only lost
 textless" requests (#62 0/2) until the description said to use the skill first even when the
 user asks for the change. A full-suite re-baseline is still pending.
 
+**v5.0.0** removed `plan-track`, `plan-review`, `dispatch-agents`, `resuming`,
+`handoff-note`, `touring` and `deferring`, so the harness stages 8 skills. Their 34 queries
+went: 30 deleted, and 4 kept as `none` negatives — #6 ("where were we"), #11 (fan out to
+subagents), #13 (write up where we are for a fresh session) and #36 (note a bug for later) —
+since no mentor skill owns those asks any more. The set is now 42 queries (25 skill, 17
+`none`). Every number above was measured on the larger skill set and is not comparable;
+re-baseline on the first run.
+
 ## Seed the fixture first — this is not optional
 
 ```bash
@@ -73,7 +77,7 @@ python3 seed.py "$TMPDIR/mentor-trigger-eval/project-codex"
 ```
 
 `harness.py` stages the skills but not the plans they talk about. Against an empty
-project, a query like *"is the invoice plan any good?"* makes the model hunt for a
+project, a query like *"comment on each scenario of the onboarding plan"* makes the model hunt for a
 file that isn't there and answer empty-handed. That scores as "did not trigger" and
 is **indistinguishable from a genuinely weak description**.
 
@@ -86,14 +90,14 @@ description.
 
 `seed.py` lays down a superseded parent, three split children with isolation headers and
 state sidecars, an implemented standalone plan, an approved `user-onboarding` plan
-(query 59), a live handoff note, and one review page at
-`.mentor/reviews/billing-invoice/review.html`, so query 32's refresh finds a prior page.
-It also lays down a QA tour page under `.mentor/tours/` (query 34), a work queue in the
-billing-invoice plan's context (query 27), and four subject stubs — payment, ingestion,
-auth, checkout — for queries 22–24 and 44, which name an area with no plan.
+(query 59), and one review page at `.mentor/reviews/billing-invoice/review.html`, so
+query 32's refresh finds a prior page. It also lays down a work queue in the
+billing-invoice plan's context and four subject stubs — payment, ingestion, auth,
+checkout — for queries 22–24 and 44, which name an area with no plan.
 
-The v4.0.0 fixture added the tour page, the queue line, the stubs and the onboarding
-plan; results from older fixtures are not comparable on ids 22–24, 27, 34, 44 and 59.
+The v4.0.0 fixture added a tour page, the queue line, the stubs and the onboarding
+plan; results from older fixtures are not comparable on ids 22–24, 44 and 59. v5.0.0
+dropped the handoff note and the tour page along with the skills that read them.
 
 ## The eval set
 
@@ -101,37 +105,24 @@ plan; results from older fixtures are not comparable on ids 22–24, 27, 34, 44 
 carries the skill that *should* win, or `none`. A binary label cannot express a
 collision, which is the whole point here.
 
-Many queries are near-misses chosen to be genuinely hard — `resume` vs `plan-track` on
-"where were we", `plan-review` vs `grilling` on "review" vs "poke holes", `previewing`
-vs `touring` on "a page" (a pre-approval review page vs pass/not-pass acceptance),
-`previewing` vs `plan-review` on "a proper look at the plan" and "review the plan", and
-five keyword baits (`break up` commits, `split` a component, `review` a PR, `track` a
-sprint, a video-call meeting) that share vocabulary with a skill but must trigger
-nothing.
+Many queries are near-misses chosen to be genuinely hard — `plan-split` vs an
+in-document re-phasing (#3), `previewing` vs `frontend-self-ex-review` on a page of the
+frontend (#68), `shipping` vs `merging` on "get it up as a PR" (#30), and keyword baits
+(`break up` commits, `split` a component, `review` a PR, `track` a sprint, a video-call
+meeting, the US constitution, a general UI review, a component code review) that share
+vocabulary with a skill but must trigger nothing. The four v5.0.0 negatives (#6, #11,
+#13, #36) guard the opposite drift: a kept skill quietly absorbing a removed one's asks.
 
 ## Known failures
 
 - **#20** is intentionally green from v3.1.0 onward: natural-language planning is the
   portable entry point. Claude can still add the `/mentor:plan` command and edit gate,
   while Codex follows the same skill guidance-first.
-- **#2** is a flawed query, deliberately left alone. It reuses `plan-track`'s own
+- **#2** is a flawed query, deliberately left alone. It borrows the old plan-status
   phrase "one session at a time" and gives "break this up" no referent. Tuning a
   description to win it would be overfitting to a bad test.
-- **#37** (`handoff-note` vs `deferring`) fell from 4/6 on the 3.1.0 skills to 2/6 at
-  v4.0.0 in the 6-rep re-measure on the same fixture (2026-10-11). It is set aside and
-  not yet explained; read a red #37 as a possible description regression until it is.
-
-- **#55** (`dispatch-agents` on a goal-blocking verification gap, added in v2.33.0) is
-  **not baselined**. Measured over 10 runs it splits between `dispatch-agents` and a bare
-  non-trigger, every run landing in the 55–100s band this file flags as the
-  fixture/latency signature rather than a description defect — and untouched **#45**, a
-  pre-existing core trigger whose description v2.33.0 never edited, fails 4/4 the same
-  slow way in the same environment. What #55 exists to guard **does** hold flat: across
-  all 10 runs `deferring` never fired once. The v4.0.0 baseline above measured the whole
-  set, #55 included, on the current fixture: #55 went to no skill on both reps (0/2),
-  as it did for the 3.1.0 skills. Compare a red #55 with that run, not with this note.
 
 When you add a skill, run this first. A new sibling that quietly steals
 an existing skill's queries is exactly what it is here to catch — v2.12.0's topic ×
-perspective page skill (vs `tour`, vs `plan-review`) is the worked example, and v4.0.0's
-`previewing` adds near-misses against the same two.
+perspective page skill (checked against the then-staged `tour` and `plan-review`, since removed) is the worked example, and v4.1.0's
+`frontend-self-ex-review` added near-misses against `previewing`.

@@ -3,14 +3,14 @@
 # Source from a hook (hooks.json invokes hooks by absolute path, so this resolves):
 #   . "$(dirname "${BASH_SOURCE[0]}")/lib/state.sh"
 #
-# Layout (v2.11.0 — project-scoped, one directory per plan topic; handoffs and the
-# lifecycle-state sidecar live inside it):
+# Layout (project-scoped, one directory per plan topic; the lifecycle-state sidecar
+# lives inside it):
 #   <repo_root>/.mentor/
 #   ├── .gitignore        # commit config.json + constitution.md; ignore transient state
-#   ├── config.json       # {"mode": "plan|plan-only", "dispatch": "agents|verify-only",
-#   │                     #   "context_gate", "context_*_tokens", "context_*_ratio",
+#   ├── config.json       # {"context_gate", "context_*_tokens", "context_*_ratio",
 #   │                     #   "test_command",
 #   │                     #   "diagram_renderer": "diagram-design|fallback" (previewing) ...}
+#   │                     #   (pre-5.0 "mode"/"dispatch" keys are ignored if present)
 #   ├── constitution.md   # governing principles (committed; managed by /mentor:constitution)
 #   ├── plans/            # one .planning.<wt-id> gate marker PER WORKTREE (v2.23.0,
 #   │                     #   mentor_worktree_id/mentor_plan_marker below) + one <slug>/
@@ -18,22 +18,15 @@
 #   │                     #   `.planning` (no suffix) is the reserved LEGACY repo-global
 #   │                     #   marker — blocks every worktree until released/stale.
 #   │   └── <slug>/       #   plan.md (+ hidden .plan.md.opened sidecar)
-#   │       ├── .state.json  # {"state","group","order","note","deps","origin","owner",
-#   │       │                #   "owner_session","priority","category","deferred_from",
-#   │       │                #   "parent"} — written ONLY via plan-state.sh (deps/origin
-#   │       │                #   added v2.17.0; owner/owner_session — the minting/re-owning
-#   │       │                #   worktree, v2.23.0; priority — the impact tier, v2.24.0;
-#   │       │                #   category — the work kind, and deferred_from — the plan
-#   │       │                #   slug a stub was captured out of, both v2.25.0; parent —
-#   │       │                #   the slug of the plan this one must complete before
-#   │       │                #   (existence + cycle checked at write, unlike the looser
-#   │       │                #   deferred_from), v2.29.0 — added below; older or
-#   │       │                #   mixed-version sidecars read back with any missing key
-#   │       │                #   jq-defaulted to []/null/"")
-#   │       └── handoffs/ #   <ts>-<slug>.md; solved/superseded notes → handoffs/resolved/
-#   ├── reviews/          # mentor:previewing pages — <subject-slug>/review.html, _ids.md,
-#   │                     #   _plan.md, _parts/ (fragments) and shots/ (captured pictures)
-#   └── handoffs/         # legacy flat notes (pre-v2.10 — still read, never written)
+#   │       └── .state.json  # {"state","group","order","note","deps","owner",
+#   │                        #   "owner_session"} — written ONLY via plan-state.sh, which
+#   │                        #   MERGES into the existing object, so any other key
+#   │                        #   (e.g. pre-5.0 origin/parent/priority/category/
+#   │                        #   deferred_from) survives untouched and is never read.
+#   │                        #   Older sidecars read back with any missing key
+#   │                        #   jq-defaulted to []/null/"".
+#   └── reviews/          # mentor:previewing pages — <subject-slug>/review.html, _ids.md,
+#                         #   _plan.md, _parts/ (fragments) and shots/ (captured pictures)
 #   (.context-warned-<session_id> markers live at the .mentor/ root.)
 #   Not inside a git repo → callers use mentor_no_repo_state_dir. New installs
 #   default to the XDG state tree; an existing Claude-era fallback is preserved.
@@ -70,8 +63,8 @@ mentor_state_dir() {
 # mentor_no_repo_state_dir — echo the host-neutral fallback for sessions outside a
 # git repository. MENTOR_STATE_HOME is the explicit cross-host override. XDG state is
 # the portable default, while CLAUDE_CONFIG_DIR remains a supported Claude adapter
-# and an already-existing ~/.claude/mentor/_no-repo tree remains readable so an
-# upgrade never strands handoff notes. Not mkdir'd.
+# and an already-existing ~/.claude/mentor/_no-repo tree remains in use so an
+# upgrade never strands earlier state. Not mkdir'd.
 mentor_no_repo_state_dir() {
   local legacy
   if [ -n "${MENTOR_STATE_HOME:-}" ]; then
@@ -195,7 +188,7 @@ mentor_newest_plan() {
 }
 
 # mentor_plan_owner <plan_dir> — echo the sidecar's `owner` (the wt-id that minted or
-# last re-owned this plan dir — see the ensure-dir/init/claim stamping sites), or empty
+# last re-owned this plan dir — see the ensure-dir/init/relocate stamping sites), or empty
 # for unowned (no sidecar / no jq / corrupt / unset / null — including a pre-v2.23.0
 # plan dir, or one whose sidecar was rewritten by an older cached plugin copy that
 # doesn't know the `owner` key and strips it). Thin wrapper over the generic scalar
@@ -258,7 +251,7 @@ mentor_newly_planned() {
 }
 
 # mentor_ensure_gitignore <state_dir> — idempotently write <state_dir>/.gitignore so
-# only config.json is committed and transient session state (plans, handoffs, markers)
+# only config.json is committed and transient session state (plans, markers)
 # stays out of `git status`. Never overwrites an existing file — a user may un-ignore
 # plans/ to version-control plans. Fail-soft: bad input / unwritable → status 0.
 mentor_ensure_gitignore() {
@@ -267,7 +260,7 @@ mentor_ensure_gitignore() {
   [ -e "${state_dir}/.gitignore" ] && return 0
   cat > "${state_dir}/.gitignore" 2>/dev/null <<'GITIGNORE' || true
 # mentor — project-scoped state. Committed: config.json, constitution.md (+ this file).
-# Ignored: transient session state (plans, handoffs, markers).
+# Ignored: transient session state (plans, markers).
 *
 !.gitignore
 !config.json
@@ -279,7 +272,7 @@ GITIGNORE
 # mentor_confine_path <state_dir> <target> — canonicalize <target> (realpath) and print it
 # on stdout iff it resolves under <state_dir> itself; else print nothing and return 1.
 #
-# Every call site that turns a model-chosen path segment (a plan slug, a handoff topic) into
+# Every call site that turns a model-chosen path segment (such as a plan slug) into
 # an mkdir/mv target needs this same guard — without it a prompt-steered `../` walks the write
 # outside the mentor tree. `ensure-dir` keeps its own inline copy (predates this helper, already
 # covered by its own tests) rather than being refactored to call it; newer call sites should
@@ -342,31 +335,6 @@ mentor_config_get() {
   return 0
 }
 
-# mentor_get_mode <repo_root> — echo the persisted approval-gate default (plan|plan-only)
-# or empty when unset / no repo / no jq (fail-open: unset behaves as plan).
-mentor_get_mode() {
-  mentor_config_get "${1:-}" "mode"
-}
-
-# mentor_get_dispatch <repo_root> — echo the persisted DISPATCH preference
-# (agents|verify-only) or empty when unset.
-#
-# This is a different axis from `mode` and lives in the same config.json. It answers,
-# once per repo, the question a standing no-subagents instruction would otherwise raise
-# at every dispatch surface in every session: does the user want mentor's routing test to
-# run as designed, or is it overridden here? Unset is the ordinary state and means "no
-# override — route per dispatch-agents' 'Where dispatch pays'". The values:
-#   agents      route per the skill (verification/review/research dispatch, implementation
-#               earns it) — an explicit opt-in, useful for silencing a false-positive
-#               policy hit in a repo that merely *discusses* background agents
-#   verify-only implementation in the main thread regardless of the routing test,
-#               verification still dispatched — the split that keeps the independent
-#               grader, which is why it is the only in-thread value: a `solo` value that
-#               also retired verification existed until v3.0.0 and was removed
-mentor_get_dispatch() {
-  mentor_config_get "${1:-}" "dispatch"
-}
-
 # mentor_cwd <input_json> — echo the hook cwd ($PWD fallback).
 mentor_cwd() {
   local cwd
@@ -376,97 +344,33 @@ mentor_cwd() {
   return 0
 }
 
-# --- plan state (v2.4.0, deps/origin added v2.17.0, owner/owner_session added
-# v2.23.0, priority added v2.24.0, category/deferred_from added v2.25.0) -----
+# --- plan state (v2.4.0; deps v2.17.0; owner/owner_session v2.23.0) ----------
 #
 # Each plan dir carries a hidden `.state.json` sidecar:
 #   {"state":"draft|approved|in_progress|implemented|failed|superseded",
 #    "group":"<parent slug>"|null, "order":<n>|null, "note":"<free text>",
-#    "deps":["<slug>", …], "origin":"deferred"|null,
-#    "owner":"<wt-id>"|null, "owner_session":"<session id>"|null,
-#    "priority":"critical|high|medium|low|noise"|null,
-#    "category":"feature|fix|refactor|docs|tooling"|null,
-#    "deferred_from":"<plan slug>"|null}
+#    "deps":["<slug>", …], "owner":"<wt-id>"|null, "owner_session":"<session id>"|null}
 # `group` is the slug of the plan that /plan-split replaced; standalone plans hold null.
-# `deps` names plan slugs this one needs first (unknown slugs allowed — the dep may be
-# deferred later; `plan-state.sh query` marks those `missing`). `origin` is
-# `"deferred"` for a stub born via `/mentor:defer` (shields it from the approval
-# sweep — see approve-plan.sh) and null once `claim`ed or for an ordinary plan. `owner`
-# is the wt-id (mentor_worktree_id) that minted or last re-owned this plan dir —
-# stamped only by ensure-dir/init/claim, never by `set`; read it via mentor_plan_owner,
-# never mentor_plan_state_field directly, for the same reason mentor_plan_group exists
-# — a future second read site must not have to remember the field name by hand.
+# `deps` names plan slugs this one needs first (unknown slugs allowed; `plan-state.sh
+# query` marks those `missing`). `owner` is the wt-id (mentor_worktree_id) that minted
+# or last re-owned this plan dir — stamped only by ensure-dir/init/relocate, never by
+# `set`; read it via mentor_plan_owner, never mentor_plan_state_field directly, so a
+# future second read site never has to remember the field name by hand.
 # `owner_session` is the session id that performed that stamp, alongside it.
-# `priority` is the plan's IMPACT tier — how much this plan matters, so
-# /mentor:track's hierarchy can separate the work that counts from the noise. It is
-# orthogonal to every other field here: `order` sequences siblings INSIDE a split
-# group, `deps` says what must be built FIRST, and neither says anything about
-# whether a plan is worth building at all. Unset (null) is a first-class answer — an
-# unprioritized plan renders with no tier rather than defaulting into one, the same
-# reason mentor_plan_state_stored refuses to invent `draft`.
-# `category` is the plan's WORK KIND — a CLOSED vocabulary like `priority`,
-# deliberately excluding anything test/verify-shaped (see MENTOR_PLAN_CATEGORIES
-# below): a deferred stub's Goal names work to build, never a check to run.
-# `deferred_from` is the slug of the plan a `/mentor:defer` stub was captured out
-# of mid-flow — UNVALIDATED, like a `deps` target, since the source plan may be
-# deleted later; a dangling value is resolved at render time (plan-track's
-# `(missing)` marker), never by this layer.
+#
+# Any OTHER key is preserved byte-for-byte by every write (mentor_plan_state_write
+# merges) and read by nothing. Pre-5.0 sidecars carry origin/parent/priority/category/
+# deferred_from this way: left in place, unread.
 #
 # The sidecar is a CACHE, not the only truth. Reads go through
 # mentor_plan_effective_state, which takes the more advanced of the stored state and
 # the state derived from plan.md's ✅ step ticks — so a forgotten state write costs
-# nothing, and pre-2.4.0 plan dirs read correctly with no migration. `deps`/`origin`/
-# `owner`/`owner_session`/`priority`/`category`/`deferred_from` are jq-defaulted the
-# same way (`// []`, `// null`): a pre-2.17.0 4-field sidecar, or one an OLDER cached
-# plugin copy rewrote without the owner/priority/category/deferred_from keys
-# (mixed-version worktrees during a rollout), reads back as
-# unowned/unprioritized/uncategorized with no migration pass — degrades to the unset
-# handling, never corrupts. Writes go through hooks/plan-state.sh (the CLI); skills
-# never hand-roll this JSON.
+# nothing, and pre-2.4.0 plan dirs read correctly with no migration. `deps`/`owner`/
+# `owner_session` are jq-defaulted the same way (`// []`, `// null`), so an older
+# sidecar reads back as no-deps/unowned with no migration pass. Writes go through
+# hooks/plan-state.sh (the CLI); skills never hand-roll this JSON.
 
 MENTOR_PLAN_STATES="draft approved in_progress implemented failed superseded"
-
-# The impact tiers, most impactful first — the order every renderer sorts and groups
-# by, so "which matters more" lives here rather than being re-derived per caller.
-# A CLOSED set, validated on write exactly like MENTOR_PLAN_STATES, and deliberately
-# unlike `deps` (arbitrary slugs) or `note` (free text): the whole point of the field
-# is that /mentor:track can bucket plans by tier, and a typo'd `hgih` would silently
-# render as its own sixth tier rather than failing. `group` stays free text for the
-# opposite reason — it names another plan's slug, which no closed set could know.
-MENTOR_PLAN_PRIORITIES="critical high medium low noise"
-
-# mentor_plan_priority_valid <priority> — status 0 when <priority> is one of the five
-# above. A predicate like mentor_plan_state_valid — only call it as a condition. The
-# EMPTY string is NOT valid here: clearing goes through an explicit `--priority ""` in
-# mentor_plan_state_write, which never consults this function.
-mentor_plan_priority_valid() {
-  local p="${1:-}"
-  [ -n "$p" ] || return 1
-  case " ${MENTOR_PLAN_PRIORITIES} " in
-    *" ${p} "*) return 0 ;;
-  esac
-  return 1
-}
-
-# The work-kind categories — a CLOSED set like MENTOR_PLAN_PRIORITIES, validated on
-# write the same way. Deliberately excludes anything test/verify-shaped: a category
-# exists to classify SHIPPABLE work — a deferred stub's Goal names work to build,
-# never a check to run — so a `test`/`verify` bucket would hand the scope rule a side
-# door to leak through.
-MENTOR_PLAN_CATEGORIES="feature fix refactor docs tooling"
-
-# mentor_plan_category_valid <category> — status 0 when <category> is one of the five
-# above. A predicate like mentor_plan_priority_valid — only call it as a condition.
-# The EMPTY string is NOT valid here either: clearing goes through an explicit
-# `--category ""` in mentor_plan_state_write, which never consults this function.
-mentor_plan_category_valid() {
-  local c="${1:-}"
-  [ -n "$c" ] || return 1
-  case " ${MENTOR_PLAN_CATEGORIES} " in
-    *" ${c} "*) return 0 ;;
-  esac
-  return 1
-}
 
 # The plan-gate marker (.planning) is treated as released once it is this old, in
 # minutes — a crashed planning session must never permanently lock out editing.
@@ -538,8 +442,7 @@ mentor_plan_state_file() {
 }
 
 # mentor_plan_state_field <plan_dir> <key> — echo the stored value of <key>
-# (state|group|order|note|origin|owner|owner_session|priority|category|
-# deferred_from|parent), or empty when no sidecar / no jq / corrupt / unset / null.
+# (state|group|order|note|owner|owner_session, or any other scalar key), or empty when no sidecar / no jq / corrupt / unset / null.
 # SCALAR fields only — it `tostring`s whatever it finds, so on `deps`
 # (an array) it would return a JSON-stringified array rather than a real list; use
 # mentor_plan_deps for that field instead.
@@ -620,64 +523,6 @@ mentor_plan_deps() {
   return 0
 }
 
-# mentor_plan_origin <plan_dir> — echo the sidecar's `origin` ("deferred") or empty
-# (null / unset / no sidecar / no jq — an ordinary, non-deferred plan). Thin wrapper
-# over the generic scalar reader, named to match mentor_plan_deps at call sites that
-# read both fields side by side.
-mentor_plan_origin() {
-  mentor_plan_state_field "${1:-}" origin
-}
-
-# mentor_plan_priority <plan_dir> — echo the sidecar's `priority` (one of
-# MENTOR_PLAN_PRIORITIES) or empty (null / unset / no sidecar / no jq / a pre-v2.24.0
-# plan dir — an UNPRIORITIZED plan). Thin wrapper over the generic scalar reader,
-# named to match mentor_plan_origin/mentor_plan_owner so a second read site never has
-# to remember the field name by hand.
-#
-# Deliberately NO fallback and NO default: unlike mentor_plan_group/mentor_plan_order
-# there is no plan.md header carrying this (nothing writes an impact tier into the
-# plan body), and unlike mentor_plan_effective_state there is nothing in the plan file
-# to derive it from. Empty means "nobody has judged this plan's impact", which is a
-# different and more honest answer than `medium`.
-mentor_plan_priority() {
-  mentor_plan_state_field "${1:-}" priority
-}
-
-# mentor_plan_category <plan_dir> — echo the sidecar's `category` (one of
-# MENTOR_PLAN_CATEGORIES) or empty (null / unset / no sidecar / no jq / a
-# pre-v2.25.0 plan dir — an UNCATEGORIZED plan). Thin wrapper over the generic
-# scalar reader, named to match mentor_plan_origin/mentor_plan_priority so a second
-# read site never has to remember the field name by hand.
-mentor_plan_category() {
-  mentor_plan_state_field "${1:-}" category
-}
-
-# mentor_plan_deferred_from <plan_dir> — echo the sidecar's `deferred_from` (a plan
-# slug) or empty (null / unset / no sidecar / no jq / an ordinary plan, or one
-# deferred before v2.25.0). UNVALIDATED, like mentor_plan_deps' targets — the source
-# plan may itself be deleted later; resolving that dangle is a render-time concern
-# (plan-track's `(missing)` marker, now carried by the field itself as `{slug, missing}`), never
-# this reader's job. Thin wrapper over the generic scalar reader, matching
-# mentor_plan_origin/mentor_plan_priority.
-mentor_plan_deferred_from() {
-  mentor_plan_state_field "${1:-}" deferred_from
-}
-
-# mentor_plan_parent <plan_dir> — echo the sidecar's `parent` (the slug of the plan
-# this one must complete before) or empty (null / unset / no sidecar / no jq / an
-# ordinary, non-child plan). Thin wrapper over the generic scalar reader, matching
-# mentor_plan_origin/mentor_plan_priority/mentor_plan_deferred_from. UNLIKE
-# deferred_from (informational only, never validated), `parent` IS validated for
-# existence + cycle at write time — by plan-state.sh's `init --parent`/`set-parent`,
-# via mentor_plan_would_cycle_parent below — but this reader itself stays exactly as
-# unvalidated as every other thin wrapper here: the plan a `parent` points at can
-# still be renamed or deleted AFTER the write, and resolving that dangle is a
-# render-time concern for the consumer (plan-track's `(missing)` marker, same
-# pattern deferred_from already uses), never this reader's job.
-mentor_plan_parent() {
-  mentor_plan_state_field "${1:-}" parent
-}
-
 # mentor_plan_would_cycle <plans_dir> <slug> <tentative deps, space-separated> — echo
 # "cycle" when giving <slug> exactly this deps list would create a dependency cycle
 # (including a direct self-cycle, <slug> listed in its own deps), else echo nothing.
@@ -708,97 +553,6 @@ mentor_plan_would_cycle() {
     fi
   done
   echo ""
-  return 0
-}
-
-# mentor_plan_would_cycle_parent <plans_dir> <slug> <tentative_parent> — echo "cycle"
-# when giving <slug> exactly this parent would create a cycle in the parent-chain
-# graph (a direct self-parent, or <tentative_parent> already sitting somewhere in
-# <slug>'s own current descendant subtree — walking UP from <tentative_parent> via
-# mentor_plan_parent eventually reaching <slug> again means <tentative_parent> is
-# already a descendant of <slug>, so the edge would close a loop), else echo
-# nothing. Same SHAPE as mentor_plan_would_cycle above (visited-set walk, dead ends
-# on an unknown node are not errors), simplified from a BFS-over-a-queue to a
-# straight walk because `parent` is single-valued — each node has AT MOST one
-# outgoing edge, so there is only ever one path to follow, never a fan-out to queue.
-# Fail-soft: no plans_dir / no slug / no tentative_parent → echoes "" (nothing to
-# cycle through — an empty/clearing parent can never be a cycle).
-mentor_plan_would_cycle_parent() {
-  local plans_dir="${1:-}" slug="${2:-}" parent="${3:-}" node seen
-  [ -n "$plans_dir" ] && [ -n "$slug" ] && [ -n "$parent" ] || { echo ""; return 0; }
-  if [ "$parent" = "$slug" ]; then echo "cycle"; return 0; fi
-  node="$parent"
-  seen=" "
-  while [ -n "$node" ]; do
-    case "$seen" in *" ${node} "*) break ;; esac   # already-visited: a pre-existing
-      # torn/circular sidecar graph elsewhere — not a cycle THIS edge would create,
-      # so stop rather than spin forever.
-    seen="${seen}${node} "
-    if [ "$node" = "$slug" ]; then echo "cycle"; return 0; fi
-    node="$(mentor_plan_parent "${plans_dir}/${node}")"
-  done
-  echo ""
-  return 0
-}
-
-# mentor_plan_descendants <plans_dir> <slug> — echo one TRANSITIVE descendant slug
-# per output line (children, grandchildren, …) — every OTHER plan dir under
-# <plans_dir> whose `parent` chain (mentor_plan_parent, followed repeatedly) leads
-# back to <slug>. BFS over the inverse of the stored parent pointer: there is no
-# child-list sidecar field to read directly (only each child's own `parent`), so
-# each level requires one pass over every not-yet-seen sibling — same asymptotic
-# shape mentor_plan_would_cycle already accepts for a plan set this size. Output
-# order is BREADTH-FIRST (a plan before its own children) — NOT the leaf-first
-# post-order `/mentor:resume`'s drain needs; that ordering is a consumer-side
-# concern layered on top of this bare transitive-closure primitive, same as the
-# open/closed verdict `query --subtree` decorates it with. A visited-set guards against a
-# torn/circular sidecar graph that already exists (should never happen given the
-# write-time cycle refusal above, but a hand-edited .state.json is still possible),
-# so this always terminates in at most one pass per depth level. Fail-soft: no
-# plans_dir / no slug → no output.
-mentor_plan_descendants() {
-  local plans_dir="${1:-}" slug="${2:-}" frontier next d child_slug p seen
-  [ -n "$plans_dir" ] && [ -n "$slug" ] || return 0
-  frontier="$slug"
-  seen=" ${slug} "
-  while [ -n "$frontier" ]; do
-    next=""
-    for d in "${plans_dir}"/*/; do
-      [ -d "$d" ] || continue
-      d="${d%/}"
-      child_slug="$(basename "$d")"
-      case "$seen" in *" ${child_slug} "*) continue ;; esac
-      p="$(mentor_plan_parent "$d")"
-      [ -n "$p" ] || continue
-      case " ${frontier} " in
-        *" ${p} "*)
-          echo "$child_slug"
-          next="${next} ${child_slug}"
-          seen="${seen}${child_slug} "
-          ;;
-      esac
-    done
-    frontier="${next# }"
-  done
-  return 0
-}
-
-# mentor_plan_live_handoffs <plan_dir> — echo one LIVE handoff basename per output
-# line: <plan_dir>/handoffs/*.md, excluding handoffs/resolved/* — the same anchored
-# exclusion (`-not -path '*/handoffs/resolved/*'`) /mentor:resume uses, so a repo path
-# or topic slug literally named "resolved" is never false-excluded. Empty when the
-# handoffs dir doesn't exist or holds nothing live.
-# The exclusion is shared with /mentor:resume; the NAME filter deliberately is not.
-# /mentor:resume lists only `^[0-9]{8}-[0-9]{6}-.+\.md$` and skips the rest, so a
-# misnamed note is invisible there — which is exactly why `query` must still show
-# it: this is the only surface that can tell the user the note exists and needs
-# renaming. Applying resume's filter here would hide it from both sides at once.
-mentor_plan_live_handoffs() {
-  local d="${1:-}"
-  [ -n "$d" ] || return 0
-  [ -d "${d}/handoffs" ] || return 0
-  find "${d}/handoffs" -type f -name '*.md' -not -path '*/handoffs/resolved/*' 2>/dev/null \
-    | while IFS= read -r hf; do basename "$hf"; done
   return 0
 }
 
@@ -922,17 +676,10 @@ MENTOR_GOAL_LINE_MAX=85
 # actually happens. Empty when no plan.md, no matching section, or the section has
 # no first paragraph.
 #
-# `section` generalizes what began as a Goal-only extractor: `mentor:deferring`'s
-# stub template writes `## Goal`; an ordinary plan authored by `mentor:planning`'s
-# content spec never does — it has `## Context` instead. The default stays `goal`
-# so the ONE existing call site (`_plan_walk` in plan-state.sh, gated to
-# `origin == "deferred"`) is byte-identical in behavior; a caller that wants an
-# ordinary plan's synopsis passes `context` explicitly (see `mentor:plan-track`'s
-# Step 1 "broader ask" note) and gets `## Context`'s first paragraph instead. This
-# function is still deliberately NOT called for every plan from `_plan_walk`'s
-# default walk — see that call site's comment for the hot-path gate this preserves;
-# a caller wanting every plan's synopsis pays the extra `plan.md` read itself, on
-# only the plans it actually needs to summarize.
+# `section` selects the heading: `goal` (the default) reads `## Goal`; an ordinary plan
+# authored by `mentor:planning`'s content spec has `## Context` instead, which a caller
+# requests by passing `context`. No caller in plan-state.sh uses it as of v5.0.0; it is
+# kept as a tested helper for plan-reading callers.
 #
 # The plugin's only other plan.md text-parser besides mentor_plan_tick_counts, and
 # built the same way (an awk pass gated on the current `##` section).
@@ -1054,7 +801,7 @@ mentor_plan_tick_step() {
 }
 
 # mentor_plan_tick_state <plan_md> — echo the state implied by the ✅ ticks that
-# dispatch-agents appends as each step's `Done when:` passes: every step line in the
+# `plan-state.sh tick` appends as each step's `Done when:` passes: every step line in the
 # `## Implementation steps` section ticked → implemented; some → in_progress; none or
 # no recognizable steps → empty (no opinion). Built on mentor_plan_tick_counts, so the
 # step-line rule lives in exactly one place.
@@ -1113,59 +860,31 @@ mentor_plan_effective_state() {
 }
 
 # mentor_plan_state_write <plan_dir> [--state S] [--group G] [--order N] [--note "…"]
-#   [--deps a,b] [--origin deferred|""] [--owner W] [--owner-session S]
-#   [--priority P|""] [--category C|""] [--deferred-from S] [--parent S|""] —
-#   upsert the sidecar (create-then-set: most plans have no sidecar yet).
+#   [--deps a,b] [--owner W] [--owner-session S] — upsert the sidecar (create-then-set:
+#   most plans have no sidecar yet).
 #
-# Flag-style since v2.17.0 (was fixed positional <state> <group> <order> <note>) so a
-# write that only touches one or two fields — set-deps, claim, approve-plan's
-# promotion — doesn't have to thread every other field through by hand.
+# MERGE, not rebuild (v5.0.0): the result is `. + {state, group, order, note, deps,
+# owner, owner_session}`, so every key this function does not manage rides through
+# untouched. That is what keeps a pre-5.0 sidecar's origin/parent/priority/category/
+# deferred_from "left in place, unread" instead of silently stripped on the next write.
 #
 # AN OMITTED FLAG PRESERVES THE EXISTING STORED VALUE for --state/--group/--order/
-# --deps/--origin/--owner/--owner-session/--priority/--category/--deferred-from/
-# --parent. This is what lets `deps`/`origin`/`owner`/`priority`/`category`/
-# `deferred_from`/`parent` survive every state transition: approve-plan's promotion
-# write passes only `--state approved` and every one of those fields rides through
-# untouched, instead of getting clobbered back to defaults the way a
-# mandatory-positional write would.
-# In particular, `set` never passes --owner, --priority, --category,
-# --deferred-from, or --parent, so it never touches ownership, the impact tier, the
-# work kind, the source plan, or the containing plan — only ensure-dir/init/claim
-# stamp ownership, only init/set-priority write the tier, only init/set-category
-# write the category, only init writes deferred_from (no set-deferred-from
-# subcommand exists), and only init/set-parent write parent — see plan-state.sh.
+# --deps/--owner/--owner-session. approve-plan's promotion write passes only
+# `--state approved` and every other field rides through. `set` never passes --owner,
+# so it never touches ownership — only ensure-dir/init/relocate stamp it.
 #
 # --note is the ONE exception to "omitted preserves": it is ALWAYS replaced with
-# whatever was passed (empty when the flag is omitted) — unchanged from before the
-# rework. "note REPLACED every time" is a deliberate feature (a plain `set` with no
-# --note clears a stale failure note); a caller that wants to keep the current note
-# must re-pass it, the same way `init` already reads it back before writing.
-# One note segment is load-bearing and callers carry it forward themselves: an
-# `open: <handle>, <handle>` list records the verification findings a user chose to
-# leave open at close-out (mentor:dispatch-agents' non-goal disposition gate), and it
-# is the only record of them anywhere. `mentor:shipping` Step 6 and `mentor:merging`
-# Step 5 both re-close an already-closed plan, so both read `.note` first, keep only
-# that segment, and let everything else clear — composing as
-# `open: a, b | merged: PR #12 abc`.
+# whatever was passed (empty when the flag is omitted). "note REPLACED every time" is
+# deliberate (a plain `set` with no --note clears a stale failure note); a caller that
+# wants to keep the current note must re-pass it, the way `init`/`set-deps` read it
+# back before writing.
 #
-# Passing a flag with an EXPLICIT EMPTY VALUE clears that field (group/order/origin/
-# owner/owner_session/priority/category/deferred_from/parent → null, deps → [])
-# rather than preserving it — this is how `claim` clears origin (`--origin ""`)
-# without touching anything else, how a caller can deliberately release ownership
-# (`--owner ""`), how `set-priority <slug> ""` un-tiers a plan (`set-category <slug>
-# ""` mirrors it for category), and how `set-parent <slug> ""` detaches a plan from
-# its parent. --state cannot be cleared this way: an empty/invalid --state is
-# rejected outright (fail-soft: no write), same as before. --origin only accepts
-# "deferred" or "" (clear), --priority only a MENTOR_PLAN_PRIORITIES value or ""
-# (clear), and --category only a MENTOR_PLAN_CATEGORIES value or "" (clear); anything
-# else is also rejected, whole write and all — a rejected --priority/--category must
-# not leave a half-applied write behind that looks like it worked. --deferred-from
-# and --parent are BOTH UNVALIDATED AT THIS LAYER (like `deps` targets) — the source/
-# parent plan may not exist, or may be deleted later; that dangle is resolved at
-# render time, not here. --parent's existence + cycle validation happens one layer
-# up, in plan-state.sh's `init --parent`/`set-parent`, via mentor_plan_would_cycle_parent
-# — it needs the WHOLE plans_dir to walk the graph, which this single-plan-dir
-# function never has.
+# Passing a flag with an EXPLICIT EMPTY VALUE clears that field (group/order/owner/
+# owner_session → null, deps → []) rather than preserving it — e.g. a caller can
+# deliberately release ownership with `--owner ""`. --state cannot be cleared: an
+# empty/invalid --state is rejected outright (fail-soft: no write). An unrecognized
+# flag (including the pre-5.0 --origin/--priority/--category/--deferred-from/--parent)
+# is ignored, never aborts a caller.
 #
 # jq has no in-place edit, so this is tmp-file + mv. A torn write leaves the sidecar
 # unreadable, which reads back as "unknown" — recoverable, because a split child's
@@ -1173,8 +892,7 @@ mentor_plan_effective_state() {
 # the tmp+mv happens inside the sidecar's own dir, so each individual write is atomic —
 # but two worktrees writing the same slug's sidecar concurrently can still lose one
 # write to the other (last mv wins), never corrupt it.
-# Fail-soft: always status 0, echoes nothing; a bad --state/--origin/--priority/
-# --category or missing jq writes nothing.
+# Fail-soft: always status 0, echoes nothing; a bad --state or missing jq writes nothing.
 mentor_plan_state_write() {
   local d="${1:-}"
   shift || true
@@ -1182,13 +900,8 @@ mentor_plan_state_write() {
   local group="" group_set=0
   local order="" order_set=0
   local note="" deps="" deps_set=0
-  local origin="" origin_set=0
   local owner="" owner_set=0
   local owner_session="" owner_session_set=0
-  local priority="" priority_set=0
-  local category="" category_set=0
-  local deferred_from="" deferred_from_set=0
-  local parent="" parent_set=0
   local f tmp deps_json
   while [ "$#" -gt 0 ]; do
     case "$1" in
@@ -1197,25 +910,14 @@ mentor_plan_state_write() {
       --order)  order="${2:-}";  order_set=1;  shift; if [ "$#" -gt 0 ]; then shift; fi ;;
       --note)   note="${2:-}";                 shift; if [ "$#" -gt 0 ]; then shift; fi ;;
       --deps)   deps="${2:-}";   deps_set=1;   shift; if [ "$#" -gt 0 ]; then shift; fi ;;
-      --origin) origin="${2:-}"; origin_set=1; shift; if [ "$#" -gt 0 ]; then shift; fi ;;
       --owner)  owner="${2:-}";  owner_set=1;  shift; if [ "$#" -gt 0 ]; then shift; fi ;;
       --owner-session)
                 owner_session="${2:-}"; owner_session_set=1; shift; if [ "$#" -gt 0 ]; then shift; fi ;;
-      --priority)
-                priority="${2:-}"; priority_set=1; shift; if [ "$#" -gt 0 ]; then shift; fi ;;
-      --category)
-                category="${2:-}"; category_set=1; shift; if [ "$#" -gt 0 ]; then shift; fi ;;
-      --deferred-from)
-                deferred_from="${2:-}"; deferred_from_set=1; shift; if [ "$#" -gt 0 ]; then shift; fi ;;
-      --parent) parent="${2:-}"; parent_set=1; shift; if [ "$#" -gt 0 ]; then shift; fi ;;
       *) shift ;;   # fail-soft: an unrecognized flag is ignored, never aborts a caller
     esac
   done
   [ -n "$d" ] && [ -d "$d" ] || return 0
   if [ "$state_set" -eq 1 ] && ! mentor_plan_state_valid "$state"; then return 0; fi
-  if [ "$origin_set" -eq 1 ] && [ -n "$origin" ] && [ "$origin" != "deferred" ]; then return 0; fi
-  if [ "$priority_set" -eq 1 ] && [ -n "$priority" ] && ! mentor_plan_priority_valid "$priority"; then return 0; fi
-  if [ "$category_set" -eq 1 ] && [ -n "$category" ] && ! mentor_plan_category_valid "$category"; then return 0; fi
   command -v jq >/dev/null 2>&1 || return 0
   f="${d}/.state.json"
   if [ ! -f "$f" ] || ! jq -e 'type == "object"' "$f" >/dev/null 2>&1; then
@@ -1233,26 +935,16 @@ mentor_plan_state_write() {
         --arg order "$order" --argjson order_set "$order_set" \
         --arg note "$note" \
         --argjson deps "$deps_json" --argjson deps_set "$deps_set" \
-        --arg origin "$origin" --argjson origin_set "$origin_set" \
         --arg owner "$owner" --argjson owner_set "$owner_set" \
-        --arg owner_session "$owner_session" --argjson owner_session_set "$owner_session_set" \
-        --arg priority "$priority" --argjson priority_set "$priority_set" \
-        --arg category "$category" --argjson category_set "$category_set" \
-        --arg deferred_from "$deferred_from" --argjson deferred_from_set "$deferred_from_set" \
-        --arg parent "$parent" --argjson parent_set "$parent_set" '
-        {
+        --arg owner_session "$owner_session" --argjson owner_session_set "$owner_session_set" '
+        . + {
           state: (if $state_set == 1 then $state else (.state // null) end),
           group: (if $group_set == 1 then (if $group == "" then null else $group end) else (.group // null) end),
           order: (if $order_set == 1 then (if $order == "" then null else ($order | tonumber? // null) end) else (.order // null) end),
           note:  $note,
           deps:  (if $deps_set == 1 then $deps else (.deps // []) end),
-          origin: (if $origin_set == 1 then (if $origin == "" then null else $origin end) else (.origin // null) end),
           owner: (if $owner_set == 1 then (if $owner == "" then null else $owner end) else (.owner // null) end),
-          owner_session: (if $owner_session_set == 1 then (if $owner_session == "" then null else $owner_session end) else (.owner_session // null) end),
-          priority: (if $priority_set == 1 then (if $priority == "" then null else $priority end) else (.priority // null) end),
-          category: (if $category_set == 1 then (if $category == "" then null else $category end) else (.category // null) end),
-          deferred_from: (if $deferred_from_set == 1 then (if $deferred_from == "" then null else $deferred_from end) else (.deferred_from // null) end),
-          parent: (if $parent_set == 1 then (if $parent == "" then null else $parent end) else (.parent // null) end)
+          owner_session: (if $owner_session_set == 1 then (if $owner_session == "" then null else $owner_session end) else (.owner_session // null) end)
         }' "$f" > "$tmp" 2>/dev/null; then
     mv -f "$tmp" "$f" 2>/dev/null || rm -f "$tmp" 2>/dev/null || true
   else
@@ -1447,43 +1139,6 @@ mentor_context_gate_state() {
   return 0
 }
 
-# mentor_list_handoffs <repo_root> — echo every conforming handoff note
-# (<YYYYMMDD-HHMMSS>-<slug>.md under plans/*/handoffs/ or the legacy flat handoffs/ —
-# the exact locations /mentor:resume lists), newest first, one per line. Non-conforming
-# names are skipped; notes stamped resolved (moved into a handoffs/resolved/ subdir on
-# completion or supersession) never match the globs, so solved notes stop counting as fresh.
-# With no repo_root, falls back through mentor_no_repo_state_dir — the dir the handoff
-# skill writes to outside a git repo — so no-repo sessions get the same freshness handling. The
-# one place the name-shape/location contract lives — mentor_latest_handoff and
-# mentor_live_handoff_count both derive from it instead of re-globbing independently.
-mentor_list_handoffs() {
-  local state_dir f
-  state_dir="$(mentor_state_dir "${1:-}")"
-  if [ -z "$state_dir" ]; then state_dir="$(mentor_no_repo_state_dir)"; fi
-  while IFS= read -r f; do
-    case "${f##*/}" in
-      [0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9]-[0-9][0-9][0-9][0-9][0-9][0-9]-*.md)
-        printf '%s\n' "$f" ;;
-    esac
-  done < <(ls -t "${state_dir}"/plans/*/handoffs/*.md "${state_dir}/handoffs"/*.md 2>/dev/null || true)
-  return 0
-}
-
-# mentor_latest_handoff <repo_root> — echo the mtime-newest conforming handoff note, or
-# empty when none exist. See mentor_list_handoffs for the location/name-shape contract.
-mentor_latest_handoff() {
-  mentor_list_handoffs "${1:-}" | head -1
-  return 0
-}
-
-# mentor_live_handoff_count <repo_root> — echo the number of conforming, unresolved
-# handoff notes across every topic in this repo (the same set mentor_latest_handoff
-# picks its newest from), or 0 when none exist.
-mentor_live_handoff_count() {
-  mentor_list_handoffs "${1:-}" | wc -l | tr -d ' '
-  return 0
-}
-
 # mentor_find_transcript [cwd] — echo this session's main transcript (.jsonl), or empty
 # when it cannot be located. Hooks invoked as plain Bash calls get no hook stdin, so
 # they locate it themselves. Primary (exact, race-free): CLAUDE_CODE_SESSION_ID is
@@ -1512,9 +1167,9 @@ mentor_find_transcript() {
 # / no jq / no usage record in the tail window).
 #
 # The single implementation of the context reading shared by begin-plan.sh at arm time
-# and by plan-state.sh `context`, which /mentor:track calls before it dispatches —
-# hooks/context-gate.sh passes every slash-prefixed prompt, so a slash command that
-# starts an implementation would otherwise get no reading at all.
+# and by plan-state.sh `context` / `verify` — hooks/context-gate.sh passes every
+# slash-prefixed prompt, so a slash command that starts an implementation would
+# otherwise get no reading at all.
 #
 # Warn-only (v4.2.0): every level is advisory and every caller proceeds. HIGH is the
 # level at or over the limit (mentor_context_limits' high: the context_block_tokens cap,
@@ -1539,17 +1194,16 @@ mentor_context_verdict() {
 
 # --- sweep: the portable, self-reporting search over mentor's own state (v2.33.0) ---
 #
-# WHY THIS EXISTS. mentor prescribes searching its own state dir in three places
-# (dispatch-agents' standing-policy check, planning's Step 2 research sweep,
-# plan-review's count-mismatch reconciliation). All three used to prescribe
-# a recursive grep plus GNU/ripgrep's no-ignore flag, which is broken twice over:
+# WHY THIS EXISTS. mentor prescribes searching its own state dir (planning's Step 2
+# research sweep, plan-split's retirement sweep). Those used to prescribe a recursive
+# grep plus GNU/ripgrep's no-ignore flag, which is broken twice over:
 #
 #   1. That no-ignore flag is GNU-grep/ripgrep-only. ugrep — a drop-in `grep` many
 #      developers install via Homebrew — rejects it outright: exit 2 and a usage wall,
 #      so the prescribed command cannot run at all.
 #   2. Dropping the flag is SILENTLY worse. `.mentor/.gitignore` contains `*`, so a grep
 #      that honors ignore rules during its own traversal reads nothing there and reports
-#      a clean zero — indistinguishable from "no policy is recorded".
+#      a clean zero — indistinguishable from "nothing matches".
 #
 # AND THIS IS NOT A MACHINE-SPECIFIC QUIRK, which is the part worth internalizing: the
 # ignore-aware grep is not something the developer installed. Claude Code injects a `grep`
@@ -1567,8 +1221,8 @@ mentor_context_verdict() {
 # grep, BSD grep and ugrep alike. So `find` walks and `grep` only reads.
 #
 # Measured on ugrep 7.5.0 in this repo:
-#   grep -rl 'No subagents' .mentor/        -> 0 hits   (traversal root IS the ignored dir)
-#   grep -rl 'No subagents' .mentor/plans/  -> 5 hits   (root sits BELOW the `*` rule)
+#   grep -rl '<phrase>' .mentor/            -> 0 hits   (traversal root IS the ignored dir)
+#   grep -rl '<phrase>' .mentor/plans/      -> 5 hits   (root sits BELOW the `*` rule)
 #   find .mentor -type f -exec grep -l … {} + -> 5 hits (find walks; grep never decides)
 #
 # ugrep reads .gitignore files at or BELOW the traversal root and never walks *up*, which
@@ -1592,30 +1246,21 @@ mentor_context_verdict() {
 # mentor_sweep_roots <cwd> <set> — echo one EXISTING root path per line for the named
 # set, or nothing when none exist. Never errors on a missing root; an unknown set name
 # echoes nothing (callers validate the name themselves and report it as a usage error).
+#   plans  the main repo's .mentor/plans (the default)
+#   repo   THIS worktree's whole checkout
 #
-# CLAUDE.md and .claude/ resolve against `git rev-parse --show-toplevel` — THIS worktree's
-# own checkout — while .mentor/plans resolves via mentor_repo_root (git-common-dir, the
+# `repo` resolves against `git rev-parse --show-toplevel` — THIS worktree's own
+# checkout — while .mentor/plans resolves via mentor_repo_root (git-common-dir, the
 # main repo every worktree shares). Using one resolution for both is wrong in a linked
-# worktree: it would read another tree's CLAUDE.md, or look for .mentor/ where there is
+# worktree: it would read another tree's files, or look for .mentor/ where there is
 # none. Every test in `if` form, never `a && b && echo`: a trailing false `&&` list is a
 # failed simple command, which would abort a `set -e` caller (see this file's CONTRACT).
 mentor_sweep_roots() {
-  local cwd="${1:-$PWD}" set_name="${2:-policy}" toplevel main_root plans
+  local cwd="${1:-$PWD}" set_name="${2:-plans}" toplevel main_root plans
   toplevel="$(git -C "$cwd" rev-parse --show-toplevel 2>/dev/null || true)"
   main_root="$(mentor_repo_root "$cwd")"
   plans="$(mentor_plans_dir "$main_root")"
   case "$set_name" in
-    policy)
-      if [ -n "$toplevel" ] && [ -f "${toplevel}/CLAUDE.md" ]; then echo "${toplevel}/CLAUDE.md"; fi
-      # AGENTS.md is a first-class root, not a nicety: a repo whose CLAUDE.md is a
-      # one-line `@AGENTS.md` import keeps every actual rule in the imported file, so a
-      # root set without it reads the pointer and reports a clean zero — the exact
-      # false-negative this set exists to prevent (measured in the wild: a standing
-      # policy against background agents lived at AGENTS.md:119 while this sweep passed).
-      if [ -n "$toplevel" ] && [ -f "${toplevel}/AGENTS.md" ]; then echo "${toplevel}/AGENTS.md"; fi
-      if [ -n "$toplevel" ] && [ -d "${toplevel}/.claude" ]; then echo "${toplevel}/.claude"; fi
-      if [ -n "$plans" ] && [ -d "$plans" ]; then echo "$plans"; fi
-      ;;
     plans)
       if [ -n "$plans" ] && [ -d "$plans" ]; then echo "$plans"; fi
       ;;
@@ -1639,7 +1284,7 @@ mentor_sweep_roots() {
 # no hits -> 1, files==0 -> 2). This function is fail-soft and always returns 0, per the
 # CONTRACT at the top of this file.
 mentor_sweep() {
-  local cwd="${1:-$PWD}" set_name="${2:-policy}" pattern="${3:-}" icase="${4:-}" ere="${5:-}"
+  local cwd="${1:-$PWD}" set_name="${2:-plans}" pattern="${3:-}" icase="${4:-}" ere="${5:-}"
   local roots r root_count files out hits
   local -a root_args find_args grep_args
   roots="$(mentor_sweep_roots "$cwd" "$set_name")"

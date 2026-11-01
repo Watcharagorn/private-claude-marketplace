@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """Seed the scratch project with a realistic .mentor tree.
 
-Without this, a query like "is the invoice plan any good?" makes the model hunt for a
-file that doesn't exist and answer empty-handed — which scores as "did not trigger"
+Without this, a query like "comment on each scenario of the onboarding plan" makes the
+model hunt for a file that doesn't exist and answer empty-handed — which scores as "did not trigger"
 and is indistinguishable from a genuinely weak description. Seeding removes that
 confound so the eval measures the descriptions and nothing else.
 """
@@ -62,15 +62,6 @@ for slug, state, group, order, kw in SPEC:
         sc["order"] = order
     (d / ".state.json").write_text(json.dumps(sc, indent=2))
 
-# a live handoff note, so /mentor:resume has something real to resume
-hd = PLANS / "multi-tenant-billing" / "handoffs"
-hd.mkdir(parents=True, exist_ok=True)
-(hd / "2026-07-24-billing.md").write_text(
-    "# Handoff — multi-tenant billing\n\n## Current state\n\n"
-    "Stopped partway through the billing work yesterday afternoon.\n"
-    "Metering is approved and unstarted; tenant-data-isolation is 2/5 steps in.\n\n"
-    "## Next steps\n\nResume tenant-data-isolation at step 3.\n")
-
 # an existing review page (mentor:previewing), so a "refresh the preview" query
 # finds real prior state instead of hunting an empty dir
 rd = ROOT / ".mentor" / "reviews" / "billing-invoice"
@@ -78,19 +69,6 @@ rd.mkdir(parents=True, exist_ok=True)
 (rd / "review.html").write_text(
     "<!doctype html><title>Invoice lifecycle preview</title>"
     "<p>Seeded fixture review page.</p>\n")
-
-# a QA acceptance tour (mentor:touring), so "update the page the QA folks tick off" finds a
-# tour page and not only the review page above
-td = ROOT / ".mentor" / "tours"
-td.mkdir(parents=True, exist_ok=True)
-(td / "billing-invoice-qa.html").write_text(
-    "<!doctype html><title>Invoice lifecycle — QA acceptance tour</title>"
-    "<p>Seeded fixture tour. Walk each scenario, mark pass or not pass, leave feedback.</p>\n"
-    "<ol><li>S1 Create invoice <label><input type=radio name=s1> pass</label>"
-    "<label><input type=radio name=s1> not pass</label></li></ol>\n")
-(td / "billing-invoice-qa.json").write_text(json.dumps(
-    {"slug": "billing-invoice", "audience": "qa", "scenarios": [{"id": "S1", "title": "Create invoice"}]},
-    indent=2))
 
 # source and doc subjects for queries that name an area with no plan (a payment module, an
 # ingestion pipeline, a checkout redesign, the auth flow), so the model finds the subject
@@ -112,6 +90,6 @@ for rel, body in STUBS.items():
     f.parent.mkdir(parents=True, exist_ok=True)
     f.write_text(body)
 
-print(f"seeded {len(SPEC)} plans + 1 handoff note + 1 review page + 1 tour page + {len(STUBS)} subject stubs under {ROOT}")
+print(f"seeded {len(SPEC)} plans + 1 review page + {len(STUBS)} subject stubs under {ROOT}")
 for p in sorted(PLANS.glob("*/plan.md")):
     print("   ", p.relative_to(ROOT))

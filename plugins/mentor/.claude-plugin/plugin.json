@@ -1,7 +1,7 @@
 {
   "name": "mentor",
-  "description": "Plan-first software delivery guidance with review, verification, and optional workflow guardrails.",
-  "version": "4.3.0",
+  "description": "Plan-first software delivery guidance with verification and optional workflow guardrails.",
+  "version": "5.0.0",
   "author": {
     "name": "NTBX"
   }

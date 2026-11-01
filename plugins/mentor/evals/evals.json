@@ -1,20 +1,13 @@
 {
-  "eval_name": "mentor-v4.0.0-cross-host-skill-routing",
+  "eval_name": "mentor-v5.0.0-cross-host-skill-routing",
   "note": "Cross-host multi-class routing: every query is scored on WHICH mentor skill fires, not whether one does. 'none' means no mentor skill should be consulted.",
   "skills_in_play": [
     "planning",
     "plan-split",
-    "plan-track",
-    "plan-review",
     "grilling",
-    "dispatch-agents",
-    "resuming",
-    "handoff-note",
-    "touring",
     "previewing",
     "merging",
     "shipping",
-    "deferring",
     "constitution-authoring",
     "frontend-self-ex-review"
   ],
@@ -38,63 +31,27 @@
       "query": "the implementation steps in the plan are kind of a jumbled mess — can you reorganize them into phase 1 / phase 2 / phase 3 inside the doc so it reads in a sane order?"
     },
     {
-      "id": 4,
-      "expected": "plan-track",
-      "tests": "core trigger",
-      "query": "which of these plans have we actually built? ive got like 5 sitting in .mentor/plans and i genuinely cant remember which ones shipped and which are still just written down"
-    },
-    {
-      "id": 5,
-      "expected": "plan-track",
-      "tests": "core trigger, selection by ordinal + group",
-      "query": "pick up plan 2 from the billing group and build it — i think its the invoice one we never got to"
-    },
-    {
       "id": 6,
-      "expected": "resuming",
-      "tests": "NEAR-MISS vs plan-track: 'where were we' is session context, not build status",
+      "expected": "none",
+      "tests": "NEGATIVE since v5.0.0: session recall with no handoff skill left (resuming and handoff notes were removed); no mentor skill should fire",
       "query": "where were we on the billing work? i had to stop partway through yesterday afternoon and my head is completely empty on it now"
-    },
-    {
-      "id": 7,
-      "expected": "plan-review",
-      "tests": "NEAR-MISS vs plan-track: 'is it good' (quality) vs 'is it done' (state)",
-      "query": "is the invoice plan any good? id like a second opinion on it before i greenlight the whole thing"
-    },
-    {
-      "id": 8,
-      "expected": "plan-track",
-      "tests": "core trigger, 'has it been implemented' phrasing",
-      "query": "did we ever finish the tenant-data-isolation plan or is it still sitting there unbuilt?"
-    },
-    {
-      "id": 9,
-      "expected": "plan-review",
-      "tests": "core trigger, explicit reviewer language",
-      "query": "send the plan out to reviewers before i approve it please"
     },
     {
       "id": 10,
       "expected": "grilling",
-      "tests": "NEAR-MISS vs plan-review: interactive interrogation vs automated audit",
+      "tests": "core trigger, interactive one-question-at-a-time challenge of a design",
       "query": "poke holes in this approach — im not convinced the queue-based design is right and i want you to challenge me on it one question at a time rather than dumping a wall of text"
     },
     {
       "id": 11,
-      "expected": "dispatch-agents",
-      "tests": "core trigger",
+      "expected": "none",
+      "tests": "NEGATIVE since v5.0.0: subagent fan-out is the host harness's job; mentor no longer prescribes dispatch",
       "query": "fan out the implementation across subagents instead of doing it all in this thread"
     },
     {
-      "id": 12,
-      "expected": "resuming",
-      "tests": "core trigger, explicit handoff-note language",
-      "query": "continue from the handoff note from the other session"
-    },
-    {
       "id": 13,
-      "expected": "handoff-note",
-      "tests": "core trigger, context-pressure framing",
+      "expected": "none",
+      "tests": "NEGATIVE since v5.0.0: an end-of-session write-up; the handoff-note skill was removed",
       "query": "im at like 300k context and everything is crawling. write up where we are so i can pick this up fresh in a new session tomorrow"
     },
     {
@@ -112,20 +69,14 @@
     {
       "id": 16,
       "expected": "none",
-      "tests": "NEAR-MISS vs plan-review: 'review' about a PR, not a plan",
+      "tests": "NEAR-MISS keyword bait: 'review' about a PR, not a plan",
       "query": "review this PR for me — its the one adding rate limiting to the public api, MR 412 on gitlab"
     },
     {
       "id": 17,
       "expected": "none",
-      "tests": "NEAR-MISS vs plan-track: 'track' about sprint progress, not plan state",
+      "tests": "NEAR-MISS keyword bait: 'track' about sprint progress in jira, not mentor plan state",
       "query": "can you help me track my progress on this sprint? id like to see whats done vs whats still open in jira"
-    },
-    {
-      "id": 18,
-      "expected": "plan-track",
-      "tests": "NEAR-MISS vs resuming: post-split continuation phrasing but no NAMED split-group argument — generic 'work through them one at a time, start with whichever is first' stays plan-track's unnamed 'what's next' survey; only a named root or split-group name plus continue/drain intent routes to resuming (see row 51)",
-      "query": "we split that thing into 5 plans last week. lets work through them one at a time — start with whichever is first"
     },
     {
       "id": 19,
@@ -164,24 +115,6 @@
       "query": "id like to see the checkout redesign from a QA persons point of view and from the end users — as separate pages i can open side by side"
     },
     {
-      "id": 25,
-      "expected": "touring",
-      "tests": "NEAR-MISS vs previewing: reviewers mark pass/not-pass and it gets shared = tour, not a review page",
-      "query": "i need a page i can send the reviewers where they walk each scenario, tick pass or not pass, and leave me feedback"
-    },
-    {
-      "id": 26,
-      "expected": "touring",
-      "tests": "core trigger, UAT/acceptance phrasing with a shareable link",
-      "query": "the billing work is done — set up a UAT walkthrough the product folks can run through themselves, with a link i can drop in slack"
-    },
-    {
-      "id": 27,
-      "expected": "plan-review",
-      "tests": "NEAR-MISS vs previewing: 'a proper look' but the ask is a quality verdict on a written plan",
-      "query": "before i approve the billing plan i want a proper look at it — is the approach actually sound or are we going to regret the queue thing"
-    },
-    {
       "id": 28,
       "expected": "none",
       "tests": "NEAR-MISS keyword bait: a video-call meeting, nothing to do with mentor's review page",
@@ -212,40 +145,10 @@
       "query": "the plan changed a fair bit since you made those zoom pages — can you refresh them? the auth one especially, it's still showing the old token flow"
     },
     {
-      "id": 33,
-      "expected": "touring",
-      "tests": "RE-ENTRY trigger: revise an already-published tour, same link",
-      "query": "reviewers came back with two broken steps in the walkthrough — fix those scenarios and re-publish it so the link i already sent them still works"
-    },
-    {
-      "id": 34,
-      "expected": "touring",
-      "tests": "NEAR-MISS vs previewing's refresh triggers: 'update the html review page' overlaps, but reviewers ticking scenarios = tour",
-      "query": "can you update that html review page? its the one i sent the QA folks so they could tick off each scenario"
-    },
-    {
-      "id": 35,
-      "expected": "dispatch-agents",
-      "tests": "core trigger, verification execution rather than implementation fan-out",
-      "query": "last step of the jwt rotation plan just went green. can you work through the verification section at the bottom properly — id rather not have the same thread that wrote it all sign off on its own work"
-    },
-    {
       "id": 36,
-      "expected": "deferring",
-      "tests": "core trigger, mid-flow capture without stopping",
+      "expected": "none",
+      "tests": "NEGATIVE since v5.0.0: a mid-flow 'note it for later' ask; the deferring skill was removed",
       "query": "hold on — while im in here i noticed the retry logic on the payment webhook handler is busted too. dont fix it now, just note it somewhere so we circle back to it after this ships"
-    },
-    {
-      "id": 37,
-      "expected": "handoff-note",
-      "tests": "NEAR-MISS vs deferring: ending the whole session vs noting one item mid-flow",
-      "query": "im about out of context for today, write up everything so i can pick this back up fresh tomorrow"
-    },
-    {
-      "id": 38,
-      "expected": "plan-track",
-      "tests": "NEAR-MISS vs deferring: checking status of existing backlog items, not creating a new stub",
-      "query": "weve got a handful of things sitting in the backlog from last sprint — which of those have we actually started on?"
     },
     {
       "id": 39,
@@ -254,70 +157,16 @@
       "query": "we keep shipping plans that skip the database rollback step. can we lock that in as a hard rule every future plan has to follow — like a constitution for this repo"
     },
     {
-      "id": 40,
-      "expected": "plan-review",
-      "tests": "NEAR-MISS vs constitution-authoring: a quality verdict on one plan, not establishing repo-wide principles",
-      "query": "before i approve the billing plan, does it actually follow solid engineering practice? id like a proper review"
-    },
-    {
       "id": 41,
       "expected": "none",
       "tests": "NEAR-MISS keyword bait: 'constitution' as a legal/political topic, nothing to do with mentor",
       "query": "can you summarize what the first amendment of the US constitution actually says, im writing a blog post about it"
     },
     {
-      "id": 43,
-      "expected": "touring",
-      "tests": "core trigger: reviewers ticking pass/not-pass on a shareable acceptance page",
-      "query": "reviewers need to walk through each scenario of the payment work from that plan step by step and mark pass or not-pass, then send me the link when its ready to share"
-    },
-    {
       "id": 44,
       "expected": "previewing",
-      "tests": "NEAR-MISS vs touring: a read-only page of the current flow, no pass/not-pass interaction and nothing published",
+      "tests": "core trigger: a read-only page of the current flow, no plan and nothing published",
       "query": "just show me a diagram of the current auth flow, one page is fine"
-    },
-    {
-      "id": 45,
-      "expected": "resuming",
-      "tests": "core trigger, drain root's parked fix children in order — NOT plan-track (targeted drain request, not a status survey), NOT deferring (nothing new to park)",
-      "query": "continue the fixes parked under my payments-migration root plan, pick up wherever we left off"
-    },
-    {
-      "id": 46,
-      "expected": "plan-track",
-      "tests": "core trigger, repo-wide remaining-work inventory phrasing",
-      "query": "whats left across the repo right now? just give me the full remaining-work picture"
-    },
-    {
-      "id": 47,
-      "expected": "plan-track",
-      "tests": "core trigger, 'any task left for <plan>' phrasing — status query, not a drain request",
-      "query": "is there any task left for the payments-migration plan or is that whole tree closed out now"
-    },
-    {
-      "id": 48,
-      "expected": "deferring",
-      "tests": "core trigger, user explicitly asks to park a blocking fix — it becomes a child under the active plan. The ask ('park this, it blocks the plan') is what routes here; a verifier gap on its own never does (see id 55) — NOT resuming (nothing parked yet to drain), NOT plan-track (not a status check)",
-      "query": "the verifier flagged we also need to backfill the missing index before this ships — park this, it blocks the plan, ill circle back after"
-    },
-    {
-      "id": 49,
-      "expected": "resuming",
-      "tests": "NEAR-MISS vs plan-track: named root + explicit continue/drain intent routes to resuming, not a status-only inventory query",
-      "query": "whats still open under the checkout-refactor root — dont just list them, go ahead and pick up the next one"
-    },
-    {
-      "id": 50,
-      "expected": "plan-track",
-      "tests": "NEAR-MISS vs resuming: no named note/root/split-group argument — generic 'build the next unbuilt plan' is plan-track's job, not a targeted drain",
-      "query": "can we continue working through the plans we havent built yet? just start wherever makes sense"
-    },
-    {
-      "id": 51,
-      "expected": "resuming",
-      "tests": "NEAR-MISS vs plan-track: NAMED split-group + explicit continue/pick-up intent routes to resuming, not a generic post-split survey — the naming is what flips row 18's unnamed phrasing to this skill",
-      "query": "we've got that notifications-revamp split group from last week — go ahead and pick up the next sibling in the group"
     },
     {
       "id": 52,
@@ -332,34 +181,10 @@
       "query": "theres an old draft.md sitting in the repo root nobody uses anymore, can you just rm it"
     },
     {
-      "id": 54,
-      "expected": "deferring",
-      "tests": "owning-plan parent branch: user parks a confirmed defect in an ALREADY-IMPLEMENTED plan's shipped work under THAT plan (parent = owning plan, diverging from the discovering flow) — NOT plan-track (not a status query), NOT resuming (nothing parked yet to drain)",
-      "query": "while testing the exporter we confirmed a real bug in the auth-hardening plan we already shipped — token refresh drops the session on retry. park it under that plan so it stops reading as done"
-    },
-    {
-      "id": 55,
-      "expected": "dispatch-agents",
-      "tests": "NEAR-MISS vs deferring: a verification gap that blocks the plan's OWN goal is remediated through the failure loop and re-verified, never parked. Opens on the same 'the verifier flagged X' phrasing as id 48 but asks for a fix, not a capture — deferral is manual only as of v2.33.0, so a verifier finding alone must never reach deferring",
-      "query": "topic 2's verifier came back FAIL — the migration never runs on a fresh db, and thats the whole point of this plan. get that fixed and run the verification for that topic again"
-    },
-    {
       "id": 56,
       "expected": "previewing",
       "tests": "core trigger: a plan previewed with clickable mockups of every screen and its error cases, before approval",
       "query": "preview the checkout plan with clickable mockups of each screen and the error cases — i want to click through it before i approve"
-    },
-    {
-      "id": 57,
-      "expected": "plan-review",
-      "tests": "NEAR-MISS vs previewing: 'review the plan' asks for a quality verdict, not a page",
-      "query": "review the plan, is it any good? i dont need a page, just tell me whether the approach holds up"
-    },
-    {
-      "id": 58,
-      "expected": "touring",
-      "tests": "NEAR-MISS vs previewing: a UAT page with pass/not-pass marks per scenario = tour",
-      "query": "make me a UAT page for the release where the reviewers tick pass or not-pass on every scenario"
     },
     {
       "id": 59,
@@ -390,18 +215,6 @@
       "expected": "frontend-self-ex-review",
       "tests": "core trigger: usability concern with no 'review' keyword",
       "query": "new users land on our signup screen and dont know what to do first - theres a big slogan, two paragraphs about the product and a button that just says Go. how should this screen work?"
-    },
-    {
-      "id": 64,
-      "expected": "plan-review",
-      "tests": "NEAR-MISS vs frontend-self-ex-review: 'review' + UI, but the ask is a verdict on a written plan",
-      "query": "before i greenlight it, is the invoice plan any good? it touches a bunch of ui on the invoice screen and i want to know if the plan itself holds up"
-    },
-    {
-      "id": 65,
-      "expected": "touring",
-      "tests": "NEAR-MISS vs frontend-self-ex-review: UI screens + review, but a pass/fail acceptance page",
-      "query": "make me a page i can send QA where they click through each of the new onboarding screens, mark every one pass or fail and leave notes"
     },
     {
       "id": 66,

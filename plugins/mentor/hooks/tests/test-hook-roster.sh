@@ -35,9 +35,7 @@ bad() { FAIL=$((FAIL+1)); printf "  FAIL %s\n" "$1"; }
 PINNED_REGISTRATIONS="$(printf '%s\n' \
   "PostToolBatch:context-checkpoint.sh" \
   "PostToolUse:plan-open.sh" \
-  "PreToolUse:dispatch-contract.sh" \
   "PreToolUse:plan-gate.sh" \
-  "SessionStart:handoff-check.sh" \
   "UserPromptSubmit:context-gate.sh" \
   | sort)"
 
@@ -46,10 +44,9 @@ PINNED_CLIS="$(printf '%s\n' \
   "approve-plan.sh" \
   "begin-plan.sh" \
   "plan-state.sh" \
-  "set-mode.sh" \
   | sort)"
 
-echo "== A. hooks.json registers exactly the six pinned hooks =="
+echo "== A. hooks.json registers exactly the four pinned hooks =="
 
 ACTUAL_REGISTRATIONS="$(jq -r '
   .hooks | to_entries[] as $ev
@@ -59,7 +56,7 @@ ACTUAL_REGISTRATIONS="$(jq -r '
 ' "$HOOKS_JSON" 2>/dev/null | sort)"
 
 if [ "$ACTUAL_REGISTRATIONS" = "$PINNED_REGISTRATIONS" ]; then
-  ok "hooks.json registrations match the pinned roster (6)"
+  ok "hooks.json registrations match the pinned roster (4)"
 else
   bad "hooks.json registrations drifted from the pinned roster"
   printf '       + added / - removed:\n'

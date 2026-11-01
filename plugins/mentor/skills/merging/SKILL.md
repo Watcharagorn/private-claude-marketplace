@@ -106,8 +106,7 @@ base-run history.
 diff" reads like a flake, so a deterministic environment failure (a missing binary, a
 service that never comes up — `supabase: not found`, exit 127) routes to *flake*, burns
 the one-ever rerun on something that cannot pass, then gets relabelled a regression of a
-PR that never caused it. Two commands separate rot from a flake — and if the topic's live
-handoff note already records a base-branch finding, read it instead of re-deriving:
+PR that never caused it. Two commands separate rot from a flake:
 
 ```bash
 # Re-derive here: $branch and $run_id from the block above are gone with their Bash call.
@@ -154,19 +153,13 @@ the question, not a link to the run.
 
 **On a `pre-existing (broken base)` verdict the option set changes**, because the PR
 cannot reach green by waiting: drop **Auto-merge on green** (it would queue forever) and
-offer instead **Merge anyway** — stating plainly which jobs *did* pass, so the user is
-weighing real evidence rather than a bare override — alongside **Leave open**. Whichever
-they pick, the rot itself outlives this PR: it's a pre-existing defect on `base`, not a
-check on this PR's own work, so under the scope rule its **fix** is deferrable. But
-whether to park it is the user's call, and it does not earn a second consecutive question
-about the same red check — fold it into this one as a paired option set: **Merge anyway**
-/ **Merge anyway, and park the base fix** / **Leave open** / **Leave open, and park the
-base fix**. On either "park" verdict the verdict *is* the invocation — run
-`Skill(skill="mentor:deferring")` yourself with `fix <failing job>, broken on <base> since
-<date>` rather than telling them to type `/mentor:defer`. On a plain option, **name the
-rot in your report** and leave it there; a verdict that lives only in this turn's output
-is how the same five `gh` calls get spent again next week, and naming it is what prevents
-that without parking work nobody asked to park.
+offer exactly two options: **Merge anyway** — stating plainly which jobs *did* pass, so
+the user is weighing real evidence rather than a bare override — and **Leave open**.
+Whichever they pick, the rot itself outlives this PR: it's a pre-existing defect on
+`base`, not a check on this PR's own work. **Name it in your report** as leftover work —
+`fix <failing job>, broken on <base> since <date>` — with both run URLs, and leave it
+there; a finding that is never written down is how the same five `gh` calls get spent
+again next week.
 
 Report the result (merged SHA or queued state) and, if the branch is deletable
 per repo convention, mention `--delete-branch` as an option — don't apply it
@@ -176,9 +169,8 @@ unasked.
 
 Only after a merge actually landed. A shipping pass closes plan state when it *opens*
 the PR, so a PR that merges in a later session — or that no ship ever opened — leaves
-its plan at `in_progress`, and the next `/mentor:track` re-offers work that already
-shipped. This step closes that half of the loop; it is a no-op
-when ship already did it, because `set` is idempotent.
+its plan at `in_progress`, where it still reads as unbuilt work that already shipped. This step closes that half of the loop; when ship already closed it, re-running `set`
+only stamps the merge record into the note.
 
 Merge resolves the topic differently from ship, and better: ship asks what *this
 session* worked on, which a merge-only session cannot answer, while the PR names
@@ -188,31 +180,29 @@ remainder case-insensitively as a substring against `plan-state.sh list` slugs. 
 here rather than guessing.
 
 With a candidate in hand, ask before writing — a PR often carries only some of a
-plan's steps, and `implemented` would hide the rest from `/mentor:track`:
+plan's steps, and `implemented` would mark the unshipped rest as done:
 
 ```bash
-[ -d "${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:-}}/hooks" ] || { echo "ERROR: Mentor helper unavailable — set PLUGIN_ROOT (or use the Claude compatibility fallback) or use the documented artifact fallback" >&2; exit 1; }
-plans_dir="$(bash "${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:-}}/hooks/plan-state.sh" dir --plans)"
+[ -d "${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT}}/hooks" ] || { echo "ERROR: Mentor helper unavailable — set PLUGIN_ROOT (or use the Claude compatibility fallback) or use the documented artifact fallback" >&2; exit 1; }
+plans_dir="$(bash "${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT}}/hooks/plan-state.sh" dir --plans)"
 [ -n "$plans_dir" ] || { echo "ERROR: Mentor plans directory unresolved — set PLUGIN_ROOT (or use the Claude compatibility fallback) or derive the repository .mentor directory" >&2; exit 1; }
 if [ -d "$plans_dir/<slug>" ]; then
-  open="$(jq -r '.note // ""' "$plans_dir/<slug>/.state.json" 2>/dev/null | tr '|' '\n' | grep -m1 '^ *open:' | sed 's/^ *//; s/ *$//')"
-  bash "${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:-}}/hooks/plan-state.sh" set <slug> implemented --note "${open:+$open | }merged: PR #<n> <sha>"
+  stored="$(jq -r '.state // ""' "$plans_dir/<slug>/.state.json" 2>/dev/null)"
+  case "$stored" in
+    superseded) echo "<slug> is superseded (a split parent) — left as is." ;;
+    *) bash "${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT}}/hooks/plan-state.sh" set <slug> implemented --note "merged: PR #<n> <sha>" ;;
+  esac
 fi
 ```
 
-Carry the `--note`, and carry any `open:` segment forward inside it. `note` is the one
-sidecar field always replaced on write, and an `open:` list is the plan's only record of
-verification findings the user chose to leave open — overwriting it silently converts
-"done with three known gaps" into "done". Everything *else* in the old note is meant to
-clear (a stale `failed` reason, most of all), which is why the read greps for the `open:`
-segment specifically instead of prepending the whole string. The composition is literal —
-`open: a, b | merged: PR #12 abc` — so a later reader still finds `merged:` where it
-expects it. The directory guard above is why the write is wrapped rather than left to
-fail: `set` exits 1 with "No such plan" when the plans dir exists but the slug doesn't,
-and inventing a slug to satisfy it is worse than stopping. One guard the script cannot
-give you: `set` has no downgrade check, so if the slug resolves to a **split parent**,
-`implemented` overwrites `superseded` — read the state before writing. No candidate, or the user says
-no → say what you found and stop; never hand-edit `.state.json`.
+Always carry the `merged: PR #<n> <sha>` note — it is the plan's only durable link to
+the merge that shipped it, and writing it also clears any stale failure reason (`note` is
+replaced on every `set`). Run it for an already-`implemented` plan too, so a plan ship
+closed still gains its merge record. `set` has no downgrade guard, so read the state
+first and skip only `superseded` (a split parent), which `implemented` would overwrite. The directory guard is why the write is wrapped rather than
+left to fail: `set` exits 1 with "No such plan" when the plans dir exists but the slug
+doesn't, and inventing a slug to satisfy it is worse than stopping. No candidate, or the
+user says no → say what you found and stop; never hand-edit `.state.json`.
 
 ## Step 6 — The post-merge run on the base branch
 
@@ -250,11 +240,9 @@ the base branch is a fresh working session, not a tail on this one.
 When the red is the **same test Step 3 flake-verdicted**, that is not a second budget — it is a test
 that failed, went green on a rerun, and failed again on what actually landed, which is as easily a
 real failure the rerun masked as a flake. This is a pre-existing defect on `base`, not a check on
-this PR's own work, so its fix is work to build, never a check to run. **Name it in your report**,
-then offer to park it — one `AskUserQuestion`, park the fix / just report it — and on a park verdict
-run the capture yourself (`Skill(skill="mentor:deferring")`, `fix <test> flaky on <base>`) rather
-than handing back a command to type. The verdict outlives this session either way; another rerun
-would only re-roll it.
+this PR's own work, so its fix is work to build, never a check to run. **Name it in your report** as
+leftover work — `fix <test> flaky on <base>`, with the run URL — and stop there; no extra question.
+Another rerun would only re-roll it.
 
 **A green run on `base` is when a deploy artifact actually goes live** — the merged PR may have
 touched one. Say so in one report line when the merged diff touched any of
@@ -271,9 +259,10 @@ user ends up improvising a from-scratch deploy investigation later. Never deploy
   explicit choice — or the PR was left open with its status stated plainly.
 - A red check was sorted into flake / regression / **pre-existing (broken base)** before
   the rerun was spent, using the base-branch run history and the CI-file diff — and a
-  pre-existing verdict reached Step 4 as its own option set, with the base fix either
-  captured on the user's verdict or named plainly in the report, never as a third dead end.
-- A landed merge either closed its plan's state on the user's say-so, or reported that
+  pre-existing verdict reached Step 4 as its own option set, with the base fix named
+  plainly in the report as leftover work, never as a third dead end.
+- A landed merge either closed its plan's state on the user's say-so — `implemented`
+  with a `merged: PR #<n> <sha>` note, in every state but `superseded` — or reported that
   no plan matched the branch — never left a shipped plan silently `in_progress`. A PR
   merged outside the session still reached this step, rather than being reported as
   "no open PR, nothing to do".

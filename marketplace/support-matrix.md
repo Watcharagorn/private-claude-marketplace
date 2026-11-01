@@ -5,11 +5,9 @@ Generated from `plugins/*/capabilities.json` by `scripts/marketplace sync`. Do n
 | Plugin | Tier | Workflow | Claude Code | Codex | Fallback |
 | --- | --- | --- | --- | --- | --- |
 | mentor | dual-enhanced | planning | Supported | Supported | Use ordinary conversation for decisions and persist the plan under .mentor; Codex does not require an edit hook. |
-| mentor | dual-enhanced | review-and-dispatch | Supported | Supported | Run independent checks serially in the current task when delegation is unavailable. |
 | mentor | dual-enhanced | ux-review | Supported | Supported | Use the portable skill directly from ordinary conversation; it needs no Mentor helper or .mentor state. |
-| mentor | dual-enhanced | durable-state | Supported | Supported | Read and update the host-neutral .mentor files through plan-state.sh. |
 | mentor | dual-enhanced | delivery | Supported | Supported | Use the host's ordinary shell and approval flow when slash-command facades are unavailable. |
-| mentor | dual-enhanced | visual-artifacts | Supported | Supported | Write local HTML under .mentor (tours: self-contained, with Markdown and JSON companions; review pages: pinned CDN scripts allowed); hosted Artifact publication is optional. |
+| mentor | dual-enhanced | visual-artifacts | Supported | Supported | Write the local HTML review page under .mentor (pinned CDN scripts allowed); hosted Artifact publication is optional. |
 | mentor | dual-enhanced | governance | Supported | Supported | Persist project principles in .mentor/constitution.md. |
 | loom | host-specialized | publish-plugin | Supported | Supported | Run scripts/marketplace directly from the marketplace repository. |
 | loom | host-specialized | session-learning | Supported | Unsupported | Export or supply the source session explicitly and maintain the resulting plugin with the portable publish workflow. |

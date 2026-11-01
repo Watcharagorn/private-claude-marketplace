@@ -5,7 +5,7 @@
 # to the approval options — the persisted repo mode is NOT read here; the
 # user's explicit choice decides:
 #   (no arg)   — approve: validate, release the gate, implementation begins;
-#                prints the subagents-first (SDD) execution directive.
+#                prints the main-thread implementation directive.
 #   --deliver  — approve, but the plan file is the DELIVERABLE: prints a
 #                DELIVER-ONLY soft-stop directive (no implementation).
 #   anything else — usage error, exit 1, marker untouched. (--handoff retired in
@@ -41,19 +41,15 @@
 # Plan state (v2.4.0, widened v2.14.0): EVERY approval path — no-arg and --deliver —
 # promotes this session's plans to `approved` in their .state.json sidecars. Approval
 # is approval: the flag only changes what happens NEXT (implement now / deliver), not
-# whether the plan was approved. Leaving a flagged approval at `draft` made plan-track
-# refuse it in the next session ("the gate never released" — but it did). See the promotion block for why the
+# whether the plan was approved. A flagged approval left at `draft` reads as "the gate
+# never released" in the next session — but it did. See the promotion block for why the
 # candidate set is snapshotted before the marker is deleted. Promotion also
 # stamps `owner`/`owner_session` (this worktree) on any previously-unowned plan
 # it promotes — see _promote_plan below.
 #
-# Approval-sweep shield (v2.17.0): a candidate whose sidecar carries origin:"deferred"
-# (a stub born via /mentor:defer mid-session) is SKIPPED, not promoted — it stays
-# `draft` until `plan-state.sh claim <slug>` clears origin. The promotion write itself
-# is now flag-style (`--state approved`, no other flags beyond --owner/--owner-session
-# when stamping), so it never touches deps/origin/group/order — the old fixed-positional
-# write clobbered them back to defaults on every promotion, which is exactly what made a
-# shield here pointless before the rework.
+# The promotion write is flag-style (`--state approved`, no other flags beyond
+# --owner/--owner-session when stamping), so it never touches deps/group/order or any
+# other sidecar field.
 
 set -euo pipefail
 
@@ -219,8 +215,7 @@ if [ -n "$marker" ]; then
       echo "[mentor approve-plan] No plan owned by this worktree in ${plans_dir}." >&2
       if [ "$strict" -eq 1 ]; then
         echo "  (${excluded} plan(s) here are owned by another worktree or unowned while a sibling" >&2
-        echo "   worktree's planning is active — re-own with /mentor:plan <slug> or claim with" >&2
-        echo "   plan-state.sh claim <slug>.)" >&2
+        echo "   worktree's planning is active — re-own with /mentor:plan <slug>.)" >&2
       else
         echo "  (${excluded} plan(s) here are owned by another worktree — re-own with /mentor:plan <slug>.)" >&2
       fi
@@ -244,8 +239,8 @@ if [ -n "$marker" ]; then
     if [ "$excluded" -gt 0 ]; then
       if [ "$strict" -eq 1 ]; then
         echo "  (${excluded} plan(s) here are owned by another worktree or unowned while a sibling" >&2
-        echo "   worktree's planning is active — re-own with /mentor:plan <slug> or claim with" >&2
-        echo "   plan-state.sh claim <slug> if one of those is yours.)" >&2
+        echo "   worktree's planning is active — re-own with /mentor:plan <slug> if one of" >&2
+        echo "   those is yours.)" >&2
       else
         echo "  (${excluded} plan(s) here are owned by another worktree — re-own with /mentor:plan <slug>" >&2
         echo "   if one of those is yours.)" >&2
@@ -311,7 +306,7 @@ fi
 
 # Promote plan state on EVERY approval path — this must run before the --deliver
 # early exit. `approved` records the user's decision; whether implementation happens
-# now, in a later session, or never (deliver) is the directives' business. plan-track trusts this state: a stored `draft` reads as
+# now, in a later session, or never (deliver) is the directives' business. A stored `draft` reads as
 # "the gate never released", so skipping promotion here falsely blocks the plan
 # in the very next session.
 #
@@ -331,7 +326,7 @@ fi
 # successful-looking approval went unnoticed until the next session refused to build it.
 # One `state:` line always prints, before the --deliver early exit below.
 if [ -n "$newly_planned" ] || [ -n "$unowned_skipped" ]; then
-  promoted=""; swept=""; deferred_skipped=""; candidates=0
+  promoted=""; swept=""; candidates=0
   while IFS= read -r plan_path; do
     [ -n "$plan_path" ] || continue
     candidates=$((candidates + 1))
@@ -340,13 +335,6 @@ if [ -n "$newly_planned" ] || [ -n "$unowned_skipped" ]; then
       draft|unknown) ;;
       *) continue ;;
     esac
-    # Shield: a stub jotted mid-planning via /mentor:defer stays draft until claimed
-    # (plan-state.sh claim <slug>) — otherwise every plan approval would silently
-    # promote deferred work the user explicitly set aside.
-    if [ "$(mentor_plan_state_field "$plan_dir" origin)" = "deferred" ]; then
-      deferred_skipped="${deferred_skipped}$(basename "$plan_dir") "
-      continue
-    fi
     if [ "$plan_path" = "$newest_plan" ]; then
       _promote_plan "$plan_dir" ""
       promoted="${promoted}$(basename "$plan_dir") "
@@ -354,8 +342,8 @@ if [ -n "$newly_planned" ] || [ -n "$unowned_skipped" ]; then
       # Swept in only because its plan.md is also newer than this session's marker
       # (e.g. a different topic touched earlier in the same planning session) — NOT
       # the plan this call is approving. Stamp the sidecar note (not just the stdout
-      # line below) so a LATER session — plan-track deciding whether to dispatch it,
-      # a resumed grill — still sees it wasn't individually reviewed, since the
+      # line below) so a LATER session — deciding whether to build it, or grilling it —
+      # still sees it wasn't individually reviewed, since the
       # promotion write already replaces whatever note was there (mentor_plan_state_write's
       # --note has no "omitted preserves" case) whether we set one or not.
       _promote_plan "$plan_dir" "swept in by approve-plan.sh — plan.md was newer than this session's .planning marker but this wasn't the plan being approved; not individually reviewed. Undo: plan-state.sh set $(basename "$plan_dir") draft"
@@ -371,11 +359,8 @@ if [ -n "$newly_planned" ] || [ -n "$unowned_skipped" ]; then
   if [ -z "$promoted" ] && [ -z "$swept" ]; then
     echo "  state: unchanged — nothing needed promoting (${candidates} candidate(s), none in draft/unknown)"
   fi
-  if [ -n "$deferred_skipped" ]; then
-    echo "  state: left draft (deferred stub — run 'plan-state.sh claim <slug>' first) — ${deferred_skipped% }"
-  fi
   if [ -n "$unowned_skipped" ]; then
-    echo "  state: unowned, skipped — sibling planning active; re-own via /mentor:plan <slug> or plan-state.sh claim — ${unowned_skipped% }"
+    echo "  state: unowned, skipped — sibling planning active; re-own via /mentor:plan <slug> — ${unowned_skipped% }"
   fi
 else
   echo "  state: unchanged — no plans written this session, nothing to promote"
@@ -386,22 +371,22 @@ if [ "$flag" = "--deliver" ]; then
 
 DELIVER-ONLY — plan APPROVED and gate released. The plan file is the deliverable:
   ${newest_plan:-(no plan file on record)}
-Do NOT implement and do NOT dispatch implementation agents in this session.
-Report where the plan lives and STOP. (The user can run /mentor:handoff to brief
-a fresh agent, or ask to proceed later — the gate is already open.)
+Do NOT implement in this session.
+Report where the plan lives and STOP. (The user can ask to proceed later — the
+gate is already open.)
 EOF
   exit 0
 fi
 
-# Restate the SDD directive here — informational only, no enforcement — because this
-# is the exact moment the model resumes after the Bash call (printed on re-runs too,
-# mirroring the idempotent-directive rule for the flags above).
+# Restate the implementation directive here — informational only, no enforcement —
+# because this is the exact moment the model resumes after the Bash call (printed on
+# re-runs too, mirroring the idempotent-directive rule for the flags above).
 cat <<EOF
 
-Execute the plan's own routing verdict per Skill(skill="mentor:dispatch-agents"):
-run the dispatch annotations where the steps carry them, and implement directly in
-the main thread where the plan states "Dispatch: skipped". Verification dispatches
-either way — it has no main-thread form.
+Implement the plan's steps in the main thread. As each step's "Done when:" passes,
+tick it (plan-state.sh tick <slug> <N>). Then run every ## Verification check and
+set the plan implemented (plan-state.sh set <slug> implemented) — or failed, with
+--note "<why>" — and offer /mentor:ship.
 EOF
 
 exit 0

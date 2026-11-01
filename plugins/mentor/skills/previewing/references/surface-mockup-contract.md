@@ -54,8 +54,6 @@ actor, a trigger, an outcome and an ordered chain of **hops**.
 | 4 | A dependency or config key | `web-push`, `react-toastify`, `@slack/bolt`, a webhook URL key |
 | 5 | Wording alone | "notify", "tell the user" |
 
-In a `plan-domain-dynamic` plan, the `## Domain best practices applied` rows count as signal 1.
-
 **Check every hop against its emitter's guard, whichever signal found it.**
 
 - Read the guard around the emit call (the `case` or `if` on status, stage, flag or role) and every value that
@@ -99,8 +97,7 @@ ours; (4) its limits; (5) its outcomes and variants. Derive all five from the re
 question per new surface, only when (1) or (2) is open, cleanest option first; two such surfaces mean two
 questions, one per turn. For a large producer, a read-only probe worker may gather (2)–(5).
 
-**SURFACE BRIEF.** A new surface is recorded as `family: new:<slug>` with a brief, shaped like
-`plan-domain-dynamic`'s DOMAIN BRIEF:
+**SURFACE BRIEF.** A new surface is recorded as `family: new:<slug>` with a compact brief:
 
 ```text
 SURFACE BRIEF: label-zpl · confidence: high · settled: derived+asked 2026-10-10
@@ -429,9 +426,9 @@ non-plan subject.
    variants, `base:`) and the plan sections they cite from the file, so the main thread does not paste them
    into every brief;
 4. the `emit=` and `render=` paths, and the CDN pins from `page-contract.md`;
-5. for the screen group, the component, token and font file paths (`plan-domain-frontend` §1's research
-   EVIDENCE), the design principles its Preflight distilled, and the items of its Visualization quality bar
-   the change touches, when the plan has them;
+5. for the screen group, the component, token and font file paths found in research (the project's real
+   design tokens and source), and any design principles or visual quality bar the plan states for the
+   surfaces the change touches;
 6. the output paths, and the instruction: "Read the real sources yourself; invent nothing; mark every
    exception; write each hop file in one Write." The brief then ends with `SKILL.md` §3's delivery rule.
 

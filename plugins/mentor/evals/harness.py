@@ -2,8 +2,8 @@
 """Cross-host multi-skill trigger eval for the mentor plugin.
 
 The stock skill-creator harness exposes ONE skill and asks "did it fire?".
-For mentor that misses the real risk: fifteen sibling skills competing, where
-the defect is the WRONG one firing. So this stages all fifteen at once in an
+For mentor that misses the real risk: eight sibling skills competing, where
+the defect is the WRONG one firing. So this stages all eight at once in an
 isolated scratch project and records which one the selected host reaches for.
 """
 import json, os, re, subprocess, sys, tempfile, time, uuid
@@ -12,10 +12,9 @@ from pathlib import Path
 
 HERE = Path(__file__).parent.resolve()
 REPO_SKILLS = (HERE / ".." / "skills").resolve()
-SKILLS = ["planning", "plan-split", "plan-track", "plan-review",
-          "grilling", "dispatch-agents", "resuming", "handoff-note",
-          "touring", "previewing", "merging", "shipping",
-          "deferring", "constitution-authoring", "frontend-self-ex-review"]
+SKILLS = ["planning", "plan-split", "grilling", "previewing",
+          "merging", "shipping", "constitution-authoring",
+          "frontend-self-ex-review"]
 
 
 def fm_field(fm, key):
@@ -111,13 +110,31 @@ def run_query(root: Path, query: str, model: str, host: str, timeout: int = 150)
     return selected, round(time.time() - t0, 1)
 
 
+USAGE = "usage: harness.py [claude|codex] [model] [reps]"
+
+
+def usage_error():
+    print(USAGE, file=sys.stderr)
+    sys.exit(2)
+
+
 def main():
     args = sys.argv[1:]
+    # Every run is live and costs real model calls, so an argument that looks like a
+    # flag must never fall through as a model name and start one.
+    if any(a in ("-h", "--help") for a in args):
+        print(USAGE)
+        sys.exit(0)
+    if any(a.startswith("-") for a in args):
+        usage_error()
     host = args.pop(0) if args and args[0] in ("claude", "codex") else "claude"
     model = args.pop(0) if args else ("claude-opus-5" if host == "claude" else "")
-    reps = int(args.pop(0)) if args else 1
-    if args:
-        raise SystemExit("usage: harness.py [claude|codex] [model] [reps]")
+    try:
+        reps = int(args.pop(0)) if args else 1
+    except ValueError:
+        usage_error()
+    if args or reps < 1:
+        usage_error()
     evals = json.loads((HERE / "evals.json").read_text())["evals"]
 
     descriptions = {}

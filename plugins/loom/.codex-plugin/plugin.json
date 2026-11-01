@@ -1,7 +1,7 @@
 {
   "name": "loom",
   "description": "Session-driven workflow harvesting, plugin maintenance, and automation guidance.",
-  "version": "4.7.0",
+  "version": "4.7.1",
   "author": {
     "name": "NTBX"
   },

@@ -2,7 +2,7 @@
 # test-sweep.sh — regression tests for `plan-state.sh sweep` (v2.33.0+).
 #
 # Contract under test:
-#   • `sweep <pattern> [--roots policy|plans|repo] [--ignore-case]` searches <pattern>
+#   • `sweep <pattern> [--roots plans|repo] [--ignore-case]` searches <pattern>
 #     across a NAMED ROOT SET, printing an accounting line FIRST and the hits after:
 #         SWEEP: roots=N files=N hits=N
 #         <path>:<line>:<text>            (one per hit)
@@ -13,24 +13,24 @@
 #     0 = hits found · 1 = read >=1 file, no match · 2 = read NO files (plus an explicit
 #     `SWEEP: NOTHING-SEARCHED` line), or a usage error.
 #   • Root sets:
-#       policy (default) — worktree CLAUDE.md + worktree .claude/ + main repo .mentor/plans
-#       plans            — main repo .mentor/plans
-#       repo             — the whole worktree minus .git/ (.mentor/ INCLUDED)
+#       plans (default) — main repo .mentor/plans
+#       repo            — the whole worktree minus .git/ (.mentor/ INCLUDED)
+#     (the pre-5.0 `policy` set is gone and is a usage error now)
 #   • Reachability is the entire point. `.mentor/.gitignore` contains `*`, and a recursive
 #     grep whose traversal root is at or above that file reads NOTHING under a grep that
 #     honors ignore rules (ugrep does). `sweep` finds a directive in a gitignored handoff
 #     note anyway, because `find` does the walking and `grep` only reads the explicit list
 #     it is handed — the escape is structural, not a better flag.
-#   • Worktree awareness: CLAUDE.md and .claude/ resolve via `git rev-parse --show-toplevel`
-#     (this worktree's own checkout) while .mentor/plans resolves via git-common-dir (the
+#   • Worktree awareness: `repo` resolves via `git rev-parse --show-toplevel` (this
+#     worktree's own checkout) while .mentor/plans resolves via git-common-dir (the
 #     shared main repo). Using one resolution for both is wrong in a linked worktree.
 #   • Portability: only POSIX grep flags. No -r/-R anywhere — recursion is find's job.
 #     `-H` is mandatory: without it a single-file root prints a bare `15:` with no path.
 #   • Binary files are skipped (-I) but still counted by find's denominator.
 #
 # Plus TEXT INVARIANTS over the REAL repo (not the sandbox): the non-portable flag this
-# subcommand exists to retire must not reappear under plugins/mentor/, and each of the
-# three prescribing skill sites must invoke `sweep`.
+# subcommand exists to retire must not reappear under plugins/mentor/, and the
+# prescribing skill site must invoke `sweep`.
 #
 # SELF-REFERENCE NOTE: this file lives under plugins/mentor/, so it must never contain the
 # retired flag as a contiguous literal — the invariant would then match itself and fail
@@ -99,7 +99,7 @@ printf '# Project\n\nMAINONLY-TOKEN appears only in the main worktree CLAUDE.md.
 mkdir -p "$REPO/.claude"
 printf 'DOTCLAUDE-TOKEN lives only in .claude/rules.md\n' > "$REPO/.claude/rules.md"
 mkdir -p "$REPO/src"
-printf 'SRCONLY-TOKEN lives only in src/, outside every policy root.\n' > "$REPO/src/code.txt"
+printf 'SRCONLY-TOKEN lives only in src/, outside the plans root.\n' > "$REPO/src/code.txt"
 # Planted inside .git/ — `repo` must prune it, so this token is unreachable from every set.
 printf 'GITONLY-TOKEN must never be reachable.\n' > "$REPO/.git/planted.txt"
 # A binary file carrying the pattern: counted by find, skipped by grep -I.
@@ -125,7 +125,8 @@ chk "  hit line carries the fixture's real line number"   has "handoffs/note.md:
 chk "  hits=1"                                        test "$(fld hits)" = "1"
 run "$REPO" 'No subagents'
 chk "same directive found by the DEFAULT root set"    test "$RC" = "0"
-chk "  default set is policy (reaches .mentor/plans)" has "handoffs/note.md" "$OUT"
+chk "  default set is plans (reaches .mentor/plans)"  has "handoffs/note.md" "$OUT"
+chk "  …and only that one root"                       test "$(fld roots)" = "1"
 
 # The old prescription, on this very fixture. Only meaningful under a grep that honors
 # ignore rules; on GNU/BSD grep it "works" and would prove nothing, so it is gated.
@@ -152,19 +153,17 @@ else
   skip "old-command reproduction (needs ugrep; this grep does not honor .gitignore)"
 fi
 
-echo "== B. The policy root set reaches CLAUDE.md and .claude/ =="
-run "$REPO" MAINONLY-TOKEN --roots policy
+echo "== B. The repo root set reaches CLAUDE.md and .claude/ =="
+run "$REPO" MAINONLY-TOKEN --roots repo
 chk "CLAUDE.md hit found"                             test "$RC" = "0"
 chk "  path is CLAUDE.md"                             has "CLAUDE.md:" "$OUT"
-run "$REPO" DOTCLAUDE-TOKEN --roots policy
+run "$REPO" DOTCLAUDE-TOKEN --roots repo
 chk ".claude/ hit found"                              test "$RC" = "0"
 chk "  path is .claude/rules.md"                       has ".claude/rules.md:" "$OUT"
-run "$REPO" MAINONLY-TOKEN --roots policy
-chk "roots=3 when all three policy roots exist"       test "$(fld roots)" = "3"
 
 echo "== C. Root-set boundaries — each reaches what it should and NOT more =="
-run "$REPO" SRCONLY-TOKEN --roots policy
-chk "policy does NOT reach src/ (exit 1, healthy no-match)" test "$RC" = "1"
+run "$REPO" SRCONLY-TOKEN --roots plans
+chk "plans does NOT reach src/ (exit 1, healthy no-match)" test "$RC" = "1"
 chk "  files= is non-zero, so the zero is trustworthy"      test "$(fld files)" -gt 0
 chk "  no NOTHING-SEARCHED line on a healthy negative"      hasnt "NOTHING-SEARCHED" "$OUT"
 run "$REPO" SRCONLY-TOKEN --roots repo
@@ -183,14 +182,14 @@ run "$REPO" NOTEONLY-TOKEN --roots repo
 chk "repo roots=1 (the worktree itself)"              test "$(fld roots)" = "1"
 
 echo "== D. --ignore-case =="
-run "$REPO" 'mixedcase-directive' --roots policy
+run "$REPO" 'mixedcase-directive' --roots repo
 chk "case-sensitive by default → no match"            test "$RC" = "1"
-run "$REPO" 'mixedcase-directive' --roots policy --ignore-case
+run "$REPO" 'mixedcase-directive' --roots repo --ignore-case
 chk "--ignore-case matches mixed case"                test "$RC" = "0"
-run "$REPO" 'MIXEDCASE-DIRECTIVE' --roots policy --ignore-case
+run "$REPO" 'MIXEDCASE-DIRECTIVE' --roots repo --ignore-case
 chk "--ignore-case matches from the other direction"  test "$RC" = "0"
 run "$REPO" 'no subagents' --ignore-case
-chk "the real policy check invocation finds the note" test "$RC" = "0"
+chk "a case-insensitive default-set sweep finds the note" test "$RC" = "0"
 
 echo "== E. Exit codes and the NOTHING-SEARCHED verdict =="
 run "$REPO" NOTEONLY-TOKEN --roots plans
@@ -226,10 +225,12 @@ echo "== G. -H is mandatory: a single-file root still prints path:line: =="
 SOLO="$ROOT/solo-repo"
 git init -q -b main "$SOLO" >/dev/null 2>&1
 ( cd "$SOLO"; git config user.email t@t.co; git config user.name t ) >/dev/null 2>&1
-printf 'line one\nline two\nSOLO-TOKEN on line three\n' > "$SOLO/CLAUDE.md"
-run "$SOLO" SOLO-TOKEN --roots policy
+mkdir -p "$SOLO/.mentor/plans/solo"
+printf 'line one\nline two\nSOLO-TOKEN on line three\n' > "$SOLO/.mentor/plans/solo/plan.md"
+run "$SOLO" SOLO-TOKEN --roots plans
 chk "single-file root: hit found"                     test "$RC" = "0"
-chk "  prints the path, not a bare line number"       has "CLAUDE.md:3:" "$OUT"
+chk "  …and it really was a one-file search"          test "$(fld files)" = "1"
+chk "  prints the path, not a bare line number"       has "solo/plan.md:3:" "$OUT"
 chk "  no bare '3:' hit line without a path" \
   test -z "$(printf '%s\n' "$OUT" | grep '^3:' || true)"
 
@@ -247,7 +248,9 @@ run "$REPO" PATTERN --roots
 chk "--roots with no value → exit 2"                  test "$RC" = "2"
 run "$REPO" PATTERN --roots bogus
 chk "unknown root set → exit 2"                       test "$RC" = "2"
-chk "  names the valid sets"                          has "policy" "$OUT"
+chk "  names the valid sets"                          has "plans|repo" "$OUT"
+run "$REPO" PATTERN --roots policy
+chk "retired policy set → exit 2 (usage error)"       test "$RC" = "2"
 run "$REPO" PATTERN --frobnicate
 chk "unknown flag → exit 2"                           test "$RC" = "2"
 run "$REPO" PATTERN EXTRA-POSITIONAL
@@ -255,20 +258,20 @@ chk "stray extra positional → exit 2"                 test "$RC" = "2"
 run "$REPO" '' --roots plans
 chk "empty pattern → exit 2"                          test "$RC" = "2"
 
-echo "== J. Worktree awareness: own CLAUDE.md, shared .mentor/plans =="
+echo "== J. Worktree awareness: repo = own checkout, plans = shared .mentor/plans =="
 WT="$ROOT/linked-wt"
 git -C "$REPO" worktree add -q "$WT" -b wt-branch >/dev/null 2>&1
 if [ -d "$WT" ]; then
   printf '# Project (linked)\n\nWTONLY-TOKEN appears only in the linked worktree.\n' > "$WT/CLAUDE.md"
-  run "$WT" WTONLY-TOKEN --roots policy
+  run "$WT" WTONLY-TOKEN --roots repo
   chk "linked worktree reads its OWN CLAUDE.md"       test "$RC" = "0"
-  run "$WT" MAINONLY-TOKEN --roots policy
+  run "$WT" MAINONLY-TOKEN --roots repo
   chk "…and NOT the main worktree's CLAUDE.md"        test "$RC" = "1"
   run "$WT" 'No subagents' --roots plans
   chk "…while .mentor/plans still resolves to the main repo" test "$RC" = "0"
   chk "  hit path points into the main repo's .mentor" has "$REPO/.mentor" "$OUT"
   run "$WT" 'No subagents'
-  chk "default policy set works from a linked worktree too" test "$RC" = "0"
+  chk "default plans set works from a linked worktree too" test "$RC" = "0"
 else
   skip "linked-worktree checks (git worktree add unavailable)"
 fi
@@ -293,15 +296,9 @@ if [ -d "$MENTOR" ]; then
   chk "no recursive grep in plan-state.sh / lib/state.sh code" \
     bash -c 'for f in "$@"; do grep -vE "^[[:space:]]*#" "$f" | grep -qE "grep +-[a-zA-Z]*[rR]" && exit 1; done; exit 0' _ \
       "$MENTOR/hooks/plan-state.sh" "$MENTOR/hooks/lib/state.sh"
-  # Each prescribing site must invoke a shared subcommand, not hand-roll a grep. Since
-  # v2.34.0 `policy` counts as one: it wraps this same mentor_sweep call (roots=policy,
-  # pattern='no subagents') behind a spoken verdict, so a site that prescribes it is
-  # still not hand-rolling a grep — which is the whole property this guard protects.
-  for site in dispatch-agents planning plan-review; do
-    f="$MENTOR/skills/$site/SKILL.md"
-    chk "$site/SKILL.md invokes 'plan-state.sh sweep' or 'policy'" \
-      bash -c 'grep -qF "plan-state.sh\" sweep" "$1" || grep -qF "plan-state.sh\" policy" "$1"' _ "$f"
-  done
+  # The prescribing site must invoke the shared subcommand, not hand-roll a grep.
+  chk "planning/SKILL.md invokes 'plan-state.sh sweep'" \
+    grep -qF 'plan-state.sh" sweep' "$MENTOR/skills/planning/SKILL.md"
   # plan-split's command works today BECAUSE it aims below the .gitignore. Pin the
   # comment that records why, so nobody "improves" it by re-aiming it at $mentor_dir.
   chk "plan-split/SKILL.md records why its sweep works" \

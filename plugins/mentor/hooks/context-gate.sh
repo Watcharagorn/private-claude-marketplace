@@ -10,8 +10,8 @@
 # MEASURES them; the nudge skips them). See each tier's own banner below.
 #
 # TIER 1 — the mentor CONTEXT GATE. Measures the live context size from the session transcript
-# and WARNS in three tiers. Warn-only (v4.2.0): it never blocks, never asks a question, and
-# never suggests a handoff — every tier is a one-line stdout notice (UserPromptSubmit stdout
+# and WARNS in three tiers. Warn-only (v4.2.0): it never blocks and never asks a question —
+# every tier is a one-line stdout notice (UserPromptSubmit stdout
 # is injected as context) and exit 0, ending with the progress-first sentence.
 # Thresholds come from mentor_context_limits (lib/state.sh, v4.3.0): a ratio of the
 # compaction window capped by the token knobs when the window is known, the token knobs
@@ -30,7 +30,7 @@
 #     MENTOR_CONTEXT_BLOCK_TOKENS / context_block_tokens.)
 #
 # Escape hatches ALWAYS pass: an empty prompt, or any prompt starting with "/" (slash
-# commands like /compact, /mentor:mode) — checked FIRST, before any measurement, so the
+# commands like /compact, /mentor:plan) — checked FIRST, before any measurement, so the
 # gate can never slow down the tools that fix it.
 #
 # Harness-synthetic prompts (an inbound agent/teammate report, a task notification, a

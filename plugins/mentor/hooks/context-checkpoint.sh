@@ -5,8 +5,6 @@
 # and its verification round, a multi-step implementation the user let run — collapses
 # N turns into one and receives ZERO context readings between prompts. Measured before this existed: one
 # real session grew ~247k tokens between two readings with no warning in between.
-# resuming/SKILL.md names the shape: "a long autonomous stretch between this reading
-# and that report is exactly the shape context-gate.sh's own WARN tier cannot catch."
 # PostToolBatch fires once per tool batch, before the next model request, which is
 # exactly the cadence that closes the blind spot.
 #
@@ -15,7 +13,7 @@
 # the price of everything the run would otherwise have written down). Every tier injects
 # a one-line warning via hookSpecificOutput.additionalContext and exits 0. The guarantee
 # is "never blind", not "forced stop" — that trade was chosen explicitly (2026-08-20)
-# over an exit-2 backstop. Like the gate (v4.2.0), it warns only: no handoff steer.
+# over an exit-2 backstop. Like the gate (v4.2.0), it warns only.
 #
 # Fires the same three tiers as the gate (WARN / WARN-HIGH / HIGH), from the same
 # thresholds (mentor_context_limits, v4.3.0), but rate-limited by its own marker

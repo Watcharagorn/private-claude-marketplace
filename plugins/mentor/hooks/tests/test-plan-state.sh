@@ -16,14 +16,11 @@
 #   • v2.23.0 (worktree-scoped plan gate): `gate` reports one of FOUR tokens
 #     (ARMED/STALE/ARMED_ELSEWHERE/RELEASED) for THIS worktree, with a per-token
 #     `--verbose` field contract; `current` scopes to plans owned by this worktree
-#     (or unowned) unless `--any`; `ensure-dir`/`init`/`claim` stamp sidecar
+#     (or unowned) unless `--any`; `ensure-dir`/`init`/`relocate` stamp sidecar
 #     `owner`/`owner_session`; `list --owners` adds a 6th OWNER column.
-#   • v2.24.0 (impact tier): the sidecar carries `priority` — a CLOSED vocabulary
-#     (critical|high|medium|low|noise), written by `init --priority` and
-#     `set-priority`, surfaced on every `query` entry. Unset stays null
-#     and never defaults into a tier; an invalid value is a usage error (exit 1,
-#     nothing written), not a fail-soft skip; and `list`'s column count is
-#     unchanged in both its shapes.
+#   • v5.0.0: every sidecar write MERGES, so a pre-5.0 sidecar's origin/parent/
+#     priority/category/deferred_from survive untouched and unread (section K7);
+#     the retired subcommands and flags are usage errors, never silent no-ops.
 #
 # Runs against a SANDBOX $HOME and CLAUDE_CONFIG_DIR so it never touches real user
 # state and never finds a real session transcript.
@@ -106,7 +103,7 @@ ps_sess() { local sess="$1"; shift
   ( cd "${CWD:-$REPO}" && env -u MENTOR_CONTEXT_GATE -u MENTOR_CONTEXT_BLOCK_TOKENS -u MENTOR_CONTEXT_WARN_TOKENS \
         HOME="$SANDBOX" CLAUDE_CONFIG_DIR="$SANDBOX/.claude" CLAUDE_CODE_SESSION_ID="$sess" bash "$PLANSTATE" "$@" 2>&1 );
 }
-# Read one field straight off a plan's sidecar (deps/origin — list/current never
+# Read one field straight off a plan's sidecar (deps/owner — list/current never
 # surface these, so the CLI-output assertions above can't reach them).
 sidecar() { jq -r "${2}" "$PLANS/$1/.state.json" 2>/dev/null; }   # sidecar <slug> <jq filter>
 
@@ -138,6 +135,18 @@ out="$(ps init nope)"; rc=$?
 chk "init unknown slug → exit 1"        test "$rc" = "1"
 out="$(ps set)"; rc=$?
 chk "set with no slug → exit 1"         test "$rc" = "1"
+# v5.0.0: subcommands that served removed skills are gone — a named removal notice,
+# never a silent no-op and never the generic "Unknown subcommand" usage dump.
+for gone in set-priority set-category set-parent claim brief policy handoff-path handoff-selfcheck; do
+  out="$(ps "$gone" solo)"; rc=$?
+  chk "$gone (removed) → exit 1, names the v5.0.0 removal" sh -c '[ "$0" = 1 ] && printf "%s" "$1" | grep -q "plan-state.sh: '"'"'$2'"'"' was removed in mentor v5.0.0 — no replacement"' "$rc" "$out" "$gone"
+  chk "$gone (removed) → no usage dump" hasnt "Unknown subcommand" "$out"
+done
+# Retired before v5.0.0 — plain unknown subcommands.
+for gone in overview subtree; do
+  out="$(ps "$gone" solo)"; rc=$?
+  chk "$gone (retired) → exit 1, unknown subcommand" sh -c '[ "$0" = 1 ] && printf "%s" "$1" | grep -q "Unknown subcommand: $2"' "$rc" "$out" "$gone"
+done
 
 echo "== B. Effective state derives from the ✅ ticks, so a forgotten set costs nothing =="
 plan no-sidecar
@@ -175,7 +184,7 @@ ps set idem in_progress >/dev/null
 out="$(psout list)"
 chk "set preserves group/order"         has "idem  *parent  *4" "$out"
 
-echo "== C2. init/claim re-stamp ownership — last-init-wins (v2.23.0) =="
+echo "== C2. init re-stamps ownership — last-init-wins (v2.23.0) =="
 plan reown
 CWD="$WTB"; ps init reown >/dev/null; CWD="$REPO"
 chk "reown initially owned by the worktree that inited it (B)" test "$(sidecar reown '.owner')" = "$WTB_ID"
@@ -184,11 +193,6 @@ chk "re-init from a different worktree re-owns it (last-init-wins)" test "$(side
 ps set reown approved >/dev/null
 chk "a plain set leaves ownership exactly as it was" test "$(sidecar reown '.owner')" = "$WTA_ID"
 
-plan reclaim
-ps init reclaim --deferred >/dev/null
-chk "reclaim initially owned by A (inited here)" test "$(sidecar reclaim '.owner')" = "$WTA_ID"
-CWD="$WTB"; ps claim reclaim >/dev/null; CWD="$REPO"
-chk "claim from a different worktree re-owns it too" test "$(sidecar reclaim '.owner')" = "$WTB_ID"
 
 echo "== D. set upserts onto a sidecar-less plan (the majority path on upgrade) =="
 plan upsert
@@ -310,7 +314,7 @@ chk "current (scoped) → ownership-aware refusal names it"          has "owned 
 out="$(ps current --any)"; rc=$?
 chk "current --any still finds the sibling-owned plan"             has "SLUG: only-b-owned" "$out"
 
-echo "== H. context: the backstop /mentor:track needs (context-gate.sh passes slash commands) =="
+echo "== H. context: the advisory backstop (context-gate.sh passes slash commands) =="
 mktx() { python3 - "$1" "$2" <<'PY'
 import json,sys
 open(sys.argv[1],"w").write(json.dumps(
@@ -430,110 +434,7 @@ chk "ensure-dir (direct child of plans/) → exit 0"  test "$rc" = "0"
 chk "ensure-dir stamps owner"                        test "$(sidecar owner-topic '.owner')" = "$WTA_ID"
 chk "ensure-dir stamps owner_session"                test "$(sidecar owner-topic '.owner_session')" = "owner-sess"
 
-echo "== HP. handoff-path <topic> <slug> — the ONE call handoff-note Step 2 needs =="
-out="$(ps handoff-path hp-topic hp-slug)"; rc=$?
-chk "handoff-path → exit 0"                       test "$rc" = "0"
-chk "handoff-path echoes a path under handoffs/"  has "plans/hp-topic/handoffs/" "$out"
-chk "handoff-path echoes the slug"                has "-hp-slug.md" "$out"
-chk "handoff-path filename matches /mentor:resume's pattern" \
-  bash -c '[[ "$(basename "$1")" =~ ^[0-9]{8}-[0-9]{6}-hp-slug\.md$ ]]' _ "$out"
-chk "handoff-path created the handoffs dir"       test -d "$ed_mdir/plans/hp-topic/handoffs"
-chk "handoff-path locked handoffs/ to 700" \
-  test "$(ls -ld "$ed_mdir/plans/hp-topic/handoffs" | cut -c1-10)" = "drwx------"
-chk "handoff-path locked the topic dir to 700" \
-  test "$(ls -ld "$ed_mdir/plans/hp-topic" | cut -c1-10)" = "drwx------"
-chk "handoff-path wrote the mentor-dir gitignore" test -f "$ed_mdir/.gitignore"
-
-out="$(ps handoff-path)"; rc=$?
-chk "handoff-path with no args → exit 1"          test "$rc" = "1"
-out="$(ps handoff-path hp-topic)"; rc=$?
-chk "handoff-path with only <topic> → exit 1"     test "$rc" = "1"
-
-out="$(ps handoff-path "my/topic" slug)"; rc=$?
-chk "handoff-path refuses a topic with '/' → exit 1" test "$rc" = "1"
-chk "..refusal named on stderr"                       has "refuses a topic" "$out"
-chk "..created nothing under a slash-topic dir"       test ! -d "$ed_mdir/plans/my"
-
-out="$(ps handoff-path ".." slug)"; rc=$?
-chk "handoff-path refuses topic '..' → exit 1"    test "$rc" = "1"
-
-out="$(ps handoff-path topic "a/b")"; rc=$?
-chk "handoff-path refuses a slug with '/' → exit 1" test "$rc" = "1"
-
-out="$(ps handoff-path "<topic>" slug)"; rc=$?
-chk "handoff-path refuses an unreplaced <topic> placeholder → exit 1" test "$rc" = "1"
-chk "..refusal names the placeholder"                                 has "placeholder" "$out"
-
-echo "== HS. handoff-selfcheck <note-path> — the ONE call handoff-note Step 5 needs =="
-note1="$(ps handoff-path hs-topic session)"
-cat > "$note1" << 'EOF'
-## Goal / next-session focus
-x
-
-## Recommended mentor commands for the next agent
-x
-
-## Current state
-ARMED marker=owner. TaskList found 0 live tasks.
-EOF
-out="$(ps handoff-selfcheck "$note1")"; rc=$?
-chk "handoff-selfcheck (first note, nothing to supersede) → exit 0" test "$rc" = "0"
-chk "..reports live notes now 1"      has "CHECK: live notes now 1" "$out"
-chk "..reports headings none missing" has "CHECK: headings missing: none" "$out"
-chk "..reports evidence none missing" has "CHECK: current-state evidence missing: none" "$out"
-chk "..nothing superseded (none printed)" hasnt "superseded" "$out"
-
-sleep 1
-note2="$(ps handoff-path hs-topic session2)"
-cat > "$note2" << 'EOF'
-## Goal / next-session focus
-y
-
-## Recommended mentor commands for the next agent
-y
-EOF
-out="$(ps handoff-selfcheck "$note2")"; rc=$?
-chk "handoff-selfcheck (second note) → exit 0"      test "$rc" = "0"
-chk "..supersedes the first note"                    has "superseded → resolved: $(basename "$note1")" "$out"
-chk "..first note now lives under resolved/"         test -f "$(dirname "$note1")/resolved/$(basename "$note1")"
-chk "..reports live notes now 1"                     has "CHECK: live notes now 1" "$out"
-chk "..evidence check names both (note has neither)" \
-  has "CHECK: current-state evidence missing: gate-verdict TaskList-evidence" "$out"
-
-echo "junk" > "$(dirname "$note2")/README.md"
-out="$(ps handoff-selfcheck "$note2")"
-chk "handoff-selfcheck skips a non-conforming filename" has "skipping non-conforming file: README.md" "$out"
-chk "..non-conforming file NOT moved"                    test -f "$(dirname "$note2")/README.md"
-
-sleep 1
-badnote="$(dirname "$note2")/$(date +%Y%m%d-%H%M%S)-broken.md"
-echo "no headings here" > "$badnote"
-out="$(ps handoff-selfcheck "$badnote")"; rc=$?
-chk "handoff-selfcheck (headings missing) → exit 1" test "$rc" = "1"
-chk "..names both missing headings" \
-  has "CHECK: headings missing: Goal/next-session-focus Recommended-mentor-commands" "$out"
-chk "..still supersedes the prior live note (session2)" has "superseded → resolved: $(basename "$note2")" "$out"
-
-# CRITICAL: a wrong/hallucinated note path (the agent re-typing $out across a Bash-call
-# boundary, per Step 5) must NOT supersede/sweep the real live note — validating $out is
-# on disk happens BEFORE the supersede loop runs, not after.
-ghost="$(dirname "$badnote")/99999999-999999-ghost.md"
-out="$(ps handoff-selfcheck "$ghost")"; rc=$?
-chk "handoff-selfcheck (note not on disk) → exit 1" test "$rc" = "1"
-chk "..reports \$out is not a file"                   has "is not a file" "$out"
-chk "..did NOT touch the real live note"              test -f "$badnote"
-chk "..real live note NOT swept into resolved/" \
-  test ! -f "$(dirname "$badnote")/resolved/$(basename "$badnote")"
-
-out="$(ps handoff-selfcheck)"; rc=$?
-chk "handoff-selfcheck with no args → exit 1" test "$rc" = "1"
-
-out="$(ps handoff-selfcheck "$ROOT/outside-mentor/20260101-000000-x.md")"; rc=$?
-chk "handoff-selfcheck refuses a path outside the mentor dir → exit 1" test "$rc" = "1"
-chk "..refusal named on stderr"      has "refuses a note path outside" "$out"
-chk "..created nothing outside"      test ! -d "$ROOT/outside-mentor"
-
-echo "== J. init --deps / --deferred (v2.17.0) =="
+echo "== J. init --deps (v2.17.0); retired init flags are usage errors (v5.0.0) =="
 rm -rf "$PLANS"; mkdir -p "$PLANS"
 plan dep-a; plan dep-b
 ps init dep-a >/dev/null
@@ -541,17 +442,21 @@ out="$(ps init dep-b --deps dep-a)"; rc=$?
 chk "init --deps → exit 0"                  test "$rc" = "0"
 chk "init --deps reports deps"              has "deps=dep-a" "$out"
 chk "init --deps stored in sidecar"         test "$(sidecar dep-b '(.deps//[])|join(",")')" = "dep-a"
-out="$(ps init dep-b --deferred)"
-chk "init --deferred reports origin"        has "origin=deferred" "$out"
-chk "init --deferred sets sidecar origin"   test "$(sidecar dep-b '.origin')" = "deferred"
-chk "init --deferred does not disturb deps" test "$(sidecar dep-b '(.deps//[])|join(",")')" = "dep-a"
+for retired in --deferred "--from x" "--parent dep-a" "--priority high" "--category fix"; do
+  # shellcheck disable=SC2086 # word-split on purpose: flag + its value
+  out="$(ps init dep-b $retired)"; rc=$?
+  chk "init ${retired%% *} (retired) → exit 1"        test "$rc" = "1"
+  chk "  …names the unknown flag"                    has "unknown flag ${retired%% *}" "$out"
+done
+chk "retired flags wrote nothing: deps undisturbed" test "$(sidecar dep-b '(.deps//[])|join(",")')" = "dep-a"
+chk "retired flags wrote nothing: no origin key"    test "$(sidecar dep-b 'has("origin")')" = "false"
 
 plan dep-self
-out="$(ps init dep-self --deps dep-self --deferred)"; rc=$?
+out="$(ps init dep-self --deps dep-self --group g)"; rc=$?
 chk "init --deps self-cycle → exit 0 (fail-soft)"          test "$rc" = "0"
 chk "init --deps self-cycle refused on stderr"              has "dependency cycle" "$out"
 chk "init --deps self-cycle: deps NOT set"                  test "$(sidecar dep-self '(.deps//[])|length')" = "0"
-chk "init --deps self-cycle: sibling flags still applied"   test "$(sidecar dep-self '.origin')" = "deferred"
+chk "init --deps self-cycle: sibling flags still applied"   test "$(sidecar dep-self '.group')" = "g"
 
 echo "== K. set-deps: replace wholesale, cycle-checked, fail-soft =="
 rm -rf "$PLANS"; mkdir -p "$PLANS"
@@ -589,7 +494,7 @@ chk "3-node cycle: deps unchanged (empty)"   test "$(sidecar mn3-c '(.deps//[])|
 plan unk-x
 ps init unk-x >/dev/null
 out="$(ps set-deps unk-x does-not-exist)"; rc=$?
-chk "unknown dep slug allowed (may be deferred later)" test "$rc" = "0"
+chk "unknown dep slug allowed (may be written later)" test "$rc" = "0"
 chk "unknown dep slug stored"                          test "$(sidecar unk-x '(.deps//[])|join(",")')" = "does-not-exist"
 out="$(ps set-deps unk-x "")"; rc=$?
 chk "empty deps clears them → exit 0"        test "$rc" = "0"
@@ -603,364 +508,25 @@ ps set-deps note-dep sd-b >/dev/null
 chk "set-deps preserves the note"            test "$(sidecar note-dep '.note')" = "keep me"
 chk "set-deps preserves the state"           test "$(state_of note-dep)" = "failed"
 
-echo "== K2. init --priority / set-priority: closed vocabulary, clear-on-empty, survives unrelated writes (v2.24.0) =="
-rm -rf "$PLANS"; mkdir -p "$PLANS"
-plan pr-a '# a' '## Implementation steps' '1. one' '2. two'
-plan pr-b
-out="$(ps init pr-a --priority critical)"; rc=$?
-chk "init --priority → exit 0"               test "$rc" = "0"
-chk "init --priority echoes the tier"        has "priority=critical" "$out"
-chk "init --priority stores it"              test "$(sidecar pr-a '.priority')" = "critical"
-# A typo'd tier is a USAGE error (exit 1, nothing written), not a fail-soft skip — a
-# tiering pass over N plans must never report success having dropped one silently.
-ps init pr-b >/dev/null
-out="$(ps init pr-b --priority hgih)"; rc=$?
-chk "init: invalid priority → exit 1"        test "$rc" = "1"
-chk "init: invalid priority names the set"   has "critical high medium low noise" "$out"
-chk "init: invalid priority wrote nothing"   test "$(sidecar pr-b '.priority')" = "null"
-# init never CLEARS — an empty value preserves, like every other init flag.
-ps set-priority pr-b low >/dev/null
-ps init pr-b --order 3 >/dev/null
-chk "init with no --priority preserves it"   test "$(sidecar pr-b '.priority')" = "low"
-ps init pr-b --priority "" >/dev/null
-chk "init --priority '' preserves (never clears)" test "$(sidecar pr-b '.priority')" = "low"
-
-out="$(ps set-priority pr-b noise)"; rc=$?
-chk "set-priority → exit 0"                  test "$rc" = "0"
-chk "set-priority reports the tier"          has "priority = noise" "$out"
-chk "set-priority stores it"                 test "$(sidecar pr-b '.priority')" = "noise"
-out="$(ps set-priority pr-b bogus)"; rc=$?
-chk "set-priority: invalid → exit 1"         test "$rc" = "1"
-chk "set-priority: invalid wrote nothing"    test "$(sidecar pr-b '.priority')" = "noise"
-# A dropped shell argument must not decay into a silent clear — the value is required
-# as a positional even when it is the empty string.
-out="$(ps set-priority pr-b)"; rc=$?
-chk "set-priority with no value → exit 1"    test "$rc" = "1"
-chk "set-priority with no value: no write"   test "$(sidecar pr-b '.priority')" = "noise"
-out="$(ps set-priority pr-b low extra)"; rc=$?
-chk "set-priority: extra argument → exit 1"  test "$rc" = "1"
-out="$(ps set-priority no-such-plan low)"; rc=$?
-chk "set-priority: unknown slug → exit 1"    test "$rc" = "1"
-out="$(ps set-priority pr-b "")"; rc=$?
-chk "set-priority '' → exit 0"               test "$rc" = "0"
-chk "set-priority '' reports unset"          has "priority = (unset)" "$out"
-chk "set-priority '' clears to null"         test "$(sidecar pr-b '.priority')" = "null"
-
-# The whole point of the omitted-preserves contract: a tier set once must ride through
-# every later state transition instead of being clobbered back to null.
-ps set-priority pr-a high >/dev/null
-ps set pr-a approved --note "n1" >/dev/null
-chk "priority survives set <slug> approved"  test "$(sidecar pr-a '.priority')" = "high"
-ps set pr-a in_progress >/dev/null
-chk "priority survives a note-clearing set"  test "$(sidecar pr-a '.priority')" = "high"
-ps set-deps pr-a pr-b >/dev/null
-chk "priority survives set-deps"             test "$(sidecar pr-a '.priority')" = "high"
-ps claim pr-a >/dev/null
-chk "priority survives claim"                test "$(sidecar pr-a '.priority')" = "high"
-ps tick pr-a 1 >/dev/null
-chk "priority survives tick"                 test "$(sidecar pr-a '.priority')" = "high"
-# …and set-priority is a priority-ONLY write: it must not disturb its neighbours.
-ps set pr-a failed --note "broke here" >/dev/null
-ps set-priority pr-a medium >/dev/null
-chk "set-priority preserves the note"        test "$(sidecar pr-a '.note')" = "broke here"
-chk "set-priority preserves stored state"    test "$(sidecar pr-a '.state')" = "failed"
-chk "set-priority preserves effective state" test "$(state_of pr-a)" = "failed"
-chk "set-priority preserves deps"            test "$(sidecar pr-a '(.deps//[])|join(",")')" = "pr-b"
-
-# A pre-v2.24.0 sidecar (no `priority` key at all) reads back unprioritized with no
-# migration, and a later write upgrades it in place without touching anything else.
-mkdir -p "$PLANS/pr-old"; printf '# old\n' > "$PLANS/pr-old/plan.md"
-cat > "$PLANS/pr-old/.state.json" <<'JSON'
-{"state":"approved","group":null,"order":null,"note":"n","deps":[],"origin":null}
+echo "== K7. a pre-5.0 sidecar keeps origin/parent/priority/category/deferred_from through every write (v5.0.0) =="
+plan legacy-sc '# legacy' '## Implementation steps' '1. one' '   - Done when: x'
+cat > "$PLANS/legacy-sc/.state.json" <<'JSON'
+{"state":"draft","group":null,"order":null,"note":"","deps":[],"origin":"deferred","owner":null,"owner_session":null,"priority":"high","category":"fix","deferred_from":"sd-a","parent":"sd-b"}
 JSON
-chk "old sidecar: priority reads null"       test "$(sidecar pr-old '.priority // "null"')" = "null"
-chk "old sidecar: state still reads back"    test "$(state_of pr-old)" = "approved"
-ps set-priority pr-old critical >/dev/null
-chk "upgrading write adds the priority"      test "$(sidecar pr-old '.priority')" = "critical"
-chk "upgrading write preserves the state"    test "$(sidecar pr-old '.state')" = "approved"
-chk "upgrading write preserves the note"     test "$(sidecar pr-old '.note')" = "n"
-
-echo "== K3. init --category / set-category: closed vocabulary, clear-on-empty, survives unrelated writes (v2.25.0) =="
-plan cat-a '# a' '## Implementation steps' '1. one' '2. two'
-plan cat-b
-out="$(ps init cat-a --category fix)"; rc=$?
-chk "init --category → exit 0"               test "$rc" = "0"
-chk "init --category echoes the kind"        has "category=fix" "$out"
-chk "init --category stores it"              test "$(sidecar cat-a '.category')" = "fix"
-# A typo'd (or deliberately EXCLUDED, like "verify") category is a USAGE error (exit
-# 1, nothing written), not a fail-soft skip — the vocabulary excludes anything
-# test/verify-shaped on purpose (the scope rule: a category classifies work to BUILD),
-# so this also pins that exclusion.
-ps init cat-b >/dev/null
-out="$(ps init cat-b --category verify)"; rc=$?
-chk "init: invalid category → exit 1"        test "$rc" = "1"
-chk "init: invalid category names the set"   has "feature fix refactor docs tooling" "$out"
-chk "init: invalid category wrote nothing"   test "$(sidecar cat-b '.category')" = "null"
-# init never CLEARS — an empty value preserves, like every other init flag.
-ps set-category cat-b docs >/dev/null
-ps init cat-b --order 3 >/dev/null
-chk "init with no --category preserves it"   test "$(sidecar cat-b '.category')" = "docs"
-ps init cat-b --category "" >/dev/null
-chk "init --category '' preserves (never clears)" test "$(sidecar cat-b '.category')" = "docs"
-
-out="$(ps set-category cat-b tooling)"; rc=$?
-chk "set-category → exit 0"                  test "$rc" = "0"
-chk "set-category reports the kind"          has "category = tooling" "$out"
-chk "set-category stores it"                 test "$(sidecar cat-b '.category')" = "tooling"
-out="$(ps set-category cat-b bogus)"; rc=$?
-chk "set-category: invalid → exit 1"         test "$rc" = "1"
-chk "set-category: invalid wrote nothing"    test "$(sidecar cat-b '.category')" = "tooling"
-# A dropped shell argument must not decay into a silent clear — the value is required
-# as a positional even when it is the empty string.
-out="$(ps set-category cat-b)"; rc=$?
-chk "set-category with no value → exit 1"    test "$rc" = "1"
-chk "set-category with no value: no write"   test "$(sidecar cat-b '.category')" = "tooling"
-out="$(ps set-category cat-b docs extra)"; rc=$?
-chk "set-category: extra argument → exit 1"  test "$rc" = "1"
-out="$(ps set-category no-such-plan docs)"; rc=$?
-chk "set-category: unknown slug → exit 1"    test "$rc" = "1"
-out="$(ps set-category cat-b "")"; rc=$?
-chk "set-category '' → exit 0"               test "$rc" = "0"
-chk "set-category '' reports unset"          has "category = (unset)" "$out"
-chk "set-category '' clears to null"         test "$(sidecar cat-b '.category')" = "null"
-
-# The whole point of the omitted-preserves contract: a category set once must ride
-# through every later state transition instead of being clobbered back to null.
-ps set-category cat-a feature >/dev/null
-ps set cat-a approved --note "n1" >/dev/null
-chk "category survives set <slug> approved"  test "$(sidecar cat-a '.category')" = "feature"
-ps set cat-a in_progress >/dev/null
-chk "category survives a note-clearing set"  test "$(sidecar cat-a '.category')" = "feature"
-ps set-deps cat-a cat-b >/dev/null
-chk "category survives set-deps"             test "$(sidecar cat-a '.category')" = "feature"
-ps claim cat-a >/dev/null
-chk "category survives claim"                test "$(sidecar cat-a '.category')" = "feature"
-ps tick cat-a 1 >/dev/null
-chk "category survives tick"                 test "$(sidecar cat-a '.category')" = "feature"
-# …and set-category is a category-ONLY write: it must not disturb its neighbours.
-ps set cat-a failed --note "broke here" >/dev/null
-ps set-category cat-a refactor >/dev/null
-chk "set-category preserves the note"        test "$(sidecar cat-a '.note')" = "broke here"
-chk "set-category preserves stored state"    test "$(sidecar cat-a '.state')" = "failed"
-chk "set-category preserves effective state" test "$(state_of cat-a)" = "failed"
-chk "set-category preserves deps"            test "$(sidecar cat-a '(.deps//[])|join(",")')" = "cat-b"
-
-# A pre-v2.25.0 sidecar (no `category` key at all) reads back uncategorized with no
-# migration, and a later write upgrades it in place without touching anything else.
-mkdir -p "$PLANS/cat-old"; printf '# old\n' > "$PLANS/cat-old/plan.md"
-cat > "$PLANS/cat-old/.state.json" <<'JSON'
-{"state":"approved","group":null,"order":null,"note":"n","deps":[],"origin":null,"priority":"high"}
-JSON
-chk "old sidecar: category reads null"       test "$(sidecar cat-old '.category // "null"')" = "null"
-chk "old sidecar: state still reads back"    test "$(state_of cat-old)" = "approved"
-ps set-category cat-old tooling >/dev/null
-chk "upgrading write adds the category"      test "$(sidecar cat-old '.category')" = "tooling"
-chk "upgrading write preserves the state"    test "$(sidecar cat-old '.state')" = "approved"
-chk "upgrading write preserves the note"     test "$(sidecar cat-old '.note')" = "n"
-chk "upgrading write preserves the (unrelated) priority field too" \
-  test "$(sidecar cat-old '.priority')" = "high"
-
-echo "== K4. init --from → deferred_from: unvalidated pass-through, no set-deferred-from subcommand (v2.25.0) =="
-plan from-a
-ps init from-a >/dev/null
-chk "no --from → deferred_from stays null" test "$(sidecar from-a '.deferred_from // "null"')" = "null"
-
-plan from-b
-out="$(ps init from-b --from from-a)"; rc=$?
-chk "init --from → exit 0"                 test "$rc" = "0"
-chk "init --from echoes the source plan"   has "from=from-a" "$out"
-chk "init --from stores deferred_from"     test "$(sidecar from-b '.deferred_from')" = "from-a"
-# UNVALIDATED, like a `deps` target — a slug for a plan that doesn't exist (yet, or
-# ever) is accepted without complaint; a dangling deferred_from is resolved at render
-# time by the consumer (plan-track's `(missing)` marker), not by this script.
-plan from-c
-out="$(ps init from-c --from no-such-plan)"; rc=$?
-chk "init --from accepts a dangling slug (unvalidated)" test "$rc" = "0"
-chk "init --from stores the dangling slug anyway"       test "$(sidecar from-c '.deferred_from')" = "no-such-plan"
-# init never CLEARS deferred_from — same preserve-on-empty contract as --priority/
-# --category, and (there being no set-deferred-from subcommand) init --from is the
-# ONLY way to write it at all.
-ps init from-b --order 2 >/dev/null
-chk "init with no --from preserves it"        test "$(sidecar from-b '.deferred_from')" = "from-a"
-ps init from-b --from "" >/dev/null
-chk "init --from '' preserves (never clears)" test "$(sidecar from-b '.deferred_from')" = "from-a"
-# deferred_from survives ordinary writes exactly like priority/category do.
-ps set from-b approved >/dev/null
-chk "deferred_from survives set <slug> approved" test "$(sidecar from-b '.deferred_from')" = "from-a"
-ps claim from-b >/dev/null
-chk "deferred_from survives claim"               test "$(sidecar from-b '.deferred_from')" = "from-a"
-
-echo "== K5. init --parent / set-parent: existence + cycle validated (fail-soft, mirrors --deps), clear-on-empty, preserve-on-omit (v2.29.0) =="
-rm -rf "$PLANS"; mkdir -p "$PLANS"
-plan pt-root '# root' '## Implementation steps' '1. one' '2. two'
-plan pt-child
-ps init pt-root >/dev/null
-out="$(ps init pt-child --parent pt-root)"; rc=$?
-chk "init --parent → exit 0"                 test "$rc" = "0"
-chk "init --parent echoes it"                has "parent=pt-root" "$out"
-chk "init --parent stores it"                test "$(sidecar pt-child '.parent')" = "pt-root"
-
-plan pt-noparent
-out="$(ps init pt-noparent --parent no-such-plan)"; rc=$?
-chk "init --parent nonexistent → exit 0 (fail-soft)"       test "$rc" = "0"
-chk "init --parent nonexistent refused on stderr"           has "does not exist" "$out"
-chk "init --parent nonexistent: parent NOT set"             test "$(sidecar pt-noparent '.parent')" = "null"
-
-plan pt-self
-out="$(ps init pt-self --parent pt-self --priority high)"; rc=$?
-chk "init --parent self-cycle → exit 0 (fail-soft)"         test "$rc" = "0"
-chk "init --parent self-cycle refused on stderr"             has "parent cycle" "$out"
-chk "init --parent self-cycle: parent NOT set"               test "$(sidecar pt-self '.parent')" = "null"
-chk "init --parent self-cycle: sibling flags still applied"  test "$(sidecar pt-self '.priority')" = "high"
-
-# init never CLEARS parent — an empty value preserves, like every other init flag.
-ps init pt-child --order 3 >/dev/null
-chk "init with no --parent preserves it"        test "$(sidecar pt-child '.parent')" = "pt-root"
-ps init pt-child --parent "" >/dev/null
-chk "init --parent '' preserves (never clears)" test "$(sidecar pt-child '.parent')" = "pt-root"
-
-plan pt-child2
-ps init pt-child2 >/dev/null
-out="$(ps set-parent pt-child2 no-such-plan)"; rc=$?
-chk "set-parent nonexistent → exit 0 (fail-soft)"           test "$rc" = "0"
-chk "set-parent nonexistent refused on stderr"                has "no such plan" "$out"
-chk "set-parent nonexistent: no write"                        test "$(sidecar pt-child2 '.parent')" = "null"
-
-out="$(ps set-parent pt-child2 pt-child2)"; rc=$?
-chk "set-parent self-cycle → exit 0 (fail-soft)"             test "$rc" = "0"
-chk "set-parent self-cycle refused on stderr"                 has "parent cycle" "$out"
-chk "set-parent self-cycle: no write"                          test "$(sidecar pt-child2 '.parent')" = "null"
-
-# 2-node cycle: pt-child's parent is already pt-root. Refuse giving pt-root a parent
-# of pt-child (would close pt-root → pt-child → pt-root).
-out="$(ps set-parent pt-root pt-child)"; rc=$?
-chk "set-parent 2-node cycle → exit 0 (fail-soft)"           test "$rc" = "0"
-chk "set-parent 2-node cycle refused on stderr"                has "parent cycle" "$out"
-chk "set-parent 2-node cycle: no write"                         test "$(sidecar pt-root '.parent')" = "null"
-
-# 3-node cycle: pt-grandchild's parent is pt-child (parent pt-root). Refuse giving
-# pt-root a parent of pt-grandchild (pt-root → pt-grandchild → pt-child → pt-root).
-plan pt-grandchild
-ps init pt-grandchild --parent pt-child >/dev/null
-out="$(ps set-parent pt-root pt-grandchild)"; rc=$?
-chk "set-parent 3-node transitive cycle → exit 0 (fail-soft)" test "$rc" = "0"
-chk "set-parent 3-node cycle refused on stderr"                 has "parent cycle" "$out"
-chk "set-parent 3-node cycle: no write"                          test "$(sidecar pt-root '.parent')" = "null"
-
-out="$(ps set-parent pt-child2)"; rc=$?
-chk "set-parent with no value → exit 1"      test "$rc" = "1"
-out="$(ps set-parent pt-child2 x extra)"; rc=$?
-chk "set-parent: extra argument → exit 1"    test "$rc" = "1"
-out="$(ps set-parent no-such-plan x)"; rc=$?
-chk "set-parent: unknown slug → exit 1"      test "$rc" = "1"
-
-out="$(ps set-parent pt-child "")"; rc=$?
-chk "set-parent '' → exit 0"                 test "$rc" = "0"
-chk "set-parent '' reports unset"            has "parent = (unset)" "$out"
-chk "set-parent '' clears to null"           test "$(sidecar pt-child '.parent')" = "null"
-out="$(ps set-parent pt-child pt-root)"; rc=$?
-chk "set-parent re-set after a clear → exit 0"   test "$rc" = "0"
-chk "set-parent re-set reports the value"        has "parent = pt-root" "$out"
-chk "set-parent re-set stores it"                test "$(sidecar pt-child '.parent')" = "pt-root"
-
-echo "== K6. parent survives every other write (set, set-priority, set-category, tick, claim, …); combined group/order + parent matrix (v2.29.0) =="
-rm -rf "$PLANS"; mkdir -p "$PLANS"
-plan pv-root '# root' '## Implementation steps' '1. one'
-plan pv-child '# child' '## Implementation steps' '1. one' '2. two'
-ps init pv-root >/dev/null
-ps init pv-child --parent pv-root >/dev/null
-chk "fixture: pv-child carries a parent"     test "$(sidecar pv-child '.parent')" = "pv-root"
-
-ps set pv-child approved --note "n1" >/dev/null
-chk "parent survives set <slug> approved"    test "$(sidecar pv-child '.parent')" = "pv-root"
-ps set pv-child in_progress >/dev/null
-chk "parent survives a note-clearing set"    test "$(sidecar pv-child '.parent')" = "pv-root"
-ps set-deps pv-child pv-root >/dev/null
-chk "parent survives set-deps"               test "$(sidecar pv-child '.parent')" = "pv-root"
-ps set-priority pv-child high >/dev/null
-chk "parent survives set-priority"           test "$(sidecar pv-child '.parent')" = "pv-root"
-ps set-category pv-child fix >/dev/null
-chk "parent survives set-category"           test "$(sidecar pv-child '.parent')" = "pv-root"
-ps tick pv-child 1 >/dev/null
-chk "parent survives tick"                   test "$(sidecar pv-child '.parent')" = "pv-root"
-ps claim pv-child >/dev/null
-chk "parent survives claim"                  test "$(sidecar pv-child '.parent')" = "pv-root"
-# …and set-parent is a parent-ONLY write: it must not disturb its neighbours.
-ps set pv-child failed --note "broke here" >/dev/null
-ps set-parent pv-child pv-root >/dev/null
-chk "set-parent preserves the note"          test "$(sidecar pv-child '.note')" = "broke here"
-chk "set-parent preserves stored state"      test "$(sidecar pv-child '.state')" = "failed"
-chk "set-parent preserves priority"          test "$(sidecar pv-child '.priority')" = "high"
-chk "set-parent preserves category"          test "$(sidecar pv-child '.category')" = "fix"
-chk "set-parent preserves deps"              test "$(sidecar pv-child '(.deps//[])|join(",")')" = "pv-root"
-
-# Combined axes: one plan carrying BOTH group/order (the /plan-split isolation
-# machinery) AND parent (the v2.29.0 nesting machinery) — both survive every write
-# neither axis was designed with the other in mind for.
-plan cx-parent
-plan cx-a
-ps init cx-parent >/dev/null
-ps init cx-a --group split-group --order 1 --parent cx-parent >/dev/null
-chk "combined fixture: group set"    test "$(sidecar cx-a '.group')" = "split-group"
-chk "combined fixture: order set"    test "$(sidecar cx-a '.order')" = "1"
-chk "combined fixture: parent set"   test "$(sidecar cx-a '.parent')" = "cx-parent"
-ps claim cx-a >/dev/null
-chk "claim: group survives"          test "$(sidecar cx-a '.group')" = "split-group"
-chk "claim: order survives"          test "$(sidecar cx-a '.order')" = "1"
-chk "claim: parent survives"         test "$(sidecar cx-a '.parent')" = "cx-parent"
-ps set cx-a approved >/dev/null
-chk "set approved: group survives"   test "$(sidecar cx-a '.group')" = "split-group"
-chk "set approved: order survives"   test "$(sidecar cx-a '.order')" = "1"
-chk "set approved: parent survives"  test "$(sidecar cx-a '.parent')" = "cx-parent"
-ps set-priority cx-a critical >/dev/null
-chk "set-priority: group survives"   test "$(sidecar cx-a '.group')" = "split-group"
-chk "set-priority: order survives"   test "$(sidecar cx-a '.order')" = "1"
-chk "set-priority: parent survives"  test "$(sidecar cx-a '.parent')" = "cx-parent"
-out="$(psout list)"
-chk "combined fixture still surfaces in bare 'list' (group/order shape unaffected)" \
-  has "cx-a" "$out"
-
-echo "== L. claim: clears origin; note and other fields round-trip =="
-rm -rf "$PLANS"; mkdir -p "$PLANS"
-plan clm
-ps init clm --deferred >/dev/null
-chk "init --deferred → origin deferred"     test "$(sidecar clm '.origin')" = "deferred"
-ps set clm draft --note "stub context" >/dev/null
-chk "a plain set preserves origin (omitted flag)" test "$(sidecar clm '.origin')" = "deferred"
-out="$(ps claim clm)"; rc=$?
-chk "claim → exit 0"                        test "$rc" = "0"
-chk "claim reports clearing"                has "claimed — origin cleared" "$out"
-chk "claim clears origin"                   test "$(sidecar clm '.origin')" = "null"
-chk "claim preserves the note"              test "$(sidecar clm '.note')" = "stub context"
-chk "claim preserves the state"             test "$(state_of clm)" = "draft"
-out="$(ps claim clm)"; rc=$?
-chk "claim again → exit 0"                  test "$rc" = "0"
-chk "claim again → nothing to claim"        has "origin already unset" "$out"
-
-plan clm2
-ps init clm2 >/dev/null   # never deferred
-out="$(ps claim clm2)"; rc=$?
-chk "claim on a never-deferred plan → exit 0"           test "$rc" = "0"
-chk "claim on a never-deferred plan → nothing to claim" has "origin already unset" "$out"
-
-echo "== L3. claim keeps category/priority/deferred_from/parent — only origin clears (v2.25.0/v2.29.0) =="
-plan clm3-root
-ps init clm3-root >/dev/null
-plan clm3
-ps init clm3 --deferred --priority high --category fix --from some-source --parent clm3-root >/dev/null
-chk "clm3 fixture carries priority"        test "$(sidecar clm3 '.priority')" = "high"
-chk "clm3 fixture carries category"        test "$(sidecar clm3 '.category')" = "fix"
-chk "clm3 fixture carries deferred_from"   test "$(sidecar clm3 '.deferred_from')" = "some-source"
-chk "clm3 fixture carries parent"          test "$(sidecar clm3 '.parent')" = "clm3-root"
-out="$(ps claim clm3)"; rc=$?
-chk "claim → exit 0"                       test "$rc" = "0"
-chk "claim clears origin"                  test "$(sidecar clm3 '.origin')" = "null"
-chk "claim keeps priority — a claimed stub's triage history stays readable" \
-  test "$(sidecar clm3 '.priority')" = "high"
-chk "claim keeps category"                 test "$(sidecar clm3 '.category')" = "fix"
-chk "claim keeps deferred_from"            test "$(sidecar clm3 '.deferred_from')" = "some-source"
-chk "claim keeps parent — a claimed fix must not silently detach from its root" \
-  test "$(sidecar clm3 '.parent')" = "clm3-root"
+legacy_keys() { jq -cS '{origin, parent, priority, category, deferred_from}' "$PLANS/legacy-sc/.state.json"; }
+before_keys="$(legacy_keys)"
+ps set legacy-sc approved --note "ok" >/dev/null
+chk "set on a legacy sidecar: state lands"      test "$(sidecar legacy-sc '.state')" = "approved"
+chk "set on a legacy sidecar: legacy keys kept" test "$(legacy_keys)" = "$before_keys"
+ps set-deps legacy-sc sd-c >/dev/null
+ps init legacy-sc --group lg >/dev/null
+ps tick legacy-sc 1 >/dev/null
+ps set legacy-sc implemented >/dev/null
+chk "set-deps/init/tick/set: managed fields land" \
+  test "$(jq -c '[.state, .deps, .group]' "$PLANS/legacy-sc/.state.json")" = '["implemented",["sd-c"],"lg"]'
+chk "set-deps/init/tick/set: legacy keys still byte-identical" test "$(legacy_keys)" = "$before_keys"
+chk "query does not surface the legacy keys" \
+  test "$(psout query --slug legacy-sc | jq -c '.[0] | [has("origin"), has("parent"), has("priority")]')" = '[false,false,false]'
 
 echo "== L2. tick: writes the ✅ a hand-rolled Edit used to place by hand =="
 rm -rf "$PLANS"; mkdir -p "$PLANS"
@@ -1047,9 +613,9 @@ chk "verify (a step body with no Done when:) → exit 1" test "$rc" = "1"
 chk "..flags it as INCOMPLETE"                      has "CHECK: step body INCOMPLETE" "$out"
 chk "..names the offending step, not just a count"  has "Step 2 — no criterion at all" "$out"
 
-plan vf-nosteps '# t' '## Goal' 'A deferred stub carries no Implementation steps section.'
+plan vf-nosteps '# t' '## Goal' 'A plan not yet fleshed out carries no Implementation steps section.'
 out="$(ps verify vf-nosteps)"; rc=$?
-chk "verify (deferred stub, no steps section) → exit 0" test "$rc" = "0"
+chk "verify (no steps section yet) → exit 0" test "$rc" = "0"
 chk "..says so rather than reporting zero steps"    has "no ## Implementation steps section" "$out"
 
 plan vf-stray '# t' '## Implementation steps' '' 'Step 1 — one' '  Inputs: Step 0 output. ✅' '  Done when: `true` exits 0' '' '## Verification'
@@ -1087,46 +653,21 @@ chk "..names the missing file"                      has "no plan.md at" "$out"
 out="$(ps verify vf extra)"; rc=$?
 chk "verify with a stray extra argument → exit 1"   test "$rc" = "1"
 
-echo "== M. query: the ONE filterable read surface (v2.33.0 — replaced overview --json + subtree) =="
-rm -rf "$PLANS" "$REPO/.mentor/handoffs"; mkdir -p "$PLANS"
+echo "== M. query: the ONE filterable read surface =="
+rm -rf "$PLANS"; mkdir -p "$PLANS"
 out="$(psout query)"; rc=$?
 chk "query on an empty repo → exit 0" test "$rc" = "0"
 chk "query on an empty repo → []"     test "$out" = "[]"
 
 plan ov-a '# a' '## Implementation steps' '1. one ✅' '2. two ✅'
-mkdir -p "$PLANS/ov-a/handoffs/resolved"
-: > "$PLANS/ov-a/handoffs/live-note.md"
-: > "$PLANS/ov-a/handoffs/resolved/old-note.md"
 ps init ov-a >/dev/null
 
 plan ov-b '# b' '## Implementation steps' '1. one ✅' '2. two'
-# --from is stamped here WITHOUT --deferred — deliberately, to prove `goal` gates on
-# `origin == "deferred"`, not on `deferred_from` merely being set.
-ps init ov-b --priority critical --category fix --from ov-a >/dev/null
-ps set-deps ov-b "ov-a,ov-missing" >/dev/null
+ps init ov-b >/dev/null
+ps set-deps ov-b "ov-a,ov-missing,ov-noplan" >/dev/null
 
-# A deferred stub whose `## Goal` first paragraph WRAPS across three physical lines —
-# the exact text mentor_plan_goal_line's own unit test in test-state-lib.sh pins, so
-# the two suites verify the same reflow+truncation at different layers (lib helper vs.
-# the CLI's query plumbing).
-plan ov-deferred '# stub' '' '## Goal' '' \
-  '`claim_order()` in `daily-run.sh` orders concurrent learn slots by key that' \
-  'reflects real lock-acquisition order, so the plan promise that the oldest backlog' \
-  'session gets first crack at merging is actually true under three-way concurrency.' '' \
-  '## Context' 'more prose here'
-ps init ov-deferred --deferred --priority medium --category fix --from ov-a >/dev/null
-
-# A three-level parent chain: ov-a → ov-child → ov-grand. Depth matters — a walk that
-# only looks one level down still passes every single-level assertion.
-plan ov-child '# child, parented under ov-a (v2.29.0)'
-ps init ov-child --parent ov-a >/dev/null
-plan ov-grand '# grandchild, parented under ov-child'
-ps init ov-grand --parent ov-child >/dev/null
-
-# A deferred fix whose SOURCE plan does not exist — the case `--deferred-from-exists`
-# is for, and the one that used to need the whole slug universe rebuilt in jq.
-plan ov-orphan '# orphan stub'
-ps init ov-orphan --deferred --category fix --from ov-vanished >/dev/null
+# A dir with NO plan.md: never an entry, but still a PRESENT dep target.
+mkdir -p "$PLANS/ov-noplan"
 
 # Two split-group siblings — `--group` is the only filter with a meaningful EMPTY
 # value (`--group ""` means "ungrouped"), so it needs both a grouped and an ungrouped
@@ -1136,89 +677,36 @@ plan ov-g2 '# sibling 2'
 ps init ov-g1 --group ov-split --order 1 >/dev/null
 ps init ov-g2 --group ov-split --order 2 >/dev/null
 
-mkdir -p "$PLANS/ov-topic/handoffs"
-: > "$PLANS/ov-topic/handoffs/nudge.md"
-
-mkdir -p "$REPO/.mentor/handoffs"
-: > "$REPO/.mentor/handoffs/legacy-note.md"
+# A pre-5.0 sidecar carrying retired keys: query must read it, and never echo them.
+plan ov-legacy '# legacy'
+cat > "$PLANS/ov-legacy/.state.json" <<'JSON'
+{"state":"draft","deps":[],"origin":"deferred","parent":"ov-a","priority":"high","category":"fix","deferred_from":"ov-a"}
+JSON
 
 out="$(psout query)"; rc=$?
 chk "query → exit 0"    test "$rc" = "0"
 chk "query → valid JSON" sh -c 'printf "%s" "$0" | jq . >/dev/null 2>&1' "$out"
-chk "query → 10 entries (8 plans + plan-less topic + legacy)" test "$(printf '%s' "$out" | jq 'length')" = "10"
+chk "query → 5 entries (plan dirs with a plan.md only)" test "$(printf '%s' "$out" | jq 'length')" = "5"
+chk "every entry is kind plan" test "$(printf '%s' "$out" | jq -r '[.[].kind]|unique|join(",")')" = "plan"
+chk "entry shape is exactly the kept fields" \
+  test "$(printf '%s' "$out" | jq -c '[.[]|keys]|unique')" = '[["deps","group","kind","order","owner","slug","state","steps"]]'
 
 ov_a="$(printf '%s' "$out" | jq -c '.[] | select(.slug=="ov-a")')"
-chk "ov-a: kind plan"                   test "$(printf '%s' "$ov_a" | jq -r '.kind')" = "plan"
 chk "ov-a: effective state implemented" test "$(printf '%s' "$ov_a" | jq -r '.state')" = "implemented"
 chk "ov-a: step counts 2/2"             test "$(printf '%s' "$ov_a" | jq -r '.steps.ticked,.steps.total' | tr '\n' ' ')" = "2 2 "
-chk "ov-a: live handoff only, resolved excluded" test "$(printf '%s' "$ov_a" | jq -c '.handoffs')" = '["live-note.md"]'
 chk "ov-a: no deps"                     test "$(printf '%s' "$ov_a" | jq -c '.deps')" = '[]'
-chk "ov-a: origin null"                 test "$(printf '%s' "$ov_a" | jq -r '.origin')" = "null"
 chk "ov-a: owner carries this worktree's wt-id (v2.23.0)" test "$(printf '%s' "$ov_a" | jq -r '.owner')" = "$WTA_ID"
-chk "ov-a: unprioritized → priority null, never a default tier (v2.24.0)" \
-  test "$(printf '%s' "$ov_a" | jq -r '.priority')" = "null"
-chk "ov-a: uncategorized → category null (v2.25.0)" test "$(printf '%s' "$ov_a" | jq -r '.category')" = "null"
-chk "ov-a: no deferred_from"                        test "$(printf '%s' "$ov_a" | jq -r '.deferred_from')" = "null"
-chk "ov-a: goal null on a non-deferred plan"        test "$(printf '%s' "$ov_a" | jq -r '.goal')" = "null"
-chk "ov-a: no parent (root-level plan) → parent null" test "$(printf '%s' "$ov_a" | jq -r '.parent')" = "null"
 
 ov_b="$(printf '%s' "$out" | jq -c '.[] | select(.slug=="ov-b")')"
 chk "ov-b: step counts 1/2"                  test "$(printf '%s' "$ov_b" | jq -r '.steps.ticked,.steps.total' | tr '\n' ' ')" = "1 2 "
-chk "ov-b: deps carry both slugs, in order"  test "$(printf '%s' "$ov_b" | jq -c '.deps | map(.slug)')" = '["ov-a","ov-missing"]'
+chk "ov-b: deps carry every slug, in order"  test "$(printf '%s' "$ov_b" | jq -c '.deps | map(.slug)')" = '["ov-a","ov-missing","ov-noplan"]'
 chk "ov-b: known dep marked not missing"     test "$(printf '%s' "$ov_b" | jq -r '.deps[0].missing')" = "false"
 chk "ov-b: unknown dep marked missing"       test "$(printf '%s' "$ov_b" | jq -r '.deps[1].missing')" = "true"
-chk "ov-b: no handoffs"                      test "$(printf '%s' "$ov_b" | jq -c '.handoffs')" = '[]'
-chk "ov-b: owner carries this worktree's wt-id (v2.23.0)" test "$(printf '%s' "$ov_b" | jq -r '.owner')" = "$WTA_ID"
-chk "ov-b: priority carries the tier (v2.24.0)" test "$(printf '%s' "$ov_b" | jq -r '.priority')" = "critical"
-chk "ov-b: category carries the kind (v2.25.0)" test "$(printf '%s' "$ov_b" | jq -r '.category')" = "fix"
-chk "ov-b: goal null — deferred_from alone does not compute a goal (origin gates it)" \
-  test "$(printf '%s' "$ov_b" | jq -r '.goal')" = "null"
+chk "ov-b: a dir without plan.md is a present dep, not missing" test "$(printf '%s' "$ov_b" | jq -r '.deps[2].missing')" = "false"
 
-echo "-- M1. deferred_from/parent resolve to {slug, missing}, the shape deps[] already had --"
-chk "ov-b: deferred_from is an object, not a bare string" \
-  test "$(printf '%s' "$ov_b" | jq -r '.deferred_from | type')" = "object"
-chk "ov-b: deferred_from.slug carries the source plan" \
-  test "$(printf '%s' "$ov_b" | jq -r '.deferred_from.slug')" = "ov-a"
-chk "ov-b: deferred_from.missing false — ov-a exists" \
-  test "$(printf '%s' "$ov_b" | jq -r '.deferred_from.missing')" = "false"
-ov_orph="$(printf '%s' "$out" | jq -c '.[] | select(.slug=="ov-orphan")')"
-chk "ov-orphan: deferred_from.missing true — the source plan is gone" \
-  test "$(printf '%s' "$ov_orph" | jq -r '.deferred_from.missing')" = "true"
-ov_child="$(printf '%s' "$out" | jq -c '.[] | select(.slug=="ov-child")')"
-chk "ov-child: kind still plan"                       test "$(printf '%s' "$ov_child" | jq -r '.kind')" = "plan"
-chk "ov-child: parent is an object too"               test "$(printf '%s' "$ov_child" | jq -r '.parent | type')" = "object"
-chk "ov-child: parent.slug carries the containing plan (v2.29.0)" \
-  test "$(printf '%s' "$ov_child" | jq -r '.parent.slug')" = "ov-a"
-chk "ov-child: parent.missing false"                  test "$(printf '%s' "$ov_child" | jq -r '.parent.missing')" = "false"
-
-ov_def="$(printf '%s' "$out" | jq -c '.[] | select(.slug=="ov-deferred")')"
-chk "ov-deferred: origin deferred"          test "$(printf '%s' "$ov_def" | jq -r '.origin')" = "deferred"
-chk "ov-deferred: priority medium"          test "$(printf '%s' "$ov_def" | jq -r '.priority')" = "medium"
-chk "ov-deferred: category fix"             test "$(printf '%s' "$ov_def" | jq -r '.category')" = "fix"
-chk "ov-deferred: deferred_from.slug ov-a"  test "$(printf '%s' "$ov_def" | jq -r '.deferred_from.slug')" = "ov-a"
-chk "ov-deferred: goal reflowed to one line, word-boundary truncated at ~85 chars" \
-  test "$(printf '%s' "$ov_def" | jq -r '.goal')" = '`claim_order()` in `daily-run.sh` orders concurrent learn slots by key that reflects…'
-
-ov_topic="$(printf '%s' "$out" | jq -c '.[] | select(.slug=="ov-topic")')"
-chk "plan-less topic: kind no_plan_topic"  test "$(printf '%s' "$ov_topic" | jq -r '.kind')" = "no_plan_topic"
-chk "plan-less topic: state 'no plan yet'" test "$(printf '%s' "$ov_topic" | jq -r '.state')" = "no plan yet"
-chk "plan-less topic: live handoff listed" test "$(printf '%s' "$ov_topic" | jq -c '.handoffs')" = '["nudge.md"]'
-chk "plan-less topic: zero step counts"    test "$(printf '%s' "$ov_topic" | jq -c '.steps')" = '{"ticked":0,"total":0}'
-chk "plan-less topic: owner null (no sidecar)" test "$(printf '%s' "$ov_topic" | jq -r '.owner')" = "null"
-chk "plan-less topic: category/deferred_from/parent/goal all null too (uniform shape)" \
-  test "$(printf '%s' "$ov_topic" | jq -r '.category,.deferred_from,.parent,.goal' | tr '\n' ' ')" = "null null null null "
-
-ov_legacy="$(printf '%s' "$out" | jq -c '.[] | select(.kind=="legacy_handoffs")')"
-chk "legacy dir: topic-less (slug null)" test "$(printf '%s' "$ov_legacy" | jq -r '.slug')" = "null"
-chk "legacy dir: state null"             test "$(printf '%s' "$ov_legacy" | jq -r '.state')" = "null"
-chk "legacy dir: steps null"             test "$(printf '%s' "$ov_legacy" | jq -r '.steps')" = "null"
-chk "legacy dir: lists the flat note"    test "$(printf '%s' "$ov_legacy" | jq -c '.handoffs')" = '["legacy-note.md"]'
-chk "legacy dir: owner null"             test "$(printf '%s' "$ov_legacy" | jq -r '.owner')" = "null"
-chk "legacy dir: category/deferred_from/parent/goal all null too (uniform shape)" \
-  test "$(printf '%s' "$ov_legacy" | jq -r '.category,.deferred_from,.parent,.goal' | tr '\n' ' ')" = "null null null null "
-
-chk "plan dirs never double as a plan-less topic" \
-  test -z "$(printf '%s' "$out" | jq -r '.[] | select(.kind=="no_plan_topic" and (.slug=="ov-a" or .slug=="ov-b"))')"
+ov_l="$(printf '%s' "$out" | jq -c '.[] | select(.slug=="ov-legacy")')"
+chk "ov-legacy: read through the retired keys"   test "$(printf '%s' "$ov_l" | jq -r '.state')" = "draft"
+chk "ov-legacy: owner null (none recorded)"      test "$(printf '%s' "$ov_l" | jq -r '.owner')" = "null"
 
 echo "-- M2. filters: each one against an independent jq over the unfiltered array --"
 # Every assertion compares `query <filter>` to the same predicate evaluated in jq over
@@ -1228,17 +716,12 @@ echo "-- M2. filters: each one against an independent jq over the unfiltered arr
 # as "-" and quietly turns a broken filter into a passing test.
 qslugs() { psout query "$@" | jq -r '[.[] | (.slug // "-")] | sort | join(",")'; }
 jslugs() { printf '%s' "$out" | jq -r "[.[] | select($1) | (.slug // \"-\")] | sort | join(\",\")"; }
-chk "--kind plan"              test "$(qslugs --kind plan)"          = "$(jslugs '.kind=="plan"')"
 chk "--state draft"            test "$(qslugs --state draft)"        = "$(jslugs '.state=="draft"')"
 chk "--state draft,implemented ORs within one flag" \
                                test "$(qslugs --state draft,implemented)" = "$(jslugs '.state|IN("draft","implemented")')"
 chk "--open"                   test "$(qslugs --open)"               = "$(jslugs '(.state|IN("implemented","superseded"))|not')"
 chk "--closed"                 test "$(qslugs --closed)"             = "$(jslugs '.state|IN("implemented","superseded")')"
-chk "--priority critical"      test "$(qslugs --priority critical)"  = "$(jslugs '.priority=="critical"')"
-chk "--category fix"           test "$(qslugs --category fix)"       = "$(jslugs '.category=="fix"')"
-chk "--origin deferred"        test "$(qslugs --origin deferred)"    = "$(jslugs '.origin=="deferred"')"
-chk "--parent ov-a"            test "$(qslugs --parent ov-a)"        = "$(jslugs '.parent!=null and .parent.slug=="ov-a"')"
-chk "--no-parent"              test "$(qslugs --no-parent)"          = "$(jslugs '.parent==null')"
+chk "--closed is not vacuous"  test "$(qslugs --closed)"             = "ov-a"
 chk "--group <name>"           test "$(qslugs --group ov-split)"     = "$(jslugs '.group=="ov-split"')"
 chk "--group <name> really selects both siblings" test "$(qslugs --group ov-split)" = "ov-g1,ov-g2"
 chk "--group \"\" means UNGROUPED, not unfiltered" \
@@ -1247,77 +730,42 @@ chk "--group \"\" is a strict subset (the grouped siblings are excluded)" \
   sh -c 'case ",$0," in *,ov-g1,*) exit 1 ;; *) exit 0 ;; esac' "$(qslugs --group "")"
 chk "--group order field survives the round trip" \
                                test "$(psout query --slug ov-g2 --format tsv --fields order)" = "2"
-chk "--deferred-from ov-a"     test "$(qslugs --deferred-from ov-a)" = "$(jslugs '.deferred_from!=null and .deferred_from.slug=="ov-a"')"
-chk "--deferred-from-exists drops the dangling one" \
-                               test "$(qslugs --deferred-from-exists)" = "$(jslugs '.deferred_from!=null and (.deferred_from.missing|not)')"
-chk "--deferred-from-exists really excludes ov-orphan" \
-  sh -c 'case ",$0," in *,ov-orphan,*) exit 1 ;; *) exit 0 ;; esac' "$(qslugs --deferred-from-exists)"
 chk "--owner <this worktree>"  test "$(qslugs --owner "$WTA_ID")"    = "$(jslugs ".owner==\"$WTA_ID\"")"
 chk "--unowned"                test "$(qslugs --unowned)"            = "$(jslugs '.owner==null')"
-chk "--has-handoff"            test "$(qslugs --has-handoff)"        = "$(jslugs '(.handoffs|length)>0')"
+chk "--unowned is not vacuous" test "$(qslugs --unowned)"            = "ov-legacy"
 chk "--deps-missing"           test "$(qslugs --deps-missing)"       = "$(jslugs '([.deps[]|select(.missing)]|length)>0')"
-chk "--match glob"             test "$(qslugs --match 'ov-d*')"      = "$(jslugs '(.slug//"")|test("^ov-d.*$")')"
+chk "--deps-missing is not vacuous" test "$(qslugs --deps-missing)"  = "ov-b"
+chk "--match glob"             test "$(qslugs --match 'ov-g*')"      = "$(jslugs '(.slug//"")|test("^ov-g.*$")')"
 chk "--slug picks exactly one" test "$(qslugs --slug ov-b)"          = "ov-b"
-
-# Comma-as-OR is documented for EVERY value-taking filter, but only --state was ever
-# covered here — so --group/--parent/--owner compiled to a plain `==` against the whole
-# "a,b" string and returned NOTHING, silently, for a comma value. A false empty is the
-# worst shape for a read API (it reads as "no matches", not as an error), so each of the
-# three is pinned twice: once against a real+bogus pair (which must equal the real value
-# alone) and once as a true union, plus a non-empty guard so a filter that breaks by
-# returning nothing again cannot pass this vacuously on both sides.
+# Comma-as-OR holds for every value-taking filter: a false empty is the worst shape for
+# a read API (it reads as "no matches", not as an error).
 chk "--group ORs within one flag (real + bogus == real alone)" \
                                test "$(qslugs --group ov-split,no-such-group)" = "$(qslugs --group ov-split)"
 chk "--group comma form is not silently empty" \
                                test "$(qslugs --group ov-split,no-such-group)" = "ov-g1,ov-g2"
-chk "--parent ORs within one flag (union of two real parents)" \
-                               test "$(qslugs --parent ov-a,ov-child)" = "$(jslugs '.parent!=null and (.parent.slug|IN("ov-a","ov-child"))')"
-chk "--parent comma form is not silently empty" \
-                               test "$(qslugs --parent ov-a,ov-child)" = "ov-child,ov-grand"
 chk "--owner ORs within one flag (real + bogus == real alone)" \
                                test "$(qslugs --owner "$WTA_ID",no-such-worktree)" = "$(qslugs --owner "$WTA_ID")"
 chk "--owner comma form is not silently empty" \
   sh -c '[ -n "$0" ] && [ "$0" != "-" ]' "$(qslugs --owner "$WTA_ID",no-such-worktree)"
-# The comma fix must not cost the empty-value selectors their meaning: for --group and
-# --owner an empty value still means "the null one", which a naive csv rewrite drops.
-chk "--group \"\" still means UNGROUPED after the comma fix" \
-                               test "$(qslugs --group "")"  = "$(jslugs '.group==null')"
-chk "--owner \"\" still means UNOWNED after the comma fix" \
+chk "--owner \"\" still means UNOWNED" \
                                test "$(qslugs --owner "")"  = "$(jslugs '.owner==null')"
 chk "two filters AND (intersection, never union)" \
-  test "$(qslugs --category fix --origin deferred)" = "$(jslugs '.category=="fix" and .origin=="deferred"')"
-chk "AND is never a superset of either operand" \
-  sh -c '[ "$(printf "%s" "$0" | tr "," "\n" | grep -c .)" -le "$(printf "%s" "$1" | tr "," "\n" | grep -c .)" ]' \
-    "$(qslugs --category fix --origin deferred)" "$(qslugs --category fix)"
+  test "$(qslugs --open --group ov-split)" = "$(jslugs '((.state|IN("implemented","superseded"))|not) and .group=="ov-split"')"
 
-echo "-- M3. graph layer: --subtree / --roots / --open-counts, from one parent-graph pass --"
-chk "--subtree ov-a → transitive descendants, breadth-first, never ov-a itself" \
-  test "$(psout query --subtree ov-a --format slug | tr '\n' ',')" = "ov-child,ov-grand,"
-chk "--subtree ov-child → the grandchild only" \
-  test "$(psout query --subtree ov-child --format slug | tr '\n' ',')" = "ov-grand,"
-chk "--subtree on a leaf → empty" test "$(psout query --subtree ov-grand --format count)" = "0"
-chk "--roots → only kind plan with no parent" \
-  test "$(psout query --roots --format slug | sort | tr '\n' ',')" = "ov-a,ov-b,ov-deferred,ov-g1,ov-g2,ov-orphan,"
-chk "--open-counts: ov-a counts BOTH levels of its chain" \
-  test "$(psout query --slug ov-a --open-counts --format tsv --fields open_descendants)" = "2"
-chk "--open-counts: ov-child counts its own one descendant" \
-  test "$(psout query --slug ov-child --open-counts --format tsv --fields open_descendants)" = "1"
-chk "--open-counts: a leaf counts 0" \
-  test "$(psout query --slug ov-grand --open-counts --format tsv --fields open_descendants)" = "0"
-ps set ov-grand implemented >/dev/null
-chk "--open-counts: closing the leaf drops the root's count (open ≠ merely present)" \
-  test "$(psout query --slug ov-a --open-counts --format tsv --fields open_descendants)" = "1"
-chk "--subtree still lists the CLOSED descendant (membership is structural)" \
-  test "$(psout query --subtree ov-a --format count)" = "2"
-ps set ov-grand draft >/dev/null
-chk "--open-counts absent unless asked for" \
-  test "$(psout query --slug ov-a | jq -r '.[0] | has("open_descendants")')" = "false"
+echo "-- M3. retired flags are usage errors, never silently ignored (v5.0.0) --"
+for retired in "--subtree ov-a" --roots "--parent ov-a" --no-parent --open-counts "--origin deferred" \
+               "--deferred-from ov-a" --deferred-from-exists "--priority high" "--category fix" \
+               --has-handoff "--kind plan"; do
+  # shellcheck disable=SC2086 # word-split on purpose: flag + its value
+  ps query $retired >/dev/null 2>&1; rc=$?
+  chk "query ${retired%% *} → exit 1" test "$rc" = "1"
+done
+ps query --format tree >/dev/null 2>&1; rc=$?
+chk "--format tree → exit 1" test "$rc" = "1"
 
 echo "-- M4. output layer: --format / --fields / --sort / --limit --"
 chk "--format count equals --format slug | wc -l" \
-  test "$(psout query --kind plan --format count)" = "$(psout query --kind plan --format slug | wc -l | tr -d ' ')"
-chk "--format slug omits the slugless legacy entry rather than inventing a placeholder" \
-  test "$(psout query --kind legacy_handoffs --format slug)" = ""
+  test "$(psout query --format count)" = "$(psout query --format slug | wc -l | tr -d ' ')"
 chk "--format tsv: one row per entry"  test "$(psout query --format tsv | wc -l | tr -d ' ')" = "$(psout query --format count)"
 chk "--format tsv: default 4 columns"  test "$(psout query --format tsv | head -1 | awk -F'\t' '{print NF}')" = "4"
 chk "--format tsv: null renders as the - placeholder, never an empty field" \
@@ -1325,13 +773,11 @@ chk "--format tsv: null renders as the - placeholder, never an empty field" \
 chk "--format table: prints a header row" has "STATE" "$(psout query --format table)"
 chk "--fields dot path pulls one nested scalar" \
   test "$(psout query --slug ov-b --format tsv --fields steps.total)" = "2"
-chk "--fields dot path reaches into a ref object" \
-  test "$(psout query --slug ov-child --format tsv --fields parent.slug)" = "ov-a"
 chk "--fields json projection emits ONLY the requested keys" \
   test "$(psout query --slug ov-b --fields steps.total | jq -c '.[0]|keys')" = '["steps.total"]'
 chk "--limit truncates"    test "$(psout query --limit 2 --format count)" = "2"
 chk "--limit 0 is empty"   test "$(psout query --limit 0 --format count)" = "0"
-chk "--sort slug ascends"  test "$(psout query --kind plan --sort slug --format slug | tr '\n' ',')" = "$(psout query --kind plan --format slug | sort | tr '\n' ',')"
+chk "--sort slug ascends"  test "$(psout query --sort slug --format slug | tr '\n' ',')" = "$(psout query --format slug | sort | tr '\n' ',')"
 out="$(ps query --format bogus)"; rc=$?
 chk "--format rejects an unknown value (exit 1)"        test "$rc" = "1"
 chk "--format error names the valid set"                has "json|table|slug|count|tsv" "$out"
@@ -1340,38 +786,14 @@ chk "--limit rejects a non-integer (exit 1)"            test "$rc" = "1"
 out="$(ps query --state)"; rc=$?
 chk "a flag missing its value is a usage error"         test "$rc" = "1"
 chk "  ...and says which flag"                          has -- "--state needs a value" "$out"
-ps query --slug ov-a --subtree ov-a >/dev/null 2>&1; rc=$?
-chk "--slug and --subtree together are refused"         test "$rc" = "1"
 ps query --open --closed >/dev/null 2>&1; rc=$?
 chk "--open and --closed together are refused"          test "$rc" = "1"
+ps query --owner x --unowned >/dev/null 2>&1; rc=$?
+chk "--owner and --unowned together are refused"        test "$rc" = "1"
 ps query --frobnicate >/dev/null 2>&1; rc=$?
 chk "an unknown flag is a usage error"                  test "$rc" = "1"
 ps query --slug nope >/dev/null 2>&1; rc=$?
 chk "--slug on a nonexistent plan is a usage error"     test "$rc" = "1"
-
-echo "-- M5. --kind handoff: notes as first-class items, opt-in only --"
-chk "bare query returns NO handoff entries" \
-  test "$(psout query | jq '[.[]|select(.kind=="handoff")]|length')" = "0"
-disk_notes="$(find "$REPO/.mentor" -type f -name '*.md' -path '*/handoffs/*' | wc -l | tr -d ' ')"
-chk "--kind handoff count equals the on-disk note count (live AND resolved)" \
-  test "$(psout query --kind handoff --format count)" = "$disk_notes"
-chk "--kind handoff: live/resolved both present and labelled" \
-  test "$(psout query --kind handoff | jq -r '[.[].handoff_state]|unique|join(",")')" = "live,resolved"
-chk "--kind handoff: a note carries its topic" \
-  test "$(psout query --kind handoff | jq -r 'map(select(.path|endswith("live-note.md")))[0].topic')" = "ov-a"
-chk "--kind handoff: the legacy flat note has a null topic" \
-  test "$(psout query --kind handoff | jq -r 'map(select(.path|endswith("legacy-note.md")))[0].topic')" = "null"
-chk "--kind handoff: path is repo-relative, not absolute" \
-  test "$(psout query --kind handoff | jq -r '[.[]|select(.path|startswith("/"))]|length')" = "0"
-chk "--kind handoff: mtime is an ISO-8601 Z timestamp" \
-  sh -c 'printf "%s" "$0" | jq -e "all(.[]; .mtime|test(\"^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$\"))" >/dev/null' \
-    "$(psout query --kind handoff)"
-chk "--kind handoff: the resolved/ note is labelled, not dropped (anchored exclusion)" \
-  test "$(psout query --kind handoff | jq -r '[.[]|select(.handoff_state=="resolved")]|length')" = "1"
-chk "--kind handoff: that resolved note is the one under ov-a/handoffs/resolved/" \
-  test "$(psout query --kind handoff | jq -r 'map(select(.handoff_state=="resolved"))[0].path|endswith("resolved/old-note.md")')" = "true"
-chk "a plan entry's own handoffs array still excludes resolved notes" \
-  test "$(psout query --slug ov-a | jq -c '.[0].handoffs')" = '["live-note.md"]'
 
 echo "== N. query is fail-soft when jq is absent from PATH =="
 out="$(psq_nojq_out query)"
@@ -1382,51 +804,22 @@ chk "no jq → empty stdout"            test -z "$out"
 chk "no jq → one-line stderr notice"  test "$(printf '%s\n' "$err" | wc -l | tr -d ' ')" = "1"
 chk "no jq → notice names the problem" has "jq not found" "$err"
 
-echo "== N2. overview and subtree are RETIRED: they fail loudly and name query, never no-op =="
-for retired in overview subtree; do
-  out="$(ps "$retired" --json)"; rc=$?
-  chk "$retired → exit 1 (not a silent success)" test "$rc" = "1"
-  chk "$retired → says it was retired"           has "was retired" "$out"
-  chk "$retired → names query as the replacement" has "query" "$out"
-  chk "$retired → is NOT reported as an unknown subcommand" hasnt "Unknown subcommand" "$out"
-done
-out="$(ps subtree ov-a)"; rc=$?
-chk "subtree <slug> → exit 1 even with a real slug"      test "$rc" = "1"
-chk "subtree <slug> → points at the --subtree flag"      has -- "--subtree" "$out"
-chk "subtree <slug> → also points at --roots --open-counts for the all-roots case" \
-  has -- "--roots --open-counts" "$out"
-out="$(ps)"; 
-chk "usage block lists query"                   has "query \[select\]" "$out"
-chk "usage block no longer lists overview"      hasnt "^  overview " "$out"
-chk "usage block no longer lists subtree"       hasnt "^  subtree " "$out"
-# The whole point of retiring them: ov-b keeps its priority for section O below.
-ps init ov-b --priority critical >/dev/null
-
-echo "== O. list stays byte-compatible even when a plan carries deps/origin/priority/category/deferred_from (v2.25.0: 3 more append-last fields) =="
-ps init ov-b --deferred >/dev/null   # give ov-b an origin too, alongside its deps
-chk "the fixture plan really does carry a priority" test "$(sidecar ov-b '.priority')" = "critical"
-chk "the fixture plan really does carry a category (v2.25.0)"      test "$(sidecar ov-b '.category')" = "fix"
-chk "the fixture plan really does carry a deferred_from (v2.25.0)" test "$(sidecar ov-b '.deferred_from')" = "ov-a"
+echo "== O. list stays byte-compatible even when a plan carries deps or retired pre-5.0 keys =="
 out="$(psout list)"
 row="$(printf '%s' "$out" | awk -v s="ov-b" '$3 == s')"
-chk "row for a deps+origin+priority+category+deferred_from plan is still found" test -n "$row"
-chk "row is still exactly 5 whitespace-separated columns" \
-  test "$(printf '%s' "$row" | awk '{print NF}')" = "5"
-chk "row carries no stray JSON from deps/origin" \
-  sh -c '! printf "%s" "$0" | grep -qE "[][{}]"' "$row"
-chk "row carries no stray text from category/deferred_from either" \
-  sh -c '! printf "%s" "$0" | grep -qE "fix|ov-a"' "$row"
-
-# Byte-compat proper: a fixture WITHOUT any of the new fields set produces the exact
-# same bare `list` row today as before this plan's row-append (fields 12-14) landed —
-# proving the 3 appended _plan_walk fields never disturb list_rows' 5-column shape.
+chk "row for a plan with deps is found"              test -n "$row"
+chk "row is exactly 5 whitespace-separated columns"  test "$(printf '%s' "$row" | awk '{print NF}')" = "5"
+chk "row carries no stray JSON from deps"            sh -c '! printf "%s" "$0" | grep -qE "[][{}]"' "$row"
+row_l="$(printf '%s' "$out" | awk -v s="ov-legacy" '$3 == s')"
+chk "a legacy-keyed plan's row is exactly 5 columns" test "$(printf '%s' "$row_l" | awk '{print NF}')" = "5"
+chk "…and carries none of its retired values"        sh -c '! printf "%s" "$0" | grep -qE "fix|high|deferred"' "$row_l"
 plan byte-compat
 ps init byte-compat >/dev/null
 row_plain="$(psout list | awk -v s="byte-compat" '$3 == s')"
-chk "row-append safety: an unset-new-fields plan's bare list row is exactly 5 columns" \
-  test "$(printf '%s' "$row_plain" | awk '{print NF}')" = "5"
-chk "row-append safety: that row matches the pre-v2.25.0 shape exactly" \
+chk "a plain plan's row matches the pre-v2.25.0 shape exactly" \
   test "$(printf '%s' "$row_plain" | awk '{print $2, $3, $4, $5}')" = "draft byte-compat - -"
+out="$(ps list --parent)"; rc=$?
+chk "list --parent (retired) → exit 1" test "$rc" = "1"
 
 echo "== O2. list --owners adds a 6th OWNER column; bare list stays 5 (v2.23.0) =="
 row_default="$(psout list | awk -v s="ov-b" '$3 == s')"
@@ -1434,20 +827,6 @@ chk "list (default) row is still exactly 5 columns" test "$(printf '%s' "$row_de
 row_owners="$(psout list --owners | awk -v s="ov-b" '$3 == s')"
 chk "list --owners row is exactly 6 columns"      test "$(printf '%s' "$row_owners" | awk '{print NF}')" = "6"
 chk "list --owners 6th column is the owner wt-id" test "$(printf '%s' "$row_owners" | awk '{print $6}')" = "$WTA_ID"
-
-echo "== O3. list --parent adds its own PARENT column; composes with --owners in fixed order (v2.29.0) =="
-row_parent="$(psout list --parent | awk -v s="ov-child" '$3 == s')"
-chk "list --parent row is exactly 6 columns"        test "$(printf '%s' "$row_parent" | awk '{print NF}')" = "6"
-chk "list --parent 6th column is the parent slug"   test "$(printf '%s' "$row_parent" | awk '{print $6}')" = "ov-a"
-row_noparent="$(psout list --parent | awk -v s="ov-a" '$3 == s')"
-chk "a plan with no parent shows '-' in the PARENT column" test "$(printf '%s' "$row_noparent" | awk '{print $6}')" = "-"
-row_both="$(psout list --owners --parent | awk -v s="ov-child" '$3 == s')"
-chk "list --owners --parent composes: 7 columns"     test "$(printf '%s' "$row_both" | awk '{print NF}')" = "7"
-chk "..6th column owner, 7th column parent (fixed order)" \
-  test "$(printf '%s' "$row_both" | awk '{print $6, $7}')" = "$WTA_ID ov-a"
-row_default2="$(psout list | awk -v s="ov-child" '$3 == s')"
-chk "bare list stays 5 columns even when the plan carries a parent" \
-  test "$(printf '%s' "$row_default2" | awk '{print NF}')" = "5"
 
 echo "== P. gate: read-only plan-gate marker status, before every guard (v2.23.0 4-token contract) =="
 CWD="$REPO"
@@ -1563,122 +942,43 @@ chk "gate --verbose rejects a further stray argument → exit 1"   test "$rc" = 
 chk "gate --verbose rejects a further stray argument → names it" has "unexpected argument" "$out"
 
 echo "== Q. set … implemented/failed: closing-checklist reminder (closing_checklist_reminder) =="
-# mentor_find_transcript's cwd-hash fallback (CLAUDE_CODE_SESSION_ID is stripped by
-# _env, same as every other test here) — a fixture transcript lives under the
-# sandboxed CLAUDE_CONFIG_DIR at projects/<hash of $REPO>/<sid>.jsonl.
-REPO_HASH="$(printf '%s' "$REPO" | sed 's/[^A-Za-z0-9]/-/g')"
-TXDIR="$SANDBOX/.claude/projects/$REPO_HASH"; mkdir -p "$TXDIR"
-tx_agent_only() {   # one Agent dispatch, no TaskList
-  printf '%s\n' '{"type":"assistant","message":{"content":[{"type":"tool_use","name":"Agent","input":{}}]}}' \
-    > "$TXDIR/cc.jsonl"
-}
-tx_agent_and_tasklist() {   # Agent dispatch, closed out with TaskList
-  { printf '%s\n' '{"type":"assistant","message":{"content":[{"type":"tool_use","name":"Agent","input":{}}]}}'
-    printf '%s\n' '{"type":"assistant","message":{"content":[{"type":"tool_use","name":"TaskList","input":{}}]}}'
-  } > "$TXDIR/cc.jsonl"
-}
-tx_no_agent() {   # a session that never dispatched anything
-  printf '%s\n' '{"type":"assistant","message":{"content":[{"type":"text","text":"hi"}]}}' \
-    > "$TXDIR/cc.jsonl"
-}
+plan cc-fire; plan cc-silent-otherstate; plan cc-refire; plan cc-failed
 
-plan cc-fire; plan cc-silent-tasklist; plan cc-silent-noagent; plan cc-silent-otherstate
-plan cc-silent-notx; plan cc-refire; plan cc-failed
-
-tx_agent_only
 merged="$(ps set cc-fire implemented)"; rc=$?   # ps merges stdout+stderr — one call, several assertions
-chk "dispatched agents, no TaskList → reminder fires"      has "Closing checklist" "$merged"
-chk "reminder → names TaskList enumerate/diff/TaskStop"    has "TaskList: enumerate" "$merged"
-chk "reminder → names the /mentor:tour offer"              has "/mentor:tour" "$merged"
-chk "reminder → names the /mentor:ship pointer"             has "/mentor:ship" "$merged"
-chk "reminder → names the /mentor:defer sweep"             has "/mentor:defer" "$merged"
-chk "reminder → still reports the state transition"        has "unknown → implemented" "$merged"
-chk "reminder path still exits 0"                           test "$rc" = "0"
+chk "fresh implemented → reminder fires"                    has "Closing checklist" "$merged"
+chk "reminder → asks to name follow-ups"                     has "follow-up WORK item" "$merged"
+chk "reminder → names the /mentor:ship pointer"              has "/mentor:ship" "$merged"
+chk "reminder → names no removed command"                    hasnt "/mentor:\(defer\|tour\|track\|handoff\)" "$merged"
+chk "reminder → no TaskList / dispatch wording"              hasnt "TaskList\|dispatch\|verifier" "$merged"
+chk "reminder → still reports the state transition"         has "unknown → implemented" "$merged"
+chk "reminder path still exits 0"                            test "$rc" = "0"
 
-tx_agent_and_tasklist
-out="$(ps set cc-silent-tasklist implemented)"
-chk "TaskList already called → no TaskList line"           hasnt "TaskList: enumerate" "$out"
-chk "TaskList already called → defer sweep still fires"    has "/mentor:defer" "$out"
-
-tx_no_agent
-out="$(ps set cc-silent-noagent implemented)"
-chk "no Agent dispatch → no TaskList line"                  hasnt "TaskList: enumerate" "$out"
-chk "no Agent dispatch → defer/tour/ship still fire"        has "/mentor:defer" "$out"
-
-tx_agent_only
 out="$(pserr set cc-silent-otherstate in_progress)"
-chk "transition to a non-terminal state → silent"           hasnt "Closing checklist" "$out"
+chk "transition to a non-terminal state → silent"            hasnt "Closing checklist" "$out"
 
-rm -f "$TXDIR/cc.jsonl"
-out="$(ps set cc-silent-notx implemented)"
-chk "no transcript on disk at all → no TaskList line"        hasnt "TaskList: enumerate" "$out"
-chk "no transcript on disk at all → defer sweep still fires" has "/mentor:defer" "$out"
+ps set cc-refire implemented >/dev/null   # first close
+out="$(ps set cc-refire implemented)"     # shipping/merging idempotently re-closing the same plan
+chk "idempotent re-close (before==state already) → silent"   hasnt "Closing checklist" "$out"
 
-tx_agent_only
-ps set cc-refire implemented >/dev/null   # first close — dispatch-agents' own transition
-out="$(pserr set cc-refire implemented)"  # shipping/merging idempotently re-closing the same plan
-chk "idempotent re-close (before==state already) → silent"  hasnt "Closing checklist" "$out"
-
-tx_agent_only
 out="$(ps set cc-failed failed --note "verification unresolved")"
-chk "failed → TaskList line still fires"                     has "TaskList: enumerate" "$out"
-chk "failed → defer sweep still fires"                       has "/mentor:defer" "$out"
-chk "failed → tour offer held (checklist carve-out)"         hasnt "/mentor:tour" "$out"
-chk "failed → ship pointer held (checklist carve-out)"       hasnt "/mentor:ship" "$out"
+chk "failed → reminder fires"                                has "Closing checklist" "$out"
+chk "failed → follow-up line still fires"                    has "follow-up WORK item" "$out"
+chk "failed → ship pointer held"                             hasnt "/mentor:ship" "$out"
 
-# Regression for the before_stored fix: a plan whose ✅ ticks alone already self-heal
-# mentor_plan_effective_state to "implemented" — with NO prior `set` call, so the
-# sidecar was never actually written — must still get this reminder on its real
-# first `set … implemented`. Pre-fix, `before` (effective) already read "implemented"
-# here, `before == state`, and the whole block was skipped as a false idempotent
-# re-close.
-tx_agent_only
+# A plan whose ✅ ticks alone already self-heal mentor_plan_effective_state to
+# "implemented" — with NO prior `set` call — must still get this reminder on its real
+# first `set … implemented` (freshness is judged off the STORED state).
 plan cc-selfheal '## Implementation steps' '1. one ✅' '2. two ✅'
 merged="$(ps set cc-selfheal implemented)"; rc=$?
 chk "ticks alone self-heal effective state → reminder still fires" has "Closing checklist" "$merged"
 chk "self-heal case → still reports the state transition"          has "implemented → implemented" "$merged"
 chk "self-heal reminder path still exits 0"                        test "$rc" = "0"
 
-echo "== R. set … implemented: verification-artifact reminder (verification_artifact_reminder) =="
-tx_no_agent   # this section only cares about the verification line, not the checklist above it
-plan va-empty '# a' '## Implementation steps' '1. one'
-out="$(ps set va-empty implemented)"
-chk "no Verification section at all → silent"        hasnt "not actually verified yet" "$out"
-
-plan va-blank '# a' '## Implementation steps' '1. one' '## Verification' '' '## Notes' 'x'
-out="$(ps set va-blank implemented)"
-chk "empty Verification section (blank before next ##) → silent" hasnt "not actually verified yet" "$out"
-
-plan va-missing '# a' '## Implementation steps' '1. one' \
-  '## Verification' '1. real criteria, never actually checked'
-out="$(ps set va-missing implemented)"
-chk "non-empty Verification, no *verify.md → warning fires"      has "not actually verified yet" "$out"
-chk "warning → names the plan dir"                                has "$PLANS/va-missing" "$out"
-chk "warning → cites the no-self-check rule"                      has "never a main-thread self-check" "$out"
-chk "warning path still exits 0"                                  test "$?" = "0"
-
-plan va-present '# a' '## Implementation steps' '1. one' \
-  '## Verification' 'Topic 1 — real criteria'
-: > "$PLANS/va-present/topic-1-verify.md"
-out="$(ps set va-present implemented)"
-chk "non-empty Verification, *verify.md present → silent"        hasnt "not actually verified yet" "$out"
-
-plan va-legacy '# a' '## Implementation steps' '1. one' \
-  '## Verification' '1. legacy prose criterion, derived into a topic at dispatch time'
-: > "$PLANS/va-legacy/topic-1-verify.md"   # legacy prose derives topics too — same verifier naming
-out="$(ps set va-legacy implemented)"
-chk "legacy prose Verification, derived topic-verify.md present → silent" hasnt "not actually verified yet" "$out"
-
-plan va-failed '# a' '## Implementation steps' '1. one' \
-  '## Verification' '1. real criteria, never checked'
-out="$(ps set va-failed failed --note "blocked")"
-chk "transition to failed (not implemented) → no verification warning" hasnt "not actually verified yet" "$out"
-
-plan va-refire '# a' '## Implementation steps' '1. one' \
-  '## Verification' '1. real criteria, never checked'
-ps set va-refire implemented >/dev/null           # first close — the fresh transition
-out="$(pserr set va-refire implemented)"          # idempotent re-close (e.g. ship re-running set)
-chk "idempotent re-close → no re-fired verification warning" hasnt "not actually verified yet" "$out"
+# The verifier-artifact warning is gone with dispatch: a non-empty ## Verification and
+# no *verify*.md must not warn.
+plan cc-verif '# v' '## Implementation steps' '1. one ✅' '## Verification' '- run the tests'
+out="$(ps set cc-verif implemented)"
+chk "no verify-artifact warning any more"                    hasnt "verify\*\.md\|verifier" "$out"
 
 echo "== S. set … implemented: tick-reconciliation reminder (tick_reconciliation_reminder) =="
 plan tr-partial '## Implementation steps' '1. one ✅' '2. two' '3. three'
@@ -1710,107 +1010,7 @@ ps set tr-refire implemented >/dev/null            # first close — the fresh t
 out="$(pserr set tr-refire implemented)"           # idempotent re-close (e.g. ship re-running set)
 chk "idempotent re-close → no re-fired tick warning" hasnt "steps ticked" "$out"
 
-echo "== T. query --subtree / --open-counts: transitive descendants via parent chains, open/closed verdicts, counts (v2.33.0, was `subtree`) =="
-rm -rf "$PLANS"; mkdir -p "$PLANS"
-plan st-root '# root' '## Implementation steps' '1. one' '2. two'
-plan st-child '# child' '## Implementation steps' '1. one' '2. two'
-plan st-grandchild '# grandchild' '## Implementation steps' '1. one' '2. two'
-plan st-other
-ps init st-root >/dev/null
-ps init st-child --parent st-root >/dev/null
-ps init st-grandchild --parent st-child >/dev/null
-ps init st-other >/dev/null
-
-# `subtree <slug>` printed an indented tree plus a trailing "N open descendant(s)." line;
-# `query --subtree` returns the same descendant SET as data, and `--open-counts` returns
-# the same N as a field. Depth is no longer rendered as indentation — a consumer that
-# wants the branch shape reads each entry's own `parent`, which is the same
-# consumer-side reconstruction lib/state.sh's mentor_plan_descendants always documented.
-out="$(psout query --subtree st-other --format count)"; rc=$?
-chk "--subtree with no descendants → exit 0"    test "$rc" = "0"
-chk "--subtree with no descendants → count 0"   test "$out" = "0"
-
-out="$(psout query --subtree st-root)"; rc=$?
-chk "--subtree → exit 0"                        test "$rc" = "0"
-chk "--subtree lists the direct child"          has "st-child" "$out"
-chk "--subtree lists the transitive grandchild" has "st-grandchild" "$out"
-chk "--subtree returns breadth-first: child before grandchild" \
-  test "$(psout query --subtree st-root --format slug | tr '\n' ',')" = "st-child,st-grandchild,"
-chk "--subtree never includes the root itself" \
-  sh -c 'case ",$0," in *,st-root,*) exit 1 ;; *) exit 0 ;; esac' "$(psout query --subtree st-root --format slug | tr '\n' ',')"
-chk "both descendants are open (draft, not implemented/superseded)" \
-  test "$(psout query --subtree st-root --open --format count)" = "2"
-chk "--open-counts reports the same N the trailing count used to" \
-  test "$(psout query --slug st-root --open-counts --format tsv --fields open_descendants)" = "2"
-chk "depth is readable from each entry's own parent field" \
-  test "$(psout query --subtree st-root --format tsv --fields slug,parent.slug | tr '\n' ';')" \
-     = "$(printf 'st-child\tst-root;st-grandchild\tst-child;')"
-
-# Close the grandchild → it verdicts closed, the open count drops to 1.
-ps set st-grandchild implemented >/dev/null
-chk "closing the grandchild flips its own verdict to closed" \
-  test "$(psout query --subtree st-root --closed --format slug)" = "st-grandchild"
-chk "open count now reflects only the still-open child" \
-  test "$(psout query --slug st-root --open-counts --format tsv --fields open_descendants)" = "1"
-
-# Close the direct child too → zero open, but descendants still list.
-ps set st-child implemented >/dev/null
-chk "all descendants closed → open count 0" \
-  test "$(psout query --slug st-root --open-counts --format tsv --fields open_descendants)" = "0"
-chk "closed descendants still listed (membership is structural, not a verdict)" \
-  test "$(psout query --subtree st-root --format count)" = "2"
-
-rc=0; ps query --subtree no-such-plan >/dev/null 2>&1 || rc=$?
-chk "--subtree unknown slug → exit 1"           test "$rc" = "1"
-rc=0; ps query --subtree >/dev/null 2>&1 || rc=$?
-chk "--subtree with no value → exit 1"          test "$rc" = "1"
-rc=0; ps query --subtree st-root extra >/dev/null 2>&1 || rc=$?
-chk "--subtree with a stray extra argument → exit 1" test "$rc" = "1"
-
-echo "== U. set <slug> implemented: unconditional soft WARN when open descendants exist (write still succeeds); no warn once all close (v2.29.0) =="
-rm -rf "$PLANS"; mkdir -p "$PLANS"
-plan wr-root
-plan wr-child-a
-plan wr-child-b
-ps init wr-root >/dev/null
-ps init wr-child-a --parent wr-root >/dev/null
-ps init wr-child-b --parent wr-root >/dev/null
-
-out="$(ps set wr-root implemented)"; rc=$?
-chk "set implemented with open descendants → exit 0 (write still succeeds)" test "$rc" = "0"
-chk "..the write actually landed"                     test "$(state_of wr-root)" = "implemented"
-chk "..prints the soft WARN with the open count"      has "WARN: 2 open descendant(s)" "$out"
-chk "..the WARN names wr-child-a"                      has "wr-child-a" "$out"
-chk "..the WARN names wr-child-b"                      has "wr-child-b" "$out"
-
-# Close one descendant → the warn count drops but still fires (one remains open).
-ps set wr-child-a implemented >/dev/null
-out="$(pserr set wr-root implemented)"   # idempotent re-close of wr-root itself
-chk "one descendant closed → WARN count drops to 1"   has "WARN: 1 open descendant(s)" "$out"
-chk "..no longer names the now-closed child"          hasnt "wr-child-a" "$out"
-chk "..still names the still-open child"              has "wr-child-b" "$out"
-
-# Close the last one → no WARN at all, even on a re-close.
-ps set wr-child-b implemented >/dev/null
-out="$(pserr set wr-root implemented)"
-chk "every descendant closed → no WARN"                hasnt "open descendant(s)" "$out"
-
-# A plan with no descendants at all never warns.
-plan wr-leaf
-ps init wr-leaf >/dev/null
-out="$(pserr set wr-leaf implemented)"
-chk "no descendants at all → no WARN"                  hasnt "open descendant(s)" "$out"
-
-# Transitioning to a state OTHER than implemented never triggers this warn, even with
-# open descendants.
-plan wr-root2
-plan wr-child2
-ps init wr-root2 >/dev/null
-ps init wr-child2 --parent wr-root2 >/dev/null
-out="$(pserr set wr-root2 approved)"
-chk "set to a non-implemented state → no WARN, ever"   hasnt "open descendant(s)" "$out"
-
-echo "== V. relocate <src-plan-dir>: copy a plan from a DIFFERENT repo into this one, re-own it here (v2.29.0 — previously zero coverage) =="
+echo "== V. relocate <src-plan-dir>: copy a plan from a DIFFERENT repo into this one, re-own it here =="
 rm -rf "$PLANS"; mkdir -p "$PLANS"
 SRC_REPO="$ROOT/src-repo"
 git init -q -b main "$SRC_REPO" >/dev/null 2>&1
@@ -1818,14 +1018,16 @@ git init -q -b main "$SRC_REPO" >/dev/null 2>&1
 SRC_PLANS="$SRC_REPO/.mentor/plans"
 mkdir -p "$SRC_PLANS/rl-slug"
 printf '# Relocate me\n\n## Implementation steps\n1. one\n\n## Suggested first steps\n- src/somefile.ts\n- lib/other.py\n' > "$SRC_PLANS/rl-slug/plan.md"
-CWD="$SRC_REPO"; ps init rl-slug --priority high >/dev/null; CWD="$REPO"
+CWD="$SRC_REPO"; ps init rl-slug >/dev/null; CWD="$REPO"
+# A retired pre-5.0 key on the source sidecar: relocate's re-own write must merge it through.
+jq '.priority = "high"' "$SRC_PLANS/rl-slug/.state.json" > "$SRC_PLANS/rl-slug/.tmp" && mv "$SRC_PLANS/rl-slug/.tmp" "$SRC_PLANS/rl-slug/.state.json"
 
 out="$(ps relocate "$SRC_PLANS/rl-slug")"; rc=$?
 chk "relocate → exit 0"                              test "$rc" = "0"
 chk "relocate reports the move"                      has "relocated from" "$out"
 chk "relocate copied plan.md"                        test -f "$PLANS/rl-slug/plan.md"
 chk "relocate copied .state.json"                    test -f "$PLANS/rl-slug/.state.json"
-chk "relocate preserves unrelated fields (priority)" test "$(sidecar rl-slug '.priority')" = "high"
+chk "relocate preserves unmanaged keys (priority)"  test "$(sidecar rl-slug '.priority')" = "high"
 chk "relocate re-owns to this worktree"              test "$(sidecar rl-slug '.owner')" = "$WTA_ID"
 chk "relocate never deletes the source"              test -f "$SRC_PLANS/rl-slug/plan.md"
 chk "relocate reports the source is kept"            has "source NOT deleted" "$out"
@@ -1836,7 +1038,7 @@ chk "relocate flags stale-looking paths in Suggested first steps" \
   has "still names repo-relative paths that may be stale" "$out"
 chk "..lists the paths it found"                     has "src/somefile.ts" "$out"
 
-echo "== V2. relocate: no 'Suggested first steps' section — must complete without aborting (pre-existing set -euo pipefail bug fixed alongside v2.29.0) =="
+echo "== V2. relocate: no 'Suggested first steps' section — must complete without aborting =="
 mkdir -p "$SRC_PLANS/rl-nosteps"
 printf '# No suggested steps here\n\n## Implementation steps\n1. one\n' > "$SRC_PLANS/rl-nosteps/plan.md"
 CWD="$SRC_REPO"; ps init rl-nosteps >/dev/null; CWD="$REPO"
@@ -1845,22 +1047,6 @@ chk "relocate (no Suggested first steps section) → exit 0, does not abort" tes
 chk "relocate (no Suggested first steps) still relocated"                  test -f "$PLANS/rl-nosteps/plan.md"
 chk "relocate (no Suggested first steps) → no stale-paths warning printed" \
   hasnt "still names repo-relative paths" "$out"
-
-echo "== V3. relocate: children left in the source repo → warns (does NOT copy the subtree) =="
-mkdir -p "$SRC_PLANS/rl-parent"
-printf '# Parent to relocate\n\n## Implementation steps\n1. one\n' > "$SRC_PLANS/rl-parent/plan.md"
-CWD="$SRC_REPO"
-ps init rl-parent >/dev/null
-mkdir -p "$SRC_PLANS/rl-parent-child"
-printf '# Child stays behind\n\n## Implementation steps\n1. one\n' > "$SRC_PLANS/rl-parent-child/plan.md"
-ps init rl-parent-child --parent rl-parent >/dev/null
-CWD="$REPO"
-out="$(ps relocate "$SRC_PLANS/rl-parent")"; rc=$?
-chk "relocate (with a child left behind) → exit 0" test "$rc" = "0"
-chk "relocate warns about the child left in the source" has "has children still only in the SOURCE repo" "$out"
-chk "..names the child slug"                            has "rl-parent-child" "$out"
-chk "relocate does NOT copy the child"                  test ! -e "$PLANS/rl-parent-child"
-chk "the child is still in the source, untouched"       test -f "$SRC_PLANS/rl-parent-child/plan.md"
 
 echo "== V4. relocate: usage/edge-case errors =="
 out="$(ps relocate)"; rc=$?
@@ -1877,40 +1063,45 @@ out="$(ps relocate "$SRC_PLANS/rl-notaplan")"; rc=$?
 chk "relocate: not a real plan dir → exit 1"   test "$rc" = "1"
 chk "..names the reason"                        has "not a real plan dir" "$out"
 
-echo "== W. start <slug>: ensure-dir + init + claim in ONE call (v2.34.0) =="
+echo "== W. start <slug>: ensure-dir + init in ONE call =="
 # The contract that matters is stdout purity: callers write
-# `plan_md="$(plan-state.sh start "$slug")"`, so anything init or claim print has to go
-# to stderr or the capture is unusable. Every other assertion here is about the three
-# folded steps actually having run.
+# `plan_md="$(plan-state.sh start "$slug")"`, so anything init prints has to go to
+# stderr or the capture is unusable.
 CWD="$REPO"
-out="$(psout start st-fresh --priority high --category feature)"; rc=$?
+out="$(psout start st-fresh --group st-g --order 3)"; rc=$?
 chk "start: exit 0"                              test "$rc" = "0"
 chk "start: stdout is EXACTLY one line"          test "$(printf '%s\n' "$out" | grep -c .)" = "1"
 chk "start: stdout is the plan.md path"          has "/.mentor/plans/st-fresh/plan.md$" "$out"
 chk "start: created the plan dir"                test -d "$REPO/.mentor/plans/st-fresh"
 chk "start: dir locked to 700 (ensure-dir ran)"  test "$(stat -f '%Lp' "$REPO/.mentor/plans/st-fresh" 2>/dev/null || stat -c '%a' "$REPO/.mentor/plans/st-fresh")" = "700"
 chk "start: sidecar written (init ran)"          test -f "$REPO/.mentor/plans/st-fresh/.state.json"
-chk "start: init flags forwarded — priority"     test "$(jq -r .priority "$REPO/.mentor/plans/st-fresh/.state.json")" = "high"
-chk "start: init flags forwarded — category"     test "$(jq -r .category "$REPO/.mentor/plans/st-fresh/.state.json")" = "feature"
+chk "start: init flags forwarded — group"        test "$(jq -r .group "$REPO/.mentor/plans/st-fresh/.state.json")" = "st-g"
+chk "start: init flags forwarded — order"        test "$(jq -r .order "$REPO/.mentor/plans/st-fresh/.state.json")" = "3"
+chk "start: owner stamped"                       test "$(jq -r .owner "$REPO/.mentor/plans/st-fresh/.state.json")" = "$WTA_ID"
 chk "start: state is draft"                      test "$(jq -r .state "$REPO/.mentor/plans/st-fresh/.state.json")" = "draft"
 err="$(pserr start st-fresh)"
 chk "start: init summary goes to stderr, not stdout" has "st-fresh: draft" "$err"
-chk "start: no-op claim notice is suppressed"    hasnt "nothing to claim" "$err"
+chk "start: no claim step any more"              hasnt "claim" "$err"
 out2="$(psout start st-fresh)"
 chk "start: idempotent re-run → same path"       test "$out2" = "$out"
 chk "start: idempotent re-run → still draft"     test "$(jq -r .state "$REPO/.mentor/plans/st-fresh/.state.json")" = "draft"
+out="$(ps start st-bad --priority high)"; rc=$?
+chk "start: a retired init flag → exit 1"        test "$rc" = "1"
+chk "..leaves no plan dir behind"                test ! -e "$REPO/.mentor/plans/st-bad"
+out="$(ps start newone --deferred)"; rc=$?
+chk "start newone --deferred → exit 1"           test "$rc" = "1"
+chk "..names the bad flag"                       has "start: unknown flag --deferred" "$out"
+chk "..leaves no plan dir behind"                test ! -e "$REPO/.mentor/plans/newone"
+out="$(ps start st-extra stray)"; rc=$?
+chk "start: a stray positional → exit 1, no dir" sh -c '[ "$0" = 1 ] && [ ! -e "$1" ]' "$rc" "$REPO/.mentor/plans/st-extra"
 
-# The claim half is the reason claim is folded in at all: a /mentor:defer stub being
-# fleshed out must stop being shielded from the approval sweep, without the caller
-# having to know which case they are in.
-# ensure-dir first: bare `init` runs require_slug and refuses a dir that does not exist
-# yet — which is precisely the three-step dance `start` exists to fold away.
+# A pre-5.0 deferred stub: start no longer clears origin — the key is simply left in
+# place, unread (approve-plan's sweep no longer shields on it either).
 ps ensure-dir "$REPO/.mentor/plans/st-stub" >/dev/null
-ps init st-stub --deferred >/dev/null
-chk "start: fixture stub really is deferred"     test "$(jq -r .origin "$REPO/.mentor/plans/st-stub/.state.json")" = "deferred"
-err="$(pserr start st-stub)"
-chk "start: real claim IS surfaced (stderr)"     has "claimed — origin cleared" "$err"
-chk "start: origin cleared on the stub"          test "$(jq -r '.origin // "null"' "$REPO/.mentor/plans/st-stub/.state.json")" = "null"
+printf '{"state":"draft","origin":"deferred"}\n' > "$REPO/.mentor/plans/st-stub/.state.json"
+out="$(psout start st-stub)"; rc=$?
+chk "start on a legacy stub: exit 0, path printed" sh -c '[ "$0" = 0 ] && case "$1" in */st-stub/plan.md) exit 0 ;; *) exit 1 ;; esac' "$rc" "$out"
+chk "start on a legacy stub: origin left untouched" test "$(jq -r .origin "$REPO/.mentor/plans/st-stub/.state.json")" = "deferred"
 
 out="$(ps start)"; rc=$?
 chk "start: no slug → exit 1"                    test "$rc" = "1"
@@ -1921,234 +1112,6 @@ CWD="$ROOT"; out="$(ps start outside-a-repo)"; rc=$?
 chk "start: outside a git repo → exit 1"         test "$rc" = "1"
 chk "..names the reason"                         has "Not inside a git repo" "$out"
 CWD="$REPO"
-
-echo "== X. policy: the pre-dispatch preflight — POLICY + CONTRACT in one call (v2.34.0) =="
-# The printed token is the verdict, not the exit code (that is the whole difference from
-# `sweep`, whose grep-shaped codes exist because a bare hit count cannot tell "no match"
-# from "read nothing"). Exit 2 is reserved for the one case the check could NOT run.
-rm -f "$REPO/CLAUDE.md"; rm -rf "$REPO/.claude"
-out="$(ps policy)"; rc=$?
-chk "policy: repo with plans dir, no policy → exit 0" test "$rc" = "0"
-chk "..verdict is NONE"                          has "POLICY: NONE" "$out"
-chk "..reports the denominator"                  has "files=" "$out"
-chk "..CONTRACT line always present"             has "CONTRACT: active" "$out"
-
-printf 'Rules\n\nPlease use no subagents on this project.\n' > "$REPO/CLAUDE.md"
-out="$(ps policy)"; rc=$?
-chk "policy: standing policy recorded → exit 0"  test "$rc" = "0"
-chk "..verdict is FOUND"                         has "POLICY: FOUND" "$out"
-chk "..tells the caller to ask ONCE"             has "Ask the user ONCE" "$out"
-chk "..points at recording the answer"           has "set-mode.sh" "$out"
-chk "..prints the hit with its file:line"        has "CLAUDE.md:3:" "$out"
-chk "..case-insensitive by default"              test "$(printf 'Rules\n\nUse NO SUBAGENTS here.\n' > "$REPO/CLAUDE.md"; ps policy | grep -c 'POLICY: FOUND')" = "1"
-rm -f "$REPO/CLAUDE.md"
-
-# The pattern is ERE over the phrasings people actually write. The single literal this
-# replaced ('no subagents') missed every one of these but the first — including the real
-# wording measured in the wild, "Default to solo in-thread review over dispatching
-# background agents", which is why a repo could carry a policy and still sweep clean.
-for phrasing in \
-  'No subagents by default.' \
-  'Default to solo in-thread review over dispatching background agents.' \
-  'Do not use the Agent tool here.' \
-  'Never dispatch subagents in this repo.' \
-  'Prefer no fan-out.' \
-  'Background teammates are barred here.' \
-  'Please use no sub-agents.' ; do
-  printf 'Rules\n\n%s\n' "$phrasing" > "$REPO/CLAUDE.md"
-  chk "policy: matches phrasing → FOUND [${phrasing:0:34}]" has "POLICY: FOUND" "$(ps policy)"
-done
-rm -f "$REPO/CLAUDE.md"
-
-# AGENTS.md is its own root. A CLAUDE.md that is just `@AGENTS.md` keeps every real rule
-# in the imported file, so a root set without it reads the pointer and reports a clean zero.
-printf '@AGENTS.md\n' > "$REPO/CLAUDE.md"
-printf '# Charter\n\nDefault to solo in-thread review over dispatching background agents.\n' > "$REPO/AGENTS.md"
-out="$(ps policy)"
-chk "policy: AGENTS.md is swept"                 has "POLICY: FOUND" "$out"
-chk "..the hit names AGENTS.md, not the pointer" has "AGENTS.md:3:" "$out"
-
-# Evidence is capped: a repo that lived under such a policy accumulates the phrase in
-# every handoff note, and an uncapped list costs the orchestrator context on a preflight
-# that runs before every fan-out.
-printf '# Charter\n\n%s\n' "$(for i in 1 2 3 4 5 6 7 8; do echo "No subagents rule $i."; done)" > "$REPO/AGENTS.md"
-out="$(ps policy)"
-chk "policy: >5 hits → sample line shown"        has "hits total; the 5 above are a sample" "$out"
-chk "..evidence really is capped at 5"           test "$(printf '%s\n' "$out" | grep -c 'AGENTS.md:')" = "5"
-
-# --- POLICY: SET — a recorded preference ends the question outright ------------
-# This is the branch the whole key exists for: it must win even while a standing
-# instruction IS on record, because that instruction is what the user already answered.
-# set-mode.sh is per-repo like plan-state.sh, so it has to run from the same cwd ps() uses.
-sm() { ( cd "${CWD:-$REPO}" && _env bash "$(dirname "$PLANSTATE")/set-mode.sh" "$@" 2>&1 ); }
-for v in agents verify-only; do
-  sm "$v" >/dev/null 2>&1
-  out="$(ps policy)"; rc=$?
-  chk "policy: dispatch=$v → exit 0"             test "$rc" = "0"
-  chk "..verdict is SET (dispatch=$v)"           has "POLICY: SET (dispatch=$v)" "$out"
-  chk "..SET outranks a recorded policy"         sh -c '! printf "%s" "$1" | grep -q "POLICY: FOUND"' _ "$out"
-  chk "..tells the caller not to ask [$v]"       has "Do NOT ask" "$out"
-  chk "..CONTRACT still reported [$v]"           has "CONTRACT:" "$out"
-done
-# `solo` retired in v3.0.0: it was the only value that retired the verification round.
-# A stored one must degrade to UNRESOLVED and re-open the question, never be honored and
-# never be silently rewritten to another value the user did not choose.
-python3 -c "import json,sys;p=sys.argv[1];d=json.load(open(p));d['dispatch']='solo';json.dump(d,open(p,'w'))" "$REPO/.mentor/config.json"
-out="$(ps policy)"; rc=$?
-chk "policy: stored solo → UNRESOLVED"           has "POLICY: UNRESOLVED" "$out"
-chk "..exit 2 (the check could not answer)"      test "$rc" = "2"
-chk "..names it as a removed pre-v3 setting"     has "pre-v3.0.0" "$out"
-chk "..never honored as SET"                     sh -c '! printf "%s" "$1" | grep -q "POLICY: SET"' _ "$out"
-
-# An unrecognized value must never launder into "no policy" — the user meant something.
-python3 - "$REPO/.mentor/config.json" <<'PY' 2>/dev/null || python3 -c "import json,sys;p=sys.argv[1];d=json.load(open(p));d['dispatch']='sometimes';json.dump(d,open(p,'w'))" "$REPO/.mentor/config.json"
-import json,sys
-p=sys.argv[1]; d=json.load(open(p)); d['dispatch']='sometimes'; json.dump(d,open(p,'w'))
-PY
-out="$(ps policy)"; rc=$?
-chk "policy: bad dispatch value → exit 2"        test "$rc" = "2"
-chk "..verdict is UNRESOLVED, not NONE"          has "POLICY: UNRESOLVED" "$out"
-chk "..names the offending value"                has 'dispatch="sometimes"' "$out"
-chk "..names the fix"                            has "/mentor:mode" "$out"
-python3 -c "import json,sys;p=sys.argv[1];d=json.load(open(p));d.pop('dispatch',None);json.dump(d,open(p,'w'))" "$REPO/.mentor/config.json"
-rm -f "$REPO/CLAUDE.md" "$REPO/AGENTS.md"
-
-# roots=0 is a POSITIVE finding, not a failed search: none of the three durable
-# locations exists, so there is nowhere a standing instruction could be recorded. Getting
-# this wrong would stop every dispatch in every repo that has no CLAUDE.md.
-BARE="$ROOT/bare-repo"; git init -q -b main "$BARE" >/dev/null 2>&1
-( cd "$BARE"; git config user.email t@t.co; git config user.name t; echo x > f; git add -A; git commit -q -m init ) >/dev/null 2>&1
-CWD="$BARE"; out="$(ps policy)"; rc=$?
-chk "policy: no durable location exists → exit 0" test "$rc" = "0"
-chk "..verdict is NONE, not UNRESOLVED"          has "POLICY: NONE (roots=0)" "$out"
-chk "..says why it is sound"                     has "nowhere a standing instruction could be recorded" "$out"
-
-# roots>0 with files=0 IS unresolved — an existing but unreadable/empty root is as
-# consistent with a swallowed find error as with an empty dir.
-mkdir -p "$BARE/.claude"
-out="$(ps policy)"; rc=$?
-chk "policy: root exists but no file read → exit 2" test "$rc" = "2"
-chk "..verdict is UNRESOLVED"                    has "POLICY: UNRESOLVED" "$out"
-chk "..refuses to be read as evidence"           has "NOT evidence" "$out"
-rmdir "$BARE/.claude"
-CWD="$REPO"
-
-# CONTRACT is the alarm for dispatch-contract.sh's silent fail-soft. Since no skill
-# pastes the block by hand any more, this line is the only thing that would say so.
-CT="$(dirname "$PLANSTATE")/dispatch-contract.txt"
-cp "$CT" "$ROOT/ct.bak"; : > "$CT"
-out="$(ps policy)"
-chk "policy: empty contract file → CONTRACT MISSING" has "CONTRACT: MISSING" "$out"
-chk "..names the file"                           has "dispatch-contract.txt" "$out"
-chk "..still answers the POLICY half"            has "POLICY: " "$out"
-cp "$ROOT/ct.bak" "$CT"
-out="$(psq_nojq_out policy)"
-chk "policy: no jq on PATH → CONTRACT MISSING"   has "CONTRACT: MISSING" "$out"
-chk "..names jq as the cause"                    has "jq is absent" "$out"
-
-out="$(ps policy extra-arg)"; rc=$?
-chk "policy: takes no arguments → exit 2"        test "$rc" = "2"
-
-# --- query --format tree: the rendered hierarchy (v2.38.0) --------------------
-# The layout /mentor:track prints used to live as ~9.5KB of prose in the skill,
-# re-derived by the model on every run. These assertions are what stops it drifting
-# back: they pin the numbering contract Step 2's ordinal selection resolves against,
-# and the two roll-up clauses that are the whole reason the view is trusted for
-# "is this really done?".
-echo; echo "== query --format tree =="
-TREE="$ROOT/tree-repo"
-git init -q -b main "$TREE" >/dev/null 2>&1
-( cd "$TREE"; git config user.email t@t.co; git config user.name t; echo x > f; git add -A; git commit -q -m init ) >/dev/null 2>&1
-TPLANS="$TREE/.mentor/plans"
-tplan() { # <slug> [--steps N ticked] — a plan dir with a plan.md carrying N step lines
-  mkdir -p "$TPLANS/$1"
-  printf '# %s\n\n## Context\n\nctx\n\n## Implementation steps\n\n' "$1" > "$TPLANS/$1/plan.md"
-  local n="${2:-0}" tick="${3:-0}" i=1
-  while [ "$i" -le "$n" ]; do
-    if [ "$i" -le "$tick" ]; then printf '### %s. step ✅\n\nDone when: ok\n\n' "$i" >> "$TPLANS/$1/plan.md"
-    else printf '### %s. step\n\nDone when: ok\n\n' "$i" >> "$TPLANS/$1/plan.md"; fi
-    i=$((i+1))
-  done
-}
-tps() { ( cd "$TREE" && _env bash "$PLANSTATE" "$@" 2>/dev/null ); }
-# grep -F: the rendered line is full of [brackets] that a BRE would read as classes.
-hasF()  { printf '%s' "$2" | grep -qF -- "$1"; }
-hasntF(){ ! printf '%s' "$2" | grep -qF -- "$1"; }
-
-tplan root-plan 2 2;        tps init root-plan --priority high --category feature >/dev/null
-tplan fix-auth 1 0;         tps init fix-auth --parent root-plan --category fix --deferred --from root-plan --priority critical >/dev/null
-tplan fix-retry 1 0;        tps init fix-retry --parent fix-auth --category fix >/dev/null
-tplan split-a 4 1;          tps init split-a --group gfeat --order 1 >/dev/null
-tplan split-b 1 0;          tps init split-b --group gfeat --order 2 >/dev/null
-tplan flat-fix 1 0;         tps init flat-fix --category fix --deferred --from root-plan >/dev/null
-tplan gated-fix 1 0;        tps init gated-fix --category fix --deferred --from root-plan >/dev/null
-tplan dep-plan 1 0;         tps init dep-plan --deps ghost-plan >/dev/null
-tps set split-a in_progress >/dev/null
-tps set gated-fix draft --note 'gate: left uncontained' >/dev/null
-mkdir -p "$TPLANS/topic-only/handoffs"; printf '# h\n' > "$TPLANS/topic-only/handoffs/20260801-000000-explore.md"
-mkdir -p "$TREE/.mentor/handoffs"; printf '# old\n' > "$TREE/.mentor/handoffs/20260701-000000-legacy.md"
-TOUT="$(tps query --open-counts --format tree)"
-
-chk "tree: --format tree is accepted"        test -n "$TOUT"
-out="$( cd "$TREE" && _env bash "$PLANSTATE" query --format bogus 2>&1 >/dev/null )"
-chk "tree: bad --format names tree as valid" has "json|table|slug|count|tsv|tree" "$out"
-
-chk "tree: implemented glyph"                hasF "● [high]" "$TOUT"
-chk "tree: in_progress glyph"                hasF "◐" "$TOUT"
-chk "tree: draft glyph"                      hasF "○" "$TOUT"
-chk "tree: step counts render"               hasF "(1/4 steps)" "$TOUT"
-chk "tree: deferred names its source"        hasF "(deferred, from: root-plan)" "$TOUT"
-chk "tree: fix child is labelled"            hasF "(fix child" "$TOUT"
-chk "tree: missing dep marked"               hasF "deps: ghost-plan (missing)" "$TOUT"
-
-# Blank padding, never an invented tag: nobody judged these, which is a different
-# fact from judging them medium/feature.
-chk "tree: no tier invented when null"       hasntF "[med]" "$TOUT"
-chk "tree: no category invented when null"   hasntF "[tool]" "$TOUT"
-
-chk "tree: group header rendered"            hasF "▸ group: gfeat" "$TOUT"
-chk "tree: group members indented"           has "^  [0-9]*\. .*split-a" "$TOUT"
-
-# A root already reading implemented while fixes stay open is the single answer this
-# view exists to get right — nothing re-checks it after the write-time warn.
-chk "tree: done-with-open-descendants warns" hasF "⚠ ●" "$TOUT"
-chk "tree: ..and says not really done"       hasF "not really done, 2 open descendant(s)" "$TOUT"
-
-# flat-fix counts (lineage, no containment); gated-fix does not (the user already
-# said flat was the answer at the non-goal gate).
-chk "tree: unparented fix counted"           hasF "⚠ 1 unparented open fix(es) trace here" "$TOUT"
-chk "tree: gate-dispositioned stub excluded" hasntF "⚠ 2 unparented open fix(es)" "$TOUT"
-chk "tree: repair hint follows the clause"   hasF "set-parent <stub-slug> <owning-plan>" "$TOUT"
-
-chk "tree: no_plan_topic uses its own kind"  hasF "▷ topic-only" "$TOUT"
-chk "tree: ..labelled no plan yet"           hasF "no plan yet" "$TOUT"
-chk "tree: live handoff rendered as subline" hasF "└ handoff: 20260801-000000-explore.md (live)" "$TOUT"
-chk "tree: legacy handoffs render last"      test "$(printf '%s' "$TOUT" | grep -c '^▽ (untracked) legacy handoffs:')" = "1"
-
-# Ordinals are the selection surface: a header or subline stealing one would make
-# "build number 4" resolve to a different plan than the user pointed at.
-tree_ords() { printf '%s' "$TOUT" | sed -n 's/^ *\([0-9][0-9]*\)\..*/\1/p' | tr '\n' ' '; }
-chk "tree: ordinals are dense and in order"  test "$(tree_ords)" = "1 2 3 4 5 6 7 8 9 "
-chk "tree: group header takes no ordinal"    hasnt "^ *[0-9][0-9]*\. *▸" "$TOUT"
-chk "tree: handoff subline takes no ordinal" hasnt "^ *[0-9][0-9]*\. *└" "$TOUT"
-# Depth-first: a root's fixes number immediately after it, before the next top-level
-# entry, so the ordinal a user reads off the tree is the one Step 2 resolves.
-chk "tree: fix child numbers under its root" test \
-  "$(printf '%s' "$TOUT" | grep -n 'fix-auth' | cut -d: -f1)" \
-  -gt "$(printf '%s' "$TOUT" | grep -n 'root-plan  *implemented' | cut -d: -f1)"
-chk "tree: grandchild nests one level deeper" has "^    [0-9]*\. .*fix-retry" "$TOUT"
-
-# An absent tag beats a wrong one: with no owner recorded there is nothing to compare.
-chk "tree: own/unowned plans carry no worktree tag" hasntF "[worktree:" "$TOUT"
-jq '.owner = "some-other-wt"' "$TPLANS/dep-plan/.state.json" > "$TPLANS/dep-plan/.tmp" && mv "$TPLANS/dep-plan/.tmp" "$TPLANS/dep-plan/.state.json"
-chk "tree: a foreign owner IS tagged"        hasF "[worktree: some-other-wt]" "$(tps query --open-counts --format tree)"
-
-chk "tree: repo that never planned prints nothing" test -z "$( cd "$BARE" && _env bash "$PLANSTATE" query --format tree 2>/dev/null )"
-chk "tree: no jq on PATH is fail-soft"       test -z "$( cd "$TREE" && _env PATH="$NOJQ_DIR" "$BASH_BIN" "$PLANSTATE" query --format tree 2>/dev/null )"
-
-# The point of the format: the model prints this instead of re-rendering JSON.
-chk "tree: renders smaller than the JSON it replaces" test \
-  "$(printf '%s' "$TOUT" | wc -c)" -lt "$(tps query --open-counts | wc -c)"
 
 echo
 echo "RESULT: PASS=$PASS FAIL=$FAIL"
