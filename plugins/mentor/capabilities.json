@@ -3,44 +3,95 @@
   "schemaVersion": 1,
   "tier": "dual-enhanced",
   "hosts": {
-    "claude": { "status": "supported", "commands": true, "hooks": true },
-    "codex": { "status": "supported", "commands": false, "hooks": false }
+    "claude": {
+      "status": "supported",
+      "commands": true,
+      "hooks": true
+    },
+    "codex": {
+      "status": "supported",
+      "commands": false,
+      "hooks": false
+    }
   },
   "workflows": [
     {
       "name": "planning",
-      "skills": ["planning", "grilling", "plan-split"],
-      "fallback": "Use ordinary conversation for decisions and persist the plan under .mentor; Codex does not require an edit hook.",
-      "claude": { "status": "supported", "test": "plugins/mentor/tests/test-dual-host-contract.sh" },
-      "codex": { "status": "supported", "test": "plugins/mentor/tests/test-dual-host-contract.sh" }
+      "skills": [
+        "planning",
+        "grilling"
+      ],
+      "fallback": "Use ordinary conversation for the one approval and persist the plan under .mentor. Without a Stop hook the run-until-done loop is a prose rule (keep working until a terminal state); without subagents each step is verified serially in the main thread and labelled self-graded.",
+      "claude": {
+        "status": "supported",
+        "test": "plugins/mentor/tests/test-dual-host-contract.sh"
+      },
+      "codex": {
+        "status": "supported",
+        "test": "plugins/mentor/tests/test-dual-host-contract.sh"
+      }
     },
     {
       "name": "ux-review",
-      "skills": ["frontend-self-ex-review"],
+      "skills": [
+        "frontend-self-ex-review"
+      ],
       "fallback": "Use the portable skill directly from ordinary conversation; it needs no Mentor helper or .mentor state.",
-      "claude": { "status": "supported", "test": "plugins/mentor/tests/test-dual-host-contract.sh" },
-      "codex": { "status": "supported", "test": "plugins/mentor/tests/test-dual-host-contract.sh" }
+      "claude": {
+        "status": "supported",
+        "test": "plugins/mentor/tests/test-dual-host-contract.sh"
+      },
+      "codex": {
+        "status": "supported",
+        "test": "plugins/mentor/tests/test-dual-host-contract.sh"
+      }
     },
     {
       "name": "delivery",
-      "skills": ["shipping", "merging"],
-      "fallback": "Use the host's ordinary shell and approval flow when slash-command facades are unavailable.",
-      "claude": { "status": "supported", "test": "plugins/mentor/tests/test-dual-host-contract.sh" },
-      "codex": { "status": "supported", "test": "plugins/mentor/tests/test-dual-host-contract.sh" }
+      "skills": [
+        "playbook-software-change",
+        "shipping",
+        "merging"
+      ],
+      "fallback": "The playbook is a portable skill loaded by planning. Without slash-command facades use the host's shell and approval flow; without subagents the pre-merge grade is self-graded and says so.",
+      "claude": {
+        "status": "supported",
+        "test": "plugins/mentor/tests/test-dual-host-contract.sh"
+      },
+      "codex": {
+        "status": "supported",
+        "test": "plugins/mentor/tests/test-dual-host-contract.sh"
+      }
     },
     {
       "name": "visual-artifacts",
-      "skills": ["previewing"],
+      "skills": [
+        "previewing"
+      ],
       "fallback": "Write the local HTML review page under .mentor (pinned CDN scripts allowed); hosted Artifact publication is optional.",
-      "claude": { "status": "supported", "test": "plugins/mentor/tests/test-dual-host-contract.sh" },
-      "codex": { "status": "supported", "test": "plugins/mentor/tests/test-dual-host-contract.sh" }
+      "claude": {
+        "status": "supported",
+        "test": "plugins/mentor/tests/test-dual-host-contract.sh"
+      },
+      "codex": {
+        "status": "supported",
+        "test": "plugins/mentor/tests/test-dual-host-contract.sh"
+      }
     },
     {
       "name": "governance",
-      "skills": ["constitution-authoring"],
+      "skills": [
+        "constitution-authoring"
+      ],
       "fallback": "Persist project principles in .mentor/constitution.md.",
-      "claude": { "status": "supported", "test": "plugins/mentor/tests/test-dual-host-contract.sh" },
-      "codex": { "status": "supported", "test": "plugins/mentor/tests/test-dual-host-contract.sh" }
+      "claude": {
+        "status": "supported",
+        "test": "plugins/mentor/tests/test-dual-host-contract.sh"
+      },
+      "codex": {
+        "status": "supported",
+        "test": "plugins/mentor/tests/test-dual-host-contract.sh"
+      }
     }
   ],
   "waiver": null

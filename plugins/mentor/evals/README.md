@@ -4,10 +4,11 @@
 user's phrasing reaches the skill it should, and — more importantly — not one of its
 seven siblings.
 
-mentor ships eight overlapping user-facing skills (`planning`, `plan-split`, `grilling`,
-`previewing`, `merging`, `shipping`, `constitution-authoring`, `frontend-self-ex-review`).
-The risk that matters is not "does `plan-split` trigger" but "does `plan-split` fire when
-the user meant `planning`" — or "does `previewing` steal `frontend-self-ex-review`'s UI
+mentor ships eight overlapping user-facing skills (`planning`, `playbook-software-change`,
+`grilling`, `previewing`, `merging`, `shipping`, `constitution-authoring`,
+`frontend-self-ex-review`). The risk that matters is not "does `playbook-software-change`
+trigger" but "does it fire when the user meant `planning`" — a playbook is loaded *by*
+planning, so a direct hit on it is usually the wrong route — or "does `previewing` steal `frontend-self-ex-review`'s UI
 queries" (both look at screens; they differ on a review page against a self-explanatory
 verdict). A description tuned on its own can score perfectly and still collide, so this
 harness stages **all eight at once** and records which one wins.
@@ -105,8 +106,8 @@ dropped the handoff note and the tour page along with the skills that read them.
 carries the skill that *should* win, or `none`. A binary label cannot express a
 collision, which is the whole point here.
 
-Many queries are near-misses chosen to be genuinely hard — `plan-split` vs an
-in-document re-phasing (#3), `previewing` vs `frontend-self-ex-review` on a page of the
+Many queries are near-misses chosen to be genuinely hard — an in-document re-phasing
+(#3), `previewing` vs `frontend-self-ex-review` on a page of the
 frontend (#68), `shipping` vs `merging` on "get it up as a PR" (#30), and keyword baits
 (`break up` commits, `split` a component, `review` a PR, `track` a sprint, a video-call
 meeting, the US constitution, a general UI review, a component code review) that share
@@ -126,3 +127,11 @@ When you add a skill, run this first. A new sibling that quietly steals
 an existing skill's queries is exactly what it is here to catch — v2.12.0's topic ×
 perspective page skill (checked against the then-staged `tour` and `plan-review`, since removed) is the worked example, and v4.1.0's
 `frontend-self-ex-review` added near-misses against `previewing`.
+
+## Behaviour evals (v6.0.0)
+
+`behaviour.json` is a separate, smaller set: it checks what an **approved run** does, not
+which skill fires — no question on a reversible fork, a pause on an always-pause item, a
+decision-log row per choice, a verifier before every tick, a mid-run product call decided without pausing, and
+a non-code goal picking no playbook. Each case seeds a scratch repo with an approved plan
+and is graded by a reader against its assertions; `harness.py` does not run it.

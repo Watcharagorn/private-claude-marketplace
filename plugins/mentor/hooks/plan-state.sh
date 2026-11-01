@@ -177,7 +177,8 @@ Usage: plan-state.sh <subcommand>
   set-deps <slug> a,b                   replace deps wholesale (cycle-checked, fail-soft)
   tick <slug> <N>                       append ✅ to step N in plan.md (idempotent, fails loud)
   verify <slug>                         plan.md structural checks (fence balance, table pipe-count,
-                                         step bodies each carrying a Done when:, Rev-note order,
+                                         step bodies each carrying a Done when:, a draft plan's
+                                         ## Goal check + ## Decision log, Rev-note order,
                                          stray ✅ / ### inside the steps section) + a folded CONTEXT
                                          read, as CHECK: lines; exit 1 iff a GATING check fails
                                          (Rev-order, context, stray ✅ and ### are informational)
@@ -767,16 +768,13 @@ require_jq_read() {
 # a plan whose ✅ ticks alone already self-heal the effective state to "implemented"
 # must still get this reminder on its real first `set … implemented`, while a later
 # idempotent re-close (shipping/merging re-running `set … implemented`) stays silent.
-# The follow-up line prints on both terminal states; the ship line only for
-# `implemented`, since it speaks for work that was accepted. Never blocks — the state
+# Both lines print on both terminal states: every terminal transition writes a
+# Done review (planning → After Proceed). Never blocks — the state
 # write already succeeded by the time this runs.
 closing_checklist_reminder() {
-  local outcome="${1:-}"
   echo "[mentor plan-state] Closing checklist:"
   echo "  - Name every follow-up WORK item in the report before it's forgotten. Never a check: an unresolved verification check ends 'failed --note', not a follow-up."
-  if [ "$outcome" = "implemented" ]; then
-    echo "  - Point at /mentor:ship — one line."
-  fi
+  echo "  - Write the ## Done review (per scenario: expected, observed, evidence) if it is not there yet."
   return 0
 }
 
@@ -800,7 +798,7 @@ tick_reconciliation_reminder() {
   [ "${total:-0}" -gt 0 ] || return 0
   [ "${ticked:-0}" -lt "${total:-0}" ] || return 0
   echo "[mentor plan-state] WARNING: ${plan_dir##*/} closed 'implemented' with only ${ticked}/${total} steps ticked." >&2
-  echo "  Tick the steps that actually passed (plan-state.sh tick ${plan_dir##*/} <N>), or tell the user which are closing untracked and why." >&2
+  echo "  Tick the steps that actually passed with a verifier PASS row (plan-state.sh tick ${plan_dir##*/} <N>), or tell the user which are closing untracked and why." >&2
   return 0
 }
 
@@ -1321,8 +1319,9 @@ case "$sub" in
   # exactly where a table-adjacent defect landed. A script call cannot exhibit a
   # partial-copy failure the way a freshly-typed one-liner can.
   #
-  # Three DETERMINISTIC checks gate the exit code (fence balance, table pipe-count
-  # uniformity, every step body carrying a `Done when:`) — the first two already
+  # Four DETERMINISTIC checks gate the exit code (fence balance, table pipe-count
+  # uniformity, every step body carrying a `Done when:`, and — for a draft/unknown
+  # plan only — the v6 run sections `## Goal check` + `## Decision log`) — the first two already
   # mandated in SKILL.md:447-460 prose, backed by nothing until now; the third is
   # documented at its implementation below. The rest print as informational CHECK:
   # lines and never fail verify (a stray ✅ and an `###` inside the steps section,
@@ -1412,6 +1411,27 @@ case "$sub" in
       printf '%s\n' "$v_nodw" | sed 's/^/  line /'
       v_fail=1
     fi
+    # v6.0.0: a plan still being written (effective draft/unknown) must carry the two
+    # sections the run reads — `## Goal check` (what "done" is) and `## Decision log`
+    # (what the human reviews afterwards). Plans already past draft are legacy data and
+    # skip this check, so released plans keep verifying (AGENTS.md compatibility rule).
+    v_eff="$(mentor_plan_effective_state "${plans_dir}/${slug}")"
+    case "$v_eff" in
+      draft|unknown)
+        v_missing=""
+        grep -q '^## Goal check' "$plan_md" || v_missing="${v_missing} ## Goal check,"
+        grep -q '^## Decision log' "$plan_md" || v_missing="${v_missing} ## Decision log,"
+        if [ -z "$v_missing" ]; then
+          echo "CHECK: run sections present (## Goal check, ## Decision log)"
+        else
+          echo "CHECK: run section MISSING:${v_missing%,} — a new plan needs both before approval"
+          v_fail=1
+        fi
+        ;;
+      *)
+        echo "CHECK: run sections not required (state ${v_eff} — only a draft plan is checked)"
+        ;;
+    esac
     v_tick="$(printf '%s\n' "$v_scan" | awk -F'\t' '$1 == "XTICK" { print $2 }' | paste -sd, - || true)"
     if [ -n "$v_tick" ]; then
       echo "CHECK: ✅ on a non-step line inside ## Implementation steps (line ${v_tick}) — the tick counter cannot see it (informational only)"

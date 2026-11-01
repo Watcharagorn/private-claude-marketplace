@@ -12,7 +12,7 @@ from pathlib import Path
 
 HERE = Path(__file__).parent.resolve()
 REPO_SKILLS = (HERE / ".." / "skills").resolve()
-SKILLS = ["planning", "plan-split", "grilling", "previewing",
+SKILLS = ["planning", "playbook-software-change", "grilling", "previewing",
           "merging", "shipping", "constitution-authoring",
           "frontend-self-ex-review"]
 

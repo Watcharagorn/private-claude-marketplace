@@ -4,9 +4,9 @@ Generated from `plugins/*/capabilities.json` by `scripts/marketplace sync`. Do n
 
 | Plugin | Tier | Workflow | Claude Code | Codex | Fallback |
 | --- | --- | --- | --- | --- | --- |
-| mentor | dual-enhanced | planning | Supported | Supported | Use ordinary conversation for decisions and persist the plan under .mentor; Codex does not require an edit hook. |
+| mentor | dual-enhanced | planning | Supported | Supported | Use ordinary conversation for the one approval and persist the plan under .mentor. Without a Stop hook the run-until-done loop is a prose rule (keep working until a terminal state); without subagents each step is verified serially in the main thread and labelled self-graded. |
 | mentor | dual-enhanced | ux-review | Supported | Supported | Use the portable skill directly from ordinary conversation; it needs no Mentor helper or .mentor state. |
-| mentor | dual-enhanced | delivery | Supported | Supported | Use the host's ordinary shell and approval flow when slash-command facades are unavailable. |
+| mentor | dual-enhanced | delivery | Supported | Supported | The playbook is a portable skill loaded by planning. Without slash-command facades use the host's shell and approval flow; without subagents the pre-merge grade is self-graded and says so. |
 | mentor | dual-enhanced | visual-artifacts | Supported | Supported | Write the local HTML review page under .mentor (pinned CDN scripts allowed); hosted Artifact publication is optional. |
 | mentor | dual-enhanced | governance | Supported | Supported | Persist project principles in .mentor/constitution.md. |
 | loom | host-specialized | publish-plugin | Supported | Supported | Run scripts/marketplace directly from the marketplace repository. |

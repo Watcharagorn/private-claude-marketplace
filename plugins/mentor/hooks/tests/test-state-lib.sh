@@ -151,7 +151,8 @@ chk "all superseded → still returns one (never empty)" test -n "$(libsh "mento
 rm -rf "$PLANS"
 
 echo "== B4. The isolation header is the recovery path when a sidecar is lost =="
-# /plan-split writes group + order into the child's header as well as its sidecar.
+# Legacy split children (the split skill, removed in v6.0.0,) carry group + order in their
+# header as well as their sidecar; released data still has them.
 # Losing the sidecar must not silently drop a child out of its group — that would make
 # "the current plan" start picking finished work.
 mkdir -p "$PLANS/kid" "$PLANS/plain"

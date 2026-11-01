@@ -88,7 +88,7 @@ fi
 3. the feature or system under discussion in the **current conversation**.
 
 Derive a kebab-case `<subject-slug>` that stays the same across runs. **When the subject is a mentor plan, the
-slug is the plan's dir name**, so `plan-split` finds its page without guessing. Then:
+slug is the plan's dir name**, so the plan's page is found without guessing. Then:
 
 ```bash
 review_dir="$state_dir/reviews/<subject-slug>"
@@ -146,7 +146,7 @@ asked to see", and the footer says "Not shown for this subject" instead of "Not 
 | Architecture | adds, removes or rewires a service, container, datastore, queue or external system | the C4 levels whose boxes or edges move |
 | Sequences | changes an interaction between two or more participants | one diagram per changed flow, drawn under the scenario whose trigger starts it; only flows no scenario starts get this section. A flow that is one participant's decision path with many exits is drawn as a flowchart |
 | Data and contracts | changes a schema, contract, permission, error or config key | entities, rules, migrations, contract delta, API and permissions, errors, config: changed rows only; unchanged entities named, not drawn |
-| Decisions | the subject is a plan | settled items and defaults, plus what the plan states when it has no decision table of its own |
+| Decisions | the subject is a plan | the decision log grouped by use case, or what the plan states when it has no log of its own |
 | Footer | always | sections and scenarios left out, and the provenance totals |
 
 **Inventory.** Follow `references/surface-mockup-contract.md` §1–§3 to walk each scenario from trigger to
@@ -205,7 +205,7 @@ question once, here, before any section worker starts, because workers cannot as
 answer it differently. Every diagram brief then carries the profile name and "do not re-ask". Without
 delegation, load the skill in the main thread.
 
-**When it is missing**, read the saved answer, and ask only when there is none:
+**When it is missing**, read the saved answer; with none, never stop to ask — use the fallback:
 
 ```bash
 cfg="$state_dir/config.json"
@@ -217,15 +217,13 @@ save_renderer() {   # $1 = diagram-design | fallback; keeps every other key and 
 }
 ```
 
-- `fallback`: ask nothing; use the fallback below.
-- unset or `diagram-design`: ask once, **Install diagram-design** first and recommended, **Use hand-drawn
-  diagrams** second. Name the source, `https://github.com/cathrynlavery/diagram-design`, which ships Claude
-  Code and Codex manifests; on Claude Code the commands are `/plugin marketplace add cathrynlavery/diagram-design`
-  then `/plugin install diagram-design@diagram-design`. Run nothing before the user says yes.
-  - Yes: `save_renderer diagram-design`, install, reload plugins and probe again. If the skill still cannot
-    load in this session, this run uses the fallback and the header says so.
-  - No: `save_renderer fallback`. This repo is never asked again; the user changes it by editing or deleting
-    the key.
+- `fallback` or unset: ask nothing; use the fallback below. When unset, `save_renderer fallback` and, for a
+  plan subject, append a decision-log row (`decided`, `review?: optional`) saying the page used hand-drawn
+  diagrams because diagram-design was not installed — and naming its source,
+  `https://github.com/cathrynlavery/diagram-design` (on Claude Code: `/plugin marketplace add
+  cathrynlavery/diagram-design`, then `/plugin install diagram-design@diagram-design`), so the user can
+  install it later. Installing a third-party plugin is the user's call, never this skill's.
+- `diagram-design` but the skill cannot load this session: this run uses the fallback and the header says so.
 
 **Fallback.** Hand-drawn inline SVG that follows diagram-design's rules: its tokens, per-diagram id prefixes,
 no overlapping boxes, text inside its box, everything inside the viewBox. A diagram that fails that check after
@@ -354,11 +352,13 @@ was built, and repeating it on every look is the same nag as re-asking questions
 Questions for you in dependency order and ask one at a time, putting the cleanest practical option first, marked Recommended. Ask through the
 host's question tool when it has one, otherwise in plain text. Write each question so it stands alone: plain
 words, no plan section numbers or ids the user would have to look up. When the subject is a mentor plan,
-record each verdict in the plan's decision table as a new row marked "Settled with user", then regenerate the
+append each verdict to the plan's `## Decision log` as a new row (planning Step 4's columns:
+`# · use case · decision · why · evidence · result · review?`, with `result: kept`), then regenerate the
 affected fragments (§7). The questions live here because the page is read-only and chat is the channel back.
-`grilling` is a related skill for interrogating a design, but this loop never depends on it. A plan with no
-decision table gets one (`| # | Decision | Source |`, under a `## Decisions` heading) with its first recorded
-answer.
+`grilling` is a related skill for interrogating a design, but this loop never depends on it. A legacy plan with
+no `## Decision log` gets one, with those seven columns, holding its first recorded answer. Only a genuine
+product or preference call becomes one of these questions; anything evidence or a decision-maker agent can
+settle (planning Step 3) is settled and logged instead.
 
 **A run that changed nothing asks nothing.** When the catch-up check finds the page current and nothing is
 rebuilt, do not restart the loop: say how many questions are still open and that the user can say "go through
@@ -382,12 +382,12 @@ page change **together**.
 
 **When this runs** (plan subjects that have a `review.html`):
 
-- any turn that changed `plan.md` content, whoever changed it: this skill's §6 loop, `planning`, `plan-split`,
+- any turn that changed `plan.md` content, whoever changed it: this skill's §6 loop, `planning`,
   or a plain edit in chat (on Claude, mentor's plan-open hook reminds you after a Write or Edit of the plan);
 - the catch-up check at the start of every `previewing` run.
 
 Step progress marks (`✅` ticks) and `.state.json` are not plan changes. Run it **once per turn,
-after the last plan edit**, not after each edit. When `plan-split` supersedes the plan, regenerate only
+after the last plan edit**, not after each edit. When a legacy plan is `superseded`, regenerate only
 `00-head.html`, whose header then names the plan as superseded and lists the child plans, and reassemble.
 
 **The stamp:**
@@ -411,7 +411,7 @@ carries `plan_sha` in `<meta name="mentor-plan-sha256">` and its header reads "B
    lines and each flow's line under `## Flows`. Re-run the §1 inventory for affected scenarios: append new
    cards, hops, variants and flows, move vanished ones to `retired:`, and keep every existing id.
 3. Regenerate those shells, hop files, flow files and section fragments (§3), plus `10-answers.html` and
-   `90-decisions.html` when the questions or the decision table changed, and `00-head.html` for the new stamp
+   `90-decisions.html` when the questions or the decision log changed, and `00-head.html` for the new stamp
    and contents. A changed flow also regenerates the shells of the cards its `also=` lists (their link line),
    and a flow whose owner changed has its old `sNN-s<k>.html` deleted.
 4. When a revision replaces a term, each regeneration brief names the old and new term and asks the worker to
@@ -437,7 +437,7 @@ Hand edits to `review.html` never flow back into the plan; the next regeneration
 
 - Do **not** write outside `.mentor/reviews/<subject-slug>/` except the three writes this skill names:
   `.mentor/.gitignore` through `mentor_ensure_gitignore` (§0), the `diagram_renderer` key in
-  `.mentor/config.json` (§2), and a decision row (or a first `## Decisions` table) in a mentor plan (§6).
+  `.mentor/config.json` (§2), and a decision-log row (or a first `## Decision log` table) in a mentor plan (§2, §6).
   Never the repo source.
 - Do **not** edit the subject beyond that decision row.
 - Do **not** read `_trace.md` in the main thread (§1), or let mockup HTML into it while workers run; workers

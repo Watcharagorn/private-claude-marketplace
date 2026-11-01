@@ -68,30 +68,39 @@ resolution included.
 A session was observed hand-rebuilding a different grep/awk one-liner for these checks on 5
 consecutive revisions, never the same check twice, and the one revision that dropped the
 table half is exactly where a table-adjacent defect landed. One helper call runs the same
-three checks every time.
+checks every time. v6.0.0 added the fourth — a new plan must carry `## Goal check` and
+`## Decision log` — because a plan without a done predicate gives the run nothing to stop
+on, and a plan without a log leaves the human nothing to review afterwards. Legacy plans
+already past `draft` are skipped, so released data keeps verifying.
 
-## Step 6 — why the option rows are ordered the way they are
+## Step 6 — why there is one gate and three options
 
-Split leads on an oversized plan because building it whole only moves the problem to
-the next session; slicing it first keeps each build small enough to finish and verify.
-*Proceed* and *Deliver plan only* stay visible in every row: pushing the option that
-starts implementation into free text would make the highest-consequence answer the
-hardest one to give, and *Deliver plan only* is the one way to release the gate without
-starting work. *Keep planning* stays a button too — with at most four options there is
-room for it in both rows, and a listed option is one the user recognizes on sight.
+The approval is the only point where the human must answer (AGENTS.md → Mentor core
+concept). *Proceed* starts the run; *Deliver plan only* is the one way to release the gate
+without starting work; *Keep planning* stays a button because a listed option is one the
+user recognizes on sight. Everything else — a change request, a plan-quality ask — rides
+in "Other", and the question text names
+them, because an option with no button is invisible unless something says it exists.
 
-Everything else rides in "Other" by design: a change request, moving isolated
-deliverables into `## Out of scope`, and a plan-quality ask (routed to `mentor:grilling`
-on the drafted plan). The question text names them, because an option that has no
-button is invisible unless something says it exists.
+v6.0.0 removed the split row along with the split skill: an
+oversized plan now moves isolated deliverables to `## Out of scope`, which needs no extra
+machinery and keeps every plan approvable in one look.
 
-The rows no longer vary with the context verdict (v4.2.0): the gate became warn-only,
-and the context-driven rows went with it. v5.0.0 removed the staged-review row and the
-persisted mode that used to swap the first two options, so the order is now fixed.
+Before v6.0.0 a fresh grep re-read the option table, because a conditional row was once
+rebuilt wrongly from memory late in a session; with one fixed row there is nothing to
+select.
 
-The fresh `grep` of the option table exists because the option row has been reconstructed
-incorrectly from memory once already, late in a long session, dropping the one button the
-situation called for.
+## After Proceed — why the run keeps going on its own
+
+Before v6.0.0 the main thread stopped after every phase and offered the next command by
+name, so an overnight task needed a human at each boundary. The run now ends only at a
+terminal state. Three things keep that safe: the Always-pause list stops anything
+irreversible or outward-facing; an independent verifier grades every step so the builder
+cannot declare victory; and the decision log records every choice so the human reviews it
+afterwards instead of during. The re-plan limits (one per step, three per run) and the Stop
+hook's idle cap exist so a dead end ends as `failed` with a report rather than an endless
+loop — v2.37's hand-rolled re-poll ladder is the failure mode this design avoids by using
+the host's own Stop hook instead.
 
 ## Retracting an approval — why each of the three steps is required
 

@@ -35,7 +35,7 @@ switch in place, because they redraw the same frame (§4). The theme is in §3.
 | `20-scenarios/zzz-close.html` | main thread | cards container and section close |
 | `30-architecture.html` · `50-data.html` | section workers | one `<section>` each |
 | `40-sequences.html` | sequences worker | one `<section>` of the flows no scenario owns; absent when every flow has an owner |
-| `90-decisions.html` | main thread | Settled with you · Defaults I set · Stated in the plan (a plan with no decision table of its own, §6) |
+| `90-decisions.html` | main thread | the decision log grouped by use case · Stated in the plan (a plan with no decision log of its own, §6) |
 | `99-foot.html` | main thread | footer, "Not affected by this plan", provenance totals, `</main>`, the include line for `assets/page.js` (the one page script), `</html>` |
 
 `NN` is the parent scenario's two-digit number and an edge card adds its letter (`s04a-0-shell.html`). A C-locale
@@ -72,7 +72,7 @@ whose owner changed (its old `sNN-s<k>.html`), and for a retired card its `-0-sh
   | `architecture` | Architecture | which parts of the system change, from which level to which |
   | `sequences` | Sequences | which flows no single scenario starts (only those appear here) |
   | `data` | Data and contracts | what is stored, sent and checked that changes |
-  | `decisions` | Decisions | what is settled, which defaults were set, and what the plan states without a decision table |
+  | `decisions` | Decisions | the decision log grouped by use case, or what the plan states without one |
 
 - **Scoped CSS.** A fragment's `<style>` selects only under its own `#sec-<name>`. Cells workers scope chrome
   under `#sec-scenarios .pv-<primitive>`; the sequences worker scopes its in-card flows under
@@ -165,8 +165,8 @@ whose owner changed (its old `sNN-s<k>.html`), and for a retired card its `-0-sh
   as one module script, `import mermaid from "https://cdn.jsdelivr.net/npm/mermaid@11.4.1/dist/mermaid.esm.min.mjs"`
   inside a try/catch, and the diagram is one `<pre class="mermaid">` captioned "drawn with Mermaid".
 - **Title block.** The Diagrams row names the renderer actually used and is left out on a page with no
-  diagram. A plan subject adds the Built from row, matching the `mentor-plan-sha256` meta. A plan that
-  `plan-split` superseded adds one `<p>` under the rows naming it superseded and listing the child plans.
+  diagram. A plan subject adds the Built from row, matching the `mentor-plan-sha256` meta. A legacy
+  `superseded` plan adds one `<p>` under the rows naming it superseded and listing the child plans.
 - **Theme.** Dark is the default whatever the reader's system setting (`references/rationale.md` "Why one
   scrolling page"). Light comes only from the theme button, stored per browser. Print always uses the light
   tokens. Both themes still meet the contrast rule in `surface-mockup-contract.md` §8.
@@ -275,13 +275,13 @@ hops). The heading reads "Flowchart:" for a flow drawn as a flowchart:
 ```
 
 `90-decisions.html` is a `<section id="sec-decisions" aria-labelledby="sec-decisions-h">` with the title
-Decisions and its lede, then two tables, each under an `<h3>`: **Settled with you** and **Defaults I set**, one
-row per plan decision (id, decision, source), copied from the plan's decision table. A row goes under Settled
-with you only when the plan marks it as the user's ("Settled with user"). A plan with no decision table of its
-own gets **Stated in the plan** instead, for the decisions its text states, because calling them settled with
+Decisions and its lede, then the plan's `## Decision log` rendered **grouped by use case** (one `<h3>` per
+`use case` value, `review?: needed` rows first within each), columns decision · why · evidence · result. Rows
+with `result: kept` read "settled with you"; `decided` rows read "decided by an agent", so the reader sees which
+calls were theirs. A legacy plan with no `## Decision log` (it may have a v5 `## Decisions` table, rendered as
+is) gets **Stated in the plan** instead, for the decisions its text states, because calling them settled with
 the reader would claim a conversation that never happened. Record `decisions: stated` in the `_ids.md` header
-when it is used, so the table stays after `SKILL.md` §6 starts a `## Decisions` table with the first chat
-answer; those answers go under Settled with you, beside it.
+when it is used, so the table stays after `SKILL.md` §6 starts a `## Decision log` with the first chat answer.
 
 ## 7. `99-foot.html`
 

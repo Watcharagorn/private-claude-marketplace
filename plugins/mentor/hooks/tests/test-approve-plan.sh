@@ -108,8 +108,9 @@ chk "fresh plan → exit 0"              test "$rc" = "0"
 chk "fresh plan → marker gone"         test ! -f "$MARKER"
 chk "fresh plan → APPROVED message"    sh -c "printf '%s' \"\$0\" | grep -q 'Plan APPROVED'" "$out"
 chk "fresh plan → plan path printed"   sh -c "printf '%s' \"\$0\" | grep -q 'fixture-plan/plan.md'" "$out"
-chk "fresh plan → main-thread directive" sh -c "printf '%s' \"\$0\" | grep -q 'Implement the plan.s steps in the main thread'" "$out"
-chk "fresh plan → directive names tick, Verification, ship" sh -c "printf '%s' \"\$0\" | grep -q 'plan-state.sh tick' && printf '%s' \"\$0\" | grep -q '## Verification' && printf '%s' \"\$0\" | grep -q '/mentor:ship'" "$out"
+chk "fresh plan → run directive" sh -c "printf '%s' \"\$0\" | grep -q 'Run the plan until its Goal check passes'" "$out"
+chk "fresh plan → directive names verifier, Verification, Goal check, Done review" sh -c "printf '%s' \"\$0\" | grep -q 'verifier-contract.md' && printf '%s' \"\$0\" | grep -q '## Verification' && printf '%s' \"\$0\" | grep -q '## Goal check' && printf '%s' \"\$0\" | grep -q '## Done review'" "$out"
+chk "fresh plan, no session id → no run marker" sh -c "! ls '$STATE_DIR'/.run-* >/dev/null 2>&1"
 chk "fresh plan → no removed-skill routing" sh -c "! printf '%s' \"\$0\" | grep -qE 'dispatch-agents|Dispatch: skipped|/mentor:handoff|claim'" "$out"
 
 echo "== D2. Legacy flat <slug>.md is ignored by the resolver =="
@@ -125,7 +126,7 @@ echo "== E. Idempotency: gate already open → exit 0, directives still print ==
 out="$(ap)"; rc=$?
 chk "already open → exit 0"            test "$rc" = "0"
 chk "already open → notice"            sh -c "printf '%s' \"\$0\" | grep -q 'already open'" "$out"
-chk "already open → main-thread directive" sh -c "printf '%s' \"\$0\" | grep -q 'Implement the plan.s steps in the main thread'" "$out"
+chk "already open → run directive" sh -c "printf '%s' \"\$0\" | grep -q 'Run the plan until its Goal check passes'" "$out"
 # A re-run of a no-implementation flag must never lose its directive.
 out="$(ap --deliver)"; rc=$?
 chk "open + --deliver → exit 0"        test "$rc" = "0"
@@ -140,13 +141,29 @@ chk "handoff → usage names --deliver only" sh -c "printf '%s' \"\$0\" | grep -
 chk "handoff → no hand-off directive"  sh -c "! printf '%s' \"\$0\" | grep -q 'HAND-OFF REQUESTED'" "$out"
 rm -f "$MARKER"; clear_plans
 
+echo "== F2. Proceed with a session id writes the run marker; --deliver never does =="
+rm -f "$STATE_DIR"/.run-*
+arm; fresh_plan
+out="$(apsess run-sess-1)"; rc=$?
+chk "proceed + session → exit 0"            test "$rc" = "0"
+chk "proceed + session → run marker written" test -f "$STATE_DIR/.run-run-sess-1"
+chk "..marker names the slug"               grep -q '^slug=fixture-plan$' "$STATE_DIR/.run-run-sess-1"
+chk "..marker carries started="             grep -q '^started=' "$STATE_DIR/.run-run-sess-1"
+chk "..stdout says so"                      sh -c "printf '%s' \"\$0\" | grep -q 'run: marker written'" "$out"
+rm -f "$STATE_DIR"/.run-*
+arm; fresh_plan
+out="$(apsess run-sess-2 --deliver)"; rc=$?
+chk "deliver + session → exit 0"            test "$rc" = "0"
+chk "deliver + session → NO run marker"     test ! -f "$STATE_DIR/.run-run-sess-2"
+rm -f "$STATE_DIR"/.run-*
+
 echo "== G. --deliver: deliverable soft-stop =="
 arm; fresh_plan
 out="$(ap --deliver)"; rc=$?
 chk "deliver → exit 0"                 test "$rc" = "0"
 chk "deliver → marker gone"            test ! -f "$MARKER"
 chk "deliver → DELIVER-ONLY directive" sh -c "printf '%s' \"\$0\" | grep -q 'DELIVER-ONLY'" "$out"
-chk "deliver → no handoff/implementation directive" sh -c "! printf '%s' \"\$0\" | grep -qE '/mentor:handoff|Implement the plan'" "$out"
+chk "deliver → no handoff/run directive" sh -c "! printf '%s' \"\$0\" | grep -qE '/mentor:handoff|Run the plan until'" "$out"
 # deliver with a stale plan: validation precedes the directive.
 clear_plans
 stale_plan; sleep 1; arm
@@ -409,6 +426,24 @@ printf '# Plan\n\n## Implementation steps\n\n1. One.\n' > "$PLANS_DIR/q-done/pla
 psq init q-done >/dev/null; psq set q-done approved >/dev/null; psq tick q-done 1 >/dev/null
 out="$(bp q-done)"
 chk "approved but fully ticked → arms"                sh -c "printf '%s' \"\$0\" | grep -q 'Plan phase ARMED'" "$out"
+rm -f "$MARKER"
+# Stored in_progress + fully ticked: the run still owes Verification, Goal check, Done
+# review and delivery — resume it (After Proceed step 6), never re-arm.
+mkdir -p "$PLANS_DIR/q-run"
+printf '# Plan\n\n## Implementation steps\n\n1. One.\n' > "$PLANS_DIR/q-run/plan.md"
+psq init q-run >/dev/null; psq set q-run in_progress >/dev/null; psq tick q-run 1 >/dev/null
+out="$(bp q-run)"; rc=$?
+chk "in_progress fully ticked → exit 0"               test "$rc" = "0"
+chk "in_progress fully ticked → ALREADY APPROVED"     sh -c "printf '%s' \"\$0\" | grep -q '^ALREADY APPROVED: q-run'" "$out"
+chk "in_progress fully ticked → step-6 resume clause" sh -c "printf '%s' \"\$0\" | grep -q 'resume at After Proceed step 6'" "$out"
+chk "in_progress fully ticked → no marker written"    test ! -e "$MARKER"
+: > "$MARKER"; touch -t 202001010000 "$MARKER"; before="$(ls -l "$MARKER")"
+out="$(bp q-run)"
+chk "in_progress fully ticked → marker untouched"     test "$(ls -l "$MARKER")" = "$before"
+rm -f "$MARKER"
+psq set q-run draft >/dev/null
+out="$(bp q-run)"
+chk "in_progress fully ticked, set draft → arms"      sh -c "printf '%s' \"\$0\" | grep -q 'Plan phase ARMED'" "$out"
 rm -f "$MARKER"
 
 mkplan q-draft; psq init q-draft >/dev/null

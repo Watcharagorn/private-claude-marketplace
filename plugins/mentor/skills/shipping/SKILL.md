@@ -1,6 +1,6 @@
 ---
 name: shipping
-description: Finish the current branch — clean-check, run /simplify, optionally run tests, then ship to a user-chosen target (push + auto-open PR/MR, or push to the branch's upstream), then mark the session's plan implemented. Never force-pushes; never pushes to a protected source branch without an explicit choice. Invoked by /mentor:ship, "ship this", "merge and push", "finish and ship".
+description: Finish the current branch — clean-check, run /simplify, run tests, then push and open a PR/MR (or push to the branch's upstream), with the plan's Done review in the PR body. Standalone it asks for the test step and the target; inside a mentor plan run (the software playbook's deliver mode) it proceeds without asking and pauses only on always-pause items. Never force-pushes; never pushes to a protected branch without an explicit choice. Invoked by /mentor:ship, "ship this", "merge and push", "finish and ship", and by playbook-software-change.
 ---
 
 # ship — Ship the current branch
@@ -9,9 +9,45 @@ description: Finish the current branch — clean-check, run /simplify, optionall
 
 Use a structured question UI when the host offers one; otherwise ask the same focused question directly and wait for the answer. If delegated agents are unavailable or prohibited, perform the required research, review, or implementation serially and retain the same evidence, scope, and verification contract. Treat Mentor helpers as optional host integrations: resolve them with `PLUGIN_ROOT` first, then `CLAUDE_PLUGIN_ROOT`; if neither is available, work from the repository's durable `.mentor/` artifacts and report any state action that cannot be performed safely. This rule overrides later host-specific tool names, preserving user choice and plan continuity across hosts.
 
-Drives clean-check → `/simplify` → optional tests → **user-chosen ship target**
-for the branch currently checked out. No worktree machinery — the flow operates
-on `$PWD`'s repo and branch.
+Drives clean-check → `/simplify` → tests → **ship target** for the branch currently
+checked out. No worktree machinery — the flow operates on `$PWD`'s repo and branch.
+
+## Standalone vs inside a plan run {#plan-run}
+
+Ship runs in one of two modes. This section is the whole plan-run contract; the steps
+below are written for standalone ship, and a step marked `(plan run: #plan-run)` is
+replaced by the bullet here:
+
+- **Standalone** (`/mentor:ship` with no plan run active): the human chose to ship by
+  hand, so Steps 4 and 5 ask, exactly as written.
+- **Inside a plan run** — `playbook-software-change`'s deliver mode called this skill
+  for an approved plan whose stored state is `in_progress`. The approval was the human's
+  one gate (AGENTS.md → Mentor core concept), so:
+  - **Step 1 on-base:** cut the feature branch `git switch -c <type>/<slug>` without
+    asking (local, reversible) and log it. An open PR on this branch that is **not**
+    this run's work is always-pause: stop and ask.
+  - **Step 2 dirty tree:** a dirty path the plan's steps account for is committed with
+    the step's message; a path the run cannot attribute is always-pause — stop and ask.
+  - **Step 3 out-of-scope files** from simplify: include in-scope only, log the rest as
+    a `review?: needed` row. Never "include all" without a human.
+  - **Step 4 tests:** no question. Run the plan's Definition of done commands (the
+    playbook's overlay, the constitution, or the Step 4 ladder). A failure **stops the
+    ship** — there is no "Ship anyway" inside a run; it re-enters the run's re-plan path.
+  - **Step 5 target:** no question. **5A** (push the feature branch + open the PR/MR).
+    Push to the base or a protected branch is always-pause.
+  - **PR body:** the plan's `## Done review` plus the decision log grouped by use case,
+    `review?: needed` rows first (5A → **PR body under a plan run**).
+  - **Step 6:** leave the plan state to the run, which closes it after merging's grade
+    (planning → After Proceed).
+  - **Step 7:** the test-command save offer becomes a decision-log row, then hand back
+    to the playbook, which invokes `merging` next.
+  - Append a decision-log row for every choice made here.
+
+Every rule below still applies in both modes except where a bullet above replaces it —
+its questions, Step 1's on-base ask, and Step 2's abort, which inside a run commits the
+plan-attributed paths instead (Step 2's block still exits 1 on a dirty tree: commit them,
+then re-run it). Failure-mode rows that ask (on-base, push rejected) follow the same
+overrides.
 
 ## Step 1 — Context & summary
 
@@ -44,8 +80,8 @@ user answers from the question screen alone, never sent to a file, a plan sectio
 coined id or code, or an earlier turn to learn what the question means: name the branch,
 base, and PR in the option itself, and say what each choice pushes and where.
 
-**On the base branch.** If the block printed `ON-BASE`, stop and ask via
-`AskUserQuestion` before Step 2:
+**On the base branch.** If the block printed `ON-BASE`, standalone ship stops and asks
+via `AskUserQuestion` before Step 2 (plan run: #plan-run):
 
 - **Cut a feature branch from here and re-invoke (Recommended)** —
   `git switch -c <type>/<slug>`. Branch now, not later: Step 3 commits to
@@ -138,10 +174,12 @@ git -C "$repo_root" ls-files --others --exclude-standard | tee "$baseline"
 One exception worth a question: if an untracked path sits under a directory that also
 appears in `git diff --name-only "origin/${base}"...HEAD`, that is the "forgot to
 `git add` the new module" case — the only untracked state that can actually break the PR.
-Ask via `AskUserQuestion` before continuing. Otherwise say what you saw and move on;
+Ask via `AskUserQuestion` before continuing (plan run: still asks — always-pause, an
+unattributable working-tree change; playbook §3). Otherwise say what you saw and move on;
 never `git add` an untracked path to satisfy this step.
 
-**Abort means abort.** Never branch, stage, commit, or stash on the user's behalf
+**Abort means abort (standalone).** (plan run: #plan-run)
+Never branch, stage, commit, or stash on the user's behalf
 to get past this gate — the exit belongs to the user, and a hand-sorted commit
 ship invented is the one commit it must never author. **This is not Step 3's
 territory below** — Step 3's auto-commit-without-prompting is scoped narrowly to
@@ -160,7 +198,8 @@ nothing.
 
 That fallback is for simplify being **unavailable**, not for skipping it. If a standing
 instruction in this environment seems to block simplify's own review agents, ask the user
-once, in one line, whether to let simplify run. Either way, a solo diff review is reported
+once, in one line, whether to let simplify run (plan run: do not ask — do the solo diff
+review and log a row). Either way, a solo diff review is reported
 **as** a solo diff review — reporting the substitute as though this step ran turns a
 judgment call into a false green.
 
@@ -212,18 +251,20 @@ After it returns:
      `git diff HEAD~1 --stat` in the ship summary.
    - If any file is OUTSIDE the scope: show the list and ask via
      `AskUserQuestion`: include in-scope only (Recommended) / include all / abort.
+     (plan run: #plan-run)
 
 **Re-entry.** simplify runs its own numbered steps and its own agents, and it runs
 long — dozens of tool calls, all of them someone else's flow. When it returns you are
 back in **this** skill at Step 4. This is the seam where ship's tail gets dropped:
 the next action is Step 4's question, never a `git add`/`git commit`/`git push` you
-compose yourself. Steps 4 and 5 are both `AskUserQuestion` gates; skipping them means
-the user never chose whether to test, and never chose where the branch goes.
+compose yourself. Standalone, Steps 4 and 5 are both `AskUserQuestion` gates; skipping
+them means the user never chose whether to test, and never chose where the branch goes.
+(plan run: #plan-run)
 
 ## Step 4 — Conditional test step
 
-**Ask this together with Step 5's ship target, in ONE `AskUserQuestion` call carrying
-both questions.** They are independent — whether to run tests does not change where the
+**Standalone: ask this together with Step 5's ship target, in ONE `AskUserQuestion`
+call carrying both questions.** (plan run: #plan-run) They are independent — whether to run tests does not change where the
 branch goes — and both must be answered before the push either way, so splitting them
 into two calls costs a round trip and buys nothing. Resolve the test command first (the
 ladder below), because the question has to name the command that will actually run.
@@ -260,7 +301,8 @@ root:**
 Pick the first match and tell the user which command will run, adding the hint
 `(override with "test_command" in .mentor/config.json)` so the key is
 discoverable where the misfire happens. If none match, ask the user for a
-command (explicit empty input = skip) — and keep that answer, because **Step 7
+command (plan run: #plan-run — no question; log the missing command as a row)
+(explicit empty input = skip) — and keep that answer, because **Step 7
 offers to save it**. A repo with no `package.json`, no pytest, no `go.mod` and no
 `Makefile` test target will miss the table on every future ship too, so the branch
 that costs the user a question is the one branch that currently learns nothing.
@@ -286,20 +328,20 @@ persists across Bash calls — so a bare `cd apps/web && npm run test:e2e` leave
 later block running one directory down, where `git add CLAUDE.md` fails with `pathspec
 did not match any files`. The parentheses confine the move to the test run.
 
-On failure, ask: "Tests failed. What now?" — Stop and fix (default, exit 1) /
-Ship anyway.
+On failure, standalone ship asks: "Tests failed. What now?" — Stop and fix (default,
+exit 1) / Ship anyway. (plan run: #plan-run)
 
 ## Step 5 — Choose the ship target (mandatory)
 
-Both answers must exist before any `git push`: Step 4's test answer and this step's
-target answer. Step 4 issues them as one call carrying both questions; the two-call
+Standalone, both answers must exist before any `git push`: Step 4's test answer and
+this step's target answer. Step 4 issues them as one call carrying both questions; the two-call
 form is still valid (and is what the exceptions there fall back to). Either way, if you
 cannot point at both answers in this transcript, you skipped a step — ask now. Prose selects no option: "ship it",
 "lgtm", "ok all pass, let's ship and deploy" answer neither question, however much
 they sound like a go-ahead. Everything up to here is local and reversible; the push
-is not.
+is not. (plan run: #plan-run)
 
-Never decide this yourself. Substitute real values before emitting the call:
+Standalone, the human picks the target. Substitute real values before emitting the call:
 
 ```json
 {
@@ -355,8 +397,8 @@ Detect the host from `git remote get-url origin`:
   Surface the MR URL (grep for `/-/merge_requests/`) together with the target
   it named (`$base`) — the one piece of "did this land where I meant?" nothing
   else in this block confirms. If a `WARNINGS:` block names `merge_request.target`,
-  the target is invalid — the MR did NOT open; re-resolve the base (ask the user)
-  and retry. An already-open-MR warning is fine **when the MR is this branch's
+  the target is invalid — the MR did NOT open; re-resolve the base (ask the user;
+  plan run: re-resolve from `origin/HEAD` without asking and log a row) and retry. An already-open-MR warning is fine **when the MR is this branch's
   own work** — print its URL and its target, since this path reused an existing
   MR whose target these push options never touched. (An MR opened by someone
   else is the Step 1 ownership case; if Step 1 was skipped — no `gh` on a
@@ -375,6 +417,16 @@ Detect the host from `git remote get-url origin`:
   If `gh` is absent, print the compare URL instead.
 
 - **Other host** — push, then print the compare URL for manual PR creation.
+
+**PR body under a plan run.** Write the body to a temp file first: the plan's
+`## Done review` (per scenario: expected, observed, evidence; the runbook or
+`Runbook: n/a, merge is self-contained`; leftovers), then the decision log grouped by use
+case with `review?: needed` rows first. Evidence cited `local: .mentor/…` stays a local
+path — say in the body that it is not uploaded. On GitHub use
+`gh pr create --base "$base" --head "$branch" --title "<plan title>" --body-file "$body"`
+instead of `--fill`; on GitLab add `-o merge_request.description="$(cat "$body")"` to the
+push. A body too long for a push option is trimmed to the Done review and a pointer to
+`.mentor/plans/<slug>/plan.md`.
 
 ### 5B — Push to upstream
 
@@ -402,6 +454,8 @@ surface it and stop — never guess.
 **Never force-push.**
 
 ## Step 6 — Close the plan's state (post-ship)
+
+(plan run: #plan-run)
 
 A successful ship means the plan's tasks are done, and a shipped plan left
 `in_progress` reads as unfinished work to the next session that lists plans.
@@ -433,6 +487,8 @@ downgrade guard, so read the state first and skip a plan already `superseded` (a
 parent) or `implemented`.
 
 ## Step 7 — Point at the merge tail, and stop
+
+(plan run: #plan-run)
 
 **Stop here.** Ship's job ends at the open PR/MR. Emit one line in the ship report naming
 where the tail lives: **GitHub + `gh`** → `Watch CI and merge with /mentor:merge`;

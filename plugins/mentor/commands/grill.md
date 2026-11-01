@@ -1,7 +1,7 @@
 ---
 description: Stress-test and sharpen a plan or design by relentless one-question-at-a-time interview before building
 argument-hint: [plan or design to grill — defaults to the current mentor plan / conversation]
-allowed-tools: [Bash, Read, Grep, Glob, Skill, Task, AskUserQuestion, Edit]
+allowed-tools: [Bash, Read, Grep, Glob, Skill, Task, AskUserQuestion]
 ---
 
 # mentor — grill the design
@@ -14,8 +14,8 @@ open choices until you reach a shared understanding — exploring the codebase d
 asking what the code can answer.
 
 Grill is also the plan-quality pass on a drafted plan: run it at the approve gate to judge whether
-the written plan is any good. Grilling makes no repo edits, beyond a settled trivial one-file change
-(the skill's Step 3 trivial-implement branch).
+the written plan is any good. Grilling is conversation only — it makes no repo edits and runs only
+before a plan is approved.
 
 The subject is **optional**:
 

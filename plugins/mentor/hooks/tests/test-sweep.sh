@@ -299,11 +299,6 @@ if [ -d "$MENTOR" ]; then
   # The prescribing site must invoke the shared subcommand, not hand-roll a grep.
   chk "planning/SKILL.md invokes 'plan-state.sh sweep'" \
     grep -qF 'plan-state.sh" sweep' "$MENTOR/skills/planning/SKILL.md"
-  # plan-split's command works today BECAUSE it aims below the .gitignore. Pin the
-  # comment that records why, so nobody "improves" it by re-aiming it at $mentor_dir.
-  chk "plan-split/SKILL.md records why its sweep works" \
-    bash -c 'grep -qiE "below (the )?\.?mentor|below the .gitignore|traversal root" "$1"' _ \
-      "$MENTOR/skills/plan-split/SKILL.md"
   # Must be the BACKTICKED subcommand spelling: the bare word "sweep" already appears
   # a dozen times in this README as ordinary English ("promotion sweep", "closing
   # sweep"), so grepping for that would pass before step 5 ever runs.

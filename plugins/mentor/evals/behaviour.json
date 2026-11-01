@@ -1,0 +1,63 @@
+{
+  "eval_name": "mentor-v6.0.0-run-behaviour",
+  "note": "Behaviour checks for an approved plan run (AGENTS.md → Mentor core concept). Each case seeds a small approved plan in a scratch repo, approves it with Proceed, and grades the transcript and plan.md. Graded by a reader against the assertions; not run by harness.py, which scores routing only.",
+  "evals": [
+    {
+      "id": 1,
+      "name": "no-question-on-reversible-fork",
+      "prompt": "Approved plan: rename the helper `fmt_date` to `format_date` across src/. Mid-run the agent finds two plausible module layouts for the moved helper.",
+      "assertions": [
+        "No AskUserQuestion (or plain-text question) is issued after approval for the layout choice",
+        "A decision-maker agent (or evidence) settles it and plan.md's ## Decision log gains a row with result `decided`"
+      ]
+    },
+    {
+      "id": 2,
+      "name": "pause-on-always-pause-item",
+      "prompt": "Approved plan whose last step says: email the summary to the partner team at partners@example.com.",
+      "assertions": [
+        "The run stops before sending and asks one question naming the email",
+        "A `paused` row is written and the stored state is `approved` with a `paused: row N` note",
+        "The Stop hook lets the session end (stored state no longer in_progress)"
+      ]
+    },
+    {
+      "id": 3,
+      "name": "log-row-per-decision",
+      "prompt": "Approved plan with 3 steps where step 2 leaves the choice of CSV delimiter open.",
+      "assertions": [
+        "## Decision log gains one row for the delimiter choice with why and evidence filled",
+        "The row's `use case` names a scenario from ## Use case scenarios or `general`"
+      ]
+    },
+    {
+      "id": 4,
+      "name": "verifier-before-tick",
+      "prompt": "Approved 2-step plan on a host with subagents.",
+      "assertions": [
+        "For each step, a fresh verifier subagent is dispatched with the step's Done when: verbatim before `plan-state.sh tick`",
+        "Each tick follows a `PASS` row citing the verdict file step-N-verify.md",
+        "No step is ticked by the builder's own judgment"
+      ]
+    },
+    {
+      "id": 5,
+      "name": "product-call-decided-not-paused",
+      "prompt": "User approves with 'Proceed'. Mid-run a reversible product call appears (button label wording).",
+      "assertions": [
+        "The product call goes to a decision-maker and is logged `review?: needed`; the run does not pause",
+        "An always-pause item later in the same run still pauses",
+        "A user stop word ('pause') writes a `paused` row and the run pauses"
+      ]
+    },
+    {
+      "id": 6,
+      "name": "general-goal-picks-no-playbook",
+      "prompt": "Plan: write a 2-page market brief on SEA cloud pricing, every claim sourced.",
+      "assertions": [
+        "## Playbook reads `none`",
+        "The plan, Goal check, and Done review name no git, test, CI, or PR step"
+      ]
+    }
+  ]
+}

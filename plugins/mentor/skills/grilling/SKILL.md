@@ -9,7 +9,7 @@ description: >
   plan-quality pass on a drafted plan before approval. Walks the decision tree one
   branch at a time, recommends an answer for every question, and explores the
   codebase directly rather than asking what the code can answer. This is a
-  conversation, not an implementation.
+  conversation, not an implementation, and runs only before a plan is approved.
 ---
 
 # Grilling — Sharpen the Design Before You Build
@@ -36,7 +36,7 @@ Within the plan flow itself, `plan` Step 3 owns *post-research* decision resolut
 ## When NOT to use
 
 - Trivial / single-file changes where the interview costs more than the change.
-- The plan is already approved and the user wants implementation — point them at the proceed gate or `/mentor:ship`.
+- The plan is already approved — grilling is pre-approval only. After approval the run decides by itself and logs every choice (planning → After Proceed); a doubt about an approved plan is a re-plan, not an interview.
 - Pure exploration with no plan or design to interrogate.
 
 ---
@@ -52,9 +52,6 @@ Figure out *what* you are grilling, in this order:
    bash "${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT}}/hooks/plan-state.sh" current
    ```
    `Read` the `PLAN:` path it prints (the `.md` is canonical) and grill it. Do **not** edit it.
-   If `GROUP:` is not `-`, the plan is one slice of a `/plan-split` group and the script
-   lists its siblings — ask which slice to grill rather than picking one, since grilling
-   the wrong slice wastes the whole interview.
 3. **The conversation.** If there is no argument and no plan, grill the design described in the conversation so far.
 
 **Check for related plans before interrogating**, whichever branch above resolved the
@@ -97,6 +94,7 @@ Interview the user relentlessly about every aspect of this plan until you reach 
 - **Ask the questions one at a time**, waiting for feedback on each question before continuing. Asking multiple questions at once is bewildering — favor `AskUserQuestion` with a single focused question (your recommended option first).
 - **Every question stands on its own.** The user answers from the question screen alone — never sent to a file, a plan section, a coined id or code (`G14`, `P2`), or an earlier turn to learn what the question means. Name things in plain language, quote the evidence that decides it rather than citing where it lives, and say in each option what it changes and what it costs. This binds the ids *you* mint hardest: an interview that numbers its own questions or decisions (`G7`, `D23`) has built a private index the user never received, so say "the cross-tenant Secrets read", not "G14" — the header takes a plain-language handle, and a bare number belongs in your notes, not in anything the user reads. A definition you gave twenty turns ago is not one they still have.
 - **Order by dependency.** Resolve the decisions that other decisions hang off of first; let each answer narrow the next question.
+- **Triage before asking — the same four buckets as planning Step 3.** Only a genuine product or preference call reaches the user. A question the files answer is answered by reading them (below). A fact a quick probe can settle is settled by running it in a private `mktemp -d` dir. A reversible call the constitution's Decision authority covers goes to a decision-maker agent (planning → "Decision-maker dispatch"), and you state its choice in the next question's brief instead of asking it. The user asked to be grilled on the *design*, not to answer what evidence or an agent can settle.
 - **If a question can be answered by exploring the codebase, explore the codebase instead of asking.** Keep reads targeted — search first, then read only the lines that decide the question — because every line read inline stays in the session the interview runs in. Carry what you find into the next question as a named fact with its `file:line`, so a shipped-capability overlap surfaces as evidence instead of dissolving into paraphrase.
 - **Before folding codebase findings into your next question, screen them for a shipped-capability overlap.** If they name a shipped skill, command, feature, endpoint, or script the user could already invoke today to get what the subject under design promises, your next `AskUserQuestion` must be the overlap fork itself — extend the shipped capability, supersede it, or build alongside it, recommended option first — before any further branch question assumes the capability is new. An overlap found here costs one question; the same overlap found at the plan's research step costs the whole interview and everything already built on it.
 - Keep going until the material decisions are resolved or explicitly deferred — do not stop at the first easy answer.
@@ -118,42 +116,22 @@ When you reach shared understanding:
 2. Summarize the **resolved decisions** and any **deferred / open items** in a short recap.
 3. If a mentor plan was the subject, **surface the deltas** between the plan and what you just resolved, and tell the user to fold them in by re-running the plan flow (`/mentor:plan`) or, if mid-plan, re-asking the proceed gate. **Do not edit the plan file yourself** if this worktree's gate is armed — surface the changes and let the plan flow re-render them. A second hazard the gate does **not** cover: a plan whose sidecar `owner` is a *different* worktree (read the same sidecar's `owner` field the way you already read its `note` above — `jq -r .owner` on that path) — no gate blocks editing that file, since the plan-gate deny is scoped to the owning worktree's writes, not to the file itself, and this worktree may be wide open while that plan is someone else's live draft. Treat a foreign-owned plan the same as an armed gate: surface the deltas, don't edit.
 4. Point to the natural next step: `/mentor:plan` (to author/refresh the plan) or, if a locked plan now looks solid, return to its approve gate.
-5. **If the grill settled it and the work turns out trivial** — one file, nothing material left to decide — say so and offer to implement it directly rather than routing a two-line change through the plan flow. Two conditions, both required: this worktree's gate reads **not armed** — check it fresh, `current` (Step 1) never reports the marker at all:
-   ```bash
-   [ -d "${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT}}/hooks" ] || { echo "ERROR: Mentor helper unavailable — set PLUGIN_ROOT (or use the Claude compatibility fallback) or use the documented artifact fallback" >&2; exit 1; }
-   if [ "$(bash "${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT}}/hooks/plan-state.sh" gate)" = "ARMED" ]; then echo "GATE: ARMED — trivial-implement branch does not apply"; fi
-   ```
-   and you state plainly that plan ceremony was skipped, why, and the command you ran (with its
-   output) to confirm the change works — a re-read of the file alone doesn't count. Two cases that
-   command cannot settle, each with its own route. **Nothing runnable exists** → write down the
-   check you would want for this one change (what to look at, what passing means), run the
-   closest evidence you have against it, and report inline which parts it settled and which
-   stay unverified — never call an unexercised part confirmed.
-   **The criterion turns on a physical or manual event** — a real keypress, a mouse action, any
-   human-only input → a tool-driven stand-in (`tmux send-keys`, a synthesized event, a scripted
-   click) travels a different path than the real one and can pass while the real one fails. You are
-   mid-interview with the user: ask them to do the real thing and report back before you call it
-   confirmed. If they've gone, close with the gap named — "scrolls under `tmux send-keys`;
-   unverified with a real keypress" — never as confirmed. `ARMED_ELSEWHERE` (only a sibling
-   worktree's marker is live) does **not** count as armed here — this worktree's own edits are unblocked, so the trivial-implement branch still applies. If the gate reads `ARMED` for THIS worktree, this branch does not apply — `plan-gate.sh` blocks repo edits, so surface the deltas per item 3 and let the plan flow re-render them. Once the edit is
-   verified, route the same way any other close would: `/mentor:ship` if it's ready to go out.
-   Anything surfaced but not done gets **named** in the close-out as leftover work — a grill
-   has no plan or verification gate behind it to carry it forward.
+5. Never implement from here, even a one-line change: the grill feeds a plan, and the plan's one approval is what starts work. A trivial change still goes through `/mentor:plan`, whose research and approval cost little on a small task and whose verifier is what proves it.
 
 ## Done when
 
 - A shared understanding is reached.
-- Every material decision is either resolved with the user or explicitly deferred.
+- Every material decision is resolved — by the user, by evidence, or by a decision-maker within the constitution's Decision authority — or explicitly deferred.
 - Questions were asked **one at a time**, each with a recommended answer.
 - Codebase-answerable questions were answered by targeted codebase reads, not by asking the user or by bulk-reading.
 - A declined question or an interview cut short still left resolved decisions recoverable — recapped in the closing message, not silently lost.
 - Step 1's related-plans check (`plan-state.sh list`) ran before the interview started, whichever branch resolved the subject.
 - The context check (`plan-state.sh context`) ran before the interview started and again before the Close recap.
 - A free-typed accept/defer instruction closed its decision(s) on the spot — every covered decision named, none re-asked for confirmation.
-- A trivial-implement close named its verification honestly — a runnable command with output, a written check with its unverified parts named when nothing runnable existed, or, for a criterion only a real keypress/mouse/human action settles, the user's own confirmation or an explicit "unverified with real input" line.
+- Every question that reached the user was a product or preference call; evidence- and constitution-settleable ones were settled without asking and named in the recap.
 
 ### Do NOT
 
-- Do **not** implement anything or edit the repo mid-grill — grilling is conversation + read-only exploration; the sole carve-out is Step 3's trivial-implement branch, on the two conditions stated there.
+- Do **not** implement anything or edit the repo — grilling is conversation + read-only exploration.
 - Do **not** edit or rewrite the plan file mid-grill; surface deltas and let the plan flow re-render.
 - Do **not** ask multiple questions in one turn.

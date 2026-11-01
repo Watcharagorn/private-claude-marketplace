@@ -1,14 +1,15 @@
 ---
 name: planning
 description: >
-  Create a Mermaid-first Markdown implementation plan for a natural-language request
-  or explicit skill invocation. Use whenever the user asks to plan, design, or scope
-  a change before building it. Guides research, one-at-a-time decision support, a
-  durable plan under .mentor/, explicit approval, then main-thread implementation
-  with step ticks and a closing verification pass. In
-  Claude Code, /mentor:plan remains a compatible command facade that pre-arms its
-  edit gate; direct or other-host invocation uses the same planning contract with an
-  advisory read-only boundary when that host cannot provide the gate.
+  Plan any goal — code, docs, research, data, ops — then run it to a checkable done
+  with the human approving once. Use whenever the user asks to plan, design, scope,
+  or "do X end to end" before building it. Researches, picks a matching playbook
+  skill at runtime, settles questions by evidence or a decision-maker agent (asking
+  the human only for genuine product calls), writes a durable Mermaid-first plan
+  under .mentor/ with a Goal check and a decision log, takes one approval, then
+  drives every step to an independently verified PASS and delivers a Done review.
+  In Claude Code, /mentor:plan is the command facade that pre-arms its edit gate;
+  other hosts use the same contract with an advisory read-only boundary.
 ---
 
 # mentor Plan
@@ -18,10 +19,12 @@ description: >
 Use a structured question UI when the host offers one; otherwise ask the same focused question directly and wait for the answer. If delegated agents are unavailable or prohibited, perform the required research, review, or implementation serially and retain the same evidence, scope, and verification contract. Treat Mentor helpers as optional host integrations: resolve them with `PLUGIN_ROOT` first, then `CLAUDE_PLUGIN_ROOT`; if neither is available, work from the repository's durable `.mentor/` artifacts and report any state action that cannot be performed safely. This rule overrides later host-specific tool names, preserving user choice and plan continuity across hosts.
 
 The flow: check the gate & load the constitution → clarify if needed →
-research → resolve open decisions with the user → write the Markdown plan
-(with a Constitution Check when a constitution exists) → (optional
-review page via `mentor:previewing`, on request) → approve & release →
-implement, tick each step, run the plan's verification.
+pick a playbook & research → triage open questions (evidence, decision-maker,
+human) → write the Markdown plan (Goal check, decision log, Constitution Check
+when a constitution exists) → (optional review page via `mentor:previewing`, on
+request) → **the one human approval** → run until the Goal check passes →
+deliver with a Done review. This is the core concept pinned in the
+marketplace's `AGENTS.md` → Mentor core concept.
 
 While this worktree's `.planning.<wt-id>` marker is armed — or the legacy,
 repo-global `.planning` marker, which blocks every worktree at once —
@@ -89,18 +92,25 @@ plans="$mentor_dir/plans"   # mentor_dir from the Step 0 block
 jq -r '"stored=\(.state // "") owner=\(.owner // "") note=\(.note // "")"' "$plans/<slug>/.state.json"
 ```
 
-Build only when `stored` is `approved` or `in_progress` and the step ticks have not taken
-it past that (with helpers, `plan-state.sh query --slug <slug> --format tsv --fields state`
-reads `approved` or `in_progress`) — the rule `begin-plan.sh` applies. If `owner` is set
-and this is not the facade path, ask the user before building.
+Build when `stored` is `in_progress`, whatever the step ticks say — an all-ticked run
+still owes After Proceed step 6 onward. Build when `stored` is `approved` only if the
+ticks have not taken it past that (with helpers, `plan-state.sh query --slug <slug>
+--format tsv --fields state` reads `approved` or `in_progress`). This is the rule
+`begin-plan.sh` applies. If `owner` is set and differs from this worktree, and this is
+not the facade path, ask the user before building.
 
-Then skip Steps 1–6 and go to **After Proceed — implement in the main thread**
-(`{#implement}`) for that slug — re-planning an approved plan would only re-ask a
-question the user already answered. One check first: a
-`note` saying it was **not individually reviewed** (a split child swept in by a release)
-means nobody approved it on its own: confirm with the user before building it. To
-re-plan instead, run `plan-state.sh set <slug> draft`, then plan it again
-(`/mentor:plan <slug>` in Claude Code).
+Then load the constitution (below in this step) and every playbook the plan's
+`## Playbook` line names, skip Steps 1–6, and go to **After Proceed — run until the
+Goal check passes** (`{#implement}`) for that slug — re-planning an approved plan would
+only re-ask a question the user already answered. Two checks first: a `note` saying it
+was **not individually reviewed** (a plan swept in by a release) means nobody approved
+it on its own — confirm with the user before building it; a `note` starting `paused:`
+means the run stopped on that decision-log row — ask its question first, write the
+`resumed` row, then continue. A resumed run has no run marker (only `approve-plan.sh`
+writes one, for the session that approved), so the Stop hook does not hold this
+session: keep working until a terminal state per **Hosts without a Stop hook or
+subagents**. To re-plan instead, run `plan-state.sh set <slug> draft`, then plan it
+again (`/mentor:plan <slug>` in Claude Code).
 
 **Load the constitution.** Resolve the constitution path (a repo may keep its
 governing doc outside `.mentor/` — `constitution_path` in `.mentor/config.json`
@@ -137,13 +147,33 @@ designing anything. Skip this for well-specified tasks.
 
 ## Step 2 — Research {#research}
 
-Research what the plan needs: the code, config, docs and history the change touches,
+**Pick a playbook first.** A playbook is a skill named `playbook-<name>` whose
+description states the goal shapes it fits (`playbook-software-change` fits
+"change code in a repo"). Match the goal against the descriptions of the
+playbooks available this session — the session's skill list, not a filesystem
+hunt — and load each that fits. A loaded playbook supplies five overlays the
+general flow reads at the points named in brackets:
+
+| Overlay | Read at |
+|---|---|
+| Research directives | this step |
+| Definition of done | Step 4 `## Goal check` and each `Done when:` |
+| Extra always-pause items | the run (After Proceed), on top of the constitution's |
+| Deliver mode | the run's deliver state |
+| Evidence kinds | the Done review |
+
+Record the pick as a `## Playbook` line in the plan and a decision-log row. No
+match → the general flow runs alone (`## Playbook` reads `none`). Several may
+match: their overlays combine and their always-pause items are a union. The user
+can name or refuse a playbook in plain words; that wins over the match.
+
+Research what the plan needs: the files, config, docs and history the work touches,
 and the facts each decision will turn on. How you gather it is up to you and the host —
 read directly for a small task, or use whatever research tooling the host offers for a
 wide one. Bring back conclusions with `file:line` evidence and a short list of open
 questions; those questions feed Step 3's triage and are never silently dropped. When the
-plan touches a second git root, resolve its real path first (`git rev-parse
---show-toplevel`) — the edit gate protects only the repo the session's CWD sits in.
+plan touches a second repository, resolve its real path first — the edit gate protects
+only the repo the session's CWD sits in.
 
 **Research the category, not just the named instance.** When the request names
 one instance of something the repo may have several of — one job to make
@@ -216,21 +246,49 @@ Whenever the name could mean more than one product or API from the same vendor, 
 the findings which one they describe — a silent pick surfaces only downstream, after it
 has already shaped a user question.
 
-## Step 3 — Resolve open questions & decisions (one at a time) {#decisions}
+## Step 3 — Triage open questions & decisions {#decisions}
 
 Before writing the plan, drain every open question so the plan encodes
 decisions, not question marks. Collect them from all sources: the open
-questions research surfaced (Step 2) and any design fork you noticed yourself
-(approach A vs B, scope boundary, acceptance criteria, naming).
+questions research surfaced (Step 2), the playbook's directives, and any design
+fork you noticed yourself (approach A vs B, scope boundary, acceptance criteria,
+naming). The human is asked only what no one else can answer (AGENTS.md →
+Mentor core concept, rule 4).
 
-Triage each item into exactly one bucket:
+Triage each item into exactly one bucket, in this order:
 
-- **Codebase-answerable** — the code, config, git history, or docs can settle
-  it. Answer it yourself; never ask the user what the repo can answer.
-- **User decision** — preference, product direction, scope, priorities, a
-  trade-off with no objectively right answer. Queue it for the user.
-- **Immaterial** — the plan comes out the same whichever way it lands. Drop
-  it, or record it as a flagged assumption in the plan.
+1. **Codebase-answerable** — the files, config, history, or docs settle it.
+   Answer it yourself; never ask the human what the material can answer.
+2. **Experiment-settleable** — a fact a quick probe can establish (does this
+   flag exist, which form does the tool accept, how long does it take). Run the
+   probe in a private `mktemp -d` scratch dir, or under
+   `.mentor/plans/<slug>/evidence/` when the result is worth keeping as
+   evidence. Record the probe and its output as a decision-log row.
+3. **Constitution-covered** — a reversible call that the constitution's
+   Decision authority (or, with none, ordinary good practice) lets an agent
+   make. Dispatch a decision-maker (below) and log its choice.
+4. **Product call** — preference, product direction, a trade-off with no
+   objectively right answer that the Decision authority does not cover, or any
+   choice that commits an always-pause item. Queue it for the human (before approval
+   only; mid-run see After Proceed, steps 4–5).
+
+**Immaterial** items — the plan comes out the same either way — are dropped, or
+logged as a flagged assumption.
+
+### Decision-maker dispatch {#decision-maker}
+
+- **Brief** (self-contained; the agent inherits none of your context): the
+  question in plain words, the options known so far with their consequences, the
+  constitution's Decision authority section verbatim, and the evidence with
+  `file:line` or command output.
+- **Routing**, using the first agent present in the host's agent list:
+  `system-decision-maker` for architecture, backend, data, infra, or rollout;
+  `ux-decision-maker` for anything a person sees or does; `general-decision-maker`
+  for everything else. When none exists, dispatch a general-purpose subagent with
+  the same brief and the instruction "decide; do not ask".
+- **Return**: `choice · why · evidence · product_call: yes|no`. A `yes` sends the
+  item to bucket 4. Several independent items may go out in one batch.
+- Every decision becomes one decision-log row (Step 4), `result: decided`.
 
 **Mid-loop scope change.** A scope-change request (not a decision *answer* —
 a change to what the plan covers) pauses the per-item loop: confirm the scope
@@ -238,7 +296,7 @@ delta itself — what's kept, what's cut — in one `AskUserQuestion` before
 continuing. A derived boundary question asked in its place resolves nothing,
 because the boundary it assumes was never agreed.
 
-Resolve the queued user decisions via `AskUserQuestion`, ordered by dependency:
+Resolve the queued product calls via `AskUserQuestion`, ordered by dependency:
 resolve the decision other decisions hang off first, and let each answer narrow the
 next question.
 
@@ -322,8 +380,8 @@ option what it changes and what it costs:
   decision brief and offer a review page (Step 5 / `mentor:previewing`) instead —
   the user asking is the opt-in that step requires.
 
-Each answer becomes a plan input. An "Other" answer may open new questions —
-triage those through the same buckets. If the user explicitly defers a
+Each answer becomes a plan input and a decision-log row (`result: kept`). An
+"Other" answer may open new questions — triage those through the same buckets. If the user explicitly defers a
 decision, record the deferral in the plan (as a flagged assumption or under
 Out of scope) rather than silently choosing for them. A rejected or
 interrupted question is neither an answer nor a deferral — when the
@@ -331,7 +389,7 @@ clarification lands, re-issue the question; a recommendation given in prose
 does not resolve a decision, and an unresolved decision that is never
 re-asked is the shape a stalled plan takes.
 
-**Skip condition:** no open questions survived triage → proceed straight to
+**Skip condition:** no product calls survived triage → proceed straight to
 Step 4. Never manufacture questions to fill the step — a well-specified task
 with clean research needs zero.
 
@@ -440,9 +498,9 @@ when the helper is available. Otherwise perform the equivalent visible checks �
 fences, valid tables, and a `Done when:` for every implementation step — before asking
 for approval; do not fail a portable planning flow solely because the helper is absent.
 
-`verify` is one call for the three checks that gate its exit code: fence balance,
-table pipe-count uniformity, and every step in `## Implementation steps` carrying a
-`Done when:` (why one call: `references/rationale.md` → **Step 4 — why verify is one
+`verify` is one call for the four checks that gate its exit code: fence balance,
+table pipe-count uniformity, every step in `## Implementation steps` carrying a
+`Done when:`, and a new plan carrying `## Goal check` and `## Decision log` (why one call: `references/rationale.md` → **Step 4 — why verify is one
 call**). A non-zero exit
 names the failing check on its own `CHECK:` line — read that line rather than
 guessing which one broke, since a step missing its `Done when:` is also what a
@@ -485,29 +543,19 @@ Required sections, in order:
 6. `## Implementation steps` — numbered and concrete. Every step carries `Goal:`,
    `Inputs:` and `Done when:` on `-` bullets under its numbered heading; `verify` fails
    a step with no `Done when:` under it.
-   **Keep it small while you write:** if the step count creeps past ~12 while
-   drafting this section — Step 6's oversize threshold below, just reached early —
-   pause and offer to narrow the plan: move non-core **isolated deliverables** into
-   `## Out of scope`, or split. A plan's `## Verification` section is never one of those
-   chunks — every topic stays with the work it checks. Doing this while drafting beats
-   waiting for the Step 6 gate to catch an already-oversized plan; a plan that arrives at
-   Step 6 already trimmed rarely needs the full split treatment.
+   **Keep it small while you write:** if the step count creeps past ~12, move non-core
+   **isolated deliverables** into `## Out of scope` (each can become its own plan later).
+   A plan's `## Verification` section is never one of those chunks — every topic stays
+   with the work it checks.
    **Never title a step "Verification pass," "Testing," or similar** — that name
    belongs to the plan's own `## Verification` section below, and a step that reads
    as satisfying it invites skipping that section's checks at execution time. Name the step for what it builds or fixes instead.
    **A literal command written into a step here, on a live or shared system, must already
    be verified** per Step 2's directive — not transcribed from memory as you draft.
-   **A `git diff`/`git log` written against a pathspec needs `--` before the path**
-   (`git log <range> -- <path>`) — once `--` is present, git parses everything to its left
-   as a revision, so a path left of it fails `fatal: bad revision`/`ambiguous argument`
-   instead of running; a bare path with no `--` at all happens to work today only because
-   nothing on disk currently collides with a revision name, which is exactly the kind of
-   verification-time truth that stops being true later. Put `--` in front of every path
-   from the start. This applies to a command anywhere in the plan that reads as git history
-   or a diff, including `## Verification` — and if the command is piped into something like
-   `grep -c … || echo 0`, a real git failure and a genuine zero-match print the same
-   output, so the fallback silently launders an error into a passing `Done when:`. Prefer
-   checking the command's own exit status over papering over it with `|| echo 0`.
+   **A check command must fail loudly.** Prefer a command's own exit status over a
+   `|| echo 0` fallback — a real tool failure and a genuine zero then print the same
+   output, and the fallback launders an error into a passing `Done when:`. A playbook
+   may add its own command rules (the software playbook's pathspec rule, say).
 7. `## Critical files` — cite a file this repo's own tooling edits
    automatically by **section heading**, never a line number: a stale line
    reads as confirmed instead of wrong. This applies anywhere in the plan
@@ -515,7 +563,7 @@ Required sections, in order:
    `## Verification` included.
 8. `## Out of scope` — name every carve-out so the reviewer sees the
    boundary, but give one a **plan number or slug** only when it resolves on
-   disk (a plan-split sibling, or an existing plan under `.mentor/plans/`);
+   disk (an existing plan under `.mentor/plans/`);
    an invented `feature 0NN` reads as a roadmap promise nothing on disk backs.
 9. `## Verification` — 2–6 single-focus topics, each in this shape:
 
@@ -531,11 +579,31 @@ Required sections, in order:
    counter from mistaking a verification topic for an implementation step. One
    focus per topic, because a gap in one check hides behind a pass in another.
 
-   **This section owns live end-to-end proof.** When a behavior can only be shown
-   by driving a running multi-service stack, write that check as a topic here, not
-   into a step's `Done when:` — keep each `Done when:` to bounded commands (build,
-   typecheck, unit, targeted integration), so a step can be ticked the moment its
-   own change is proven rather than waiting on the whole stack.
+   **This section owns end-to-end proof.** When a behavior can only be shown by
+   exercising the whole deliverable (a running system, the full report read
+   cold), write that check as a topic here, not into a step's `Done when:` — keep
+   each `Done when:` to a bounded check, so a step can be ticked the moment its own
+   change is proven.
+10. `## Playbook` — one line: the playbook skill(s) picked in Step 2, or `none`.
+11. `## Goal check` — the plan's done predicate: one runnable or observable check
+    against the real deliverable, falsifiable, never a restatement of the steps
+    ("`scripts/check` exits 0", "the brief covers all 5 regions, each with a cited
+    source"). Shape it from the constitution's Definition of done and the
+    playbook's overlay. The run is done only when a verifier grades it PASS.
+12. `## Decision log` — one flat table, appended to for the life of the plan:
+
+    ```
+    | # | use case | decision | why | evidence | result | review? |
+    ```
+
+    `use case` names the `## Use case scenarios` entry the row serves (or `general`).
+    `result` is one of `kept` (human answered) · `decided` (agent decided) · `PASS` ·
+    `FAIL` (a verifier grade) · `paused` · `resumed` · `failed`. `review?` is `needed`
+    for a paused row, a deviation from the plan, a mid-run product call decided by an
+    agent, or a re-plan — `optional` otherwise. Every Step 3 resolution writes a row at
+    drafting
+    time; the run appends the rest. The flat table is canonical: grouping by use
+    case happens only when it is rendered for review (After Proceed → Done review).
 
 **Visualization decision rule (pick exactly ONE idiom per artifact):**
 
@@ -648,82 +716,45 @@ Decide this **before** asking too. Step 0's `CONTEXT:` line is a snapshot from
 before research and decision-resolution ran — precisely the
 steps that grow a session — so a plan that armed clean can still reach this
 question well past the WARN/HIGH thresholds with nothing in this skill
-having said so. Run this immediately before composing the question — **one call, both
-things the ask depends on**:
+having said so. Run this immediately before composing the question:
 
 ```bash
 bash "${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT}}/hooks/plan-state.sh" context
-grep -n -A 7 '^### The option set' "${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT}}/skills/planning/SKILL.md"
 ```
-
-The `context` half decides what the question text must say about size; the `grep` half
-re-reads the option table. Both exist for the same reason — a reading taken earlier in the session is stale
-by the time it matters. Neither Step 0's `CONTEXT:` line nor an earlier `context-gate.sh`
-WARN substitutes for the first, and a remembered table does not substitute for the
-second (`references/rationale.md` → **Step 6 — why the option rows are ordered the way
-they are**). If "Verify the
-write" above just ran with nothing in between, its `CHECK: context` line already **is**
-the context half — you still need the `grep`.
 
 - **`CONTEXT: WARN`** or **`CONTEXT: HIGH`** — name the size in the question text
   ("this session is getting large" / "this session is over the context limit"), even if
   Step 0 printed a lower tier or nothing at all. The option rows do not change.
 - **`CONTEXT: OK` / `UNKNOWN`** — nothing to add.
 
-### Is the plan oversized?
-
-Decide this **before** asking, because it changes which options you offer. The plan is
-oversized when any of these holds:
-
-- more than ~12 implementation steps, or
-- it contains independent deliverables that could ship separately, or
-- the user says it is too big.
-
-**Suppressed when this plan already has a `group`** — it is itself a split child, and
-re-slicing a slice usually means the first split drew its lines in the wrong place.
-Asking for a split explicitly still works if the user insists.
-
-When oversized, mention in the question text that non-core **isolated deliverables**
-can instead be **moved into `## Out of scope`** rather than a full split — a lighter
-alternative worth naming even though it isn't its own button; a plan's `## Verification`
-section is never one of those chunks, since every topic stays with the work it checks.
-The option table below is unchanged: the user reaches this by typing it into
-`AskUserQuestion`'s always-present "Other" free text, not by picking a listed option.
+If "Verify the write" just ran with nothing in between, its `CHECK: context` line
+already is this reading.
 
 ### The option set
 
-`AskUserQuestion` caps at 4, so the order is fixed here rather than left to judgment:
-
-| Condition | Options, in order |
-|---|---|
-| neither | Proceed · Deliver plan only · Keep planning |
-| oversized | **Split into multiple plans** · Proceed · Deliver plan only · Keep planning |
-
-Everything else the user may want reaches you through the always-present "Other" free
-text: a change request, moving isolated deliverables into `## Out of scope`, or a
-plan-quality ask — route it per **A plan-quality ask in "Other"** below.
-Name those in the question text so the user knows they need no button.
-
-Copy the matched row's option list into the call verbatim from the **fresh** read that
-"Re-check context" above just took — never from memory. Keep the table itself in exactly
-this one file: a copy pasted into `plan-state.sh` or any other script becomes a second
-place for it to drift out of sync with this one.
-
-(Why Split leads on an oversized plan: `references/rationale.md` → **Step 6 — why the
-option rows are ordered the way they are**. Change the table only after reading it.)
+This is the only human gate in the flow: after it, the run proceeds on its own and
+stops only for always-pause items (After Proceed). Offer exactly these three options,
+in this order, with these descriptions — and keep this table in this one file only; a
+copy in a script drifts. (Why one gate and three options: `references/rationale.md` →
+**Step 6 — why there is one gate and three options**.)
 
 | Label | Description |
 |---|---|
-| Proceed | Validate the plan, release the edit gate, and begin implementation. |
+| Proceed | Validate the plan, release the edit gate, and run it until the Goal check passes. Stops only for always-pause items; every decision is logged for review. |
 | Deliver plan only | Validate the plan and release the gate; the plan file is the deliverable — no implementation in this session. |
 | Keep planning | Do not release — keep refining, or say what to change. Re-write the plan file and ask again when ready. |
-| Split into multiple plans | Slice this plan into independently buildable sibling plans, each with explicit scope isolation. Stays in planning; asks again afterwards. |
+
+Everything else the user may want reaches you through the always-present "Other" free
+text: a change request, moving isolated deliverables into `## Out of scope`, or a
+plan-quality ask — route it per **A plan-quality ask in "Other"** below. An "Other"
+answer that plainly says to run the plan is a returned answer: treat it as **Proceed**.
+Prose outside this question still approves nothing (above).
+Name these in the question text so the user knows they need no button.
 
 On a host without `approve-plan.sh`, use the user's returned choice as the same explicit
 consent boundary, keep the plan at its durable `.mentor/` path, and report that no
 host-level gate or lifecycle sidecar was changed. Do not claim an enforced release that
-did not occur. This preserves the existing Claude state and gate semantics without
-requiring another host to emulate them.
+did not occur.
 
 On **Proceed**, run:
 
@@ -733,12 +764,11 @@ bash "${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT}}/hooks/approve-plan.sh"
 
 It validates the plan (a non-empty `.md` newer than the marker it resolves — this
 worktree's `.planning.<wt-id>`, or the legacy repo-global `.planning` when running
-in legacy_mode), and on success deletes that marker — the gate OPENS for this
-worktree (repo-wide, in legacy_mode). On failure it prints the problem, keeps the
-gate closed, and exits non-zero: fix the plan (re-write per Step 4) and re-ask. On
-success, implement the plan per **After Proceed** below — except after a Split: report
-the approved children and stop; each is built later via `/mentor:plan <child-slug>`,
-which goes straight to implementation for an approved child (Step 0).
+in legacy_mode), deletes that marker — the gate OPENS for this worktree — and writes
+the session's **run marker** `.mentor/.run-<session_id>` (`slug=` + `started=`), which
+the `plan-continue.sh` Stop hook reads to keep the run going. On failure it prints the
+problem, keeps the gate closed, and exits non-zero: fix the plan (re-write per Step 4)
+and re-ask. On success, run the plan per **After Proceed** below.
 
 On **Deliver plan only**, run:
 
@@ -746,34 +776,15 @@ On **Deliver plan only**, run:
 bash "${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT}}/hooks/approve-plan.sh" --deliver
 ```
 
-Same validation + release, then **follow the DELIVER-ONLY directive it prints** —
-report where the plan lives and STOP. Do not implement in this session.
+Same validation + release, no run marker, then **follow the DELIVER-ONLY directive it
+prints** — report where the plan lives and STOP. Do not implement in this session.
 
 **A plan-quality ask in "Other"** ("review this plan", "is this plan any good", "grill
-me more", "walk through more use-cases/scenarios", or similar) has no button in any row.
+me more", "walk through more use-cases/scenarios", or similar) has no button.
 Route it: invoke `Skill(skill="mentor:grilling")` scoped to the **drafted plan** (not
 the original request) — interview against what's already written, not from scratch.
 This never releases the gate by itself, so fold the answers into the plan, re-write it,
 and ask the approval question again.
-
-On **Split into multiple plans**, invoke `Skill(skill="mentor:plan-split")`. It writes
-only under `.mentor/plans/`, so the gate stays closed while it confirms a slice map,
-authors each child, and retires the parent. It hands the sibling set back here.
-
-**Each child is approved on its own — there is no blanket yes over the set.** Ask one
-`AskUserQuestion` (`multiSelect: true`) listing the children by slug and one-line goal:
-*"Which of these are approved to build?"* For each one the user selects, run
-`plan-state.sh set <child-slug> approved` **before** releasing the gate — a plan already
-out of `draft` is skipped by the release's promotion pass. Then release the gate once,
-as the chosen option specifies.
-
-Anything the user did **not** select is still newer than the marker, so the release
-sweeps it to `approved` with a sidecar note recording that it was not individually
-reviewed. That note is what a later session sees when it picks the child up (Step 0
-checks the sidecar `note` before building an approved plan), so confirm with the user
-before building a child that carries it. Each child is built later, one at a time, by
-running `/mentor:plan <child-slug>`, which skips straight to implementation for an
-approved child — say so in the question.
 
 On **Keep planning**, do not run the script; return to planning.
 
@@ -781,28 +792,50 @@ On **Keep planning**, do not run the script; return to planning.
 `approve-plan.sh` (it would fail outside a repo) and honor the user's choice
 directly.
 
-### After Proceed — implement in the main thread {#implement}
+### After Proceed — run until the Goal check passes {#implement}
 
-The main thread implements the approved plan, in step order:
+The approval was the human's one gate. From here the run drives the plan to its
+Goal check without asking, and records every choice it makes in `## Decision log`
+for review afterwards (AGENTS.md → Mentor core concept, rules 1–6).
 
-1. Mark execution started: `plan-state.sh set <slug> in_progress`.
-2. Build each step. As soon as its `Done when:` passes, run `plan-state.sh tick <slug> <N>`
-   — tick per step, not in a batch at the end, so an interrupted session leaves an
-   accurate record.
-3. When every step is ticked, run every check in the plan's `## Verification` section,
-   topic by topic, against its `Pass when:`.
-4. Close the state: `set <slug> implemented` when every `Done when:` and every
-   verification topic passed; otherwise `set <slug> failed --note "<what broke>"`.
-5. Report: what landed, the verification results, and every follow-up, gap, or
-   known-broken item, **named** in plain terms. Do not park or capture those yourself —
-   what happens to leftover work is the user's call.
-6. Offer `/mentor:ship` to open the PR — name it, never auto-run it.
+```mermaid
+stateDiagram-v2
+  [*] --> building: Proceed, run marker written
+  building --> grading: step built
+  grading --> ticked: verifier PASS row
+  grading --> building: FAIL, retry once
+  grading --> replanning: FAIL twice
+  replanning --> building: re-plan 1 per step, 3 per run
+  replanning --> failed: limit hit
+  building --> paused: always-pause item, or stop word
+  paused --> building: human answers, resumed row
+  ticked --> building: steps left
+  ticked --> goal: all ticked
+  goal --> deliver: verifier PASS on Goal check
+  goal --> replanning: FAIL
+  deliver --> done: deliverable handed over
+  done --> [*]
+  failed --> [*]
+```
+
+| Transition | State call (`plan-state.sh …`) | Run marker |
+|---|---|---|
+| Proceed | `approve-plan.sh` (no flag), then `set <slug> in_progress` | written by `approve-plan.sh` |
+| paused | `set <slug> approved --note "paused: row N"` | kept |
+| resumed | `set <slug> in_progress` | kept |
+| failed | `set <slug> failed --note "<what broke>"` | removed |
+| done | `set <slug> implemented` — only after the Goal-check PASS, the Done review, and delivery | removed |
+
+Remove the marker with `rm -f "$mentor_dir/.run-<session_id>"`. While the plan's stored
+state is `in_progress` and the marker exists, the Stop hook blocks a premature stop
+and names the next step; `paused`, `failed`, and `done` all let the session end.
 
 ```bash
-bash "${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT}}/hooks/plan-state.sh" set <slug> in_progress            # execution starts
-bash "${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT}}/hooks/plan-state.sh" tick <slug> <N>                   # each step's Done when: passes
-bash "${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT}}/hooks/plan-state.sh" set <slug> implemented            # every Done when: + Verification PASS
-bash "${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT}}/hooks/plan-state.sh" set <slug> failed --note "<what broke>"   # stopping with a step or verification unresolved
+bash "${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT}}/hooks/plan-state.sh" set <slug> in_progress            # run starts / resumes
+bash "${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT}}/hooks/plan-state.sh" tick <slug> <N>                   # after the step's PASS row
+bash "${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT}}/hooks/plan-state.sh" set <slug> approved --note "paused: row N"
+bash "${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT}}/hooks/plan-state.sh" set <slug> implemented            # Goal-check PASS + Done review + delivered
+bash "${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT}}/hooks/plan-state.sh" set <slug> failed --note "<what broke>"
 ```
 
 **Keep a step's own body on `-` bullets.** The step counter cannot tell a numbered
@@ -810,9 +843,71 @@ sub-item from a step, and an inflated denominator strands a finished plan at
 `in_progress` forever.
 
 The ticks are the only step tracker mentor reads — don't mirror them into a separate
-todo list as well; a second list costs a call per step and nothing reads it. Missing a
-transition is survivable — state also derives from the `✅` step ticks — but `failed`
-cannot be derived from ticks, so that one is worth remembering.
+todo list as well. Missing a transition is survivable — state also derives from the `✅`
+step ticks — but `failed` and `paused` cannot be derived from ticks.
+
+**The loop, step by step:**
+
+1. `set <slug> in_progress`. Build steps in order.
+2. **Grade every step independently.** When a step looks done, dispatch one fresh
+   verifier with its `Goal:` and `Done when:` per `references/verifier-contract.md`.
+   On PASS, append a `PASS` row citing the verdict file, then
+   `plan-state.sh tick <slug> <N>`. No PASS row, no tick — the builder never grades
+   its own work. Tick per step, never in a batch.
+3. **FAIL** → fix the `[GOAL]` gaps and re-grade once with a fresh verifier. A second
+   FAIL → **re-plan** that step: rewrite its approach (log a `review?: needed` row),
+   at most once per step and three times per run. **A re-plan never weakens a
+   `Done when:` or the Goal check** — the verifier reports a weakened check as a FAIL.
+   Limit hit → `failed`.
+4. **Every choice the plan does not cover** — a library, a file layout, a wording, a
+   workaround — is triaged as in Step 3 (evidence first, then a decision-maker) and
+   gets a row. It never becomes a question to the human; a reversible product call
+   goes to a decision-maker, logged `review?: needed`.
+5. **Pause only for an always-pause item** — the constitution's list, the built-in
+   default (constitution-authoring → "The autonomy contract"), or a picked playbook's
+   extra items — or a stop word ("stop", "pause", "wait"). Write a `paused` row, set
+   the paused state, write the **Done review** (a pause ends this run), ask the one
+   question, and on the answer write `resumed` and continue.
+6. When every step is ticked, dispatch the `## Verification` topics (one fresh
+   verifier each), write the **Done review** below, then dispatch the **Goal check**
+   verifier with it. A FAIL re-enters step 3's re-plan path for the step that owns
+   the gap.
+7. **Deliver.** The general deliver state hands the deliverable named in the Goal check
+   to the human with the Done review beside it. A picked playbook's Deliver mode
+   replaces this.
+8. `set <slug> implemented`, remove the run marker, and report.
+
+A dead end is reported, not spun on: two identical failures in a row with no new
+evidence is a re-plan, never a third identical attempt.
+(Why it runs on its own and what keeps that safe: `references/rationale.md` → **After
+Proceed — why the run keeps going on its own**.)
+
+**Hosts without a Stop hook or subagents** (Codex, or a disabled hook): the loop is a
+prose rule — keep working through the steps in this turn until a terminal state is
+reached — and verification runs serially in the main thread, labelled `self-graded` in
+every PASS row.
+
+#### The Done review {#done-review}
+
+Every terminal transition — `done`, `paused`, `failed`, and the Stop hook's idle cap —
+writes `## Done review` into `plan.md` (and into whatever a playbook's deliver mode hands
+over). Three parts, organised by the plan's use case scenarios:
+
+1. **Per scenario: expected vs observed, with evidence.** Text evidence (command
+   output, logs, responses) goes inline as short excerpts. Screenshots and larger
+   captures are saved under `.mentor/plans/<slug>/evidence/` and cited as
+   `local: .mentor/plans/<slug>/evidence/<file>` (the folder is gitignored, so say
+   so). Anything not capturable reads `evidence: not capturable on this host, verify
+   by <command>`.
+2. **Runbook, only when the deliverable needs steps after hand-over** (a migration, a
+   flag flip, a deploy, a config or secret change): numbered steps under **Before**,
+   **Hand-over**, **After**, and **Rollback** (a playbook may rename them). Otherwise
+   one line: `Runbook: n/a, hand-over is self-contained`.
+3. **Leftovers** in plain words — follow-ups, gaps, known-broken items. Do not park or
+   capture them yourself; what happens to leftover work is the user's call.
+
+Under it, render the decision log **grouped by use case**, `review?: needed` rows first
+within each group. The flat table stays canonical; this rendering is for the reader.
 
 ### Retracting an approval {#retract}
 

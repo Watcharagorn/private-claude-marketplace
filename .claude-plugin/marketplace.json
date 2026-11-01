@@ -6,7 +6,7 @@
   "plugins": [
     {
       "name": "mentor",
-      "description": "Plan-first software delivery guidance with verification and optional workflow guardrails.",
+      "description": "Plan-first agent workflow: approve a plan once, then mentor runs it to a verified done-check, pausing only for always-pause actions and logging every decision for review.",
       "source": "./plugins/mentor",
       "category": "Developer Tools"
     },

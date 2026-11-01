@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
 # test-hook-roster.sh — anti-regrowth pin for mentor's machinery surface (v3.0.0).
 #
-# The README's charter says what mentor is: two gates and a set of skills, with no
-# component that drives a multi-step run by re-polling script verdicts. That is a claim
+# The README's charter says what mentor is: two gates, one Stop hook that keeps an
+# approved run going (v6.0.0), and a set of skills — with no component that drives a
+# multi-step run by re-polling script verdicts. That is a claim
 # about the file system, not just about prose, and prose alone has already failed to
 # hold it once. The v1.0.0 slim-down deleted ~15 hooks; the plugin regrew from 32 to 79
 # files in five weeks, largely through automated `/loom:learn` cycles that harvested a
@@ -35,6 +36,7 @@ bad() { FAIL=$((FAIL+1)); printf "  FAIL %s\n" "$1"; }
 PINNED_REGISTRATIONS="$(printf '%s\n' \
   "PostToolBatch:context-checkpoint.sh" \
   "PostToolUse:plan-open.sh" \
+  "Stop:plan-continue.sh" \
   "PreToolUse:plan-gate.sh" \
   "UserPromptSubmit:context-gate.sh" \
   | sort)"
@@ -46,7 +48,7 @@ PINNED_CLIS="$(printf '%s\n' \
   "plan-state.sh" \
   | sort)"
 
-echo "== A. hooks.json registers exactly the four pinned hooks =="
+echo "== A. hooks.json registers exactly the five pinned hooks =="
 
 ACTUAL_REGISTRATIONS="$(jq -r '
   .hooks | to_entries[] as $ev
@@ -56,7 +58,7 @@ ACTUAL_REGISTRATIONS="$(jq -r '
 ' "$HOOKS_JSON" 2>/dev/null | sort)"
 
 if [ "$ACTUAL_REGISTRATIONS" = "$PINNED_REGISTRATIONS" ]; then
-  ok "hooks.json registrations match the pinned roster (4)"
+  ok "hooks.json registrations match the pinned roster (5)"
 else
   bad "hooks.json registrations drifted from the pinned roster"
   printf '       + added / - removed:\n'

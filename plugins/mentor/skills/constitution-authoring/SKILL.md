@@ -3,11 +3,14 @@ name: constitution-authoring
 description: >
   Create, amend, or show this repo's mentor CONSTITUTION — a committed,
   semantic-versioned set of governing principles (declarative, testable rules) at
-  .mentor/constitution.md that every /mentor:plan must verify against. Use this
+  .mentor/constitution.md that every /mentor:plan must verify against, plus the
+  autonomy contract an approved run follows: the always-pause list, decision
+  authority, and definition of done. Use this
   whenever the user wants to establish, change, or inspect project-wide
   planning/engineering principles or the "rules of the repo": e.g. "set up a
   constitution", "add/amend/remove a principle", "make every plan enforce X",
-  "what principles govern this repo". Standalone authoring flow — it never arms
+  "what principles govern this repo", "what may agents decide without me",
+  "what should always stop a run". Standalone authoring flow — it never arms
   the plan gate and is not itself planning. NOT for writing a single plan (use
   /mentor:plan) or judging one plan's quality (/mentor:grill).
 ---
@@ -31,6 +34,36 @@ A repo that already keeps its rulebook elsewhere (e.g. `docs/constitution.md`)
 can instead **adopt it by reference** (Step 3a): `constitution_path` in
 `.mentor/config.json` points at it, and every consumer (`plan` Step 0) resolves
 that path and reads the real file live.
+
+## The autonomy contract {#autonomy}
+
+The constitution is also what lets a run proceed without the human (AGENTS.md →
+Mentor core concept). After a plan is approved, the run stops only for items on
+the **Always-pause list**, lets agents decide what **Decision authority** grants,
+and proves completion with the **Definition of done**. Every constitution carries
+these three sections (Step 5 template); a repo with none uses the defaults below.
+
+**Built-in always-pause default** — used when no constitution exists, or its
+Always-pause list is empty. These are the irreversible or outward-facing actions:
+
+- Messages or posts to people outside the session (email, chat, comments, tickets)
+- Publishing anything public, or sharing it beyond the user
+- Deleting or overwriting data that has no copy
+- Reading, writing, or moving secrets and credentials
+- Spending money, or adding a paid or licence-changing dependency
+- Deploys and production configuration changes
+
+A playbook picked at runtime (planning Step 2) adds its own items on top — the
+software playbook adds force-push, protected branches, and merging, for example.
+The lists are a union: nothing removes an item (default or playbook) except a
+line in the constitution's Always-pause list that names and removes it. That is
+the only way to lift one, and `merging` reads such a line for merging as a
+**merge grant**. Decision authority covers reversible calls only.
+
+**Mid-run product calls.** After approval, a reversible product call goes to a
+decision-maker agent and is logged `review?: needed`; it never pauses. Always-pause
+items still pause. Stop words ("stop", "pause", "wait") write a `paused` row and the
+run pauses.
 
 The flow: guard → load any existing constitution → collect/derive principles
 (or adopt an external file by reference) → version & date → assemble
@@ -118,6 +151,11 @@ Keep the whole document short and high-signal (typically 3–7 principles). Add 
 optional extra section (Constraints / Security / Workflow) only if the user has
 rules that are not principles.
 
+Always fill the three autonomy sections (#autonomy). When bootstrapping, propose
+the built-in always-pause default plus anything the repo's own docs mark as
+dangerous, a Decision authority drawn from the repo's conventions, and a
+Definition of done drawn from its check commands or review norms.
+
 ### Step 3a — Adopt an existing external constitution (by reference) {#adopt}
 
 When the user points at a governing doc the repo **already has** ("use
@@ -185,7 +223,7 @@ Ratified: <YYYY-MM-DD>    Last amended: <YYYY-MM-DD>
 Principles added:    <names, or none>
 Principles modified: <names, or none>
 Principles removed:  <names, or none>
-Consumed by: mentor `plan` skill (Constitution Check section).
+Consumed by: mentor `planning` skill (Constitution Check, triage, and the run).
   It reads this file LIVE at plan time — there are no generated templates to
   propagate to, so no downstream files need editing.
 Deferred TODOs: <anything intentionally left open, or none>
@@ -207,6 +245,19 @@ _Rationale:_ <…>
 
 ## <Optional extra section — Constraints / Security / Workflow>
 <Only include if the user has rules that are not principles; otherwise delete this heading.>
+
+## Always-pause list
+<!-- The only actions that stop an approved run and wait for the human. -->
+- <Start from the built-in default list; add or name-and-remove items for this repo.>
+
+## Decision authority
+<!-- What agents may decide without the human, and who decides. -->
+- <e.g. "Naming, file layout, test depth, and dependency choice within the existing
+  stack are decided by a decision-maker agent and logged.">
+
+## Definition of done
+<!-- The default shape of a plan's Goal check and each step's `Done when:`. -->
+- <e.g. "The repo's check command passes" / "Every claim in a report cites a source".>
 
 ## Governance
 
@@ -268,13 +319,12 @@ printed `ADOPTED-BY-REFERENCE`. Then report:
 
 - The path and the new version (e.g. `v1.0.0 ratified` / `v1.2.0 — MINOR`).
 - A one-line summary of what changed (from the sync-impact report).
-- **Commit guidance** — it is a shared artifact every future `/mentor:plan` in this
-  repo reads, so suggest committing *and* getting it to the remote:
-  `git add .mentor/constitution.md && git commit -m "docs: constitution v<new>"`,
-  then push it the way this repo normally lands changes (`/mentor:ship` when the
-  branch needs a PR). A commit left local diverges the shared branch and the next
-  session pays for it in recovery. Do not commit or push for the user unless they ask.
-- Remind that from now on planning will include a Constitution Check against it.
+- **Sharing guidance** — it is a shared artifact every future `/mentor:plan` in this
+  repo reads, so suggest sharing it the way this repo lands changes. A copy left only
+  on this machine diverges from what the next session reads. Do not share it for the
+  user unless they ask.
+- Remind that from now on planning will include a Constitution Check against it,
+  and that an approved run pauses only on its Always-pause list.
 
 ### Do NOT
 - Do **not** run `begin-plan.sh` or arm the plan gate — this is not a plan session.

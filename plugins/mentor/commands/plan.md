@@ -27,7 +27,7 @@ Do these in order:
    ```
 
    Pass the target plan's slug as the one optional argument whenever the request
-   names an existing `.mentor/plans/<slug>/` dir (a named plan, a split child). It is
+   names an existing `.mentor/plans/<slug>/` dir. It is
    what lets `begin-plan.sh` print `ALREADY APPROVED` for an approved or in-progress
    plan (and arm nothing), and WARN when a live sibling worktree owns the slug (see
    "also armed elsewhere" below). Leave it off for a brand-new topic with no slug yet.
@@ -50,28 +50,24 @@ Do these in order:
    - **`ALREADY APPROVED: <slug>`** is not an error: that plan is already approved (or
      in progress) and this worktree may build it, so nothing was armed. Invoke
      `Skill({"skill": "mentor:planning"})` and go straight to its "After Proceed —
-     implement in the main thread {#implement}" section for that slug, after the check
+     run until the Goal check passes {#implement}" section for that slug, after the check
      its Step 0 names for this case. To re-plan it instead, run `plan-state.sh
      set <slug> draft` and re-run step 1 — safe here, since nothing was armed.
 
 2. **Immediately call `Skill({"skill": "mentor:planning"})` and follow it end
    to end** (unless step 1 printed `ALREADY APPROVED`, above).
    At the approval step, take the option list from the **option-set table** in the
-   skill's `{#approve}` section — it fixes the order, including an oversized plan
-   (which leads with **Split into multiple plans**).
-   Do not improvise the list here: one copy of it, in the skill, is the only way it
-   stays right. Each option maps to an `approve-plan.sh` invocation the skill
-   specifies; all of them validate the plan and release the gate except Split and
-   Keep planning, which stay in planning. Split returns to this same
-   question with the children's headers, where each child is approved individually —
-   never one blanket yes over the set.
+   skill's `{#approve}` section — Proceed · Deliver plan only · Keep planning. Do not
+   improvise the list here: one copy of it, in the skill, is the only way it stays
+   right. Proceed and Deliver plan only validate the plan and release the gate; Keep
+   planning stays in planning.
 
-3. **Proceed** — the main thread implements the plan per the skill's `{#implement}`
-   section. After a Split, Proceed only releases the gate for the approved children;
-   each is built later by running `/mentor:plan <child-slug>`, which goes straight to
-   implementation for an approved child. **Deliver plan only**
-   releases the gate and then STOPs, exactly as the skill states — it does not
-   implement in this session.
+3. **Proceed** — run the plan per the skill's `{#implement}` section until its Goal
+   check passes: every step graded by an independent verifier, every decision logged,
+   pausing only for always-pause items, ending with a Done review. `approve-plan.sh`
+   writes the session's run marker, and the `plan-continue.sh` Stop hook keeps the run
+   going until a terminal state. **Deliver plan only** releases the gate and then STOPs,
+   exactly as the skill states — it does not implement in this session.
 
 **Never re-run step 1 once it has armed the gate.** `begin-plan.sh` resets THIS worktree's
 `.planning.<wt-id>` marker's mtime (or the legacy `.planning`'s, in the empty-wt-id

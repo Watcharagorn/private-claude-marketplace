@@ -19,9 +19,10 @@
 # plan or re-plan (e.g. the slug named in `/mentor:plan <slug>`). Never
 # required. It does two things:
 #   • ALREADY APPROVED short-circuit: when that plan's stored state is
-#     `approved` or `in_progress` (and its ✅ ticks have not taken it past
-#     that) and it is owned by THIS worktree (or
-#     unowned), print `ALREADY APPROVED: <slug>` and exit 0 WITHOUT arming —
+#     `in_progress` (whatever its ✅ ticks say — an all-ticked run still owes
+#     its Verification, Goal check, Done review and delivery), or `approved`
+#     with ticks that have not taken it past that, and it is owned by THIS
+#     worktree (or unowned), print `ALREADY APPROVED: <slug>` and exit 0 WITHOUT arming —
 #     no marker is written or touched. Re-arming would close the edit gate
 #     on a plan that is already cleared for implementation, and nothing
 #     newer than the fresh marker exists to release it again. Re-planning
@@ -105,16 +106,22 @@ fi
 # pruned on this path. Keyed on the STORED state, not the tick-derived effective
 # one: ticks only ever advance effective state, so after the re-plan hint's
 # `set <slug> draft` a partly-ticked plan would still read in_progress and the
-# hint could never take effect. A plan whose effective state is already past it
-# (implemented/failed/superseded, e.g. fully ticked) arms as before.
+# hint could never take effect. Stored in_progress short-circuits whatever the
+# ticks say: a fully ticked run is still owed After Proceed step 6 onward, and
+# re-arming would strand it. Only a stored `approved` plan whose effective state
+# is already past it (implemented/failed/superseded, e.g. fully ticked) arms as
+# before.
 target_owner=""
 if [ -n "$target_slug" ] && [ -d "${plans_dir}/${target_slug}" ]; then
   target_dir="${plans_dir}/${target_slug}"
   target_owner="$(mentor_plan_owner "$target_dir")"
   if [ -z "$target_owner" ] || [ "$target_owner" = "$wt_id" ]; then
     case "$(mentor_plan_state_stored "$target_dir"):$(mentor_plan_effective_state "$target_dir")" in
-      approved:approved|approved:in_progress|in_progress:in_progress)
-        echo "ALREADY APPROVED: ${target_slug} — not arming the gate; implement it per planning's After Proceed section. To re-plan instead: plan-state.sh set ${target_slug} draft, then re-run."
+      approved:approved|approved:in_progress|in_progress:*)
+        msg="ALREADY APPROVED: ${target_slug} — not arming the gate; implement it per planning's After Proceed section. To re-plan instead: plan-state.sh set ${target_slug} draft, then re-run."
+        [ "$(mentor_plan_effective_state "$target_dir")" = implemented ] &&
+          msg="${msg} — run in progress (all steps ticked): resume at After Proceed step 6 (Verification, Goal check, Done review, deliver)."
+        echo "$msg"
         [ -n "$context_warn" ] && echo "$context_warn"
         exit 0
         ;;

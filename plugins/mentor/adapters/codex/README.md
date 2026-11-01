@@ -9,3 +9,9 @@ coverage fixtures prove it.
 When a host-native UI action is unavailable, use the portable fallback declared by
 the skill: ordinary conversation for questions, the current task for serial work,
 and local HTML/Markdown files for review pages.
+
+**The run loop without hooks.** Codex has no Stop hook here, so planning's
+run-until-done loop is a prose rule: after the one approval, keep working through the
+steps in the current task until a terminal state (done, paused on an always-pause item,
+or failed). Without subagents each step is graded serially in the main thread, and every
+such PASS row is labelled `self-graded` — never presented as independent.

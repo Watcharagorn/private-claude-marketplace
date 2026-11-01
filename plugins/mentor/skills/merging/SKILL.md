@@ -2,9 +2,11 @@
 name: merging
 description: >
   Watch a PR's CI checks, triage a failure once (flake vs regression vs a base branch
-  that was already broken), and merge on green — always with the user's explicit
-  go-ahead. User-invoked via /mentor:merge after /mentor:ship (or for any open PR on
-  the current branch, mentor-made or not). Use when the user says "watch the PR and
+  that was already broken), grade the PR with an independent verifier, and merge on
+  green — with the user's explicit go-ahead unless the constitution grants merge
+  authority, then walk the runbook's after-merge steps. User-invoked via /mentor:merge
+  after /mentor:ship (or for any open PR on the current branch, mentor-made or not),
+  and by playbook-software-change at the end of a plan run. Use when the user says "watch the PR and
   merge when green", "check CI and merge", "merge if checks pass", or "is this failure
   even mine". GitHub-only (needs gh); one bounded watch, one rerun max, never a
   busy-poll loop.
@@ -18,7 +20,8 @@ Use a structured question UI when the host offers one; otherwise ask the same fo
 
 This skill owns the tail of any open PR on the current branch, mentor-made or not: watch
 CI, work out **once** whether a failure is a flake, this diff's regression, or rot that
-was already on the base branch, and merge only when the user has said so. It is a
+was already on the base branch, and merge only when the user has said so or the
+constitution grants merge. It is a
 separate entry point on purpose — a shipping pass ends at "PR open", and re-running one
 to get a merge would re-run the simplify pass, the clean check, the tests and the push
 against work that is already up.
@@ -135,11 +138,39 @@ Then decide:
   watch.
 - **The same job fails the same way twice, or the failure touches this diff**: it is
   a regression. Stop, report the failing test + log excerpt, and leave the PR open.
-  Fixing it is a new working session, not a merge step.
+  Fixing it is a new working session, not a merge step. Inside a plan run this
+  re-enters the run's re-plan path.
+
+## Step 3.5 — Independent grade of the PR
+
+Before any merge is offered, dispatch one fresh verifier per
+`planning/references/verifier-contract.md` (the **Merge** row): the PR diff
+(`gh pr diff <number>`), the plan path when a plan matches the branch (Step 5's slug
+match), and its `## Goal check`. The builder never grades its own PR. Its verdict rides
+into Step 4's question:
+
+- **PASS** → offer the merge, quoting the verdict's one-line summary.
+- **FAIL** → do not offer *Merge now*; report the `[GOAL]` gaps and leave the PR open.
+  Inside a plan run this re-enters the run's re-plan path.
+- **HANDBACK** → repair the brief once and re-dispatch.
+
+No subagents on this host → run the checks yourself and say `self-graded` in the
+question. With no plan matched, grade the diff against the PR description.
 
 ## Step 4 — Merge, gated
 
-Never merge on your own judgment. Ask via `AskUserQuestion`. **Every question stands on its
+Merging into a shared branch is on the always-pause list (constitution-authoring →
+"The autonomy contract", and the software playbook's extra items), so the human
+decides — unless the constitution's Always-pause list names and removes merging (a
+**merge grant**). Then merge on a PASS and green checks, and log the row.
+
+Inside a plan run without a merge grant, the question is the hand-over, not a pause.
+Once the PASS is in and the Done review is written, `set <slug> implemented`, remove
+the run marker, then ask. Write no `paused` row.
+
+Without a merge grant, ask via `AskUserQuestion`, with the runbook's **Before merge** block from the plan's
+`## Done review` (or `Runbook: n/a, merge is self-contained`) and the verifier's grade in
+the question text. **Every question stands on its
 own** — the user answers from the question screen alone, never sent to a file, a CI log, a
 check name, or an earlier turn to learn what the question means: when a failure is what
 they are deciding about, put the failing test's name and the one line that explains it in
@@ -179,8 +210,10 @@ remainder case-insensitively as a substring against `plan-state.sh list` slugs. 
 **unique** hit is a candidate; ambiguous or no match means no candidate, and you stop
 here rather than guessing.
 
-With a candidate in hand, ask before writing — a PR often carries only some of a
-plan's steps, and `implemented` would mark the unshipped rest as done:
+Inside a plan run the slug is known and the run owns the close (planning → After
+Proceed), so write without asking. Standalone, with a candidate in hand, ask before
+writing — a PR often carries only some of a plan's steps, and `implemented` would mark
+the unshipped rest as done:
 
 ```bash
 [ -d "${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT}}/hooks" ] || { echo "ERROR: Mentor helper unavailable — set PLUGIN_ROOT (or use the Claude compatibility fallback) or use the documented artifact fallback" >&2; exit 1; }
@@ -204,7 +237,15 @@ left to fail: `set` exits 1 with "No such plan" when the plans dir exists but th
 doesn't, and inventing a slug to satisfy it is worse than stopping. No candidate, or the
 user says no → say what you found and stop; never hand-edit `.state.json`.
 
-## Step 6 — The post-merge run on the base branch
+## Step 6 — The post-merge run, and the After-merge walk
+
+**After-merge walk.** When the plan's Done review carries a runbook, walk its **After
+merge** steps in order once the merge landed. Execute a line only when it is not on the
+always-pause list; a deploy, a production config change, a data migration, or a message
+to people outside the session pauses with that line as the one question. Log a row per
+line (`PASS`, `paused`, or `FAIL`). Rollback lines are shown, never run, unless the human
+asks. Inside a plan run Step 4 already set `implemented`, so a paused After-merge line
+leaves the state `implemented` and goes into the Done review's Leftovers.
 
 Only on the **"Merge now"** branch, and only after Step 5's bookkeeping is durable — an
 `--auto` merge lands after this session ends, and a ten-minute block must never sit in
@@ -214,9 +255,11 @@ A green PR run does not imply a green base run: the PR tested a merge preview, t
 tests what actually landed. When that gap keeps biting a repo, the durable fix is branch
 protection, required checks, or a merge queue — this step reports, it does not fix.
 
-Ask once via `AskUserQuestion` — "Watch `<base>`'s post-merge run? Yes (Recommended) /
-Stop here" — because an unrequested ten-minute wait at the end of a session is worse than
-missing the result. On yes, resolve the run **by the merge SHA**, never "newest on base"
+Standalone, ask once via `AskUserQuestion` — "Watch `<base>`'s post-merge run? Yes
+(Recommended) / Stop here" — because an unrequested ten-minute wait at the end of a
+session is worse than missing the result. Inside a plan run, do not ask: watch once when
+the Goal check or a runbook **After merge** line depends on the base run, otherwise log a
+`review?: optional` row saying it was not watched. On yes, resolve the run **by the merge SHA**, never "newest on base"
 (a second merge can land first):
 
 ```bash
@@ -256,15 +299,21 @@ user ends up improvising a from-scratch deploy investigation later. Never deploy
 - The PR was resolved (argument or current branch), its checks reached a terminal
   state through at most one watch + one rerun + one more watch, any regression was
   reported with the failing test named, and a merge happened only through the user's
-  explicit choice — or the PR was left open with its status stated plainly.
+  explicit choice or a constitution merge grant (logged) — or the PR was left open with
+  its status stated plainly.
 - A red check was sorted into flake / regression / **pre-existing (broken base)** before
   the rerun was spent, using the base-branch run history and the CI-file diff — and a
   pre-existing verdict reached Step 4 as its own option set, with the base fix named
   plainly in the report as leftover work, never as a third dead end.
-- A landed merge either closed its plan's state on the user's say-so — `implemented`
-  with a `merged: PR #<n> <sha>` note, in every state but `superseded` — or reported that
-  no plan matched the branch — never left a shipped plan silently `in_progress`. A PR
-  merged outside the session still reached this step, rather than being reported as
+- A landed merge added the `merged:` note. Standalone, it also closed the plan's state as
+  `implemented` on the user's say-so; inside a plan run the run had already set
+  `implemented` (either way, in every state but `superseded`). With no plan matching the
+  branch it said so — never left a shipped plan silently `in_progress`. A PR merged
+  outside the session still reached this step, rather than being reported as
   "no open PR, nothing to do".
-- After a "Merge now", the base branch's post-merge run was either watched once on the
-  user's say-so and its result reported, or explicitly declined — never polled in a loop.
+- After a merge, the base branch's post-merge run was, standalone, either watched once
+  on the user's say-so and its result reported, or explicitly declined; inside a plan
+  run, watched once without asking when the Goal check or an After-merge line depends
+  on it, otherwise logged as not watched (Step 6) — never polled in a loop.
+- A merge was offered only after an independent verifier graded the PR (Step 3.5), and
+  the runbook's After-merge lines ran or paused one by one, each logged.

@@ -202,7 +202,7 @@ mkdir -p "$scratch_dir" 2>/dev/null || true
 find "$scratch_dir" -maxdepth 1 -name '.planning-intent-*' -mmin +1440 -delete 2>/dev/null || true
 : > "$marker" 2>/dev/null || true
 
-echo "[mentor] This looks like a planning request. Offer the user \`/mentor:plan <topic>\` so mentor's edit gate and structured plan format apply — do NOT invoke Skill(mentor:planning) yourself; only the /mentor:plan command arms the gate that makes it safe. (Disable this advisory with MENTOR_PLANNING_INTENT=off or \"planning_intent\":\"off\" in .mentor/config.json.)"
+echo "[mentor] This looks like a planning request. Use mentor's planning flow so its structured plan format and approval boundary apply: invoke Skill(mentor:planning) directly, or offer the user \`/mentor:plan <topic>\`, which in Claude Code also arms the enforced edit gate. (Disable this advisory with MENTOR_PLANNING_INTENT=off or \"planning_intent\":\"off\" in .mentor/config.json.)"
 
 return 0
 }

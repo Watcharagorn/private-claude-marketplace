@@ -378,15 +378,36 @@ EOF
   exit 0
 fi
 
-# Restate the implementation directive here — informational only, no enforcement —
-# because this is the exact moment the model resumes after the Bash call (printed on
-# re-runs too, mirroring the idempotent-directive rule for the flags above).
+# v6.0.0 — the run marker. Proceed (no flag) starts an autonomous run: write
+# .mentor/.run-<session_id> (slug= + started=) so plan-continue.sh, the Stop hook, keeps
+# the session going while the plan's stored state is in_progress. --deliver exited
+# above, so it never writes one. No session id (not under Claude Code) → no marker:
+# the run loop is then the skill's prose rule alone. Pruned after 1440 minutes, the
+# same pattern context-checkpoint.sh uses for its own markers.
+run_slug=""
+[ -n "${newest_plan:-}" ] && run_slug="$(basename "$(dirname "$newest_plan")")"
+if [ "$this_session" != "nosession" ] && [ -n "$run_slug" ]; then
+  run_state_dir="$(mentor_state_dir "$repo_root")"
+  if [ -n "$run_state_dir" ]; then
+    mkdir -p -m 700 "$run_state_dir" 2>/dev/null || true
+    find "$run_state_dir" -maxdepth 1 -name '.run-*' -mmin +1440 -delete 2>/dev/null || true
+    printf 'slug=%s\nstarted=%s\n' "$run_slug" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+      > "${run_state_dir}/.run-${this_session}" 2>/dev/null || true
+    echo "  run: marker written — the Stop hook keeps this session going while ${run_slug} is in_progress"
+  fi
+fi
+
+# Restate the run directive here — informational only — because this is the exact
+# moment the model resumes after the Bash call.
 cat <<EOF
 
-Implement the plan's steps in the main thread. As each step's "Done when:" passes,
-tick it (plan-state.sh tick <slug> <N>). Then run every ## Verification check and
-set the plan implemented (plan-state.sh set <slug> implemented) — or failed, with
---note "<why>" — and offer /mentor:ship.
+Run the plan until its Goal check passes (planning → "After Proceed"):
+  plan-state.sh set ${run_slug:-<slug>} in_progress, then build each step in order.
+  After each step, dispatch a fresh verifier (planning/references/verifier-contract.md);
+  tick only after its PASS row in ## Decision log. Log every decision you make.
+  Pause only for an always-pause item. When every step is ticked, grade the
+  ## Verification topics, write ## Done review, grade the ## Goal check against it,
+  deliver, then set the plan implemented — or failed, with --note "<why>".
 EOF
 
 exit 0

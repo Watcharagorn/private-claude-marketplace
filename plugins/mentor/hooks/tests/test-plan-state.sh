@@ -568,8 +568,11 @@ ps tick tk 2 >/dev/null; ps tick tk 4 >/dev/null
 chk "all 4 steps ticked → derived state reaches implemented" test "$(state_of tk)" = "implemented"
 
 echo "== L3. verify <slug>: plan.md structural checks + folded CONTEXT read =="
+# v6: a draft plan must carry ## Goal check + ## Decision log, so every structural
+# fixture below gets both appended; their absence is tested on its own in L3c.
+vplan() { plan "$@"; printf '%s\n' '' '## Goal check' '`true` exits 0' '' '## Decision log' '' >> "$PLANS/$1/plan.md"; }
 rm -rf "$PLANS"; mkdir -p "$PLANS"
-plan vf '# Verify test' '' 'Rev 1: initial draft' 'Rev 2: added scope' '' \
+vplan vf '# Verify test' '' 'Rev 1: initial draft' 'Rev 2: added scope' '' \
   '## Decisions' '' '| A | B |' '|---|---|' '| 1 | 2 |' '' \
   '```bash' 'echo hi' '```'
 out="$(ps verify vf)"; rc=$?
@@ -579,51 +582,51 @@ chk "..reports tables uniform"                      has "CHECK: tables uniform" 
 chk "..reports Rev-note order monotonic"            has "CHECK: Rev-note order monotonic (1,2)" "$out"
 chk "..reports a context line (informational)"      has "CHECK: context" "$out"
 
-plan vf-fence '# t' '```bash' 'echo hi' '```' '```python' 'never closed'
+vplan vf-fence '# t' '```bash' 'echo hi' '```' '```python' 'never closed'
 out="$(ps verify vf-fence)"; rc=$?
 chk "verify (unbalanced fence) → exit 1"            test "$rc" = "1"
 chk "..names the odd marker count"                  has "CHECK: fences UNBALANCED (3 markers" "$out"
 
-plan vf-table '# t' '| A | B |' '|---|---|' '| 1 | 2 | 3 |'
+vplan vf-table '# t' '| A | B |' '|---|---|' '| 1 | 2 | 3 |'
 out="$(ps verify vf-table)"; rc=$?
 chk "verify (mismatched table) → exit 1"            test "$rc" = "1"
 chk "..names the mismatched line"                   has "CHECK: table pipe-count MISMATCH:" "$out"
 chk "..points at the block's start line"            has "line 2: pipe-count mismatch" "$out"
 
-plan vf-revs '# t' '' 'Rev 3: third' 'Rev 1: first' 'Rev 2: second' '' '## Section'
+vplan vf-revs '# t' '' 'Rev 3: third' 'Rev 1: first' 'Rev 2: second' '' '## Section'
 out="$(ps verify vf-revs)"; rc=$?
 chk "verify (non-monotonic Rev order) → still exit 0 (informational only)" test "$rc" = "0"
 chk "..reports the non-monotonic sequence"          has "CHECK: Rev-note order NOT monotonic (3,1,2)" "$out"
 
-plan vf-norevs '# t' 'No Rev headers here at all — the content spec never mandates one.'
+vplan vf-norevs '# t' 'No Rev headers here at all — the content spec never mandates one.'
 out="$(ps verify vf-norevs)"; rc=$?
 chk "verify (no Rev lines at all) → exit 0"         test "$rc" = "0"
 chk "..prints no Rev-note CHECK line (never a false positive on an unspec'd format)" \
   hasnt "Rev-note order" "$out"
 
 echo "== L3b. verify <slug>: step-structure checks (Done when: GATES; stray ✅ / ### report) =="
-plan vf-steps '# t' '## Implementation steps' '' 'Step 1 — one' '  Done when: `true` exits 0' '' 'Step 2 — two' '  Done when: `true` exits 0' '' '## Verification'
+vplan vf-steps '# t' '## Implementation steps' '' 'Step 1 — one' '  Done when: `true` exits 0' '' 'Step 2 — two' '  Done when: `true` exits 0' '' '## Verification'
 out="$(ps verify vf-steps)"; rc=$?
 chk "verify (every step body carries a Done when:) → exit 0" test "$rc" = "0"
 chk "..reports the step count"                      has "CHECK: step bodies complete (2 step(s)" "$out"
 
-plan vf-nodw '# t' '## Implementation steps' '' 'Step 1 — one' '  Done when: `true` exits 0' '' 'Step 2 — no criterion at all' '  Goal: something' '' '## Verification'
+vplan vf-nodw '# t' '## Implementation steps' '' 'Step 1 — one' '  Done when: `true` exits 0' '' 'Step 2 — no criterion at all' '  Goal: something' '' '## Verification'
 out="$(ps verify vf-nodw)"; rc=$?
 chk "verify (a step body with no Done when:) → exit 1" test "$rc" = "1"
 chk "..flags it as INCOMPLETE"                      has "CHECK: step body INCOMPLETE" "$out"
 chk "..names the offending step, not just a count"  has "Step 2 — no criterion at all" "$out"
 
-plan vf-nosteps '# t' '## Goal' 'A plan not yet fleshed out carries no Implementation steps section.'
+vplan vf-nosteps '# t' '## Goal' 'A plan not yet fleshed out carries no Implementation steps section.'
 out="$(ps verify vf-nosteps)"; rc=$?
 chk "verify (no steps section yet) → exit 0" test "$rc" = "0"
 chk "..says so rather than reporting zero steps"    has "no ## Implementation steps section" "$out"
 
-plan vf-stray '# t' '## Implementation steps' '' 'Step 1 — one' '  Inputs: Step 0 output. ✅' '  Done when: `true` exits 0' '' '## Verification'
+vplan vf-stray '# t' '## Implementation steps' '' 'Step 1 — one' '  Inputs: Step 0 output. ✅' '  Done when: `true` exits 0' '' '## Verification'
 out="$(ps verify vf-stray)"; rc=$?
 chk "verify (✅ on a non-step line) → exit 0, informational only" test "$rc" = "0"
 chk "..reports the tick the counter cannot see"     has "✅ on a non-step line" "$out"
 
-plan vf-glue '# t' '## Implementation steps' '' 'Step 1 — one' '  Done when: `true` exits 0' '' '### Release' '- ship it' '' '## Verification'
+vplan vf-glue '# t' '## Implementation steps' '' 'Step 1 — one' '  Done when: `true` exits 0' '' '### Release' '- ship it' '' '## Verification'
 out="$(ps verify vf-glue)"; rc=$?
 chk "verify (### inside the steps section) → exit 0, informational only" test "$rc" = "0"
 chk "..reports the heading that gets glued on"      has "### heading inside ## Implementation steps" "$out"
@@ -632,10 +635,25 @@ chk "..reports the heading that gets glued on"      has "### heading inside ## I
 # beginning `48, ` must not read as its own step — under the old `\.` form it did,
 # which both inflated the count and stranded the real step's Done when: beneath a
 # phantom successor.
-plan vf-wrapped '# t' '## Implementation steps' '' 'Step 1 — one' '  Inputs: rows 7, 17, 42,' '    48, 55, 61, 66); final descriptions.' '  Done when: `true` exits 0' '' '## Verification'
+vplan vf-wrapped '# t' '## Implementation steps' '' 'Step 1 — one' '  Inputs: rows 7, 17, 42,' '    48, 55, 61, 66); final descriptions.' '  Done when: `true` exits 0' '' '## Verification'
 out="$(ps verify vf-wrapped)"; rc=$?
 chk "verify (wrapped '48, ' continuation) → exit 0" test "$rc" = "0"
 chk "..counts one step, not two"                    has "CHECK: step bodies complete (1 step(s)" "$out"
+
+echo "== L3c. verify <slug>: v6 run sections gate a draft plan only =="
+plan vf-nogoal '# t' '## Decision log' ''
+out="$(ps verify vf-nogoal)"; rc=$?
+chk "verify (draft, no ## Goal check) → exit 1"        test "$rc" = "1"
+chk "..names the missing Goal check"                   has "MISSING:.*Goal check" "$out"
+plan vf-nolog '# t' '## Goal check' '`true` exits 0'
+out="$(ps verify vf-nolog)"; rc=$?
+chk "verify (draft, no ## Decision log) → exit 1"      test "$rc" = "1"
+chk "..names the missing Decision log"                 has "MISSING:.*Decision log" "$out"
+plan vf-legacy '# t' 'A plan written before v6 carries neither section.'
+ps set vf-legacy implemented >/dev/null
+out="$(ps verify vf-legacy)"; rc=$?
+chk "verify (legacy implemented plan, no run sections) → exit 0" test "$rc" = "0"
+chk "..says the check was not required"                has "run sections not required" "$out"
 
 out="$(ps verify)"; rc=$?
 chk "verify with no slug → exit 1"                  test "$rc" = "1"
@@ -947,7 +965,7 @@ plan cc-fire; plan cc-silent-otherstate; plan cc-refire; plan cc-failed
 merged="$(ps set cc-fire implemented)"; rc=$?   # ps merges stdout+stderr — one call, several assertions
 chk "fresh implemented → reminder fires"                    has "Closing checklist" "$merged"
 chk "reminder → asks to name follow-ups"                     has "follow-up WORK item" "$merged"
-chk "reminder → names the /mentor:ship pointer"              has "/mentor:ship" "$merged"
+chk "reminder → asks for the Done review"                    has "Done review" "$merged"
 chk "reminder → names no removed command"                    hasnt "/mentor:\(defer\|tour\|track\|handoff\)" "$merged"
 chk "reminder → no TaskList / dispatch wording"              hasnt "TaskList\|dispatch\|verifier" "$merged"
 chk "reminder → still reports the state transition"         has "unknown → implemented" "$merged"
@@ -963,7 +981,7 @@ chk "idempotent re-close (before==state already) → silent"   hasnt "Closing ch
 out="$(ps set cc-failed failed --note "verification unresolved")"
 chk "failed → reminder fires"                                has "Closing checklist" "$out"
 chk "failed → follow-up line still fires"                    has "follow-up WORK item" "$out"
-chk "failed → ship pointer held"                             hasnt "/mentor:ship" "$out"
+chk "failed → Done-review line fires too"                     has "Done review" "$out"
 
 # A plan whose ✅ ticks alone already self-heal mentor_plan_effective_state to
 # "implemented" — with NO prior `set` call — must still get this reminder on its real

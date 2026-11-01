@@ -1,9 +1,9 @@
 {
-  "eval_name": "mentor-v5.0.0-cross-host-skill-routing",
+  "eval_name": "mentor-v6.0.0-cross-host-skill-routing",
   "note": "Cross-host multi-class routing: every query is scored on WHICH mentor skill fires, not whether one does. 'none' means no mentor skill should be consulted.",
   "skills_in_play": [
     "planning",
-    "plan-split",
+    "playbook-software-change",
     "grilling",
     "previewing",
     "merging",
@@ -13,21 +13,9 @@
   ],
   "evals": [
     {
-      "id": 1,
-      "expected": "plan-split",
-      "tests": "core trigger",
-      "query": "ok this plan is enormous. .mentor/plans/multi-tenant-billing/plan.md has like 19 implementation steps and it covers metering ingestion, invoicing AND the tenant scoping migration. theres no way i finish that in one sitting. can we make each of those its own plan file?"
-    },
-    {
-      "id": 2,
-      "expected": "plan-split",
-      "tests": "core trigger, casual phrasing, no filename",
-      "query": "break this up into separate plans i can build one session at a time"
-    },
-    {
       "id": 3,
       "expected": "none",
-      "tests": "NEAR-MISS vs plan-split: in-document phasing is a plan re-write, not a split",
+      "tests": "NEGATIVE: in-document phasing is a plan re-write, not a split",
       "query": "the implementation steps in the plan are kind of a jumbled mess — can you reorganize them into phase 1 / phase 2 / phase 3 inside the doc so it reads in a sane order?"
     },
     {
@@ -57,13 +45,13 @@
     {
       "id": 14,
       "expected": "none",
-      "tests": "NEAR-MISS vs plan-split: 'break up' about commits, not plans",
+      "tests": "NEGATIVE: 'break up' about commits, not plans",
       "query": "this branch has one giant commit with 40 files in it. can you break this refactor up into smaller commits that each do one thing?"
     },
     {
       "id": 15,
       "expected": "none",
-      "tests": "NEAR-MISS vs plan-split: 'split' about source code, not plans",
+      "tests": "NEGATIVE: 'split' about source code, not plans",
       "query": "src/components/DashboardShell.tsx is 900 lines and its unmaintainable. can you split it into smaller files?"
     },
     {
@@ -169,15 +157,9 @@
       "query": "just show me a diagram of the current auth flow, one page is fine"
     },
     {
-      "id": 52,
-      "expected": "plan-split",
-      "tests": "core trigger, retiring-a-superseded-plan use case, no split language in the ask at all",
-      "query": "the thanos-argo-p2-manifests-actions plan got split into 4 child plans a while back and it's marked superseded now. can you delete that old parent plan directory? just want to clean it up"
-    },
-    {
       "id": 53,
       "expected": "none",
-      "tests": "NEAR-MISS vs plan-split's retiring case: deleting a FILE the user names directly, no plan/state vocabulary at all — this is a plain filesystem ask, not mentor's plan lifecycle",
+      "tests": "NEGATIVE: deleting a FILE the user names directly, no plan/state vocabulary at all — this is a plain filesystem ask, not mentor's plan lifecycle",
       "query": "theres an old draft.md sitting in the repo root nobody uses anymore, can you just rm it"
     },
     {
@@ -263,6 +245,24 @@
       "expected": "none",
       "tests": "NEAR-MISS vs frontend-self-ex-review: 'review' + a UI component, but a code review",
       "query": "review the SettingsForm component code - any bugs, or anything that makes it re-render too much?"
+    },
+    {
+      "id": 74,
+      "expected": "planning",
+      "tests": "v6: a code-change goal still routes to planning; the playbook is loaded BY planning, never directly",
+      "query": "the checkout page throws a 500 when the cart has a discounted bundle. plan the fix and just run it till its done, im heading to bed"
+    },
+    {
+      "id": 75,
+      "expected": "planning",
+      "tests": "v6: a non-code goal is a planning goal too (general-purpose workflow)",
+      "query": "i need a 2 page market brief on SEA cloud pricing for thursday's exec meeting, every claim sourced. plan it out and then go do it"
+    },
+    {
+      "id": 76,
+      "expected": "constitution-authoring",
+      "tests": "v6: the autonomy contract lives in the constitution",
+      "query": "i want agents to stop asking me about naming and test depth, but they must always stop before deploying or messaging anyone outside the team. where do i set that for this repo?"
     }
   ]
 }
