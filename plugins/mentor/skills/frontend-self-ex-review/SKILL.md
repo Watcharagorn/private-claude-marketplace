@@ -53,7 +53,7 @@ asked for.
 - **Prose is the task** — editing an article, docs, release notes, or marketing copy. Text
   that *is* the user's content (descriptions, quotations, records) is never this skill's to
   cut, even inside an app.
-- **Judging a written plan's quality** — a plan-review job. Reviewing whether the *UI a plan
+- **Judging a written plan's quality** — that is a plan-quality pass (`/mentor:grill`), not a UI review. Reviewing whether the *UI a plan
   proposes* will explain itself is fine: treat the plan as a description input.
 - **Code or PR review**, or a **purely aesthetic restyle** ("make it look stunning") — a design
   skill's job; this skill keeps the existing design system.

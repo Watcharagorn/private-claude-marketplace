@@ -2,8 +2,10 @@
 name: planning
 description: >
   Create a Mermaid-first Markdown implementation plan for a natural-language request
-  or explicit skill invocation. Guides research, domain routing, decision support,
-  a durable plan under .mentor/, and explicit approval before implementation. In
+  or explicit skill invocation. Use whenever the user asks to plan, design, or scope
+  a change before building it. Guides research, one-at-a-time decision support, a
+  durable plan under .mentor/, explicit approval, then main-thread implementation
+  with step ticks and a closing verification pass. In
   Claude Code, /mentor:plan remains a compatible command facade that pre-arms its
   edit gate; direct or other-host invocation uses the same planning contract with an
   advisory read-only boundary when that host cannot provide the gate.
@@ -15,12 +17,11 @@ description: >
 
 Use a structured question UI when the host offers one; otherwise ask the same focused question directly and wait for the answer. If delegated agents are unavailable or prohibited, perform the required research, review, or implementation serially and retain the same evidence, scope, and verification contract. Treat Mentor helpers as optional host integrations: resolve them with `PLUGIN_ROOT` first, then `CLAUDE_PLUGIN_ROOT`; if neither is available, work from the repository's durable `.mentor/` artifacts and report any state action that cannot be performed safely. This rule overrides later host-specific tool names, preserving user choice and plan continuity across hosts.
 
-The flow: resolve the mode & load the constitution → clarify if needed →
-research (delegation suggested) → domain routing → resolve open decisions
-with the user → write the Markdown plan
+The flow: check the gate & load the constitution → clarify if needed →
+research → resolve open decisions with the user → write the Markdown plan
 (with a Constitution Check when a constitution exists) → (optional
 review page via `mentor:previewing`, on request) → approve & release →
-routed implementation (dispatch-agents decides main thread vs subagents).
+implement, tick each step, run the plan's verification.
 
 While this worktree's `.planning.<wt-id>` marker is armed — or the legacy,
 repo-global `.planning` marker, which blocks every worktree at once —
@@ -32,7 +33,7 @@ inside the gate-exempt `.mentor/` tree. Do not run
 repo-mutating shell commands during planning either; Bash is not enforced,
 but the rule is the same.
 
-## Step 0 — Mode & constitution {#mode}
+## Step 0 — Gate & constitution {#gate}
 
 This is a direct planning entry point: select it when the user asks to plan, whether
 they use natural language, a host's skill picker, or Claude Code's `/mentor:plan`
@@ -46,8 +47,8 @@ Resolve the optional Mentor helpers portably. `PLUGIN_ROOT` is the canonical hos
 contract; `CLAUDE_PLUGIN_ROOT` is a Claude Code compatibility fallback:
 
 ```bash
-plugin_root="${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:-}}"
-if [ -n "$plugin_root" ] && [ -x "$plugin_root/hooks/plan-state.sh" ]; then
+plugin_root="${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT}}"
+if [ -n "$plugin_root" ] && [ -f "$plugin_root/hooks/plan-state.sh" ]; then
   mentor_dir="$(bash "$plugin_root/hooks/plan-state.sh" dir)"
   gate="$(bash "$plugin_root/hooks/plan-state.sh" gate)"
   printf 'MENTOR_HELPERS=available\nGATE=%s\n' "$gate"
@@ -68,16 +69,7 @@ slash command — and state that no host-level edit gate is active. Do not run
 (Why a genuine Claude gate must be observed when present: `references/rationale.md`
 → **Step 0 — the armed-gate check**.)
 
-When the Claude facade ran, `begin-plan.sh` may have printed a `MODE:` line. The mode is only the **approval-gate
-default** — it decides which option Step 6 lists first; both outcomes are
-always offered there, and you never ask the user to pick a mode upfront:
-
-- **`MODE: plan-only`** — list **"Deliver plan only"** first at Step 6.
-- **`MODE: plan`**, **`MODE: UNSET (default: plan)`**, or no `MODE:` line at all
-  — list **"Proceed"** first. No line is the ordinary reading for direct invocation;
-  default to `plan` rather than inventing a script call to look for one.
-
-`begin-plan.sh` may also print a **`CONTEXT:`** line (the context gate):
+When the Claude facade ran, `begin-plan.sh` may have printed a **`CONTEXT:`** line (the context gate):
 
 - **`CONTEXT: WARN`** — the session is getting large. Surface it to the user. Nothing
   about *how* you plan changes.
@@ -85,7 +77,30 @@ always offered there, and you never ask the user to pick a mode upfront:
   review page (Step 5) yourself — an explicit user ask is still honored. "Keep the plan
   lean" means exactly that omission: Step 4's content spec never shrinks.
 
-The context gate only warns — it never calls for a handoff.
+The context gate only warns.
+
+**An already-approved plan goes straight to implementation.** When the facade printed
+**`ALREADY APPROVED: <slug>`** (`begin-plan.sh` saw that slug `approved` or
+`in_progress`, owned by this worktree or unowned, and did not arm) — or, on direct or
+other-host entry, the user named an existing plan and its sidecar passes the same rule:
+
+```bash
+plans="$mentor_dir/plans"   # mentor_dir from the Step 0 block
+jq -r '"stored=\(.state // "") owner=\(.owner // "") note=\(.note // "")"' "$plans/<slug>/.state.json"
+```
+
+Build only when `stored` is `approved` or `in_progress` and the step ticks have not taken
+it past that (with helpers, `plan-state.sh query --slug <slug> --format tsv --fields state`
+reads `approved` or `in_progress`) — the rule `begin-plan.sh` applies. If `owner` is set
+and this is not the facade path, ask the user before building.
+
+Then skip Steps 1–6 and go to **After Proceed — implement in the main thread**
+(`{#implement}`) for that slug — re-planning an approved plan would only re-ask a
+question the user already answered. One check first: a
+`note` saying it was **not individually reviewed** (a split child swept in by a release)
+means nobody approved it on its own: confirm with the user before building it. To
+re-plan instead, run `plan-state.sh set <slug> draft`, then plan it again
+(`/mentor:plan <slug>` in Claude Code).
 
 **Load the constitution.** Resolve the constitution path (a repo may keep its
 governing doc outside `.mentor/` — `constitution_path` in `.mentor/config.json`
@@ -94,8 +109,8 @@ points at it; see `/mentor:constitution`'s adopt-by-reference branch):
 ```bash
 # `mentor_dir` comes from the Step 0 helper-or-artifact fallback. Re-derive it when
 # this runs in a separate shell.
-plugin_root="${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:-}}"
-if [ -n "$plugin_root" ] && [ -x "$plugin_root/hooks/plan-state.sh" ]; then
+plugin_root="${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT}}"
+if [ -n "$plugin_root" ] && [ -f "$plugin_root/hooks/plan-state.sh" ]; then
   mentor_dir="$(bash "$plugin_root/hooks/plan-state.sh" dir)"
 else
   mentor_dir="$(git rev-parse --show-toplevel 2>/dev/null || pwd)/.mentor"
@@ -120,53 +135,20 @@ If the request is ambiguous — unclear scope, multiple plausible interpretation
 missing acceptance criteria — invoke `Skill(skill="mentor:grilling")` before
 designing anything. Skip this for well-specified tasks.
 
-## Step 2 — Research (delegation suggested, not enforced) {#research}
+## Step 2 — Research {#research}
 
-For multi-area or unfamiliar tasks, prefer dispatching **1–3 read-only `Explore`
-agents** over disjoint areas, pinned to `model: sonnet` (locate-and-map work, not
-design — leaving it unpinned multiplies the session model's cost by every agent in the
-batch). **Issue every `Agent()` call for the batch in a single message**, N `tool_use`
-blocks side by side: the agents run async either way, so serializing costs a full
-main-thread round trip per agent and buys nothing.
-
-Two signals earn a dispatch:
-
-- **An unfamiliar external platform together with 2+ pre-existing areas of the repo.**
-  Each half alone looks manageable inline; the pair is what exhausts a context window.
-- **2+ separate git roots touched by one plan.** Each root carries a full orientation
-  cost the other root's research cannot amortize, so this one stands alone. Resolve each
-  root's real path first (`git rev-parse --show-toplevel`) — a stale duplicate checkout
-  otherwise burns a whole dispatch on the wrong copy — and note that the edit gate
-  protects only the repo the session's CWD sits in, so work landing in a second root is
-  not read-only-gated until that root has its own plan.
-
-For small, well-scoped tasks, read the files and draft in the main thread. Nothing
-enforces delegation — but **once main-thread research reading passes roughly 5 files or
-~500 cumulative lines, the task is no longer small**: dispatch an `Explore` for what is
-left. Context spent on raw research reads does not come back for grilling, drafting, or
-Step 3.5's decision loop. (The one artifact a decision actually turns on is still read
-here, per Step 3.5's evidence rule; it is the survey reading around it that belongs in
-an agent.)
-**Run the pre-dispatch preflight before the first `Agent()` call, not after.** One
-call answers both questions this step has to settle, and it costs a line rather than a
-skill load:
-
-```bash
-[ -d "${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:-}}/hooks" ] || { echo "ERROR: Mentor helper unavailable — set PLUGIN_ROOT (or use the Claude compatibility fallback) or use the documented artifact fallback" >&2; exit 1; }
-bash "${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:-}}/hooks/plan-state.sh" policy
-```
-
-Follow its printed guidance verbatim — it states the verdict, what to ask (or not ask),
-and whether the standing dispatch block is actually reaching your agents.
-
-One nudge on a silent idle; close each agent out once its findings are consumed
-(`dispatch-agents`' "Async runtime & lifecycle", which governs these dispatches without
-needing to be loaded here — the hook delivers what the agent must know).
+Research what the plan needs: the code, config, docs and history the change touches,
+and the facts each decision will turn on. How you gather it is up to you and the host —
+read directly for a small task, or use whatever research tooling the host offers for a
+wide one. Bring back conclusions with `file:line` evidence and a short list of open
+questions; those questions feed Step 3's triage and are never silently dropped. When the
+plan touches a second git root, resolve its real path first (`git rev-parse
+--show-toplevel`) — the edit gate protects only the repo the session's CWD sits in.
 
 **Research the category, not just the named instance.** When the request names
 one instance of something the repo may have several of — one job to make
 continuous, one config to centralize, one surface to consolidate — search for
-its siblings before drafting, and carry each hit into Step 3.5 as a scope
+its siblings before drafting, and carry each hit into Step 3 as a scope
 decision. A sibling found at the approval gate rewrites the plan; the same
 sibling found here costs one question.
 
@@ -175,7 +157,7 @@ migration or cleanup that only fixes the data leaves whatever produced it free
 to reproduce the same defect on the next run — a script, an importer, a cron
 job, a form handler, or a skill/rule that doesn't validate before writing are
 all candidates. Search for that producer before drafting, and carry what you
-find into Step 3.5 as a scope decision, the same way a sibling instance is
+find into Step 3 as a scope decision, the same way a sibling instance is
 above.
 
 **A page/feature joining an existing repeated pattern may have its membership
@@ -192,25 +174,22 @@ list found here costs one question.
 the user interrupts mid-research to broaden or redirect the request and
 re-invokes `/mentor:plan`, or when a `grilling` phase (via `/mentor:grill`
 directly, or Step 1's own route into it) already ran earlier in this session,
-check the conversation for research FINDINGS already delivered on the same
-subject before dispatching a fresh round — a broadened scope usually extends
-prior findings rather than replacing them, and a prior grill's dispatched
-agent may have already covered the same ground, so re-running agents over
-territory already covered wastes a full research fan-out on overlap the
-transcript already has the answer to. Dispatch new agents only for the
-ground the broadened request — or the grill's own research — genuinely
-didn't cover.
+check the conversation for research findings already delivered on the same
+subject before starting a fresh round — a broadened scope usually extends
+prior findings rather than replacing them, and a prior grill's research
+may have already covered the same ground, so re-researching territory
+already covered wastes a full round on overlap the transcript already has
+the answer to. Research only the ground the broadened request — or the
+grill's own research — genuinely didn't cover.
 
-**Never search `.mentor/` with a recursive `grep` — use `sweep`.** `.mentor/.gitignore`
-is `*` plus three negations, and grep applies ignore rules while *it* walks, so a
-recursive search rooted at or above `.mentor/` reports a clean zero for a standing
-instruction recorded in a handoff note — indistinguishable from "nothing is recorded".
-No "no ignore" flag fixes this portably (ugrep rejects the GNU spelling outright).
-`sweep` hands grep an explicit file list instead — `find` walks, `grep` only reads —
-and resolves linked worktrees to the main repo's `.mentor/`:
+**Never search `.mentor/` with a recursive `grep` — use `sweep`.** Ignore rules make a
+recursive grep report a clean zero for a recorded instruction, which looks the same as
+"nothing recorded" (mechanism: `references/rationale.md` → **Step 2 — why searching
+`.mentor/` needs `sweep`, not a grep**). `sweep` hands grep an explicit file list and
+resolves linked worktrees to the main repo's `.mentor/`:
 ```bash
-[ -d "${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:-}}/hooks" ] || { echo "ERROR: Mentor helper unavailable — set PLUGIN_ROOT (or use the Claude compatibility fallback) or use the documented artifact fallback" >&2; exit 1; }
-bash "${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:-}}/hooks/plan-state.sh" sweep "<pattern>" --roots plans
+[ -d "${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT}}/hooks" ] || { echo "ERROR: Mentor helper unavailable — set PLUGIN_ROOT (or use the Claude compatibility fallback) or use the documented artifact fallback" >&2; exit 1; }
+bash "${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT}}/hooks/plan-state.sh" sweep "<pattern>" --roots plans
 ```
 It prints `SWEEP: roots=N files=N hits=N` before any hits, so a zero is trustworthy only
 when `files=` is non-zero; exit **2** plus a `NOTHING-SEARCHED` line means it read nothing
@@ -218,110 +197,36 @@ at all and its silence is not evidence.
 
 **Verify literal CLI commands, and claims about a live system's current state, before
 drafting them into the plan.** A deploy/release-shaped step that types an exact command
-from memory or a runbook paraphrase gets its first real syntax check from a plan
-reviewer — one fold cycle away from running verbatim against a live system. Before
+from memory or a runbook paraphrase otherwise gets its first real syntax check when it
+runs verbatim against a live system. Before
 writing a literal command into such a step, verify it (`--help`, `--dry-run`, or the
 tool's own docs) rather than transcribing it as fact. The same applies to claims about
 the deploy target's current state (backups exist, a version is what you think it is,
-a rollback path works): verify it this session, or write it exactly as `handoff-note`'s
-external-state rule does — conditional on a named, mandatory verification command, with
-the fact stated as unverified rather than asserted. A step with no captured pre-change
-state has no rollback anchor either way.
+a rollback path works): verify it this session, or write it as conditional on a named,
+mandatory verification command, with the fact stated as unverified rather than asserted —
+an external-state claim nobody re-checked reads as fact to whoever runs the step. A step
+with no captured pre-change state has no rollback anchor either way.
 
 **A fast-moving vendor/product/SDK topic goes to the reference skill before it goes to
 memory.** When a research topic names an external platform, SDK, or cloud service that a
 skill already available this session covers — the session's skill list, not a filesystem
-hunt — name that skill in the dispatched agent's prompt and tell it to load the skill
-before answering; the agent inherits no context of yours, and recall from training data
-is where such topics go stale first. Whenever the name could mean more than one product
-or API from the same vendor, require FINDINGS to say which one it describes — a silent
-pick surfaces only downstream, after it has already shaped a user question.
+hunt — load that skill before answering, and make sure any research you hand off is
+told to load it too; recall from training data is where such topics go stale first.
+Whenever the name could mean more than one product or API from the same vendor, say in
+the findings which one they describe — a silent pick surfaces only downstream, after it
+has already shaped a user question.
 
-**Research return contract — put this in every research agent's prompt.** Each
-agent returns, and nothing more:
-
-- **FINDINGS** — conclusions only, ≤ ~400 words.
-- **EVIDENCE** — `file:line` references only. No file dumps, no pasted source blocks.
-- **OPEN QUESTIONS** — anything blocking, as a short list. (These feed
-  Step 3.5's triage — they are never silently dropped.)
-
-For a large plan you may additionally dispatch one `Plan` agent to author the
-plan body — but only AFTER Step 3.5 has resolved the open decisions: hand it
-the distilled research, the resolved decisions, and the content spec below
-(Step 4); its return is the plan body you persist. For most plans, author it
-yourself.
-
-Before dispatching research agents, do a quick pass of Step 3's domain registry.
-If a domain matched, fold that domain skill's research directives into the
-research prompts before drafting them. If none matched, run the dynamic
-fallback now — `plan-domain-dynamic`'s domain-definer dispatch must complete
-before research agents go out, not after; running research first makes its
-"before Step 2" mandate unsatisfiable.
-
-## Step 3 — Domain routing {#domains}
-
-Scan the task against the registry, refine after research FINDINGS return, then
-re-scan the **drafted plan body** before every Step 4 write — the first draft and each
-revision this loop writes. Routing off the request alone misses what a plan only grows
-later: a schema section arriving at revision 3 needs backend-api's deliverable as much
-as one present from the start. (Bodies rewritten inside `plan-review` or authored by
-`plan-split` belong to those skills, not this loop.)
-
-For each matched domain, invoke its planning skill **exactly once** via
-`Skill(skill="…")`. Multiple domains may match; if none match, invoke the dynamic
-fallback — when a registered domain matches later, `plan-domain-dynamic` owns what
-supersedes what.
-
-**Substituting an already-available skill.** No registered domain matched, but a
-non-`mentor` skill already available this session — the session's skill list, not a
-filesystem hunt — names this task's technology or surface in its description? Invoke
-it once instead of the dynamic fallback, for its directives only: never its build,
-copy, scaffold, or live-verify steps. Still produce the dynamic row's deliverable —
-the `## Domain best practices applied` practice→step table — captioned
-`source: <skill>`. If it covers only part of the task, run the dynamic fallback for
-the rest. A registered domain matching on a later re-scan supersedes it, as it would
-the dynamic brief.
-
-A domain matching **after** research has nothing left to fold its research directives
-into, and its deliverable rests on the evidence those directives gather —
-backend-api's affected-callers column, say. Filled from recall it only looks
-researched, so run the directives first (a targeted `Explore`, or directly per the
-domain skill's own "researching directly" clause), then fold the deliverable.
-
-| Domain | Trigger signals | Skill to invoke | Extra plan deliverable |
-|---|---|---|---|
-| frontend | UX/UI — components, pages, styles, layout, design systems, theming, responsive; also a message/notification surface rendered by a THIRD-PARTY client (chat embed, push notification, email chrome) | `Skill(skill="mentor:plan-domain-frontend")` | ASCII wireframes + delta/token tables (or a payload-shape table for a platform-rendered surface); live mockups only on the opt-in review page (`mentor:previewing`, Step 5) |
-| backend-api | API/endpoint/route/handler/schema/DTO/contract — or the data model behind it, in ANY storage shape: a migration, table, column, index, constraint, enum, RLS policy (SQL) — or the equivalent entity/relationship change in a config file, CSV, spreadsheet-backed store, or ORM model; also the async edge — queue, topic, subscription, cron/scheduled job — its message contract and delivery semantics (retry, visibility timeout, idempotency, DLQ) | `Skill(skill="mentor:plan-domain-backend-api")` | Before/after contract diff tables + schema diffs + Mermaid sequence flow; on a DDL-or-equivalent change also a per-column delta table + Mermaid ER diff of the changed entities |
-| architecture (C4) | Structural change — new/changed/removed service, container, datastore, queue, external integration, component, or data flow (NOT pure content/config/doc/style/refactor) | `Skill(skill="mentor:plan-domain-architecture")` | Diff-highlighted C4-style Mermaid flowcharts, only the levels that change |
-| dynamic (fallback) | no registered domain matched — and no available skill substitutes (above) | `Skill(skill="mentor:plan-domain-dynamic")` | Domain best-practices section (practice→step mapping) |
-
-**Rows are not mutually exclusive — keep scanning past the first match.** A plan that
-restructures an existing datastore's tables is a common case where two rows both fire:
-`architecture` for the datastore/component boundary the change draws or redraws, and
-`backend-api` for the schema itself — the row that actually produces the per-column
-delta table and Mermaid ER diff. Stopping at the first clear hit ships a plan with only
-the structural view and none of the schema-level one, exactly where a reviewer needs it.
-
-Each matched domain skill returns directives you fold into the research prompts
-and the plan body.
-
-## Step 3.5 — Resolve open questions & decisions (one at a time) {#decisions}
+## Step 3 — Resolve open questions & decisions (one at a time) {#decisions}
 
 Before writing the plan, drain every open question so the plan encodes
-decisions, not question marks. Collect them from all sources: the research
-agents' **OPEN QUESTIONS** returns (Step 2), directives from matched domain
-skills (Step 3), and any design fork you noticed yourself (approach A vs B,
-scope boundary, acceptance criteria, naming).
+decisions, not question marks. Collect them from all sources: the open
+questions research surfaced (Step 2) and any design fork you noticed yourself
+(approach A vs B, scope boundary, acceptance criteria, naming).
 
 Triage each item into exactly one bucket:
 
 - **Codebase-answerable** — the code, config, git history, or docs can settle
-  it. Answer it yourself (dispatch a read-only `Explore` agent, or read
-  directly for a quick check); never ask the user what the repo can answer.
-  (A triage Explore that idles without delivering strands the very question it was
-  sent to settle, and the loop cannot move on without it — the dispatch hook's standing
-  block is what prevents that, and it is appended automatically. Run Step 2's `policy`
-  preflight first if this is the session's first dispatch.)
+  it. Answer it yourself; never ask the user what the repo can answer.
 - **User decision** — preference, product direction, scope, priorities, a
   trade-off with no objectively right answer. Queue it for the user.
 - **Immaterial** — the plan comes out the same whichever way it lands. Drop
@@ -330,7 +235,7 @@ Triage each item into exactly one bucket:
 **Mid-loop scope change.** A scope-change request (not a decision *answer* —
 a change to what the plan covers) pauses the per-item loop: confirm the scope
 delta itself — what's kept, what's cut — in one `AskUserQuestion` before
-resuming. A derived boundary question asked in its place resolves nothing,
+continuing. A derived boundary question asked in its place resolves nothing,
 because the boundary it assumes was never agreed.
 
 Resolve the queued user decisions via `AskUserQuestion`, ordered by dependency:
@@ -358,7 +263,7 @@ independent decisions should not cost six round trips. So:
   interact, they are sequential.
 
 Never offer bulk acceptance as an *option* on a question: these decisions share no
-common binary the way `plan-review`'s fold gate does, so a bulk button here would be
+common binary (accept/reject) to apply in bulk, so a bulk button here would be
 ill-defined.
 
 **Free-typed bulk-accept.** If the user free-types an instruction to take your
@@ -444,8 +349,8 @@ topic, and `ensure-dir` below will happily create a second directory beside it,
 orphaning whichever one doesn't get worked on next:
 
 ```bash
-plugin_root="${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:-}}"
-if [ -n "$plugin_root" ] && [ -x "$plugin_root/hooks/plan-state.sh" ]; then
+plugin_root="${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT}}"
+if [ -n "$plugin_root" ] && [ -f "$plugin_root/hooks/plan-state.sh" ]; then
   bash "$plugin_root/hooks/plan-state.sh" list --owners
 else
   repo_root="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
@@ -456,9 +361,17 @@ fi
 This is a quick scan, not a fuzzy-match algorithm: only act on a genuinely obvious
 naming match — when in doubt, mint fresh, since a false reuse is worse than an
 extra plan dir. If one plainly names the same topic, reuse that slug for
-`plan_dir` below instead of minting a new one, and read its
-`.mentor/plans/<slug>/.state.json` `note` field (`jq -r .note`) for any prior
-decision or rejection worth carrying forward. **Never reuse a slug the OWNER
+`plan_dir` below instead of minting a new one, and read its sidecar `note` for any
+prior decision or rejection worth carrying forward — through the helper's plans dir,
+never a CWD-relative path (a session in a subdirectory or linked worktree would read
+nothing):
+
+```bash
+jq -r .note "$(bash "${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT}}/hooks/plan-state.sh" dir --plans)/<slug>/.state.json"
+```
+
+(Without the helper, read `$repo_root/.mentor/plans/<slug>/.state.json` from the scan
+above.) **Never reuse a slug the OWNER
 column shows as owned by a different worktree** — that is another worktree's live
 or recent draft, not yours to continue; mint a fresh slug instead, the same call
 you'd make if nothing plainly matched. Reuse is safe only for a slug this
@@ -469,8 +382,8 @@ record in **one** call (substituting a kebab-case `<slug>` derived from the requ
 ≤30 chars, drop articles, keep nouns/verbs):
 
 ```bash
-plugin_root="${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:-}}"
-if [ -n "$plugin_root" ] && [ -x "$plugin_root/hooks/plan-state.sh" ]; then
+plugin_root="${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT}}"
+if [ -n "$plugin_root" ] && [ -f "$plugin_root/hooks/plan-state.sh" ]; then
   plan_md="$(bash "$plugin_root/hooks/plan-state.sh" start "<slug>")" || exit 1
 else
   repo_root="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
@@ -480,10 +393,9 @@ fi
 echo "$plan_md"   # fixed name inside the slug dir, NO timestamp — stable across revisions
 ```
 
-When available, `start` does three things that used to be three separate Bash calls: creates the dir and
-locks the whole path to 700, records the plan as `draft` in a hidden `.state.json` beside
-it, and clears the `origin` field if this slug was a `/mentor:defer` stub you are now
-fleshing out. Its stdout is exactly the plan path, so the capture above fails the
+When available, `start` does two things in one call: creates the dir and locks the
+whole path to 700, and records the plan as `draft` in a hidden `.state.json` beside
+it. Its stdout is exactly the plan path, so the capture above fails the
 pipeline if anything went wrong; the state summary goes to stderr where you can still
 read it.
 
@@ -492,20 +404,16 @@ overwrite a `.state.json` sidecar: an existing state file remains compatible wit
 Claude facade, while a host adapter can add equivalent lifecycle updates later. The
 plan itself stays the portable source of truth.
 
-Three helper-backed consequences worth knowing:
+Two helper-backed consequences worth knowing:
 
 - **Ownership is stamped on this call** — `start` marks THIS worktree as the dir's owner,
   and last-write-wins, so running it on a slug another worktree minted re-owns it to you.
-  That is the same mechanism `mentor:resuming` relies on to continue a plan in a
-  different worktree.
+  That is how a plan continues in a different worktree.
 - **It is idempotent** — re-running it on a revision is harmless, so there is no branch
   to pick between "new plan" and "existing plan".
-- **The deferred-stub case needs no extra step.** Clearing `origin` is what stops a stub
-  being shielded from `approve-plan.sh`'s promotion sweep, and it is a no-op on a plan
-  that was never a stub — so you never have to know which case you are in.
 
-Write the plan at that path with the `Write` tool. Approval, and later `/mentor:track`,
-read the state record to know which plans are built and which are pending.
+Write the plan at that path with the `Write` tool. Approval and later sessions read
+the state record to know which plans are built and which are pending.
 
 The path is inside the gate-exempt
 `.mentor/` tree, so the edit gate allows it; `plan-open.sh` auto-opens it for review the first time
@@ -513,8 +421,6 @@ The path is inside the gate-exempt
 Opening is a convenience, not a delivery requirement. **Keep it current:** on every revision
 re-write this SAME file in place — never create a second timestamped copy. Never write the plan
 to a host-native plans directory instead of `.mentor/`.
-Before each re-write, re-run Step 3's registry scan against the new body — that is
-where a domain the plan only just grew gets caught.
 
 **Verify the write:** when a revision applies a sequence of `Edit`s rather
 than one whole-block rewrite, re-`grep -n` each edit's target text against
@@ -523,23 +429,21 @@ edit in the same pass can shift nearby text out from under a stale anchor,
 and a miss usually means it already moved. An `Edit` whose anchor lands
 mid-table or mid-fence can also splice a row or split a fenced block without
 erroring — nothing else in this skill catches it, and a revision built from
-many small edits (a fold pass, a decision resolution, a split) is exactly
+many small edits (a decision resolution, a split, a scope trim) is exactly
 when this happens. After such a revision, run:
 
 ```bash
-bash "${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:-}}/hooks/plan-state.sh" verify <slug>
+bash "${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT}}/hooks/plan-state.sh" verify <slug>
 ```
 
 when the helper is available. Otherwise perform the equivalent visible checks — balanced
 fences, valid tables, and a `Done when:` for every implementation step — before asking
 for approval; do not fail a portable planning flow solely because the helper is absent.
 
-before moving on — one call for the three checks that gate its exit code:
-fence balance, table pipe-count uniformity, and every step in
-`## Implementation steps` carrying a `Done when:` (a session was observed
-hand-rebuilding a different grep/awk one-liner for this on 5 consecutive
-revisions, never the same check twice, and the one revision that dropped the
-table half is exactly where a table-adjacent defect landed). A non-zero exit
+`verify` is one call for the three checks that gate its exit code: fence balance,
+table pipe-count uniformity, and every step in `## Implementation steps` carrying a
+`Done when:` (why one call: `references/rationale.md` → **Step 4 — why verify is one
+call**). A non-zero exit
 names the failing check on its own `CHECK:` line — read that line rather than
 guessing which one broke, since a step missing its `Done when:` is also what a
 body truncated by a mis-parsed step line looks like. Every other `CHECK:` line
@@ -578,29 +482,9 @@ Required sections, in order:
    A ✅/➖ verdict that rests on a repo search finding nothing names the
    gitignore-bypassed command it ran (Step 2's caveat) — a verdict resting on an
    unqualified `grep -r` is not yet earned.
-6. `## Implementation steps` — numbered, concrete, and **routed before they are
-   annotated**. Before writing this section, invoke
-   `Skill(skill="mentor:dispatch-agents")` and run its **"Where dispatch pays"** test
-   over the steps you are about to write. That test, not
-   a default, decides the routing: implementation dispatches when two or more
-   file-disjoint steps can be in flight at once and each brief stands alone, or when a
-   single step's own context cost would flood the main thread; otherwise it runs in the
-   main thread. Dispatched steps get the full grammar (`[role: … · model: … ·
-   effort: …]`, grouped `Run in parallel:` / `Sequential:`) — one plan step = one
-   dispatch. **Main-thread routing:** omit the `[role: … · model: … · effort: …]`
-   bracket and the `Run in parallel:` / `Sequential:` grouping — never the step body.
-   `Goal:`, `Inputs:` and `Done when:` stay on every step whichever way it routes, and
-   `verify` fails a step with no `Done when:` under it. The section MUST then
-   open with one line naming which test failed: `Dispatch: skipped — <reason>`. No
-   line, no skip — and the line covers the *dispatch* only, never the plan's
-   `## Verification` fan-out, which has no main-thread form.
-   **Size each step as you write it:** run every step past the dispatch-agents
-   rubric's **"Budget each step to one agent's context"** item — a dispatched
-   agent never compacts, so an oversized step burns its context on reconnaissance
-   and re-proof rather than the change. Its five smells are all checkable here;
-   a step showing any of them splits into sequential steps, one dispatch each,
-   handing off by report. If that pushes the count past ~12, that is the
-   oversize threshold below doing its job, not a reason to re-merge.
+6. `## Implementation steps` — numbered and concrete. Every step carries `Goal:`,
+   `Inputs:` and `Done when:` on `-` bullets under its numbered heading; `verify` fails
+   a step with no `Done when:` under it.
    **Keep it small while you write:** if the step count creeps past ~12 while
    drafting this section — Step 6's oversize threshold below, just reached early —
    pause and offer to narrow the plan: move non-core **isolated deliverables** into
@@ -610,8 +494,7 @@ Required sections, in order:
    Step 6 already trimmed rarely needs the full split treatment.
    **Never title a step "Verification pass," "Testing," or similar** — that name
    belongs to the plan's own `## Verification` section below, and a step that reads
-   as satisfying it invites skipping that section's mandatory per-topic dispatch at
-   execution time. Name the step for what it builds or fixes instead.
+   as satisfying it invites skipping that section's checks at execution time. Name the step for what it builds or fixes instead.
    **A literal command written into a step here, on a live or shared system, must already
    be verified** per Step 2's directive — not transcribed from memory as you draft.
    **A `git diff`/`git log` written against a pathspec needs `--` before the path**
@@ -632,9 +515,8 @@ Required sections, in order:
    `## Verification` included.
 8. `## Out of scope` — name every carve-out so the reviewer sees the
    boundary, but give one a **plan number or slug** only when it resolves on
-   disk (a `/plan-split` sibling, or a `/mentor:defer` stub for work the user
-   actually asked for); an invented `feature 0NN` reads as a roadmap promise
-   `/mentor:track` cannot see.
+   disk (a plan-split sibling, or an existing plan under `.mentor/plans/`);
+   an invented `feature 0NN` reads as a roadmap promise nothing on disk backs.
 9. `## Verification` — 2–6 single-focus topics, each in this shape:
 
    ```
@@ -644,35 +526,16 @@ Required sections, in order:
      Pass when: <observable criteria>
    ```
 
-   Each topic runs post-implementation as its own **freshly dispatched
-   verifier agent carrying exactly that one topic**: the main thread never
-   grades its own session's work (it knows what it *meant* to do, so it
-   confirms rather than checks), and one agent never carries two topics (a gap
-   in one hides behind a pass in the other). `Topic N —`, never `Step N —` or
-   a bare numbered item, keeps mentor's step counter from mistaking a
-   verification topic for an implementation step. An optional annotation —
-   `Topic N — <title>  [model: <sonnet|opus> · effort: <low|medium|high>]` —
-   declares a judgment-heavy topic at authoring time, so the model upgrade is
-   a reviewable decision rather than an execution-time guess; without it,
-   execution defaults to `sonnet · medium`.
+   Each topic runs after implementation, before the plan is marked `implemented`.
+   `Topic N —`, never `Step N —` or a bare numbered item, keeps mentor's step
+   counter from mistaking a verification topic for an implementation step. One
+   focus per topic, because a gap in one check hides behind a pass in another.
 
    **This section owns live end-to-end proof.** When a behavior can only be shown
    by driving a running multi-service stack, write that check as a topic here, not
-   into a step's `Done when:` — dispatch-agents' **"State done-when"** rubric item
-   keeps those to bounded commands (build, typecheck, unit, targeted integration).
-   In both places, it is proved twice: by the implementer, in the session's most
-   expensive context, and again by the fresh verifier this section dispatches.
-
-**Confirm every matched domain's deliverable actually landed.** If Step 3 matched one
-or more domains, check before finishing this revision that each one's *Extra plan
-deliverable* — the routing table's rightmost column, with the domain skill's own
-deliverable section as the authority on where it goes — is visibly in the body, its own
-`##` section or nested under the owning `## Approach` topic per that skill, and not
-merely implied by the research that fed it. Where it legitimately degrades to nothing on
-this surface, write the degrade line that skill sanctions (frontend's one-line "no visual
-change" note): silence is not a degrade path. A domain that fired and left nothing
-visible is a silent gap — `plan-review`'s reviewers never learn which domains matched,
-so nothing downstream can catch it.
+   into a step's `Done when:` — keep each `Done when:` to bounded commands (build,
+   typecheck, unit, targeted integration), so a step can be ticked the moment its
+   own change is proven rather than waiting on the whole stack.
 
 **Visualization decision rule (pick exactly ONE idiom per artifact):**
 
@@ -697,8 +560,8 @@ cannot encode, and it is the table that exposes a
 **missing** edge, since reverse transitions and cascade side-effects are the
 ones that surface late. That pairing is complementary, not the same-thing-twice
 the rule below forbids. Skip it when no entity has more than one named state, or
-when the states are unchanged and only their storage moves — that delta is
-`plan-domain-backend-api`'s per-column table, and restating it here would
+when the states are unchanged and only their storage moves — that delta belongs
+in the plan's schema or per-column change table, and restating it here would
 duplicate.
 
 **Workspace layout rule.** When a plan introduces on-disk structure the reader cannot see
@@ -723,7 +586,7 @@ truncates the note — use `,` or `+`.
 define jargon at first use, state why each step matters, prefer concrete
 examples. The plan must be approvable by someone outside the domain.
 
-**Verify headline counts before the first write.** Step 3.5's evidence rule —
+**Verify headline counts before the first write.** Step 3's evidence rule —
 read the artifact itself, a summary is not the evidence — applies to every
 count the plan states about its own scope, not just the decisions that reach a
 question: an orphan count, an affected-row count, a terminal-state count.
@@ -749,25 +612,15 @@ case"), a mid-revision regeneration, at any point in the plan lifecycle.
 **The plan and its page change together.** When the plan has a page
 (`.mentor/reviews/<plan-slug>/review.html` exists), end every turn that changed
 `plan.md` content by running `previewing` §7 once, after the last plan edit, so
-the page never shows a plan that no longer exists. Step progress marks,
-`.state.json` and handoff notes are not plan changes. Finish that regeneration
-before dispatching `plan-review`, so a reviewer never reads a page mid-write.
+the page never shows a plan that no longer exists. Step progress marks and
+`.state.json` are not plan changes.
 
 ## Step 6 — Approve & release {#approve}
 
 > **🚫 No edits or implementation until the plan is APPROVED.** During planning,
-> only read-only agents (Explore, Plan, plan-review reviewers) may be
-> dispatched — the sole exception is `mentor:previewing`'s workers (Step 5),
-> which write ONLY under `.mentor/reviews/<slug>/` (gate-exempt
-> `.mentor/` tree) — never repo source files.
-> Every editing/implementation agent comes AFTER approval.
-
-**Close out consumed dispatches before asking**, per the **Close out** rule in
-`dispatch-agents`' "Async runtime & lifecycle". This is the checkpoint where it
-costs the most, which is the only reason it's worth naming here: the question
-below can sit unanswered for hours of real wall-clock time, and a resident agent's
-idle notification landing mid-wait reads as new input and silently rejects the
-pending question, stalling the session until a human notices.
+> only read-only work happens — the sole writes are the plan itself and
+> `mentor:previewing`'s page (Step 5), both under the gate-exempt `.mentor/`
+> tree — never repo source files.
 
 First **surface the complete plan body** in your message — plain markdown,
 verbatim, no commentary around it — so the user can review it in the transcript.
@@ -792,23 +645,23 @@ saw it (or never was surfaced); otherwise name its path and Rev and re-ask.
 ### Re-check context
 
 Decide this **before** asking too. Step 0's `CONTEXT:` line is a snapshot from
-before research, domain routing, and decision-resolution ran — precisely the
+before research and decision-resolution ran — precisely the
 steps that grow a session — so a plan that armed clean can still reach this
 question well past the WARN/HIGH thresholds with nothing in this skill
 having said so. Run this immediately before composing the question — **one call, both
 things the ask depends on**:
 
 ```bash
-bash "${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:-}}/hooks/plan-state.sh" context
-grep -n -A 8 '^### The option set' "${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:-}}/skills/planning/SKILL.md"
+bash "${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT}}/hooks/plan-state.sh" context
+grep -n -A 7 '^### The option set' "${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT}}/skills/planning/SKILL.md"
 ```
 
 The `context` half decides what the question text must say about size; the `grep` half
 re-reads the option table. Both exist for the same reason — a reading taken earlier in the session is stale
 by the time it matters. Neither Step 0's `CONTEXT:` line nor an earlier `context-gate.sh`
 WARN substitutes for the first, and a remembered table does not substitute for the
-second: the option row has been reconstructed incorrectly from memory once already, late
-in a long session, dropping the one button the situation called for. If "Verify the
+second (`references/rationale.md` → **Step 6 — why the option rows are ordered the way
+they are**). If "Verify the
 write" above just ran with nothing in between, its `CHECK: context` line already **is**
 the context half — you still need the `grep`.
 
@@ -828,7 +681,7 @@ oversized when any of these holds:
 
 **Suppressed when this plan already has a `group`** — it is itself a split child, and
 re-slicing a slice usually means the first split drew its lines in the wrong place.
-Typing `/plan-split` still works if the user insists.
+Asking for a split explicitly still works if the user insists.
 
 When oversized, mention in the question text that non-core **isolated deliverables**
 can instead be **moved into `## Out of scope`** rather than a full split — a lighter
@@ -839,34 +692,22 @@ The option table below is unchanged: the user reaches this by typing it into
 
 ### The option set
 
-`AskUserQuestion` caps at 4, so the precedence is fixed here rather than left to
-judgment in the moment:
+`AskUserQuestion` caps at 4, so the order is fixed here rather than left to judgment:
 
-| Condition | Options, in order | Yields to "Other" |
-|---|---|---|
-| neither | Proceed · Deliver plan only · Review the plan (staged) · Keep planning | — |
-| oversized | **Split into multiple plans** · Proceed · Review the plan (staged) · Deliver plan only | Keep planning |
+| Condition | Options, in order |
+|---|---|
+| neither | Proceed · Deliver plan only · Keep planning |
+| oversized | **Split into multiple plans** · Proceed · Deliver plan only · Keep planning |
 
-In the first row only, `MODE: plan-only` swaps the leading two so "Deliver plan only"
-comes first. Anything yielded to "Other" stays reachable — the user can just say it —
-but only if they know to: a listed option is a button the user recognizes on sight,
-while a yielded one is invisible unless the question text names it. The oversized row
-should say so plainly ("still want to revise? just say so") — otherwise the user
-re-types an intent that was reachable the whole time.
+Everything else the user may want reaches you through the always-present "Other" free
+text: a change request, moving isolated deliverables into `## Out of scope`, or a
+plan-quality ask — route it per **A plan-quality ask in "Other"** below.
+Name those in the question text so the user knows they need no button.
 
 Copy the matched row's option list into the call verbatim from the **fresh** read that
 "Re-check context" above just took — never from memory. Keep the table itself in exactly
 this one file: a copy pasted into `plan-state.sh` or any other script becomes a second
 place for it to drift out of sync with this one.
-
-**`/mentor:handoff` stays reachable from every row.** It is a command, not an option:
-it writes a handoff note and never calls `approve-plan.sh`, so it neither releases the
-gate nor needs the plan approved first. A user who wants a fresh agent to continue can
-type it — or plain handoff intent — into this question's always-present "Other" free
-text: invoke `Skill(skill="mentor:handoff-note")` and stop, leaving the gate armed and
-the plan `draft`. Only when the same answer also approves ("looks good, hand it off")
-run `approve-plan.sh --deliver` first, then invoke `mentor:handoff-note` for the
-now-approved plan — the directive's STOP bars implementation, not the handoff asked for.
 
 (Why Split leads on an oversized plan: `references/rationale.md` → **Step 6 — why the
 option rows are ordered the way they are**. Change the table only after reading it.)
@@ -874,8 +715,7 @@ option rows are ordered the way they are**. Change the table only after reading 
 | Label | Description |
 |---|---|
 | Proceed | Validate the plan, release the edit gate, and begin implementation. |
-| Deliver plan only | Validate the plan and release the gate; the plan file is the deliverable — no implementation, no dispatch. (/mentor:handoff can brief a fresh agent afterwards.) |
-| Review the plan (staged) | Run plan-review — a judgment pass (practicality, comprehensiveness) whose CRITICAL and HIGH edits you verdict one question at a time and whose smaller ones resolve in one batch, then a mechanical pass (cleanliness, consistency) whose safe fixes auto-fold; CRITICAL decision-level findings are asked one at a time, the rest resolved in one batched question. Stays in planning; ends back at this question. |
+| Deliver plan only | Validate the plan and release the gate; the plan file is the deliverable — no implementation in this session. |
 | Keep planning | Do not release — keep refining, or say what to change. Re-write the plan file and ask again when ready. |
 | Split into multiple plans | Slice this plan into independently buildable sibling plans, each with explicit scope isolation. Stays in planning; asks again afterwards. |
 
@@ -888,7 +728,7 @@ requiring another host to emulate them.
 On **Proceed**, run:
 
 ```bash
-bash "${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:-}}/hooks/approve-plan.sh"
+bash "${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT}}/hooks/approve-plan.sh"
 ```
 
 It validates the plan (a non-empty `.md` newer than the marker it resolves — this
@@ -896,89 +736,29 @@ worktree's `.planning.<wt-id>`, or the legacy repo-global `.planning` when runni
 in legacy_mode), and on success deletes that marker — the gate OPENS for this
 worktree (repo-wide, in legacy_mode). On failure it prints the problem, keeps the
 gate closed, and exits non-zero: fix the plan (re-write per Step 4) and re-ask. On
-success, implement the plan.
-
-**After approval, the gate is open and this skill's job is done.** The plan already
-recorded its routing at Step 4 — dispatch annotations on the steps, or a
-`Dispatch: skipped` line — and implementation belongs to `mentor:dispatch-agents`'
-**"Executing the dispatches"**, which owns that procedure whole. Three things a plan
-authored here carries into it, wherever it gets executed:
-
-- **Keep a step's own body on `-` bullets.** The step counter cannot tell a numbered
-  sub-item from a step, and an inflated denominator strands a finished plan at
-  `in_progress` forever.
-- **The main thread orchestrates and verifies `Done when:` inline** — it never re-does or
-  re-reads the work it delegated.
-- **The plan's end-to-end `## Verification` is the one thing it never grades itself.**
-  That round is dispatched, per that skill's "Verifying the plan (execution-time)".
-
-When the plan opens its Implementation steps with `Dispatch: skipped — <reason>`, the
-main thread implements directly — that is a routing verdict the plan already recorded,
-not a fallback, so carry it out rather than re-litigating it here.
-
-**Record progress as plan state.** `approve-plan.sh` just marked this session's plans
-`approved`. As implementation runs, move that forward so a later session — or
-`/mentor:track` — knows what actually landed instead of re-reading the plan and
-guessing:
-
-```bash
-bash "${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:-}}/hooks/plan-state.sh" set <slug> in_progress            # execution starts
-bash "${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:-}}/hooks/plan-state.sh" tick <slug> <N>                   # each step's Done when: passes
-bash "${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:-}}/hooks/plan-state.sh" set <slug> implemented            # every Done when: + Verification PASS
-bash "${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:-}}/hooks/plan-state.sh" set <slug> failed --note "<what broke>"   # escalating, or handing off with verification unresolved
-```
-
-Direct implementation on the **`Dispatch: skipped`** path must not be the one
-route that leaves no record, which is why the calls are stated here too. The ticks
-above are also the only step tracker mentor reads — don't mirror them into a
-separate todo list as well; a second list costs a call per step and nothing
-reads it (tracking *dispatched agents* themselves, e.g. for the closing
-checklist's task sweep, is unrelated and still applies). Missing a transition
-is survivable — state also derives from the `✅` step ticks you mark as each step
-passes — but `failed` cannot be derived from ticks, so that one is worth remembering.
-
-**Close out the skipped path too.** There are no implementation agents to release,
-but there is still work to hand back: **sweep the report you're about to write** —
-every follow-up, gap, or known-broken item in it is **named** there, in plain terms,
-so nothing survives only as an aside that dies with the session. Do not capture them
-on your own; parking work is the user's call. And an unresolved verification topic or
-an unverified claim is never a stub — it's `set <slug> failed --note` on the plan.
-
-Skipping dispatch is a decision about *who types the edits*, not a discount on
-what the user gets at the end. Implementation may be main-thread; verification
-never is — the plan's `## Verification` topics are still dispatched to fresh
-verifier agents, loading `Skill(skill="mentor:dispatch-agents")` for that if it
-is not already loaded.
+success, implement the plan per **After Proceed** below — except after a Split: report
+the approved children and stop; each is built later via `/mentor:plan <child-slug>`,
+which goes straight to implementation for an approved child (Step 0).
 
 On **Deliver plan only**, run:
 
 ```bash
-bash "${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:-}}/hooks/approve-plan.sh" --deliver
+bash "${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT}}/hooks/approve-plan.sh" --deliver
 ```
 
 Same validation + release, then **follow the DELIVER-ONLY directive it prints** —
-report where the plan lives and STOP. Do not implement and do not dispatch in
-this session.
+report where the plan lives and STOP. Do not implement in this session.
 
-On **Review the plan (staged)**, invoke `Skill(skill="mentor:plan-review")` with
-this plan as the subject. Say which the user asked for — the full staged review, or
-(when free-text "Other" asked for it explicitly) the mechanical/consistency check
-alone. Its reviewers are read-only and its own writes are gate-exempt `.mentor/`
-ones, so this option never releases the gate by itself.
-
-**An "Other" answer expressing further-interview intent** ("grill me more", "walk
-through more use-cases/scenarios", or similar) has no button in any row — grilling is
-framed elsewhere in this skill as a pre-research step, so nothing here routes a
-post-draft ask for it, and the user is left re-typing the request past a menu that
-doesn't offer it. Route it: invoke `Skill(skill="mentor:grilling")` scoped to the
-**drafted plan** (not the original request) — interview against what's already
-written, not from scratch. Like Review, this option never releases the gate by
-itself, so the plan still needs approving once the interview's answers are folded in.
+**A plan-quality ask in "Other"** ("review this plan", "is this plan any good", "grill
+me more", "walk through more use-cases/scenarios", or similar) has no button in any row.
+Route it: invoke `Skill(skill="mentor:grilling")` scoped to the **drafted plan** (not
+the original request) — interview against what's already written, not from scratch.
+This never releases the gate by itself, so fold the answers into the plan, re-write it,
+and ask the approval question again.
 
 On **Split into multiple plans**, invoke `Skill(skill="mentor:plan-split")`. It writes
 only under `.mentor/plans/`, so the gate stays closed while it confirms a slice map,
-dispatches one agent per child, and retires the parent. It hands the sibling set back
-here.
+authors each child, and retires the parent. It hands the sibling set back here.
 
 **Each child is approved on its own — there is no blanket yes over the set.** Ask one
 `AskUserQuestion` (`multiSelect: true`) listing the children by slug and one-line goal:
@@ -989,16 +769,50 @@ as the chosen option specifies.
 
 Anything the user did **not** select is still newer than the marker, so the release
 sweeps it to `approved` with a sidecar note recording that it was not individually
-reviewed. That note is not a formality: `/mentor:track` reads it and confirms with the
-user before dispatching such a plan, which is what keeps an unselected child from being
-built on a yes that was never given. Say in the question that building runs through
-`/mentor:track`, one child at a time.
+reviewed. That note is what a later session sees when it picks the child up (Step 0
+checks the sidecar `note` before building an approved plan), so confirm with the user
+before building a child that carries it. Each child is built later, one at a time, by
+running `/mentor:plan <child-slug>`, which skips straight to implementation for an
+approved child — say so in the question.
 
 On **Keep planning**, do not run the script; return to planning.
 
 **Not in a git repo?** begin-plan reported the gate was NOT armed — skip
 `approve-plan.sh` (it would fail outside a repo) and honor the user's choice
 directly.
+
+### After Proceed — implement in the main thread {#implement}
+
+The main thread implements the approved plan, in step order:
+
+1. Mark execution started: `plan-state.sh set <slug> in_progress`.
+2. Build each step. As soon as its `Done when:` passes, run `plan-state.sh tick <slug> <N>`
+   — tick per step, not in a batch at the end, so an interrupted session leaves an
+   accurate record.
+3. When every step is ticked, run every check in the plan's `## Verification` section,
+   topic by topic, against its `Pass when:`.
+4. Close the state: `set <slug> implemented` when every `Done when:` and every
+   verification topic passed; otherwise `set <slug> failed --note "<what broke>"`.
+5. Report: what landed, the verification results, and every follow-up, gap, or
+   known-broken item, **named** in plain terms. Do not park or capture those yourself —
+   what happens to leftover work is the user's call.
+6. Offer `/mentor:ship` to open the PR — name it, never auto-run it.
+
+```bash
+bash "${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT}}/hooks/plan-state.sh" set <slug> in_progress            # execution starts
+bash "${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT}}/hooks/plan-state.sh" tick <slug> <N>                   # each step's Done when: passes
+bash "${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT}}/hooks/plan-state.sh" set <slug> implemented            # every Done when: + Verification PASS
+bash "${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT}}/hooks/plan-state.sh" set <slug> failed --note "<what broke>"   # stopping with a step or verification unresolved
+```
+
+**Keep a step's own body on `-` bullets.** The step counter cannot tell a numbered
+sub-item from a step, and an inflated denominator strands a finished plan at
+`in_progress` forever.
+
+The ticks are the only step tracker mentor reads — don't mirror them into a separate
+todo list as well; a second list costs a call per step and nothing reads it. Missing a
+transition is survivable — state also derives from the `✅` step ticks — but `failed`
+cannot be derived from ticks, so that one is worth remembering.
 
 ### Retracting an approval {#retract}
 
@@ -1007,8 +821,8 @@ option, then immediately say "no, that wasn't approved yet". Re-arming the gate 
 obvious half of the fix and the only half people remember, so state the rest here:
 
 ```bash
-bash "${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:-}}/hooks/begin-plan.sh"                                       # re-arm the gate
-bash "${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:-}}/hooks/plan-state.sh" set <slug> draft --note "approval retracted"
+bash "${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT}}/hooks/begin-plan.sh"                                       # re-arm the gate
+bash "${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT}}/hooks/plan-state.sh" set <slug> draft --note "approval retracted"
 ```
 
 **Confirm the re-arm actually took before telling the user it did.** `begin-plan.sh`
@@ -1016,7 +830,7 @@ can now refuse outright — a live legacy repo-global `.planning` marker fail-cl
 against every worktree, this one included:
 
 ```bash
-bash "${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:-}}/hooks/plan-state.sh" gate   # expect ARMED
+bash "${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT}}/hooks/plan-state.sh" gate   # expect ARMED
 ```
 
 Anything other than `ARMED` means `begin-plan.sh` printed a refusal above instead of
@@ -1031,7 +845,7 @@ it, and re-arming the gate here does not change that. Re-own it before the next
 approval, the same as any cross-worktree resume:
 
 ```bash
-bash "${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:-}}/hooks/plan-state.sh" init <slug>   # re-owns to THIS worktree, last-init-wins
+bash "${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT}}/hooks/plan-state.sh" init <slug>   # re-owns to THIS worktree, last-init-wins
 ```
 
 Skip this line only when you are certain this is the same worktree that drafted the
@@ -1040,7 +854,7 @@ plan — `init` is otherwise harmless to run either way (idempotent, never lower
 The `set <slug> draft` line is not optional: **every** approval path — no-arg and
 `--deliver` — promotes the sidecar to `approved` before exiting, while
 `begin-plan.sh` touches only the marker. Re-arming alone therefore leaves a plan
-recorded `approved` behind a closed gate, and `/mentor:track` reads the sidecar.
+recorded `approved` behind a closed gate, and later sessions read the sidecar.
 
 Two things to tell the user as you do it: **the plan must be re-written before it can be
 approved again** (the re-armed marker's fresh mtime makes `approve-plan.sh` refuse the

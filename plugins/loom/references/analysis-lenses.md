@@ -35,13 +35,13 @@ wrong default · P3 latent inconsistency). Classify gate false-positives, wrong-
 workarounds as **bugs**; missing reminders, redundant prompts, ergonomics as **enhancements**.
 
 > **AUDIT self-notice — new domain-visualization skill.** For plugins with a per-domain plan-render
-> registry (e.g. `mentor`'s `plan-domain-*`): if the audited artifact would have been materially
-> faster/safer to review had a **dedicated domain visualization** existed that no registered
-> `plan-domain-*` provides (a standard idiom — architecture/C4, data-model/ER, state-machine, sequence,
-> deployment/topology), raise an **enhancement** proposing a **new `plan-domain-<name>` skill**
-> (fire-condition + explicit "skip when"; the idiom/levels it renders — render only changed levels; the
-> render rule: polished self-contained HTML, diff-highlighted, no ASCII). A new domain is a **minor**
-> bump. Skip this notice for plugins without such a registry.
+> registry (a family of skills such as `<plugin>:domain-<name>`, one per domain): if the audited
+> artifact would have been materially faster/safer to review had a **dedicated domain visualization**
+> existed that no registered domain skill provides (a standard idiom — architecture/C4, data-model/ER,
+> state-machine, sequence, deployment/topology), raise an **enhancement** proposing a **new domain
+> skill** in that registry (fire-condition + explicit "skip when"; the idiom/levels it renders — render
+> only changed levels; the render rule: polished self-contained HTML, diff-highlighted, no ASCII). A
+> new domain is a **minor** bump. Skip this notice for plugins without such a registry.
 
 ## Agent B — ENHANCE lens
 

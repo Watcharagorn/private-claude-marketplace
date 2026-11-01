@@ -23,9 +23,9 @@ across 2 of 3 projects.
 PLUGINS IMPROVED
 
 mentor — 3 sessions learned, published v2.24.0
-- resuming: stamp resolved notes only after the
+- shipping: close the plan's state only after the
   plan-complete check
-- planning: harden Step-4 dispatch annotations against
+- planning: harden Step-4 Done-when checks against
   empty plans
 
 tmux-design — 1 session learned, published v1.9.1
@@ -81,7 +81,7 @@ FAILURES
 WHAT STILL LANDED
 
 mentor — 1 session learned and merged
-- resuming: re-check the skip bar when resuming mid-plan
+- merging: re-check the base branch before a rerun
 - 2 more sessions were claimed, then requeued when their
   workers were killed; they retry on the next fire.
 

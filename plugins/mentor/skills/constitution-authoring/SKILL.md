@@ -9,7 +9,7 @@ description: >
   constitution", "add/amend/remove a principle", "make every plan enforce X",
   "what principles govern this repo". Standalone authoring flow — it never arms
   the plan gate and is not itself planning. NOT for writing a single plan (use
-  /mentor:plan) or reviewing one plan's design (mentor:plan-review).
+  /mentor:plan) or judging one plan's quality (/mentor:grill).
 ---
 
 # mentor Constitution
@@ -22,16 +22,15 @@ A **constitution** is the supreme rulebook for how work is planned and built in 
 repo: a short list of named principles, each declarative and testable, plus a
 governance block that records how the document is versioned and amended. Once it
 exists, its consumers resolve `constitution_path` and read this file live —
-planning proves compliance in a **Constitution Check** section, review flags
-violations. The constitution never forces itself — a plan may deviate, but only with an explicit, justified
+planning proves compliance in a **Constitution Check** section. The constitution never forces itself — a plan may deviate, but only with an explicit, justified
 note (or by amending the constitution first).
 
 It is committed to the repo at **`.mentor/constitution.md`** so the whole team
-shares one rulebook — unlike plans/handoffs, which are gitignored transient state.
+shares one rulebook — unlike plans, which are gitignored transient state.
 A repo that already keeps its rulebook elsewhere (e.g. `docs/constitution.md`)
 can instead **adopt it by reference** (Step 3a): `constitution_path` in
-`.mentor/config.json` points at it, and every consumer (`plan` Step 0,
-`plan-review`) resolves that path and reads the real file live.
+`.mentor/config.json` points at it, and every consumer (`plan` Step 0) resolves
+that path and reads the real file live.
 
 The flow: guard → load any existing constitution → collect/derive principles
 (or adopt an external file by reference) → version & date → assemble
@@ -40,7 +39,7 @@ The flow: guard → load any existing constitution → collect/derive principles
 ## Step 1 — Guard {#guard}
 
 ```bash
-[ -d "${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:-}}/hooks" ] || { echo "ERROR: Mentor helper unavailable — set PLUGIN_ROOT (or use the Claude compatibility fallback) or use the documented artifact fallback" >&2; exit 1; }
+[ -d "${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT}}/hooks" ] || { echo "ERROR: Mentor helper unavailable — set PLUGIN_ROOT (or use the Claude compatibility fallback) or use the documented artifact fallback" >&2; exit 1; }
 git_common="$(git rev-parse --git-common-dir 2>/dev/null || true)"
 if [ -z "$git_common" ]; then
   echo "NOT-A-REPO"
@@ -52,7 +51,7 @@ else
   # (only a SIBLING worktree's marker is live) must NOT count — otherwise
   # constitution work would deadlock repo-wide any time any worktree is mid-plan,
   # the exact disease the per-worktree gate exists to cure.
-  if [ "$(bash "${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:-}}/hooks/plan-state.sh" gate)" = "ARMED" ]; then
+  if [ "$(bash "${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT}}/hooks/plan-state.sh" gate)" = "ARMED" ]; then
     echo "PLANNING-ACTIVE"
   else
     echo "PLANNING-IDLE"
@@ -130,8 +129,10 @@ or re-author its content. Adopt it by reference instead:
    backup, edit with `jq`, validate, restore on failure):
 
    ```bash
-   # Re-derive: each fenced block is its own Bash call, so Step 1's value is gone.
-   repo_root="$(git rev-parse --show-toplevel)"
+   # Re-derive exactly as Step 1 does (the MAIN checkout, via git-common-dir): each
+   # fenced block is its own Bash call, and a linked worktree's --show-toplevel would
+   # write a config.json that planning never reads.
+   repo_root="$(cd "$(dirname "$(git rev-parse --git-common-dir)")" && pwd)"
    cfg="$repo_root/.mentor/config.json"
    mkdir -p "$repo_root/.mentor"   # bare on purpose: constitution.md is committed, not private
    [ -f "$cfg" ] || echo '{}' > "$cfg"
@@ -141,9 +142,8 @@ or re-author its content. Adopt it by reference instead:
      || { mv "$cfg.bak" "$cfg"; rm -f "$cfg.tmp"; echo "config write FAILED — restored"; }
    ```
 
-3. Report: the adopted path, that every `/mentor:plan` Constitution Check and
-   `/plan-review` will now `Read` that file live (they resolve
-   `constitution_path`), and commit guidance for `.mentor/config.json` (it is a
+3. Report: the adopted path, that every `/mentor:plan` Constitution Check will
+   now `Read` that file live (it resolves `constitution_path`), and commit guidance for `.mentor/config.json` (it is a
    committed file per `.mentor/.gitignore`).
 4. **Skip Steps 4–7 entirely** — no version bump, no template, no
    `.mentor/constitution.md` is written. The external file stays exactly as the
@@ -185,8 +185,8 @@ Ratified: <YYYY-MM-DD>    Last amended: <YYYY-MM-DD>
 Principles added:    <names, or none>
 Principles modified: <names, or none>
 Principles removed:  <names, or none>
-Consumed by: mentor `plan` skill (Constitution Check section) and `/plan-review`.
-  These read this file LIVE at plan time — there are no generated templates to
+Consumed by: mentor `plan` skill (Constitution Check section).
+  It reads this file LIVE at plan time — there are no generated templates to
   propagate to, so no downstream files need editing.
 Deferred TODOs: <anything intentionally left open, or none>
 -->
@@ -256,8 +256,9 @@ On approval, create the dir and write the file with `Write` (it is in-repo, but
 `.mentor/` is exempt from the plan gate, so the write is allowed even mid-plan):
 
 ```bash
-# Re-derive: each fenced block is its own Bash call, so Step 1's value is gone.
-repo_root="$(git rev-parse --show-toplevel)"
+# Re-derive exactly as Step 1 does (the MAIN checkout, via git-common-dir): each
+# fenced block is its own Bash call, and planning reads the main checkout's .mentor/.
+repo_root="$(cd "$(dirname "$(git rev-parse --git-common-dir)")" && pwd)"
 mkdir -p "$repo_root/.mentor"   # bare on purpose: constitution.md is committed, not private
 ```
 

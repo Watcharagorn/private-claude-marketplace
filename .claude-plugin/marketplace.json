@@ -6,7 +6,7 @@
   "plugins": [
     {
       "name": "mentor",
-      "description": "Plan-first software delivery guidance with review, verification, and optional workflow guardrails.",
+      "description": "Plan-first software delivery guidance with verification and optional workflow guardrails.",
       "source": "./plugins/mentor",
       "category": "Developer Tools"
     },

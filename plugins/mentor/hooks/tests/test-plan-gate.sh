@@ -98,7 +98,7 @@ run allow "$REPO" Write        "Write to scratch (outside)"  "$ROOT/scratch.txt"
 
 echo "== B2. Marker present → mentor's own .mentor/ tree is EXEMPT (always writable) =="
 run allow "$REPO" Write "Write .mentor/config.json (exempt)"       "$REPO/.mentor/config.json"
-run allow "$REPO" Edit  "Edit nested .mentor/ file (exempt)"        "$REPO/.mentor/handoffs/note.md"
+run allow "$REPO" Edit  "Edit nested .mentor/ file (exempt)"        "$REPO/.mentor/reviews/x/notes.md"
 run block "$REPO" Write ".mentor-evil sibling is NOT exempt"        "$REPO/.mentor-evil/x"
 
 echo "== C. Marker present → NotebookEdit notebook_path field also gated =="

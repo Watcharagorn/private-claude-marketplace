@@ -5,7 +5,7 @@ sentence of why; the narrative and the evidence live here.
 
 ## Why one page replaced topic × perspective
 
-The skill that `/mentor:zoom` used to load wrote one page per topic × perspective (End user, Implementor,
+The skill the retired zoom command used to load wrote one page per topic × perspective (End user, Implementor,
 Reviewer, QA), up to six or more files per subject, and its contract forbade a single page for the whole
 subject. Three hand-built review pages in a real repo (a release-readiness gate, a list-table redesign, a
 deploy-order change) showed what reviewers actually used: one page with a scenario rail, a clickable mockup
@@ -220,7 +220,7 @@ The first verification of this skill found these, each now a rule in `SKILL.md` 
   Tracing now goes to one read-only worker that returns `file:symbol` chains; one worker, because the chains
   and the ids that follow them need one author.
 - **V-7. No helper path, so no workers.** In two of five headless runs neither `PLUGIN_ROOT` nor
-  `CLAUDE_PLUGIN_ROOT` was set in the shell, so the policy check could not run and the page was built serially.
+  `CLAUDE_PLUGIN_ROOT` was set in the shell, so the helpers could not run and the page was built serially.
   §0 now falls back to the skill's own base directory.
 
 ## Verification round 2 (2026-10-11)
@@ -264,8 +264,8 @@ The second verification passed its goals and found these, each now a rule:
   an entry point whose outcome differs is an edge card.
 - **V-15. A finished worker waited ten minutes.** A main thread launched its one worker in the background and
   set a twenty-minute wakeup as a heartbeat; the worker finished early and the page waited for the timer.
-  Nothing waits on a timer now. Round 3 also tried foreground waves; the user then chose to follow mentor's
-  own dispatch guidance for waiting, so previewing keeps no waiting rule of its own (V-23).
+  Round 3 also tried foreground waves; previewing now keeps no waiting rule of its own (see "Mentor v5.0.0:
+  no worker-handling rules" below).
 - **Not a defect: the citation.** One finding said a note cited `dispatch_test.go:183` and `:184` for
   assertions at `:182` and `:183`. `grep -n` shows the assertions at 183 and 184, so the page was right and no
   rule changed.
@@ -284,8 +284,8 @@ round 2's fixes. It found these:
   reported to the user; nothing is cut to fit.
 - **V-17. Reruns went to the background.** The §4 rerun and a §7 regeneration were sent as messages to
   finished workers, which resume in the background, so the turn ended mid-build and finished only on the
-  task notification. That was a side effect of the foreground waves; with those gone (V-23), how to fix a
-  worker's output is left to the agent, as in mentor's recovery guide.
+  task notification. That was a side effect of the foreground waves; with those gone, how to fix a worker's
+  output is left to the agent.
 - **V-18. "Settled with you" for decisions nobody settled.** A plan with no decision table had its stated
   choices listed as settled with the reader. They now go under "Stated in the plan".
 - **V-19. Small leftovers.** The main thread peeked at the inlined assets (about 1 KB; it is now told the facts
@@ -307,23 +307,13 @@ A re-check resumed round 3's build with the page and two fragments removed. Resu
 
 ## Instruction hygiene, synced with mentor (2026-10-11)
 
-The pre-ship hygiene pass found previewing's new worker rules contradicting mentor's general ones, all three
-reaching the same run: `dispatch-agents` and the note the dispatch hook appends to every worker are loaded
-alongside this skill. The user's call was that previewing is a part of mentor, so the two must say the same
-thing, settled one difference at a time:
+The pre-ship hygiene pass found previewing's worker rules contradicting mentor's general ones at the time
+(waiting for workers, fixing a worker's output, where a worker writes). The waiting and recovery rules were
+later dropped with the rest of mentor's worker handling (next section). One rule from this pass stays:
 
-- **V-23. Waiting for workers: mentor's guidance, no rule of its own.** Previewing had moved to foreground
-  waves (V-15, V-17) while `dispatch-agents` says to end the turn and let completion notices wake the main
-  thread. The user: "lets agents decide". Previewing now points at `dispatch-agents` and keeps only the
-  no-timer line, which both already shared. The ten-minute stop of background workers is a headless
-  `claude -p` setting (`CLAUDE_CODE_PRINT_BG_WAIT_CEILING_MS=0`), not a reason for a page rule.
-- **V-24. Fixing a worker's output: the agent picks.** Previewing said "always a fresh worker"; the recovery
-  guide said "always message the same agent". Neither is a rule now: `dispatch-recovery.md` names when each
-  fits, and previewing follows it.
-- **V-25. Where a worker writes: the folder its brief names.** The appended note said to put long output and
-  report copies beside the plan whenever the brief names one, so the trace worker, whose brief names the plan,
-  left a copy there (V-9). The note now says to write where the brief says, and beside the plan only when it
-  names no other folder; previewing's briefs name the review folder.
+- **V-25. Where a worker writes: the folder its brief names.** A trace worker whose brief named the plan left
+  a copy of its file beside the plan (V-9). Previewing's briefs name the review folder and list the only paths
+  a worker may write.
 
 The same pass found smaller gaps, which the user approved as one batch:
 
@@ -334,6 +324,15 @@ The same pass found smaller gaps, which the user approved as one batch:
 - **V-27. "Stated in the plan" vanished after the first answer.** The first chat answer starts a decision table
   in the plan, so the "no decision table" test turned false on the next regeneration and every stated decision
   left the page. `decisions: stated` in the `_ids.md` header now keeps the table.
+
+## Mentor v5.0.0: no worker-handling rules
+
+Mentor v5.0.0 stopped prescribing how subagents are handled: no contract block appended to worker
+prompts, no delegation-policy preflight, no waiting or recovery rules. Previewing followed: §3 now just uses
+workers when the host supports delegation and the user has not restricted it, and otherwise builds serially.
+The no-timer line (V-15) went with the waiting rules; the host decides how workers are awaited. Previewing's
+own worker contract — the paths a worker may write, the `Self-check:` line, the main thread never reading
+`_trace.md` — stays, because it shapes the page, not the agents.
 
 ## Retirement of `ui-mockup-contract.md`
 

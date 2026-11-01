@@ -1,6 +1,6 @@
 ---
 name: shipping
-description: Finish the current branch — clean-check, run /simplify, optionally run tests, then ship to a user-chosen target (push + auto-open PR/MR, or push to the branch's upstream), then retire the plan topic's live handoff notes (stamped resolved — the work is done). Never force-pushes; never pushes to a protected source branch without an explicit choice. Invoked by /mentor:ship, "ship this", "merge and push", "finish and ship".
+description: Finish the current branch — clean-check, run /simplify, optionally run tests, then ship to a user-chosen target (push + auto-open PR/MR, or push to the branch's upstream), then mark the session's plan implemented. Never force-pushes; never pushes to a protected source branch without an explicit choice. Invoked by /mentor:ship, "ship this", "merge and push", "finish and ship".
 ---
 
 # ship — Ship the current branch
@@ -158,22 +158,15 @@ review agents: while they run, do not wait on them by hand — end the turn and 
 harness re-invoke you when they report. A `Bash true` poll burns a whole turn and returns
 nothing.
 
-That fallback is for simplify being **unavailable** — not for it being available and
-its agents declined. The agents belong to simplify's own documented behavior; mentor
-is not dispatching them. If a standing instruction in this environment still reads
-as blocking them, that tension is the user's to resolve, not yours to resolve
-silently: ask once, in one line, whether to let simplify run its review. Either way,
-a solo diff review is reported **as** a solo diff review — reporting the substitute
-as though this step ran is what turns a judgment call into a false green.
+That fallback is for simplify being **unavailable**, not for skipping it. If a standing
+instruction in this environment seems to block simplify's own review agents, ask the user
+once, in one line, whether to let simplify run. Either way, a solo diff review is reported
+**as** a solo diff review — reporting the substitute as though this step ran turns a
+judgment call into a false green.
 
-Mentor dispatches freely for *review*, which makes wrapping this call in an
-`Agent` dispatch a tempting read — but it is the one thing that breaks the step. Simplify
-already runs its own agents, so the wrapper adds no parallelism; what it does add is a
-delegate that commits its own result and returns "done". Everything numbered below then
-becomes dead code — including the out-of-scope question — and the **Re-entry** paragraph
-that lands you at Step 4 never fires, so the ship tail's two `AskUserQuestion` gates are
-skipped and the push happens without the user ever choosing to test or choosing where the
-branch goes. Keep the call in-thread and this step keeps its checks.
+Keep the /simplify call in-thread: a wrapping `Agent` delegate commits its own result and
+returns 'done', so the clean check, out-of-scope question and Step 4/5 gates never run.
+(why: `references/rationale.md` → **Step 3 — why /simplify stays in-thread**)
 
 After it returns:
 
@@ -408,73 +401,36 @@ ahead-count double-count them. Any other remote rejection (`cannot lock ref`, qu
 surface it and stop — never guess.
 **Never force-push.**
 
-## Step 6 — Retire the topic's handoff notes (post-ship)
+## Step 6 — Close the plan's state (post-ship)
 
-A successful ship means the plan's tasks are done — any handoff note still live
-for this work is solved, and leaving it listed invites a later `/mentor:resume`
-to re-open finished work. Resolve `<topic>` from what **this session actually
-worked on**: the plan file it followed (`.mentor/plans/<topic>/plan.md`) or the
-handoff note it resumed from (the note's grandparent dir — the `<topic>` above
-its `handoffs/` — names it; this also covers focus-slug topics that never got a
-`plan.md`). If the session touched notes in more than one topic dir, run the
-snippet once per topic. **If you cannot name the topic from this session's own
-work, skip this step entirely — never guess** (e.g. from the newest `plan.md`
-on disk: it may belong to a different, unfinished workstream, and stamping its
-notes would bury live work). Resume Step 7 and the next `/mentor:handoff` still
-stamp on their own triggers.
+A successful ship means the plan's tasks are done, and a shipped plan left
+`in_progress` reads as unfinished work to the next session that lists plans.
+Resolve `<topic>` from what **this session actually worked on**: the plan file
+it followed (`.mentor/plans/<topic>/plan.md`). If the session worked through
+more than one plan, run the snippet once per topic. **If you cannot name the
+topic from this session's own work, skip this step entirely — never guess**
+(e.g. from the newest `plan.md` on disk: it may belong to a different,
+unfinished workstream, and closing it would bury live work). Run this only
+after the push actually succeeded; it never blocks the ship report.
 
 ```bash
-# Re-derive here (shell vars don't survive between Bash calls) via the shared
-# subcommand handoff/resume use: from a linked worktree it resolves to the MAIN
-# repo's .mentor, where the notes actually live (show-toplevel would miss them).
-plans_dir="$(bash "${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:-}}/hooks/plan-state.sh" dir --plans)"
-[ -n "$plans_dir" ] || { echo "ERROR: Mentor plans directory unresolved — set PLUGIN_ROOT (or use the Claude compatibility fallback) or derive the repository .mentor directory" >&2; exit 1; }
-hand_dir="$plans_dir/<topic>/handoffs"   # ← REPLACE <topic> per the rule above
-find "$hand_dir" -maxdepth 1 -type f -name '*.md' 2>/dev/null | while IFS= read -r n; do
-  case "$(basename "$n")" in
-    [0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9]-[0-9][0-9][0-9][0-9][0-9][0-9]-*.md)  # conforming notes only
-      bash "${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:-}}/hooks/plan-state.sh" ensure-dir "$hand_dir/resolved" >/dev/null
-      mv "$n" "$hand_dir/resolved/$(basename "$n")"
-      echo "work shipped → resolved: $(basename "$n")" ;;
-    *)
-      echo "  (skipping non-conforming file: $(basename "$n"))" ;;
-  esac
-done
-```
-
-Run this only after the push actually succeeded. Skip silently when there are no
-live notes (`find` yields nothing) — this step never blocks the ship report. A
-`(skipping non-conforming file: …)` line is not a failure either: name that file in
-the ship report, then leave it alone — ship never renames or moves it to make it
-stampable (`/mentor:resume` holds the same rule), and never blocks on one. A
-stamp is reversible by moving the file back up one directory.
-
-**Also close the plan's state** — same trigger, same `<topic>` resolution, same
-never-guess rule: a shipped plan left `in_progress` is re-offered for building by
-the next session's `/mentor:track`:
-
-```bash
-plans_dir="$(bash "${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:-}}/hooks/plan-state.sh" dir --plans)"
+plans_dir="$(bash "${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT}}/hooks/plan-state.sh" dir --plans)"
 [ -n "$plans_dir" ] || { echo "ERROR: Mentor plans directory unresolved — set PLUGIN_ROOT (or use the Claude compatibility fallback) or derive the repository .mentor directory" >&2; exit 1; }
 if [ -d "$plans_dir/<topic>" ]; then
-  open="$(jq -r '.note // ""' "$plans_dir/<topic>/.state.json" 2>/dev/null | tr '|' '\n' | grep -m1 '^ *open:' | sed 's/^ *//; s/ *$//')"
-  bash "${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:-}}/hooks/plan-state.sh" set <topic> implemented --note "$open"
+  stored="$(jq -r '.state // ""' "$plans_dir/<topic>/.state.json" 2>/dev/null)"
+  case "$stored" in
+    implemented|superseded) echo "<topic> is already $stored — left as is." ;;
+    *) bash "${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT}}/hooks/plan-state.sh" set <topic> implemented ;;
+  esac
 fi
 ```
 
 Guard on the directory rather than letting it fail: `set` exits 1 with "No such
-plan" when the plans dir exists but the slug doesn't — exactly the focus-slug
-handoff case that never got a `plan.md`. Don't invent a slug to satisfy it.
-Two edges worth knowing. `note` is always replaced on write, so a bare `set` blanks it —
-usually what you want, since it clears a stale `failed` reason, but **not** for an `open:`
-segment: that list is the plan's only record of verification findings the user chose to
-leave open, and blanking it silently turns "done with three known gaps" into "done". The
-read above carries just that segment forward and lets everything else clear. Pass `--note`
-unconditionally rather than assembling the flag conditionally: `--note ""` and an omitted
-`--note` both blank the field, while a `${open:+--note "$open"}` construction word-splits on
-the note's own spaces and `set` rejects the fragments as unknown flags. And `set` has
-no downgrade guard — if `<topic>` resolves to a split parent, `implemented` overwrites
-`superseded`.
+plan" when the plans dir exists but the slug doesn't — a topic that never got a
+`plan.md`. Don't invent a slug to satisfy it.
+`set implemented` replaces the note, which clears any stale failure reason; `set` has no
+downgrade guard, so read the state first and skip a plan already `superseded` (a split
+parent) or `implemented`.
 
 ## Step 7 — Point at the merge tail, and stop
 
@@ -498,15 +454,10 @@ in this repo reads it instead of asking again. Only a command that actually
 passed is worth saving — Step 4 uses a configured value verbatim, so persisting
 a broken one hands the next ship a bad default it will trust.
 
-This lands in Step 7 and not in Step 4 on purpose. `.mentor/config.json` is
-deliberately **not** gitignored — it is meant to be committed and shared — so
-writing it is a working-tree change, and Step 4 sits *after* the Step 2/3 clean
-gate and *before* the Step 5 push. Writing it there would leave the tree dirty
-at push time in a skill whose Step 2 refuses to stage anything on the user's
-behalf, and the next `/mentor:ship` would then abort at that very gate. After
-the push, the same write is just a file waiting to be committed. Say that
-plainly in the offer: this file is committed, and ship will not commit it for
-them.
+Save it here, after the push, never at Step 4: `.mentor/config.json` is committed, so an
+earlier write would leave the tree dirty at push time and trip the next ship's clean gate.
+Say plainly in the offer that this file is committed and ship will not commit it for them.
+(why: `references/rationale.md` → **Step 7 — why the test command is saved after the push**)
 
 ```bash
 repo_root="$(git rev-parse --show-toplevel)"   # re-derive: separate Bash call (see Step 2)
@@ -520,14 +471,11 @@ else
 fi
 ```
 
-That is `set-mode.sh`'s own idiom, and reusing it is the point: the `.k = $v`
-assignment preserves `mode`, `constitution_path` and the context-gate keys, and
-the `&&` means a `jq` failure leaves the original byte-identical — so there is
-no second backup-and-restore dance to keep true for the same file. On the
-create branch, a config written without `.mentor/.gitignore` beside it would
-leave `plans/`, `reviews/` and `tours/` committable, so run
-`mentor_ensure_gitignore` (as every hook that writes this file does) or create
-the config only in a repo that already planned.
+Keep the merge in place through a temp file, so every other key survives and a `jq`
+failure leaves the original untouched. On the create branch, run `mentor_ensure_gitignore`
+(or create the config only in a repo that already planned), so `plans/` and `reviews/`
+never become committable.
+(why: `references/rationale.md` → **Step 7 — how the config.json merge works**)
 
 **Marketplace repos: say whether the plugin is released.** When `$repo_root` holds a
 `.claude-plugin/marketplace.json`, shipping the branch and publishing the plugin are two

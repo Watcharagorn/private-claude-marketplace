@@ -16,10 +16,19 @@
 # release the gate.
 #
 # Optional slug arg (any position): the slug this session is about to
-# plan/resume (e.g. the slug named in `/mentor:plan <slug>`). Purely
-# informational — used only to warn in the ARMED banner when that slug is
-# already owned by a worktree with a live sibling marker; never required,
-# never affects whether arming succeeds.
+# plan or re-plan (e.g. the slug named in `/mentor:plan <slug>`). Never
+# required. It does two things:
+#   • ALREADY APPROVED short-circuit: when that plan's stored state is
+#     `approved` or `in_progress` (and its ✅ ticks have not taken it past
+#     that) and it is owned by THIS worktree (or
+#     unowned), print `ALREADY APPROVED: <slug>` and exit 0 WITHOUT arming —
+#     no marker is written or touched. Re-arming would close the edit gate
+#     on a plan that is already cleared for implementation, and nothing
+#     newer than the fresh marker exists to release it again. Re-planning
+#     stays one explicit step away: `plan-state.sh set <slug> draft`, re-run.
+#     A plan owned by a DIFFERENT worktree falls through to arming as usual.
+#   • Otherwise, warn in the ARMED banner when that slug is already owned by
+#     a worktree with a live sibling marker.
 #
 # Optional --override-foreign-marker: re-arms past the foreign-marker guard
 # below. NOT a way to skip the human confirm that guard demands — it is the
@@ -72,8 +81,8 @@ toplevel="$(git -C "$(pwd)" rev-parse --show-toplevel 2>/dev/null || true)"
 # transcript itself and measures it. Warn-only (v4.2.0): a large context never stops
 # the gate from arming — it prints a CONTEXT: line the plan skill surfaces to the user.
 # The UserPromptSubmit gate never sees /mentor:plan (slash passthrough), so we check
-# here. The same helper backs `plan-state.sh context`, which /mentor:track uses before
-# it dispatches — so both entry points apply one policy.
+# here. The same helper backs `plan-state.sh context`, so both entry points apply one
+# policy.
 # Fail-soft: unmeasurable → empty verdict → skip silently (like the not-a-repo grace).
 context_warn=""
 verdict="$(mentor_context_verdict "$repo_root" "$(pwd)")"
@@ -87,6 +96,30 @@ if [ -n "$verdict" ]; then
       context_warn="CONTEXT: WARN (~${tokens} tokens ≥ ${warn_at}) — surface to the user."
       ;;
   esac
+fi
+
+# --- already-approved short-circuit -----------------------------------------
+# See the header: an approved/in-progress plan owned here (or unowned) needs no
+# gate — arming would block the implementation it is already cleared for.
+# Runs BEFORE every guard and write below, so no marker is created, touched, or
+# pruned on this path. Keyed on the STORED state, not the tick-derived effective
+# one: ticks only ever advance effective state, so after the re-plan hint's
+# `set <slug> draft` a partly-ticked plan would still read in_progress and the
+# hint could never take effect. A plan whose effective state is already past it
+# (implemented/failed/superseded, e.g. fully ticked) arms as before.
+target_owner=""
+if [ -n "$target_slug" ] && [ -d "${plans_dir}/${target_slug}" ]; then
+  target_dir="${plans_dir}/${target_slug}"
+  target_owner="$(mentor_plan_owner "$target_dir")"
+  if [ -z "$target_owner" ] || [ "$target_owner" = "$wt_id" ]; then
+    case "$(mentor_plan_state_stored "$target_dir"):$(mentor_plan_effective_state "$target_dir")" in
+      approved:approved|approved:in_progress|in_progress:in_progress)
+        echo "ALREADY APPROVED: ${target_slug} — not arming the gate; implement it per planning's After Proceed section. To re-plan instead: plan-state.sh set ${target_slug} draft, then re-run."
+        [ -n "$context_warn" ] && echo "$context_warn"
+        exit 0
+        ;;
+    esac
+  fi
 fi
 
 # --- legacy-marker guard (v2.23.0) ------------------------------------------
@@ -221,17 +254,13 @@ done < <(ls "${plans_dir}"/*.md 2>/dev/null | awk '{ print length, $0 }' | sort 
 # Ownership-scoped (v2.23.0): a plan dir owned by a DIFFERENT, still-live
 # worktree must not have its sidecars swept out from under it — only unowned
 # or THIS-worktree-owned plan dirs are cleared. Each plan dir is swept at its
-# top level and in its tour/ folder only (tour sidecars inherit the plan dir's
-# owner), never recursively, so no other folder a plan dir holds is touched.
+# top level only, never recursively, so no other folder a plan dir holds is touched.
 for pd in "$plans_dir"/*/; do
   [ -d "$pd" ] || continue
   pd="${pd%/}"
   pd_owner="$(mentor_plan_owner "$pd")"
   if [ -z "$pd_owner" ] || [ "$pd_owner" = "$wt_id" ]; then
     find "$pd" -maxdepth 1 \( -name '*.opened' -o -name '.*.opened' \) -delete 2>/dev/null || true
-    if [ -d "$pd/tour" ]; then
-      find "$pd/tour" -maxdepth 1 \( -name '*.opened' -o -name '.*.opened' \) -delete 2>/dev/null || true
-    fi
   fi
 done
 # Legacy flat .opened (pre-v2.2.0 layout: <slug>.md.opened directly under
@@ -267,10 +296,7 @@ EOF
 # owned by that sibling worktree, WARN of a same-slug collision — this is the
 # protection the old repo-global guard used to provide for free, now that
 # siblings arm independently.
-target_owner=""
-if [ -n "$target_slug" ] && [ -d "${plans_dir}/${target_slug}" ]; then
-  target_owner="$(mentor_plan_owner "${plans_dir}/${target_slug}")"
-fi
+# target_owner was resolved by the already-approved short-circuit above.
 while IFS= read -r lm; do
   [ -n "$lm" ] || continue
   [ "$lm" = "$marker" ] && continue
@@ -285,22 +311,4 @@ done < <(mentor_live_markers "$plans_dir")
 
 [ -n "$context_warn" ] && echo "$context_warn"
 
-# The mode is only the APPROVAL-GATE DEFAULT — it decides which option the
-# Step-6 approval question lists first; both outcomes are always offered.
-# Never ask the user to pick a mode upfront.
-mode="$(mentor_get_mode "$repo_root")"
-case "$mode" in
-  plan-only)
-    echo "MODE: plan-only"
-    echo '[mentor] Approval default: "Deliver plan only" listed first ("Proceed" always offered).'
-    ;;
-  "")
-    echo "MODE: UNSET (default: plan)"
-    echo '[mentor] No approval default persisted — "Proceed" listed first. Set one with /mentor:mode.'
-    ;;
-  *)
-    echo "MODE: ${mode}"
-    echo '[mentor] Approval default: "Proceed" listed first ("Deliver plan only" always offered).'
-    ;;
-esac
 exit 0

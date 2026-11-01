@@ -82,7 +82,7 @@ check_silent "mid-sentence mention (not anchored)" "so my plan is to refactor au
 check_silent "empty prompt"              ""                                               "$REPO" "sess-b3"
 
 echo "== C. Escape hatches =="
-check_silent "slash command passthrough" "/mentor:handoff lets write it as mentor plan"  "$REPO" "sess-c1"
+check_silent "slash command passthrough" "/mentor:grill lets write it as mentor plan"  "$REPO" "sess-c1"
 check_silent "slash command (unrelated)" "/compact"                                       "$REPO" "sess-c2"
 check_silent "synthetic agent-message"   '<agent-message>help me plan this</agent-message>' "$REPO" "sess-c3"
 check_silent "synthetic task-notification" '<task-notification>help me plan</task-notification>' "$REPO" "sess-c4"

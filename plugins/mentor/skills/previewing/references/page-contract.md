@@ -325,7 +325,7 @@ dups=$(grep -o ' id="[^"]*"' "$page" | sort | uniq -d); [ -z "$dups" ] && echo "
 s=$(cat "$review_dir"/_parts/20-scenarios/*-[hs][0-9]*.html 2>/dev/null | grep -o '<script' | wc -l | tr -d ' '); [ "$s" = 0 ] && echo "OK no script in hop or flow files" || echo "BAD $s script tags in hop or flow files"
 bad=$(grep -oE 'href="#(sec|scn|seq)-[^"]*"' "$page" | sort -u | sed 's/^href="#//;s/"$//' | while IFS= read -r id; do grep -qF " id=\"$id\"" "$page" || printf '%s ' "$id"; done); [ -z "$bad" ] && echo "OK page links" || echo "BAD links with no target: $bad"
 n=$(grep -cE '^/\* mentor previewing assets/page\.(css|js):' "$page"); left=$(grep -c '^{{include ' "$page"); [ "$n" = 2 ] && [ "$left" = 0 ] && echo "OK assets inlined" || echo "BAD assets: $n of 2 inlined, $left include lines left"
-[ "$(wc -c < "$page")" -gt 1048576 ] && echo "WARN review.html is over 1 MB (shots/ not counted)"
+if [ "$(wc -c < "$page")" -gt 1048576 ]; then echo "WARN review.html is over 1 MB (shots/ not counted)"; fi
 ```
 
 The size warning is reported to the user with the heaviest files, never fixed by cutting content: how frames

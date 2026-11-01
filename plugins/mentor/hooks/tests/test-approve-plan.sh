@@ -3,8 +3,8 @@
 #
 # Contract: release the .planning gate ONLY when a non-empty Markdown plan
 # exists that is NEWER than the marker (i.e. written this planning session).
-# --deliver prints its directive (mode-agnostic — the persisted mode is never
-# read — and still printed when the gate is already open); unknown flags,
+# --deliver prints its directive (still printed when the gate is already
+# open); unknown flags,
 # including the retired --handoff (v4.2.0), are rejected before the marker is
 # touched.
 #
@@ -18,15 +18,19 @@
 # this (the "A") worktree's OWN suffixed marker; a second, linked worktree
 # ("B", $WTB) exercises the cross-worktree cases.
 #
+# Section Q drives begin-plan.sh <slug>: an approved/in_progress plan owned by
+# this worktree (or unowned) prints ALREADY APPROVED and writes no marker;
+# foreign-owned or draft plans arm as before.
+#
 # Runs against a SANDBOX $HOME so it never touches real user state.
 set -uo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 HOOKS="$(dirname "$SCRIPT_DIR")"
 APPROVE="$HOOKS/approve-plan.sh"
-SETMODE="$HOOKS/set-mode.sh"
 PLANSTATE="$HOOKS/plan-state.sh"
-for f in "$APPROVE" "$SETMODE" "$PLANSTATE"; do
+BEGIN="$HOOKS/begin-plan.sh"
+for f in "$APPROVE" "$PLANSTATE" "$BEGIN"; do
   [ -f "$f" ] || { echo "FATAL: not found: $f" >&2; exit 1; }
 done
 command -v jq >/dev/null 2>&1 || { echo "FATAL: jq required to run this suite" >&2; exit 1; }
@@ -65,7 +69,6 @@ chk() { local desc="$1"; shift
 ap()     { ( cd "$REPO" && HOME="$SANDBOX" env -u CLAUDE_CODE_SESSION_ID bash "$APPROVE" "$@" 2>&1 ); }
 ap_b()   { ( cd "$WTB"  && HOME="$SANDBOX" env -u CLAUDE_CODE_SESSION_ID bash "$APPROVE" "$@" 2>&1 ); }
 apsess() { local sess="$1"; shift; ( cd "$REPO" && HOME="$SANDBOX" CLAUDE_CODE_SESSION_ID="$sess" bash "$APPROVE" "$@" 2>&1 ); }
-sm() { ( cd "$REPO" && HOME="$SANDBOX" bash "$SETMODE" "$@" >/dev/null 2>&1 ); }
 arm() { : > "$MARKER"; }
 arm_b() { : > "$MARKER_B"; }
 fresh_plan() { sleep 1; mkdir -p "$PLANS_DIR/fixture-plan"; printf '# Plan\n\n1. Do the thing.\n' > "$PLANS_DIR/fixture-plan/plan.md"; }
@@ -105,7 +108,9 @@ chk "fresh plan → exit 0"              test "$rc" = "0"
 chk "fresh plan → marker gone"         test ! -f "$MARKER"
 chk "fresh plan → APPROVED message"    sh -c "printf '%s' \"\$0\" | grep -q 'Plan APPROVED'" "$out"
 chk "fresh plan → plan path printed"   sh -c "printf '%s' \"\$0\" | grep -q 'fixture-plan/plan.md'" "$out"
-chk "fresh plan → routing directive"   sh -c "printf '%s' \"\$0\" | grep -q 'routing verdict'" "$out"
+chk "fresh plan → main-thread directive" sh -c "printf '%s' \"\$0\" | grep -q 'Implement the plan.s steps in the main thread'" "$out"
+chk "fresh plan → directive names tick, Verification, ship" sh -c "printf '%s' \"\$0\" | grep -q 'plan-state.sh tick' && printf '%s' \"\$0\" | grep -q '## Verification' && printf '%s' \"\$0\" | grep -q '/mentor:ship'" "$out"
+chk "fresh plan → no removed-skill routing" sh -c "! printf '%s' \"\$0\" | grep -qE 'dispatch-agents|Dispatch: skipped|/mentor:handoff|claim'" "$out"
 
 echo "== D2. Legacy flat <slug>.md is ignored by the resolver =="
 sleep 1; arm                                                # marker now NEWER than the nested plan
@@ -120,7 +125,7 @@ echo "== E. Idempotency: gate already open → exit 0, directives still print ==
 out="$(ap)"; rc=$?
 chk "already open → exit 0"            test "$rc" = "0"
 chk "already open → notice"            sh -c "printf '%s' \"\$0\" | grep -q 'already open'" "$out"
-chk "already open → routing directive" sh -c "printf '%s' \"\$0\" | grep -q 'routing verdict'" "$out"
+chk "already open → main-thread directive" sh -c "printf '%s' \"\$0\" | grep -q 'Implement the plan.s steps in the main thread'" "$out"
 # A re-run of a no-implementation flag must never lose its directive.
 out="$(ap --deliver)"; rc=$?
 chk "open + --deliver → exit 0"        test "$rc" = "0"
@@ -135,13 +140,13 @@ chk "handoff → usage names --deliver only" sh -c "printf '%s' \"\$0\" | grep -
 chk "handoff → no hand-off directive"  sh -c "! printf '%s' \"\$0\" | grep -q 'HAND-OFF REQUESTED'" "$out"
 rm -f "$MARKER"; clear_plans
 
-echo "== G. --deliver: mode-agnostic deliverable soft-stop =="
-sm plan
+echo "== G. --deliver: deliverable soft-stop =="
 arm; fresh_plan
 out="$(ap --deliver)"; rc=$?
 chk "deliver → exit 0"                 test "$rc" = "0"
 chk "deliver → marker gone"            test ! -f "$MARKER"
 chk "deliver → DELIVER-ONLY directive" sh -c "printf '%s' \"\$0\" | grep -q 'DELIVER-ONLY'" "$out"
+chk "deliver → no handoff/implementation directive" sh -c "! printf '%s' \"\$0\" | grep -qE '/mentor:handoff|Implement the plan'" "$out"
 # deliver with a stale plan: validation precedes the directive.
 clear_plans
 stale_plan; sleep 1; arm
@@ -149,13 +154,14 @@ out="$(ap --deliver)"; rc=$?
 chk "deliver(stale) → exit 1"          test "$rc" = "1"
 chk "deliver(stale) → marker kept"     test -f "$MARKER"
 chk "deliver(stale) → no directive"    sh -c "! printf '%s' \"\$0\" | grep -q 'DELIVER-ONLY'" "$out"
-# persisted plan-only mode must NOT change a plain approve (the old mode branch is gone).
-sm plan-only
+# A legacy .mentor/config.json "mode": "plan-only" key is never read: a plain approve
+# never soft-stops.
+printf '{"mode":"plan-only"}\n' > "$STATE_DIR/config.json"
 arm; fresh_plan
 out="$(ap)"; rc=$?
-chk "plan-only + no-arg → exit 0"      test "$rc" = "0"
-chk "plan-only + no-arg → no soft-stop" sh -c "! printf '%s' \"\$0\" | grep -qE 'DELIVER-ONLY|PLAN-ONLY MODE'" "$out"
-sm plan
+chk "legacy plan-only key + no-arg → exit 0"      test "$rc" = "0"
+chk "legacy plan-only key + no-arg → no soft-stop" sh -c "! printf '%s' \"\$0\" | grep -qE 'DELIVER-ONLY|PLAN-ONLY MODE'" "$out"
+rm -f "$STATE_DIR/config.json"
 
 echo "== H. Unknown flag → rejected before touching the marker =="
 arm; fresh_plan
@@ -197,7 +203,7 @@ chk "superseded parent not flipped back"          test "$(st split-parent)" = "s
 chk "split child promoted"                        test "$(st split-kid)" = "approved"
 
 # --deliver approves too — the flag defers implementation, not approval.
-# (Leaving flagged approvals at `draft` made plan-track refuse them next session.)
+# (A flagged approval left at `draft` reads as "the gate never released" next session.)
 arm; newplan delivered
 ap --deliver >/dev/null
 chk "--deliver promotes to approved"              test "$(st delivered)" = "approved"
@@ -227,40 +233,14 @@ chk "--deliver prints the state line"      sh -c "printf '%s' \"\$0\" | grep -q 
 
 chk "months-old plan still untouched at the end"  test "$(st ancient)" = "unknown"
 
-echo "== K. Approval-sweep shield: deferred stubs stay draft; claim unblocks; deps/origin/group/order survive promotion (v2.17.0) =="
+echo "== K. deps/group/order survive the promotion write =="
 
 clear_plans; rm -f "$MARKER"
 arm; newplan main-plan
-newplan stub-deferred
-psq init stub-deferred --deferred --group stub-group --order 5 --deps main-plan >/dev/null
-
-out="$(ap)"; rc=$?
-chk "approve with a deferred stub present → exit 0" test "$rc" = "0"
-chk "main plan promoted"                             test "$(st main-plan)" = "approved"
-chk "deferred stub stays draft"                      test "$(st stub-deferred)" = "draft"
-chk "deferred stub keeps origin through the skip"    test "$(sidecar stub-deferred '.origin')" = "deferred"
-chk "deferred stub keeps deps through the skip"      test "$(sidecar stub-deferred '(.deps//[])|join(",")')" = "main-plan"
-chk "deferred stub keeps group through the skip"     test "$(sidecar stub-deferred '.group')" = "stub-group"
-chk "deferred stub keeps order through the skip"     test "$(sidecar stub-deferred '.order')" = "5"
-chk "approve reports the deferred skip"    sh -c "printf '%s' \"\$0\" | grep -q 'deferred stub'" "$out"
-chk "approve names the skipped stub"       sh -c "printf '%s' \"\$0\" | grep -q 'stub-deferred'" "$out"
-
-# Claim it — origin clears, and the sweep no longer shields it.
-psq claim stub-deferred >/dev/null
-arm; newplan stub-deferred   # re-touch plan.md newer than the fresh marker; init is idempotent
-out="$(ap)"; rc=$?
-chk "claimed stub → exit 0"                   test "$rc" = "0"
-chk "claimed stub promotes"                   test "$(st stub-deferred)" = "approved"
-chk "no more deferred-skip line once claimed" sh -c "! printf '%s' \"\$0\" | grep -q 'deferred stub'" "$out"
-chk "claimed stub's deps survive the promotion write"   test "$(sidecar stub-deferred '(.deps//[])|join(",")')" = "main-plan"
-chk "claimed stub's group survives the promotion write" test "$(sidecar stub-deferred '.group')" = "stub-group"
-chk "claimed stub's order survives the promotion write" test "$(sidecar stub-deferred '.order')" = "5"
-chk "claimed stub's origin stays cleared after promotion" test "$(sidecar stub-deferred '.origin')" = "null"
-
-# A never-deferred plan's deps/group/order must survive its (ordinary) promotion too —
-# same write path (--state approved only), exercised without the shield in play. This
-# is the whole reason mentor_plan_state_write went flag-style: the old fixed-positional
-# write clobbered these back to defaults on every promotion.
+# A plan's deps/group/order must survive its promotion — the write path is
+# --state approved only. This is the whole reason mentor_plan_state_write went
+# flag-style: the old fixed-positional write clobbered these back to defaults on
+# every promotion.
 arm; newplan survive-fields
 psq init survive-fields --group grp-x --order 7 --deps main-plan >/dev/null
 out="$(ap)"; rc=$?
@@ -269,29 +249,6 @@ chk "ordinary plan promoted"                        test "$(st survive-fields)" 
 chk "deps survive an ordinary promotion"            test "$(sidecar survive-fields '(.deps//[])|join(",")')" = "main-plan"
 chk "group survives an ordinary promotion"          test "$(sidecar survive-fields '.group')" = "grp-x"
 chk "order survives an ordinary promotion"          test "$(sidecar survive-fields '.order')" = "7"
-chk "origin stays null (never was deferred)"        test "$(sidecar survive-fields '.origin')" = "null"
-
-# A PARKED child — origin deferred AND parent set (v2.29.0 nesting) — must survive the
-# sweep unpromoted exactly like an ordinary deferred stub; parent rides through the
-# skip the same way group/order/deps already do above.
-arm; newplan parked-root; newplan parked-child
-psq init parked-child --deferred --parent parked-root >/dev/null
-out="$(ap)"; rc=$?
-chk "approve with a parked (deferred+parent) child present → exit 0" test "$rc" = "0"
-chk "parked root promoted"                             test "$(st parked-root)" = "approved"
-chk "parked child stays draft"                         test "$(st parked-child)" = "draft"
-chk "parked child keeps origin through the skip"       test "$(sidecar parked-child '.origin')" = "deferred"
-chk "parked child keeps parent through the skip"       test "$(sidecar parked-child '.parent')" = "parked-root"
-chk "approve reports the deferred skip for the parked child" \
-  sh -c "printf '%s' \"\$0\" | grep -q 'deferred stub' && printf '%s' \"\$0\" | grep -q 'parked-child'" "$out"
-
-# Claim it — origin clears, parent stays (it's a claimed fix, still parented under root).
-psq claim parked-child >/dev/null
-arm; newplan parked-child   # re-touch, newer than the fresh marker; init is idempotent
-out="$(ap)"; rc=$?
-chk "claimed parked child → exit 0"                    test "$rc" = "0"
-chk "claimed parked child promotes"                    test "$(st parked-child)" = "approved"
-chk "claimed parked child's parent survives promotion" test "$(sidecar parked-child '.parent')" = "parked-root"
 
 echo "== L. Ownership matrix: A owns plan-a, B owns plan-b — A's approve promotes plan-a ONLY (v2.23.0) =="
 clear_plans; rm -f "$MARKER" "$MARKER_B" "$LEGACY_MARKER"
@@ -394,6 +351,72 @@ out="$(ap)"; rc=$?
 chk "A approve, only-owned plan predates the marker → exit 1" test "$rc" = "1"
 chk "staleness message shown"                                  sh -c "printf '%s' \"\$0\" | grep -q 'predates this planning session'" "$out"
 chk "ownership situation named too"                             sh -c "printf '%s' \"\$0\" | grep -q 'owned by another worktree'" "$out"
+
+echo "== Q. begin-plan.sh <slug>: an approved/in-progress plan owned here (or unowned) is NOT re-armed =="
+# Re-arming would close the gate on a plan already cleared for implementation, with
+# nothing newer than the fresh marker left to release it. Foreign-owned and draft plans
+# arm exactly as before.
+bp()  { ( cd "$REPO" && HOME="$SANDBOX" env -u CLAUDE_CODE_SESSION_ID bash "$BEGIN" "$@" 2>&1 ); }
+mkplan() { mkdir -p "$PLANS_DIR/$1"; printf '# Plan %s\n\n1. Do it.\n' "$1" > "$PLANS_DIR/$1/plan.md"; }
+clear_plans; rm -f "$MARKER" "$MARKER_B" "$LEGACY_MARKER"
+
+mkplan q-own; psq init q-own >/dev/null; psq set q-own approved >/dev/null
+out="$(bp q-own)"; rc=$?
+chk "approved+owned → exit 0"                         test "$rc" = "0"
+chk "approved+owned → ALREADY APPROVED line"          sh -c "printf '%s' \"\$0\" | grep -q '^ALREADY APPROVED: q-own'" "$out"
+chk "approved+owned → re-plan hint"                   sh -c "printf '%s' \"\$0\" | grep -q 'plan-state.sh set q-own draft'" "$out"
+chk "approved+owned → no marker written"              test ! -e "$MARKER"
+chk "approved+owned → not ARMED"                      sh -c "! printf '%s' \"\$0\" | grep -q 'ARMED'" "$out"
+# An existing own marker is not touched either (its mtime is the session start).
+: > "$MARKER"; touch -t 202001010000 "$MARKER"; before="$(ls -l "$MARKER")"
+out="$(bp q-own)"
+chk "approved+owned → existing marker untouched"      test "$(ls -l "$MARKER")" = "$before"
+rm -f "$MARKER"
+
+psq set q-own in_progress >/dev/null
+out="$(bp q-own)"; rc=$?
+chk "in_progress+owned → ALREADY APPROVED, exit 0"    sh -c "[ \"\$1\" = 0 ] && printf '%s' \"\$0\" | grep -q '^ALREADY APPROVED: q-own'" "$out" "$rc"
+chk "in_progress+owned → no marker written"           test ! -e "$MARKER"
+
+mkplan q-unowned; printf '{"state":"approved"}\n' > "$PLANS_DIR/q-unowned/.state.json"
+out="$(bp q-unowned)"
+chk "approved+unowned → ALREADY APPROVED"             sh -c "printf '%s' \"\$0\" | grep -q '^ALREADY APPROVED: q-unowned'" "$out"
+chk "approved+unowned → no marker written"            test ! -e "$MARKER"
+
+mkplan q-foreign; psq_b init q-foreign >/dev/null; psq_b set q-foreign approved >/dev/null
+out="$(bp q-foreign)"; rc=$?
+chk "approved+foreign-owned → arms (exit 0, ARMED)"   sh -c "[ \"\$1\" = 0 ] && printf '%s' \"\$0\" | grep -q 'Plan phase ARMED'" "$out" "$rc"
+chk "approved+foreign-owned → marker written"         test -f "$MARKER"
+chk "approved+foreign-owned → no ALREADY APPROVED"    sh -c "! printf '%s' \"\$0\" | grep -q 'ALREADY APPROVED'" "$out"
+rm -f "$MARKER"
+
+# The re-plan hint must actually work on a partly-TICKED plan: ticks advance the
+# effective state, so the check keys on the stored one.
+mkdir -p "$PLANS_DIR/q-ticked"
+printf '# Plan\n\n## Implementation steps\n\n1. One.\n2. Two.\n' > "$PLANS_DIR/q-ticked/plan.md"
+psq init q-ticked >/dev/null; psq set q-ticked approved >/dev/null; psq tick q-ticked 1 >/dev/null
+out="$(bp q-ticked)"
+chk "approved+ticked 1/2 → ALREADY APPROVED"          sh -c "printf '%s' \"\$0\" | grep -q '^ALREADY APPROVED: q-ticked'" "$out"
+chk "approved+ticked 1/2 → no marker written"         test ! -e "$MARKER"
+psq set q-ticked draft >/dev/null
+out="$(bp q-ticked)"
+chk "after the hint's set draft → arms"               sh -c "printf '%s' \"\$0\" | grep -q 'Plan phase ARMED'" "$out"
+chk "after the hint's set draft → marker written"     test -f "$MARKER"
+rm -f "$MARKER"
+# Fully ticked: effective state is implemented, past approval — arms as before.
+mkdir -p "$PLANS_DIR/q-done"
+printf '# Plan\n\n## Implementation steps\n\n1. One.\n' > "$PLANS_DIR/q-done/plan.md"
+psq init q-done >/dev/null; psq set q-done approved >/dev/null; psq tick q-done 1 >/dev/null
+out="$(bp q-done)"
+chk "approved but fully ticked → arms"                sh -c "printf '%s' \"\$0\" | grep -q 'Plan phase ARMED'" "$out"
+rm -f "$MARKER"
+
+mkplan q-draft; psq init q-draft >/dev/null
+out="$(bp q-draft)"
+chk "draft → arms"                                    sh -c "printf '%s' \"\$0\" | grep -q 'Plan phase ARMED'" "$out"
+chk "draft → marker written"                          test -f "$MARKER"
+chk "draft → no ALREADY APPROVED"                     sh -c "! printf '%s' \"\$0\" | grep -q 'ALREADY APPROVED'" "$out"
+rm -f "$MARKER"
 
 echo
 echo "RESULT: PASS=$PASS FAIL=$FAIL"

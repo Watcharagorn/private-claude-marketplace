@@ -51,10 +51,11 @@ a neighbour's files.
   written plan; it does not plan.
 - **The user wants phases inside one document** ("split it into two stages so we can
   review each half") — that is a re-write of the plan's `## Implementation steps`, not
-  N plan files. Check which they mean before dispatching five agents; the give-away is
+  N plan files. Check which they mean before authoring any child; the give-away is
   whether they expect to build the halves in separate sessions.
-- **You want a quality audit of the plan** — that is `/plan-review`.
-- **You want to pick which existing plan to build next** — that is `/mentor:track`.
+- **You want a quality audit of the plan** — that is `mentor:grilling`.
+- **You want to build a child of an earlier split** — run `/mentor:plan <child-slug>` on it
+  (an approved child goes straight to implementation).
 - **The plan is already a child of a split** (it has a `group`) — splitting a slice
   again usually means the first split drew its lines in the wrong place. Say so and
   offer to redraw instead. If the user still wants it, proceed.
@@ -64,8 +65,8 @@ a neighbour's files.
 ## Step 1 — Resolve the plan and its state
 
 ```bash
-[ -d "${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:-}}/hooks" ] || { echo "ERROR: Mentor helper unavailable — set PLUGIN_ROOT (or use the Claude compatibility fallback) or use the documented artifact fallback" >&2; exit 1; }
-bash "${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:-}}/hooks/plan-state.sh" current
+[ -d "${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT}}/hooks" ] || { echo "ERROR: Mentor helper unavailable — set PLUGIN_ROOT (or use the Claude compatibility fallback) or use the documented artifact fallback" >&2; exit 1; }
+bash "${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT}}/hooks/plan-state.sh" current
 ```
 
 Use the `PLAN:` path it prints and `Read` that file. If it prints `GROUP:` other than
@@ -81,7 +82,7 @@ Splitting a plan that is partly built can silently re-do finished work, which is
 more expensive than a bad split. Check the plan body for `✅` step ticks:
 
 - **Effective state `implemented`** (every step ticked) — refuse. There is nothing
-  left to split. Offer `/mentor:track` to confirm, or `/mentor:plan` for new work.
+  left to split. Offer `/mentor:plan` for new work.
 - **Some steps ticked** — warn, name which steps are done, and get explicit
   confirmation before continuing. When you author the children in Step 4, **carry each
   tick onto the same step in whichever child now owns it**, so the finished work stays
@@ -122,8 +123,8 @@ environment**, so a prompt that says "follow the content spec at `{#write-the-pl
 gives it nothing it can resolve. Resolve portable paths first:
 
 ```bash
-plugin_root="${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:-}}"
-if [ -n "$plugin_root" ] && [ -x "$plugin_root/hooks/plan-state.sh" ]; then
+plugin_root="${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT}}"
+if [ -n "$plugin_root" ] && [ -f "$plugin_root/hooks/plan-state.sh" ]; then
   planning_skill="$plugin_root/skills/planning/SKILL.md"
   mentor_dir="$(bash "$plugin_root/hooks/plan-state.sh" dir)"
 else
@@ -133,44 +134,36 @@ fi
 printf 'PLANNING_SKILL=%s\nMENTOR_DIR=%s\n' "$planning_skill" "$mentor_dir"
 ls "$mentor_dir/constitution.md" 2>/dev/null   # include only if it exists
 # The one number every child's prompt quotes for the parent's size — take it from
-# query's own step-tick counter, never a hand-count: two agents dispatched from the
+# query's own step-tick counter, never a hand-count: two workers given the
 # same hand-count have independently mis-derived it the same wrong way before.
 # `--slug` + `--fields` pulls exactly that one scalar, so there is no array to sift.
-parent_step_count="$(bash "${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:-}}/hooks/plan-state.sh" query \
+parent_step_count="$(bash "${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT}}/hooks/plan-state.sh" query \
   --slug "<PARENT>" --format tsv --fields steps.total)"
 ```
 
-**Mint every child's directory from the MAIN THREAD before dispatching any agent —
+**Mint every child's directory from the MAIN THREAD before any worker starts —
 this is what stamps ownership at creation, not after.** For each slice:
 
 ```bash
 # Re-derive: the path block above ran as its own Bash call, so $mentor_dir is gone here.
-mentor_dir="$(bash "${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:-}}/hooks/plan-state.sh" dir)"
-bash "${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:-}}/hooks/plan-state.sh" ensure-dir "${mentor_dir}/plans/<CHILD-SLUG>"
+mentor_dir="$(bash "${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT}}/hooks/plan-state.sh" dir)"
+bash "${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT}}/hooks/plan-state.sh" ensure-dir "${mentor_dir}/plans/<CHILD-SLUG>"
 ```
 
-`ensure-dir` stamps `owner`/`owner_session` on a plan-topic dir the instant it is
-minted (a direct child of `plans/` — see `plan-state.sh`'s `ensure-dir` contract,
-v2.23.0). Minting all N children here, before any subagent writes, closes the
-unowned window: if a child's directory instead came into existence via the
-dispatched agent's own `Write` call, that child would sit **unowned** — and, being
-freshly written, **newer than every live marker in the repo** — for the whole
-window until Step 6.1 registers it. An unowned plan newer than a marker is exactly
-what a sibling worktree's `approve-plan.sh` sweeps when no sibling marker is live
-("solo back-compat"), and if the split flow aborts partway, a child minted only by
-`Write` stays permanently unowned. Mint first, and every child is owned by this
-worktree from its very first byte on disk.
+`ensure-dir` stamps `owner`/`owner_session` at creation; a child created by a worker's own
+`Write` would sit unowned and newer than every live marker (why: `references/rationale.md` →
+**Step 4 — why mint before any worker writes**).
 
-Prompt template — every child gets all of it, then the contract block cited below:
+Prompt template — every child gets all of it:
 
 ```
 Author one plan file. You are writing a plan, not implementing anything.
 
-1. Read <ABS>/skills/planning/SKILL.md and follow its "Content spec" (Step 4) exactly:
-   the required sections in order, the visualization decision rule, the Mermaid
-   portability rules, and the dispatch annotations from mentor:dispatch-agents.
-   This is a real plan — use case scenarios, dispatch-annotated steps, critical
-   files, verification. Not a stub or a summary.
+1. Read <ABS>/skills/planning/SKILL.md and follow its "Content spec" (under "Write the
+   Markdown plan") exactly: the required sections in order, the visualization decision
+   rule, and the Mermaid portability rules. This is a real plan — use case scenarios,
+   numbered steps in the spec's Goal / Inputs / Done when shape, critical files,
+   verification. Not a stub or a summary.
 2. Read the parent plan at <REPO>/.mentor/plans/<PARENT>/plan.md for context. The parent has
    exactly <PARENT-STEP-COUNT> implementation steps — if your Context section restates why the
    split happened, quote that number verbatim; do not recount it yourself. If you say anything
@@ -194,23 +187,6 @@ Author one plan file. You are writing a plan, not implementing anything.
    one-line summary — never the plan body.
 ```
 
-**Every child prompt ends with `mentor:dispatch-agents`' standing contract block** —
-appended automatically by `hooks/dispatch-contract.sh`, so write the prompt through item 7
-and stop. The block is what makes a child report instead of signalling idle with nothing
-written; without it, Step 6's missing-child re-dispatch loop becomes the normal path rather
-than the rare one. Confirm it will actually land, once, before the first child goes out:
-
-**Run the pre-dispatch preflight before the first `Agent` call, not after.** One call,
-no skill load:
-
-```bash
-[ -d "${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:-}}/hooks" ] || { echo "ERROR: Mentor helper unavailable — set PLUGIN_ROOT (or use the Claude compatibility fallback) or use the documented artifact fallback" >&2; exit 1; }
-bash "${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:-}}/hooks/plan-state.sh" policy
-```
-
-Follow its printed guidance verbatim — it states the verdict, what to ask (or not
-ask), and whether the standing dispatch block is actually reaching your agents.
-
 ## Step 5 — The isolation header
 
 Every child opens with one GFM alert. This is the artifact that makes the siblings
@@ -226,21 +202,22 @@ safe to build in any order and in separate sessions:
 Name a **sibling slug** for every excluded area — "does not touch metering" tells an
 implementation agent nothing about where metering went; "→ `metering-pipeline`" tells
 it exactly. The header is where a human reads dependency order at a glance, but it is
-not what `/mentor:track` reads: since v2.17.0 the sidecar carries a `deps` array, and
+not what `plan-state.sh` reads: the sidecar carries a `deps` array, and
 `init --group/--order` below does not populate it. When a child's `depends on` should
-also drive track's build order and unmet-dep warnings, set it explicitly —
+also show up in `query` (and its `--deps-missing` filter), set it explicitly —
 `plan-state.sh set-deps <child-slug> <a,b>` (cycle-checked).
 
 Keep the first line's shape (`**Plan <n> of <N>** · group \`<slug>\``) — mentor parses
 `group` and `order` back out of it whenever a `.state.json` is missing or torn, so the
 header is what lets a plan dir survive with nothing in it but `plan.md`.
 
-When you later dispatch implementation for a child, pass its header into the agents'
-prompts so the boundary travels with the work.
+When a child is later built — by running `/mentor:plan <child-slug>`, which goes straight
+to implementation once the child is approved — its header is the boundary the
+implementation inherits; pass it along to anyone working on that child.
 
 ## Step 6 — Verify, then commit the swap — in this order
 
-The ordering is the whole point: a failed agent must never leave a superseded parent
+The ordering is the whole point: a failed worker must never leave a superseded parent
 with no children, which would delete the user's plan.
 
 1. **Verify each child as it lands, and register it immediately — never batch
@@ -248,23 +225,14 @@ with no children, which would delete the user's plan.
    it is non-empty and opens with its isolation header, then IMMEDIATELY register
    that one child:
    ```bash
-   bash "${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:-}}/hooks/plan-state.sh" init <child-slug> --group <parent-slug> --order <n>
+   bash "${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT}}/hooks/plan-state.sh" init <child-slug> --group <parent-slug> --order <n>
    ```
    `init` re-stamps `owner`/`owner_session` for this worktree (Step 4's `ensure-dir`
    already stamped it at mint time — this is the last-init-wins re-own, and the
-   carrier for `--group`/`--order`). A tiered parent's `priority` is **not** inherited:
-   nothing copies it down, and a split is exactly where a blanket copy would be wrong —
-   a `critical` parent usually splits into one critical slice and several ordinary
-   ones. If the parent carried a tier, add `--priority <p>` per child here, judging
-   each on its own, so the tiering survives the split instead of being silently lost
-   with the parent. Registering per child, as it verifies, matters
-   for the same reason Step 4 mints before dispatch: batching registration until
-   every child exists would leave each already-verified child relying on nothing
-   but its mint-time stamp for the whole remaining verification window, and if the
-   split flow aborts before the last child lands, every child verified-but-never-
-   registered would carry no `group`/`order` at all — permanently, since nothing
-   else writes them.
-2. **Re-dispatch** any missing or empty child **once**, with the same prompt, then
+   carrier for `--group`/`--order`). Register each child as
+   it verifies, not in a batch — an aborted split otherwise leaves verified children with no
+   `group`/`order` (why: `references/rationale.md` → **Step 6 — why register per child**).
+2. **Re-author** any missing or empty child **once**, with the same prompt, then
    verify and register it exactly as above.
 3. **Inherit the parent's state** (the value recorded in Step 1) so approved work
    stays runnable — apply this once ALL N children are verified and registered:
@@ -275,15 +243,12 @@ with no children, which would delete the user's plan.
    | `approved` · `in_progress` · `failed` | `approved` — `plan-state.sh set <child> approved` | the work was already approved; a split only re-organizes it |
    | `unknown` | the Step 3 answer: approved → `approved`, otherwise `draft` | nothing was on record, so ask rather than guess |
 
-   Without this, splitting after approval — in a fresh session with no marker FOR
-   THIS WORKTREE for `approve-plan.sh` to compare against, or in a worktree whose
-   live marker belongs to a DIFFERENT worktree (so `approve-plan.sh`'s ownership
-   filter excludes these children even though a marker exists) — yields children
-   stuck at `draft` that `/mentor:track` will refuse to run. A dead end with no way
-   out.
+   Without this, children of an already-approved plan can be stuck at `draft` with no
+   approval path (why: `references/rationale.md` → **Step 6 — why children inherit the
+   parent's state**).
 4. **Finally** retire the parent:
    ```bash
-   bash "${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:-}}/hooks/plan-state.sh" set <parent-slug> superseded
+   bash "${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT}}/hooks/plan-state.sh" set <parent-slug> superseded
    ```
    The parent's `plan.md` stays on disk as the record of the whole; `superseded` just
    removes it from "the current plan" and sorts it last.
@@ -300,10 +265,10 @@ starts:
 - Each child has a non-empty **Owns** and **Does NOT touch**.
 - No child's Context/Scenario prose misstates the parent's own metrics (step counts, etc.) or
   what a sibling proves — check each against `<PARENT-STEP-COUNT>` (from `query`, not
-  a hand-count) and item 4's own line for that sibling. Two independently-dispatched children can
+  a hand-count) and item 4's own line for that sibling. Two independently-authored children can
   make the same wrong inference for the same reason, so this is worth checking even when both agree.
 
-Fix any failure by re-dispatching that child before moving on.
+Fix any failure by re-authoring that child before moving on.
 
 The instant Step 6.4 marks the parent `superseded`, its slug is retired — and any OTHER plan in
 the repo, not just these siblings, may still cite it for a surface a child now owns. Run the
@@ -346,33 +311,34 @@ owns that cleanup, since a split is the common way a plan becomes `superseded` i
 place. One thing to weigh first: a superseded parent is often the only place that still
 shows whether every parent requirement actually landed in a child, and a consistency
 review reads it for exactly that. Deleting it forecloses that check permanently — so if
-the split hasn't been through `/plan-review` yet, say so before deleting.
+the split hasn't been through a consistency review (e.g. `mentor:grilling`) yet, say so before deleting.
 
 1. **Resolve paths the same worktree-safe way Step 4 does — never a bare `.mentor/plans/`,**
    which resolves against the wrong tree in a linked worktree:
    ```bash
-   plans_dir="$(bash "${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:-}}/hooks/plan-state.sh" dir --plans)"
+   plans_dir="$(bash "${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT}}/hooks/plan-state.sh" dir --plans)"
    ```
 2. **Check the structural links mechanically first — `plan-state.sh` already has the answer,
    so don't grep for it:**
    ```bash
-   bash "${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:-}}/hooks/plan-state.sh" query --subtree <retiring-slug>
-   bash "${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:-}}/hooks/plan-state.sh" list --group <retiring-slug>
+   bash "${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT}}/hooks/plan-state.sh" list --group <retiring-slug>
+   bash "${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT}}/hooks/plan-state.sh" query --format json \
+     | jq -r --arg s "<retiring-slug>" '.[] | select(any(.deps[]?; .slug==$s)) | .slug'
    ```
    Every child born from this split still names the parent as its `group` — that's expected
-   lineage, not a reason to keep the directory. What matters is anything **outside** this split's
-   own children still depending on it: an unrelated plan with `<retiring-slug>` as its `parent`,
-   or one whose `deps` would go `missing: true` once the directory is gone (`query --deps-missing`
-   lists exactly those, once the dir is gone; `query --parent <retiring-slug>` lists the first
-   set). Those must be repointed with `set-parent`/`set-deps` — never a text `Edit` of
-   `.state.json`, which `plan-state.sh` alone writes.
+   lineage, not a reason to keep the directory. What matters is any plan whose `deps` include
+   `<retiring-slug>` (the second command lists them): once the directory is gone each would go
+   `missing: true`. Repoint every hit with `plan-state.sh set-deps <slug> <a,b>` — never a text
+   `Edit` of `.state.json`, which `plan-state.sh` alone writes. Run this check before deleting:
+   `query --deps-missing` only flags a dep after its directory is gone, so it verifies (item 8)
+   but cannot warn.
 3. **Then sweep the prose — plan-level citations `plan-state.sh` cannot see:**
    ```bash
    # Re-derive: step 1's block was a separate Bash call and its variables are gone. An unset
    # $plans_dir would make grep search the cwd instead of the repo's plans, reporting a
    # false-clean sweep — guarded below rather than left to fail silently.
-   [ -d "${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:-}}/hooks" ] || { echo "ERROR: Mentor helper unavailable — set PLUGIN_ROOT (or use the Claude compatibility fallback) or use the documented artifact fallback" >&2; exit 1; }
-   plans_dir="$(bash "${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:-}}/hooks/plan-state.sh" dir --plans)"
+   [ -d "${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT}}/hooks" ] || { echo "ERROR: Mentor helper unavailable — set PLUGIN_ROOT (or use the Claude compatibility fallback) or use the documented artifact fallback" >&2; exit 1; }
+   plans_dir="$(bash "${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT}}/hooks/plan-state.sh" dir --plans)"
    [ -d "$plans_dir" ] || { echo "ERROR: plans dir unresolved — do not fall back to a relative path; the sweep would report a false clean" >&2; exit 1; }
    # Safe ONLY because the traversal root is "$plans_dir", which sits BELOW the
    # .mentor/.gitignore holding `*`: a grep collects ignore files at or below its own root
@@ -395,7 +361,7 @@ the split hasn't been through `/plan-review` yet, say so before deleting.
      these to whichever child now owns that surface. Left alone, they go stale the moment
      the directory disappears.
 4. **Never delete a directory that still holds a durable record nothing else carries** — a
-   shared decision log, findings list, or handoffs dir that predates the split and was never
+   shared decision log, findings list, or notes dir that predates the split and was never
    duplicated into any child. Steps 2–3 tell you whether anything still depends on it; this is
    the separate question of whether it holds content with no home anywhere else. If so, leave it
    on disk even after every individual superseded slice under it is gone.
@@ -405,14 +371,12 @@ the split hasn't been through `/plan-review` yet, say so before deleting.
    repointed, and what (if anything) is being kept back per item 4.
 6. **Repoint (steps 2–3) before deleting, never after** — a live citation or dependency must
    never end up pointing at a path that no longer exists.
-7. **Sweep for orphaned review artifacts the delete won't reach on its own.** Two artifact
-   classes live **outside** the plan directory and will NOT be removed by deleting it:
-   - `.mentor/reviews/<retiring-slug>/` (`mentor:previewing`'s `review_dir`)
-   - `.mentor/tours/<retiring-slug>-*.html` (`mentor:touring`'s acceptance tours)
-8. **Verify.** Both checks are now a filter each, so neither needs reading the whole array:
-   `query --parent <retiring-slug> --format count` must print `0`, and `query --deps-missing
-   --format slug` must not list anything pointing at `<retiring-slug>`. A hit in either means a
-   repoint from step 2 or 3 was missed.
+7. **Sweep for orphaned review artifacts the delete won't reach on its own.** The review page
+   lives **outside** the plan directory and will NOT be removed by deleting it:
+   `.mentor/reviews/<retiring-slug>/` (`mentor:previewing`'s `review_dir`).
+8. **Verify.** The item 2 deps filter must print nothing, and `query --deps-missing --format slug`
+   must not list anything pointing at `<retiring-slug>`. A hit in either means a repoint from
+   step 2 or 3 was missed.
 
 ## Done when
 
@@ -431,9 +395,7 @@ the split hasn't been through `/plan-review` yet, say so before deleting.
 - Do **not** mark the parent `superseded` before every child is verified.
 - Do **not** delete any plan directory as part of the split itself — Step 6 supersedes, it
   never deletes; that's a separate, later action, see "Retiring a superseded plan later".
-- Do **not** restate the plan content spec, the dispatch grammar, or the approval flow
-  here — point the agents and yourself at `mentor:planning` and `mentor:dispatch-agents`.
+- Do **not** restate the plan content spec or the approval flow here — point the
+  workers and yourself at `mentor:planning`.
   Two copies of a spec means one of them is wrong.
 - Do **not** write a child anywhere but `<repo>/.mentor/plans/<child-slug>/plan.md`.
-- Do **not** author the children in the main thread — that spends the context the
-  split exists to protect.

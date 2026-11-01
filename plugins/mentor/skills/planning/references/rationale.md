@@ -28,11 +28,9 @@ matter its age, but a `STALE` marker is past the self-heal window and
 `plan-gate.sh` no longer enforces it — treating it as armed here would make this
 check stricter than the gate it is checking.
 
-`GATE: NOT ARMED` means `plan-gate.sh` has no marker enforcing THIS worktree, so
-every repo edit stays allowed for the whole session while Step 6 goes on showing its
-"no edits until approved" banner. Planning that only *looks* read-only is worse than
-planning that admits it isn't, so do not continue: say so in one line and ask the
-user to run `/mentor:plan <their request>`, which arms the gate and comes back here.
+When the gate is not armed here (an advisory host, or `STALE`/`RELEASED`/`ARMED_ELSEWHERE`),
+planning continues and says plainly that no host-level edit gate is active. Sending the
+user to `/mentor:plan` would loop on hosts that have no facade.
 
 Do **not** run `begin-plan.sh` yourself to patch this up — arming the gate is the
 command's job, not this skill's, and the command carries the foreign-marker handling
@@ -43,11 +41,11 @@ a bare script run would skip.
 **`.mentor/` is gitignored — a recursive `grep` can miss it, even aimed straight at the
 dir.** `hooks/lib/state.sh` writes `.mentor/.gitignore` as `*` + negations (only
 `.gitignore`/`config.json`/`constitution.md` are un-ignored), so a gitignore-aware search
-returns a clean "no hits" for a standing instruction — a "no subagents" policy, an earlier
-decision — recorded in a prior handoff note under `.mentor/plans/*/handoffs/`, whether the
-search scans the whole repo or `.mentor/` alone. A bare relative path is also wrong in a
-linked worktree, which shares the MAIN repo's `.mentor/` (Step 0's `--git-common-dir`
-note) rather than having its own.
+returns a clean "no hits" for a standing instruction — an earlier decision, a recorded
+rejection — kept anywhere under `.mentor/plans/`, whether the search scans the whole repo
+or `.mentor/` alone. A bare relative path is also wrong in a
+linked worktree, which shares the MAIN repo's `.mentor/` (what `plan-state.sh dir`
+resolves) rather than having its own.
 
 The mechanism is the **traversal root**, not a missing flag — worth understanding, because
 it decides what the fix has to be. Ignore rules apply only while **grep itself** is
@@ -63,59 +61,37 @@ conclude from "it worked in my test script" that it works where this is prescrib
 over: those spellings differ per implementation (ugrep rejects the GNU one outright with
 exit 2), so a flag only moves the failure to someone else's machine. Hand grep an explicit
 file list instead — `find` walks, `grep` only reads — which is what `sweep` does, worktree
-resolution included:
+resolution included.
 
-## Step 2 — when research earns a dispatch, and why the batch goes out in one message
+## Step 4 — why verify is one call
 
-For multi-area or unfamiliar tasks, prefer dispatching **1–3 read-only `Explore`
-agents** (`model: sonnet` — this is locate-and-map work, not design; leaving it
-unpinned defaults to the session's own model, a needless cost multiplied by every
-agent in the batch) over disjoint areas — issue every `Agent()` call for the batch in a
-**single message** (N `tool_use` blocks side by side), not one call per message
-waiting for each dispatch's tool_result before writing the next. Serializing the
-dispatch buys nothing — the agents run async once out either way — and spends a
-full main-thread round trip per agent. This keeps the main conversation lean. The strongest signal is an unfamiliar external
-platform (an integration, SDK, or cloud service this session has not already
-researched) **together with** 2+ pre-existing areas of the repo: each half alone
-looks manageable inline, and the pair is what actually exhausts a context
-window. A second, standalone signal: **2+ separate git roots** touched by the
-same plan — unlike areas within one repo, a second root doesn't need pairing
-with an unfamiliar platform to earn its own dispatch, since each root carries
-a full orientation cost (build system, conventions, entry points) the other
-root's research does nothing to amortize. Dispatch one agent per root, still
-inside the 1–3 cap, and resolve each root's real path first (`git rev-parse
---show-toplevel`) before dispatching — a stale duplicate checkout otherwise
-burns a whole dispatch researching the wrong copy. The edit gate only
-protects the repo the session's CWD sits in, so a step whose work lands in a
-second root isn't read-only-gated the way this repo's own edits are, until
-that root has its own plan and gate (`plan-state.sh relocate`'s README note
-spells out the same limit for a moved plan). For small, well-scoped tasks,
-read the files and draft directly in the main thread. Nothing enforces
-delegation; use judgment — with one backstop for when that judgment already
-said "inline" and the reading kept going: once main-thread research reading
-passes roughly 5 files or ~500 cumulative lines, the task is no longer small,
-so dispatch an `Explore` for what is left rather than bulk-reading on. The one
-artifact a decision actually turns on is still read here (Step 3.5's evidence
-rule) — it is the survey reading around it that belongs in an agent. Context
-spent on raw research reads doesn't come back for the rest of the plan —
-grilling, drafting, and Step 3.5's decision loop still have to fit in what's
-left.
+A session was observed hand-rebuilding a different grep/awk one-liner for these checks on 5
+consecutive revisions, never the same check twice, and the one revision that dropped the
+table half is exactly where a table-adjacent defect landed. One helper call runs the same
+three checks every time.
 
 ## Step 6 — why the option rows are ordered the way they are
 
 Split leads on an oversized plan because building it whole only moves the problem to
-the next session, while the split's authoring cost lands in dispatched agents rather
-than in this thread. Review stays visible in the oversized row because an oversized
-plan is exactly the kind most worth reviewing; *Keep planning* yields instead — it is
-the one option that needs no button, since the user just keeps talking and planning
-continues. *Proceed* and *Deliver plan only* stay visible in every row: the `MODE:`
-default must always be offered (Step 0), and pushing the option that starts
-implementation into free text would make the highest-consequence answer the hardest
-one to give.
+the next session; slicing it first keeps each build small enough to finish and verify.
+*Proceed* and *Deliver plan only* stay visible in every row: pushing the option that
+starts implementation into free text would make the highest-consequence answer the
+hardest one to give, and *Deliver plan only* is the one way to release the gate without
+starting work. *Keep planning* stays a button too — with at most four options there is
+room for it in both rows, and a listed option is one the user recognizes on sight.
+
+Everything else rides in "Other" by design: a change request, moving isolated
+deliverables into `## Out of scope`, and a plan-quality ask (routed to `mentor:grilling`
+on the drafted plan). The question text names them, because an option that has no
+button is invisible unless something says it exists.
 
 The rows no longer vary with the context verdict (v4.2.0): the gate became warn-only,
-and the context-driven "Hand off to next agent" and "Pause — still drafting" rows went
-with it. A user who wants a handoff types `/mentor:handoff` into "Other".
+and the context-driven rows went with it. v5.0.0 removed the staged-review row and the
+persisted mode that used to swap the first two options, so the order is now fixed.
+
+The fresh `grep` of the option table exists because the option row has been reconstructed
+incorrectly from memory once already, late in a long session, dropping the one button the
+situation called for.
 
 ## Retracting an approval — why each of the three steps is required
 
@@ -123,9 +99,8 @@ The `plan-state.sh set <slug> draft` line in the first snippet above is not opti
 either. **Every** approval path — no-arg and `--deliver` — promotes the
 plan's `.state.json` to `approved` before it exits, and `begin-plan.sh` touches only
 the marker. Re-arm alone therefore leaves a plan recorded as `approved` behind a
-closed gate: `/mentor:track` reads the sidecar, not the marker, so a later session
-sees a green light and dispatches implementation agents into a gate that denies
-their first write.
+closed gate: later sessions read the sidecar, not the marker, so one sees a green
+light and starts implementing into a gate that denies its first write.
 
 Two consequences to tell the user about while you do it:
 

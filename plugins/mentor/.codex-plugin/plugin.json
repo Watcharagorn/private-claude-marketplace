@@ -1,7 +1,7 @@
 {
   "name": "mentor",
-  "description": "Plan-first software delivery guidance with review, verification, and optional workflow guardrails.",
-  "version": "4.3.0",
+  "description": "Plan-first software delivery guidance with verification and optional workflow guardrails.",
+  "version": "5.0.0",
   "author": {
     "name": "NTBX"
   },
@@ -9,7 +9,7 @@
   "interface": {
     "displayName": "Mentor",
     "shortDescription": "Plan-first delivery guidance for software changes.",
-    "longDescription": "Plan software changes, resolve design decisions, coordinate focused research and verification, and keep an implementation plan reviewable.",
+    "longDescription": "Plan software changes, resolve design decisions, verify the result, and keep an implementation plan reviewable.",
     "developerName": "NTBX",
     "category": "Developer Tools",
     "capabilities": [
@@ -18,7 +18,7 @@
     ],
     "defaultPrompt": [
       "Help me make a plan for this change.",
-      "Review this implementation plan for gaps.",
+      "Grill this plan before I approve it.",
       "Help me verify this completed change."
     ]
   }
