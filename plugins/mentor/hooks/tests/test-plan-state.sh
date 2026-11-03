@@ -1091,7 +1091,7 @@ chk "start: exit 0"                              test "$rc" = "0"
 chk "start: stdout is EXACTLY one line"          test "$(printf '%s\n' "$out" | grep -c .)" = "1"
 chk "start: stdout is the plan.md path"          has "/.mentor/plans/st-fresh/plan.md$" "$out"
 chk "start: created the plan dir"                test -d "$REPO/.mentor/plans/st-fresh"
-chk "start: dir locked to 700 (ensure-dir ran)"  test "$(stat -f '%Lp' "$REPO/.mentor/plans/st-fresh" 2>/dev/null || stat -c '%a' "$REPO/.mentor/plans/st-fresh")" = "700"
+chk "start: dir locked to 700 (ensure-dir ran)"  test "$(stat -c '%a' "$REPO/.mentor/plans/st-fresh" 2>/dev/null || stat -f '%Lp' "$REPO/.mentor/plans/st-fresh")" = "700"  # GNU -c first: GNU's -f is --file-system
 chk "start: sidecar written (init ran)"          test -f "$REPO/.mentor/plans/st-fresh/.state.json"
 chk "start: init flags forwarded — group"        test "$(jq -r .group "$REPO/.mentor/plans/st-fresh/.state.json")" = "st-g"
 chk "start: init flags forwarded — order"        test "$(jq -r .order "$REPO/.mentor/plans/st-fresh/.state.json")" = "3"

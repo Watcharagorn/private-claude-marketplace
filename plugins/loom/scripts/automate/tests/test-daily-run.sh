@@ -128,7 +128,8 @@ now=$(date -u +%Y-%m-%dT%H:%M:%SZ)
 # --- acquire the claim lock: mkdir, stale-stealable past 2xmaxRunSecs (chassis §K.8) ---
 deadline=$(( $(date +%s) + 30 ))
 until mkdir "$lock" 2>/dev/null; do
-  lock_age=$(( $(date +%s) - $(stat -f %m "$lock" 2>/dev/null || stat -c %Y "$lock" 2>/dev/null || echo 0) ))
+  # GNU stat first (-c), BSD (-f) second — same order and reason as daily-run.sh's file_mtime.
+  lock_age=$(( $(date +%s) - $(stat -c %Y "$lock" 2>/dev/null || stat -f %m "$lock" 2>/dev/null || echo 0) ))
   if [ "$lock_age" -gt "$stale" ]; then rm -rf "$lock"; continue; fi
   [ "$(date +%s)" -ge "$deadline" ] && { echo "stub-claude: claim lock busy" >&2; exit 1; }
   sleep 0.2

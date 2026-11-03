@@ -27,8 +27,9 @@ mechanical fixes and asking before it deletes anything that constrains behavior.
 1. **this skill** — semantic cleanup; it changes files.
 2. `/verify-plugin-edits <plugin>` — mechanical validation of the result, **for edits under
    `plugins/<name>/` only**: every check it runs reads `plugins/$1/…`, so it never inspects
-   `.claude/**` or root `CLAUDE.md`. A root-only prune has no automated step 2 — run the repo's own
-   hook suites by hand instead (`.claude/hooks/tests/*.sh`).
+   `.claude/**` or root `CLAUDE.md`. A root-only prune's step 2 is
+   `scripts/verify-plugin-edits --root`, which runs the repo's own hook suites
+   (`.claude/hooks/tests/*.sh`).
 3. `git commit` / `/loom:publish-plugin`.
 
 That order is not cosmetic: this pass edits instruction files, so running it *after* validation
@@ -208,7 +209,8 @@ done
 Then sweep **your own edits** for the debt you just created: every heading you pointed at must
 exist, every renamed symbol must resolve, no pointer may name a file you deleted from.
 
-Hand the mechanical checks to `/verify-plugin-edits <plugin>` — do not re-run its checks here.
+Hand the mechanical checks to `/verify-plugin-edits <plugin>`, or `/verify-plugin-edits --root` for a
+root-only target — do not re-run its checks here.
 
 ## Step 7 — Report
 
@@ -246,9 +248,9 @@ The final line is the one a release flow or a later session can cite as proof th
 - **Bounded blast radius.** Touch only files the change touched or that reference it. A pass that
   rewrites untouched files is unreviewable inside a release diff.
 - **No staging, no committing.** Hand the working tree back to the release flow.
-- **Don't re-derive the mechanical gate.** `/verify-plugin-edits` owns JSON, syntax, paths,
-  descriptions, tests, collisions. Duplicating its checks here is the exact debt this skill exists
-  to remove.
+- **Don't re-derive the mechanical gate.** `/verify-plugin-edits <plugin>` owns JSON, syntax, paths,
+  descriptions, tests, collisions; its `--root` mode runs only the root hook suites. Duplicating its
+  checks here is the exact debt this skill exists to remove.
 
 ## Done when
 
