@@ -139,7 +139,10 @@ NOJQ="$ROOT/nojq"; mkdir -p "$NOJQ"
 for b in bash cat dirname git sed find head awk cksum cut rm printf grep; do
   p="$(command -v "$b" 2>/dev/null)" && [ -n "$p" ] && ln -sf "$p" "$NOJQ/$b"
 done
-OUT="$(input | HOME="$SANDBOX" PATH="$NOJQ" "$NOJQ/bash" "$HOOK" 2>/dev/null)"; RC=$?
+# Input from a FILE, not a pipe: the hook exits at the `command -v jq` guard before reading
+# stdin, so a piped producer can die of SIGPIPE (141), which pipefail then reports as the rc.
+input > "$ROOT/in.json"
+OUT="$(HOME="$SANDBOX" PATH="$NOJQ" "$NOJQ/bash" "$HOOK" < "$ROOT/in.json" 2>/dev/null)"; RC=$?
 chk "no jq on PATH → exit 0, no block"         allows
 
 echo "RESULT: PASS=$PASS FAIL=$FAIL"
