@@ -2,8 +2,8 @@
 """Cross-host multi-skill trigger eval for the mentor plugin.
 
 The stock skill-creator harness exposes ONE skill and asks "did it fire?".
-For mentor that misses the real risk: eight sibling skills competing, where
-the defect is the WRONG one firing. So this stages all eight at once in an
+For mentor that misses the real risk: nine sibling skills competing, where
+the defect is the WRONG one firing. So this stages all nine at once in an
 isolated scratch project and records which one the selected host reaches for.
 """
 import json, os, re, subprocess, sys, tempfile, time, uuid
@@ -12,9 +12,9 @@ from pathlib import Path
 
 HERE = Path(__file__).parent.resolve()
 REPO_SKILLS = (HERE / ".." / "skills").resolve()
-SKILLS = ["planning", "playbook-software-change", "grilling", "previewing",
-          "merging", "shipping", "constitution-authoring",
-          "frontend-self-ex-review"]
+SKILLS = ["planning", "playbook-software-change", "playbook-retrospective",
+          "grilling", "previewing", "merging", "shipping",
+          "constitution-authoring", "frontend-self-ex-review"]
 
 
 def fm_field(fm, key):

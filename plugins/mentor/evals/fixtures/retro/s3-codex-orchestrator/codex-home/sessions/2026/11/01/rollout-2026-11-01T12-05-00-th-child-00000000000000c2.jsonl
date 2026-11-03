@@ -1,0 +1,5 @@
+{"type":"session_meta","payload":{"id":"th-child-00000000000000c2","cwd":"/tmp/retro-fixture-proj","cli_version":"0.164.0","source":"cli","parent_thread_id":"th-parent-0000000000000001","thread_source":"subagent","source":{"subagent":"review"}}}
+{"type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"Review the mentor adapters for blocking issues."}]}}
+{"type":"response_item","payload":{"type":"function_call","name":"shell","arguments":"{\"command\":\"cat plugins/mentor/adapters/codex/README.md\"}","call_id":"call_c3_read_1"}}
+{"type":"response_item","payload":{"type":"function_call_output","call_id":"call_c3_read_1","output":"# Codex adapter ..."}}
+{"type":"response_item","payload":{"type":"message","role":"assistant","content":[{"type":"output_text","text":"Adapters read cleanly. No blocking issues."}]}}

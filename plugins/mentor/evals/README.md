@@ -2,16 +2,17 @@
 
 `hooks/tests/` proves the scripts behave. This proves the **descriptions** do: that a
 user's phrasing reaches the skill it should, and — more importantly — not one of its
-seven siblings.
+eight siblings.
 
-mentor ships eight overlapping user-facing skills (`planning`, `playbook-software-change`,
-`grilling`, `previewing`, `merging`, `shipping`, `constitution-authoring`,
-`frontend-self-ex-review`). The risk that matters is not "does `playbook-software-change`
+mentor ships nine overlapping user-facing skills (`planning`, `playbook-software-change`,
+`playbook-retrospective`, `grilling`, `previewing`, `merging`, `shipping`,
+`constitution-authoring`, `frontend-self-ex-review`). The risk that matters is not "does
+`playbook-software-change`
 trigger" but "does it fire when the user meant `planning`" — a playbook is loaded *by*
 planning, so a direct hit on it is usually the wrong route — or "does `previewing` steal `frontend-self-ex-review`'s UI
 queries" (both look at screens; they differ on a review page against a self-explanatory
 verdict). A description tuned on its own can score perfectly and still collide, so this
-harness stages **all eight at once** and records which one wins.
+harness stages **all nine at once** and records which one wins.
 
 Note the skill names are the **skill** names, not the command names: since v2.18.0 no
 skill shares a name with a command (`/mentor:plan` → skill `planning`, and so on), which
@@ -69,6 +70,13 @@ subagents), #13 (write up where we are for a fresh session) and #36 (note a bug 
 since no mentor skill owns those asks any more. The set is now 42 queries (25 skill, 17
 `none`). Every number above was measured on the larger skill set and is not comparable;
 re-baseline on the first run.
+
+**v6.1.0** stages 9 skills (`playbook-retrospective` joined) and adds queries 77–82: four
+core/plain-wording triggers for a single-session retrospective (#77–80) and two near-misses
+— a batch harvest across all past sessions, which is loom's job and routes to `none` (#81),
+and a forward code-change goal, which stays `planning` (#82). Like `playbook-software-change`,
+the retro playbook is loaded *by* planning, so a direct hit on it from a retro ask is the
+intended route here (the user invokes the retrospective directly). Re-baseline on the first run.
 
 ## Seed the fixture first — this is not optional
 
@@ -133,5 +141,15 @@ perspective page skill (checked against the then-staged `tour` and `plan-review`
 `behaviour.json` is a separate, smaller set: it checks what an **approved run** does, not
 which skill fires — no question on a reversible fork, a pause on an always-pause item, a
 decision-log row per choice, a verifier before every tick, a mid-run product call decided without pausing, and
-a non-code goal picking no playbook. Each case seeds a scratch repo with an approved plan
-and is graded by a reader against its assertions; `harness.py` does not run it.
+a non-code goal picking no playbook. Cases 1–6 each seed a scratch repo with an approved
+plan; cases 7–15 set up the state their prompt names. Each is
+graded by a reader against its assertions; `harness.py` does not run it.
+
+v6.1.0 adds cases 7–15 for the retrospective playbook (scenarios S1–S8; S5 is two cases,
+#11 and #12): a plain repeated
+procedure becoming one Accepted new-skill row, a compacted Claude orchestrator with opaque
+delegates, a Codex orchestrator linked by `parent_thread_id`, resume dedupe by `uuid`,
+concurrent-session identity resolving to `partial` rather than newest-file, a retro resuming
+from `evidence/` after its own interruption, the live-run refusal, and the one-line
+invitation after `implemented` (and none after a retro plan). S1/S2/S3/S5 point at the
+fixtures under `fixtures/retro/` and their `expected.md`.
