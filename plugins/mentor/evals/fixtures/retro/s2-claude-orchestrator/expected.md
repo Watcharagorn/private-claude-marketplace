@@ -86,7 +86,7 @@ nodes:
     source_path: claude-config/projects/-tmp-retro-fixture-proj/s2bbbbb0-0000-4000-8000-000000000002.jsonl
     digest_path: evidence/digest/n-root-resume.jsonl
     brief: "Resume: finish staging and commit; delegated README review and dual-host checks."
-    outcome: "held before commit at user's request; nothing committed"
+    outcome: "staged everything; ready to commit (the later hold, events 017–018, is after the cutoff)"
     opaque: false
     opaque_reason: null
     epochs:
