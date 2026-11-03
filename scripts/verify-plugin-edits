@@ -6,7 +6,7 @@ repo_root="$(cd "$(dirname "$0")/.." && pwd -P)"
 plugin_name="${1:-}"
 
 usage() {
-  echo "Usage: scripts/verify-plugin-edits <plugin>" >&2
+  echo "Usage: scripts/verify-plugin-edits <plugin> | --root" >&2
 }
 
 if [ -z "$plugin_name" ]; then
@@ -14,10 +14,14 @@ if [ -z "$plugin_name" ]; then
   exit 2
 fi
 
-plugin_dir="$repo_root/plugins/$plugin_name"
-if [ ! -d "$plugin_dir" ]; then
-  echo "FAIL plugin does not exist: plugins/$plugin_name" >&2
-  exit 2
+# The plugin-dir check must not fire for --root; that mode exits before any
+# plugin logic runs (see the --root branch below, after the helpers).
+if [ "$plugin_name" != "--root" ]; then
+  plugin_dir="$repo_root/plugins/$plugin_name"
+  if [ ! -d "$plugin_dir" ]; then
+    echo "FAIL plugin does not exist: plugins/$plugin_name" >&2
+    exit 2
+  fi
 fi
 
 pass_count=0
@@ -53,6 +57,27 @@ run_required() {
     fail "$label"
   fi
 }
+
+# --root mode: run every repo-root hook test suite by exit status alone, then
+# report a RESULT line. Exits before any plugin logic runs.
+if [ "$plugin_name" = "--root" ]; then
+  suite_glob=".claude/hooks/tests/*.sh"
+  matched=0
+  cd "$repo_root"
+  for suite in $suite_glob; do
+    [ -f "$suite" ] || continue
+    matched=1
+    run_required "$suite" bash "$suite"
+  done
+  if [ "$matched" -eq 0 ]; then
+    fail "no root hook suites matched $suite_glob"
+  fi
+  printf 'RESULT root pass=%s fail=%s\n' "$pass_count" "$fail_count"
+  if [ "$fail_count" -eq 0 ]; then
+    exit 0
+  fi
+  exit 1
+fi
 
 marketplace_tool="$repo_root/scripts/marketplace"
 if [ -x "$marketplace_tool" ]; then

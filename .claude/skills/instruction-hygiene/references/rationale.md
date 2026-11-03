@@ -18,10 +18,11 @@ reference that leaves a dangling pointer, a relocated heading nothing points at 
 Run mechanical validation first and the release ships this pass's edits unchecked. Run it second
 and the edits are covered by the same gate as the original change.
 
-That coverage holds only for changes under `plugins/<name>/`. `/verify-plugin-edits` is
-plugin-scoped — every check it runs reads `plugins/$1/…` — so a root-only prune, editing `.claude/**`
-or `CLAUDE.md` as this skill's own files do, has no step 2 at all; the repo's root hook suites have
-to be run by hand. Extending that command to a root scope is the real fix and is not done yet. The cost of the wrong order is
+That coverage holds in full only for changes under `plugins/<name>/`, because
+`/verify-plugin-edits <plugin>` reads `plugins/$1/…`. A root-only prune, editing `.claude/**` or
+`CLAUDE.md` as this skill's own files do, runs `scripts/verify-plugin-edits --root` instead, and that
+mode is narrower: it runs only the root hook suites (`.claude/hooks/tests/*.sh`), so it catches a prune
+that breaks a root hook, not one that breaks root skill or command prose. The cost of the wrong order is
 invisible at commit time and shows up as a broken skill on install, which is the worst place to
 find it.
 

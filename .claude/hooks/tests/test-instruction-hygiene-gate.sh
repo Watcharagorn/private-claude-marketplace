@@ -116,3 +116,4 @@ chk "missing args write no marker"     bash -c '[ ! -e "/tmp/claude-instruction-
 chk "marker script exits 0 on garbage" bash -c 'printf "junk" | bash "'"$HOOKS"'/skill-invoked-mark.sh" a b'
 
 echo "RESULT: PASS=$PASS FAIL=$FAIL"
+[ "$FAIL" = "0" ]
