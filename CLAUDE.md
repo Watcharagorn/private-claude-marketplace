@@ -42,7 +42,7 @@ skill's `references/rationale.md`, pointed at by heading name.
 **Always run `/prune-instructions [plugin]` before `git commit`/`git push`/publish on any change under `plugins/<name>/`, `.claude/`, or `CLAUDE.md`.** A change leaves its debt in the files it did *not* touch — stale pointers, a rule now stated in three places, a root rule that contradicts the new default, narrative every future run pays for — and nothing else in this repo reads the instruction corpus as a whole.
 
 - It dispatches read-only `instruction-hygiene-auditor` agents by lens, auto-applies the mechanical fixes (dead references, missed renames, narrative relocated to `references/rationale.md`), and asks before deleting or merging any rule. It never stages or commits.
-- **Order:** `/prune-instructions` (edits) → `/verify-plugin-edits <plugin>` (validates the result) → commit/publish. Reversed, this pass's own edits ship unchecked. `/verify-plugin-edits <plugin>` covers `plugins/<name>/` only — for a root-only change (`.claude/**`, `CLAUDE.md`, including this gate's own files) run `scripts/verify-plugin-edits --root` (or `/verify-plugin-edits --root`), which runs `.claude/hooks/tests/*.sh`.
+- **Order:** `/prune-instructions` (edits) → `/verify-plugin-edits <plugin>` (validates the result) → commit/publish. Reversed, this pass's own edits ship unchecked. `/verify-plugin-edits <plugin>` covers `plugins/<name>/` only — for a root-only change (`.claude/**`, `CLAUDE.md`, including this gate's own files) run `scripts/verify-plugin-edits --root` (or `/verify-plugin-edits --root`), which runs `.claude/hooks/tests/*.sh`. Mixed changes run `<plugin>` for each touched plugin plus `--root`.
 - Applies even when a skill is driving the release (`/loom:publish-plugin`, `/loom:learn`, `/loom:audit-plugin`, `/mentor:ship`) — `publish-plugin` step 0 invokes it, and the `instruction-hygiene-gate.sh` hook reminds you at the commit if it hasn't run this session.
 - Unattended callers never prompt: loom's daily `learn --headless` applies the safe fixes and defers every decision into the commit body, unapplied.
 - Distinct from the two neighbouring checks — don't substitute one for another: this pass is the only one that judges whether the corpus is still coherent and lean, and the only one that edits.
@@ -61,7 +61,7 @@ change under `plugins/<name>/`.**
   only release check shared by Claude Code and Codex. Don't re-derive a subset
   by hand (`python3 -m json.tool`, ad hoc `grep`, eyeballing a diff).
 - Applies even when a skill (loom harvest/learn/audit-plugin, skill-creator, publish-plugin, etc.) is driving the change: run this command as the last step before the commit, not instead of it.
-- Runs **after** `/prune-instructions` (gate above) for edits under `plugins/<name>/`, so the hygiene pass's own edits there are covered rather than shipping unvalidated. The plugin verifier's `<plugin>` mode does not cover root-only changes; those run `scripts/verify-plugin-edits --root`.
+- Runs **after** `/prune-instructions` (gate above) for edits under `plugins/<name>/`, so the hygiene pass's own edits there are covered rather than shipping unvalidated. The plugin verifier's `<plugin>` mode does not cover `.claude/**` or root `CLAUDE.md` changes; those run `scripts/verify-plugin-edits --root`.
 - Exceptions: pure version-number bumps and typo-only fixes that don't touch behavior may skip it (same exception as the skill quality gate above).
 
 ### Git staging safety around loom automation (MANDATORY)
