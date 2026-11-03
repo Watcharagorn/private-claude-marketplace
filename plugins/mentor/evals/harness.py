@@ -2,8 +2,8 @@
 """Cross-host multi-skill trigger eval for the mentor plugin.
 
 The stock skill-creator harness exposes ONE skill and asks "did it fire?".
-For mentor that misses the real risk: nine sibling skills competing, where
-the defect is the WRONG one firing. So this stages all nine at once in an
+For mentor that misses the real risk: sibling skills competing, where
+the defect is the WRONG one firing. So this stages all of them at once in an
 isolated scratch project and records which one the selected host reaches for.
 """
 import json, os, re, subprocess, sys, tempfile, time, uuid

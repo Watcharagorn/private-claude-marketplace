@@ -29,7 +29,7 @@ Do these in order:
    # Claude Code exports the session id; resolve the run marker for THIS session.
    marker="${mentor_dir}/.run-${CLAUDE_CODE_SESSION_ID:-nosession}"
    if [ -f "$marker" ]; then
-     slug="$(sed -n 's/^slug=//p' "$marker")"
+     slug="$(sed -n 's/^slug=//p' "$marker" | head -n 1)"
      state="$([ -n "$slug" ] && jq -r '.state // ""' "${mentor_dir}/plans/${slug}/.state.json" 2>/dev/null)"
      if [ "$state" = "in_progress" ] || [ "$state" = "approved" ]; then
        echo "A plan run ($slug) is in progress or paused in this session and must finish first — not arming a retro." >&2
