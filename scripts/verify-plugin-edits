@@ -1,22 +1,17 @@
 #!/usr/bin/env bash
-# Verify one marketplace plugin through the host-neutral release gate.
+# Verify one marketplace plugin through the host-neutral release gate, or with
+# --root run the repo-root hook suites.
 set -euo pipefail
 
 repo_root="$(cd "$(dirname "$0")/.." && pwd -P)"
 plugin_name="${1:-}"
 
 usage() {
-  echo "Usage: scripts/verify-plugin-edits <plugin>" >&2
+  echo "Usage: scripts/verify-plugin-edits <plugin> | --root" >&2
 }
 
 if [ -z "$plugin_name" ]; then
   usage
-  exit 2
-fi
-
-plugin_dir="$repo_root/plugins/$plugin_name"
-if [ ! -d "$plugin_dir" ]; then
-  echo "FAIL plugin does not exist: plugins/$plugin_name" >&2
   exit 2
 fi
 
@@ -53,6 +48,26 @@ run_required() {
     fail "$label"
   fi
 }
+
+# --root mode: run every repo-root hook test suite by exit status alone, then
+# report a RESULT line. Exits before any plugin logic runs.
+if [ "$plugin_name" = "--root" ]; then
+  cd "$repo_root"
+  for suite in .claude/hooks/tests/*.sh; do
+    [ -f "$suite" ] || continue
+    run_required "$suite" bash "$suite"
+  done
+  [ $((pass_count + fail_count)) -gt 0 ] ||
+    fail "no root hook suites matched .claude/hooks/tests/*.sh"
+  printf 'RESULT root pass=%s fail=%s\n' "$pass_count" "$fail_count"
+  exit $((fail_count > 0))
+fi
+
+plugin_dir="$repo_root/plugins/$plugin_name"
+if [ ! -d "$plugin_dir" ]; then
+  echo "FAIL plugin does not exist: plugins/$plugin_name" >&2
+  exit 2
+fi
 
 marketplace_tool="$repo_root/scripts/marketplace"
 if [ -x "$marketplace_tool" ]; then

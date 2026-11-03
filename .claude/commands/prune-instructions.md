@@ -10,7 +10,8 @@ Run this repo's mandatory pre-ship instruction-hygiene pass. Arguments provided:
 
 - `$1` = plugin name (e.g. `mentor`, `loom`). **Optional** — when omitted, the target is derived
   from the change itself (the `plugins/<name>/` paths in the diff; root-only changes target
-  `CLAUDE.md` and `.claude/`).
+  `CLAUDE.md` and `.claude/`). A root-only prune is then validated with
+  `scripts/verify-plugin-edits --root`.
 
 ## What to do
 

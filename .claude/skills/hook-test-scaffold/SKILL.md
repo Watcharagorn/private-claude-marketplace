@@ -12,9 +12,9 @@ carelessly: a test that touches the real `$HOME` or the real repo can corrupt th
 runs on, and a test that skips the edge cases passes while the hook fails in the field.
 
 The suites under `plugins/*/hooks/tests/` all follow one template that solves this — an
-isolated sandbox, deterministic cleanup, and a self-counting assertion helper whose final
-`RESULT:` line `/verify-plugin-edits` can read. Follow that template so every hook's suite
-stays readable to whoever reads the next one, and so the counts aggregate.
+isolated sandbox, deterministic cleanup, and a self-counting assertion helper, closed by a line
+that sets the suite's exit status (Step 4). Follow that template so every hook's suite stays
+readable to whoever reads the next one.
 
 ## Steps
 
@@ -85,10 +85,13 @@ End the file with:
 
 ```bash
 echo "RESULT: PASS=$PASS FAIL=$FAIL"
+[ "$FAIL" = "0" ]
 ```
 
-`/verify-plugin-edits` parses this line to roll the suite into its pre-commit check, so the
-format is load-bearing — keep it exact.
+Verification judges a suite by its exit status (`scripts/verify-plugin-edits`, including its
+`--root` mode for `.claude/hooks/tests/`), so the final `[ "$FAIL" = "0" ]` is load-bearing —
+without it the suite exits 0 even when an assertion fails; the RESULT line is the
+human-readable tally.
 
 ### Step 5 — Run it to green
 
