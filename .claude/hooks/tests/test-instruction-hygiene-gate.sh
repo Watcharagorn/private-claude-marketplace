@@ -29,6 +29,7 @@ git -C "$SCRATCH" config user.name t
 printf 'rule\n' > "$SCRATCH/plugins/demo/skills/x/SKILL.md"
 printf 'note\n' > "$SCRATCH/notes.txt"
 printf 'repo rules\n' > "$SCRATCH/CLAUDE.md"
+printf 'host-neutral contract\n' > "$SCRATCH/AGENTS.md"
 git -C "$SCRATCH" add -A >/dev/null 2>&1
 git -C "$SCRATCH" commit -qm init >/dev/null 2>&1
 
@@ -71,6 +72,8 @@ reset_tree; mkdir -p "$SCRATCH/plugins/demo/commands"; printf 'x\n' > "$SCRATCH/
 chk "untracked plugin file counts"          nags "$(json_bash "$SID" 'git commit -m wip')"
 reset_tree; printf 'x\n' >> "$SCRATCH/CLAUDE.md"
 chk "dirty root CLAUDE.md counts"           nags "$(json_bash "$SID" 'git commit -m wip')"
+reset_tree; printf 'x\n' >> "$SCRATCH/AGENTS.md"
+chk "dirty root AGENTS.md counts"           nags "$(json_bash "$SID" 'git commit -m wip')"
 
 echo "== D. commits that are none of its business =="
 reset_tree

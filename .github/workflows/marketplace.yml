@@ -32,7 +32,7 @@ permissions:
 
 jobs:
   deterministic-linux:
-    name: Canonical metadata and deterministic plugin tests
+    name: Marketplace validation and root hook suites
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4

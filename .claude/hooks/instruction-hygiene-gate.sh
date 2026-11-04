@@ -13,7 +13,7 @@
 #
 # Two trigger surfaces, because "before ship/publish" has two doors:
 #   Bash  — a `git commit` / `git push` whose pending change touches
-#           plugins/**, .claude/**, or CLAUDE.md
+#           plugins/**, .claude/**, CLAUDE.md, or AGENTS.md
 #   Skill — publish-plugin / mentor's ship, i.e. a release flow starting
 #
 # Warn-only: always exit 0, stdout only. Never stderr or exit 2 — those block,
@@ -59,7 +59,7 @@ case "$TOOL_NAME" in
     # A push often carries only the third; a commit only the first two.
     paths="$( { git -C "$dir" status --porcelain 2>/dev/null | awk '{print $NF}'
                 git -C "$dir" diff --name-only '@{u}...HEAD' 2>/dev/null; } || true )"
-    printf '%s\n' "$paths" | grep -Eq '^(plugins/|\.claude/|CLAUDE\.md$)' || exit 0
+    printf '%s\n' "$paths" | grep -Eq '^(plugins/|\.claude/|CLAUDE\.md$|AGENTS\.md$)' || exit 0
     # Name the verb without a pipeline whose exit status could trip set -e:
     # under pipefail an early-closing `head` makes the substitution fail, which
     # would abort the hook before it ever printed the reminder.
@@ -74,10 +74,11 @@ esac
 cat <<MSG
 [instruction-hygiene] About to run ${trigger} without the instruction-hygiene pass this session.
 This repo's CLAUDE.md requires it before every commit/ship/publish that touches plugins/**,
-.claude/**, or CLAUDE.md: a change leaves stale references, duplicated rules, contradictions and
-run-time-only narrative behind in the files it did NOT touch, and nothing else here reads the
-corpus as a whole. Before committing, run /prune-instructions [plugin], then /verify-plugin-edits
-<plugin> for each changed plugin and /verify-plugin-edits --root when .claude/** or root CLAUDE.md
-changed. If this is a pure version bump or a typo-only fix, that exception applies — proceed.
+.claude/**, CLAUDE.md, or AGENTS.md: a change leaves stale references, duplicated rules,
+contradictions and run-time-only narrative behind in the files it did NOT touch, and nothing else here
+reads the corpus as a whole. Before committing, run /prune-instructions [plugin], then
+/verify-plugin-edits <plugin> for each changed plugin and /verify-plugin-edits --root when .claude/**
+or root CLAUDE.md changed. A pure version bump or a typo-only fix may skip the hygiene pass; a version
+bump still runs /verify-plugin-edits <plugin>.
 MSG
 exit 0

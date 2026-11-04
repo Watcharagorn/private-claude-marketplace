@@ -9,10 +9,11 @@ allowed-tools: [Bash, Grep, Read, Edit, Agent, AskUserQuestion, Skill]
 Run this repo's mandatory pre-ship instruction-hygiene pass. Arguments provided: $ARGUMENTS
 
 - `$1` = plugin name (e.g. `mentor`, `loom`). **Optional, and additive** — it names which plugin to
-  audit; changed root `CLAUDE.md`/`.claude/**` are always included regardless. When omitted, the
-  target is derived from the change itself (the `plugins/<name>/` paths in the diff; root-only
-  changes target `CLAUDE.md` and `.claude/`). A root-only prune is then validated with
-  `scripts/verify-plugin-edits --root`.
+  audit; changed root `CLAUDE.md`/`AGENTS.md`/`.claude/**` are always included regardless. When
+  omitted, the target is derived from the change itself (the `plugins/<name>/` paths in the diff;
+  root-only changes target `CLAUDE.md`, `AGENTS.md` and `.claude/`). A root-only prune that touched
+  `.claude/**` or `CLAUDE.md` is then validated with `scripts/verify-plugin-edits --root`; no
+  verifier mode reads `AGENTS.md`.
 
 ## What to do
 
