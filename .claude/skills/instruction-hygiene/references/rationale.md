@@ -10,16 +10,19 @@ The pre-ship chain is hygiene → `/verify-plugin-edits` → commit/publish, and
 load-bearing in one direction only.
 
 This pass *edits* instruction files: it deletes dead pointers, renames symbols, moves narrative
-between files, rewrites clauses. Every one of those edits is exactly the kind of thing
-`/verify-plugin-edits` exists to catch when it goes wrong — a moved block that breaks a
-cross-block bash variable, a rewritten description that overruns the length cap, a deleted
-reference that leaves a dangling pointer, a relocated heading nothing points at any more.
+between files, rewrites clauses. Some of those edits are exactly what
+`/verify-plugin-edits` catches when they go wrong — a rewritten description that breaks skill
+frontmatter (or, when `quick_validate` is available, overruns the length cap), an edit that breaks
+a plugin test pinning that text. It does not check for dangling pointers; Step 6's sweep of this
+pass's own edits covers those.
 
 Run mechanical validation first and the release ships this pass's edits unchecked. Run it second
 and the edits are covered by the same gate as the original change.
 
 That coverage holds in full only for changes under `plugins/<name>/`, because
-`/verify-plugin-edits <plugin>` reads `plugins/$1/…`. A root-only prune, editing `.claude/**` or
+`/verify-plugin-edits <plugin>` reads the plugins, the marketplace catalogs and
+`tests/marketplace/`, never `.claude/**`, root `CLAUDE.md` or `AGENTS.md`. A root-only prune,
+editing `.claude/**` or
 `CLAUDE.md` as this skill's own files do, runs `scripts/verify-plugin-edits --root` instead;
 mixed prunes run `<plugin>` for each touched plugin plus `--root`. Root mode is narrower:
 it runs only the root hook suites (`.claude/hooks/tests/*.sh`), so it catches a prune

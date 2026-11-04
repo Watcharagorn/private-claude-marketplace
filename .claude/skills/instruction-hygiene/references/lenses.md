@@ -10,8 +10,9 @@ Contents: **Common brief** · **STALE lens** · **DUPLICATE lens** · **CONFLICT
 ## Common brief
 
 You audit **instruction text** in a Claude Code plugin marketplace repo: `SKILL.md` files,
-their `references/*.md`, `commands/*.md`, agent definitions, `README.md`, the root `CLAUDE.md`,
-and the `description` fields in `plugin.json` / `marketplace.json`. Scripts (`*.sh`, `*.py`) and
+their `references/*.md`, `commands/*.md`, agent definitions, `README.md`, the root `CLAUDE.md`
+and `AGENTS.md` (never propose a SAFE edit inside an `AGENTS.md` `## <Plugin> core concept`
+section), and the `description` fields in `plugin.json` / `marketplace.json`. Scripts (`*.sh`, `*.py`) and
 test suites are **ground truth** — you read them to learn what actually happens, and you never
 propose editing them.
 

@@ -1,6 +1,6 @@
 ---
 name: instruction-hygiene
-description: Prune the instruction debt a change just created in this marketplace repo — text that went stale, got duplicated, started contradicting another rule, or now costs context on every run without changing any decision. Anchors on the git diff, dispatches read-only instruction-hygiene-auditor agents by lens, auto-applies mechanical fixes (dead references, missed renames, narrative that belongs in references/rationale.md) and asks before deleting or merging any actual rule. Run it before every commit, ship, or publish touching plugins/<name>/, .claude/, or CLAUDE.md — including when /loom:publish-plugin, /loom:learn, /loom:audit-plugin or /mentor:ship is driving the release. Triggers include "clean up the instructions before publishing", "any stale or duplicate rules after this change", "this skill contradicts itself now", "SKILL.md got bloated", "/prune-instructions".
+description: Prune the instruction debt a change just created in this marketplace repo — text that went stale, got duplicated, started contradicting another rule, or now costs context on every run without changing any decision. Anchors on the git diff, dispatches read-only instruction-hygiene-auditor agents by lens, auto-applies mechanical fixes (dead references, missed renames, narrative that belongs in references/rationale.md) and asks before deleting or merging any actual rule. Run it before every commit, ship, or publish touching plugins/<name>/, .claude/, CLAUDE.md, or AGENTS.md — including when /loom:publish-plugin, /loom:learn, /loom:audit-plugin or /mentor:ship is driving the release. Triggers include "clean up the instructions before publishing", "any stale or duplicate rules after this change", "this skill contradicts itself now", "SKILL.md got bloated", "/prune-instructions".
 ---
 
 # Instruction Hygiene — prune what the change made stale, duplicate, conflicting, or too heavy
@@ -18,7 +18,7 @@ mechanical fixes and asking before it deletes anything that constrains behavior.
 
 | Surface | Answers | Edits? |
 |---|---|---|
-| `/verify-plugin-edits <plugin>` | Does the text *parse and resolve*? JSON valid, `sh -n` clean, no hardcoded paths, tests green, no cross-block variable leaks, no name collisions | No |
+| `/verify-plugin-edits <plugin>` | Does the plugin *validate and pass its tests*? Canonical metadata and generated projections, deterministic tests, skill and host-install checks where available — the full list is in `.claude/commands/verify-plugin-edits.md` | No |
 | `plugin-consistency-reviewer` agent | Is the rewrite *correct*? do evals still trace, are step references intact | No |
 | **this skill** | Is the corpus still *coherent and lean* after the change? | Yes |
 
@@ -26,11 +26,11 @@ mechanical fixes and asking before it deletes anything that constrains behavior.
 
 1. **this skill** — semantic cleanup; it changes files.
 2. `/verify-plugin-edits <plugin>` — mechanical validation of the result, **for edits under
-   `plugins/<name>/` only**: every check it runs reads `plugins/$1/…`, so it never inspects
-   `.claude/**` or root `CLAUDE.md`. A root-only prune's step 2 is
-   `scripts/verify-plugin-edits --root`, which runs the repo's own hook suites
-   (`.claude/hooks/tests/*.sh`). Mixed changes run `<plugin>` for each touched plugin
-   plus `--root`.
+   `plugins/<name>/` only**: it checks that plugin plus the marketplace catalog and generated
+   projections, never `.claude/**`, root `CLAUDE.md` or `AGENTS.md`. A root-only prune that
+   touched `.claude/**` or `CLAUDE.md` runs `scripts/verify-plugin-edits --root` as step 2,
+   which runs the repo's own hook suites (`.claude/hooks/tests/*.sh`); nothing mechanical reads
+   `AGENTS.md`. Mixed changes run `<plugin>` for each touched plugin plus `--root`.
 3. `git commit` / `/loom:publish-plugin`.
 
 That order is not cosmetic: this pass edits instruction files, so running it *after* validation
@@ -63,7 +63,7 @@ sed -n 's#^plugins/\([^/]*\)/.*#\1#p' /tmp/ih-changed.txt | sort -u
 ```
 
 No changed paths at all → say so and stop; there is nothing to prune. Plugin paths present →
-those plugins are the targets; include root `CLAUDE.md` and `.claude/**` when changed too.
+those plugins are the targets; include root `CLAUDE.md`, `AGENTS.md` and `.claude/**` when changed too.
 Only root paths → the repo's own instruction surface is the target.
 
 Read the actual diff of the changed instruction files (`git diff` / `git diff --cached` /
@@ -83,6 +83,7 @@ cd "$repo_root" || exit 1
 # never text to prune — pruning a rule is an edit to prose, never to a script's logic.
 find plugins .claude -type f \( -name '*.md' -o -name '*.json' \) 2>/dev/null > /tmp/ih-surface.txt
 [ -f CLAUDE.md ] && echo "CLAUDE.md" >> /tmp/ih-surface.txt
+[ -f AGENTS.md ] && echo "AGENTS.md" >> /tmp/ih-surface.txt
 [ -f .claude-plugin/marketplace.json ] && echo ".claude-plugin/marketplace.json" >> /tmp/ih-surface.txt
 
 # Referrers of one symbol the change renamed/removed/redefined (skill name, command, flag,
@@ -146,6 +147,9 @@ about whether a rule is worth keeping:
   a measured cost. Those sentences were bought with a failure.
 - Trimming a manifest or frontmatter **`description`** — `publish-plugin` owns those and their
   length rules.
+- Any edit inside an `AGENTS.md` `## <Plugin> core concept` section, even one a SAFE class
+  would cover — a pinned concept changes only deliberately (`AGENTS.md` → "Plugin core
+  concepts"), and a headless run never amends one.
 
 **The load-bearing test, run before proposing any deletion** — answer all four, in the finding:
 
@@ -250,9 +254,9 @@ The final line is the one a release flow or a later session can cite as proof th
 - **Bounded blast radius.** Touch only files the change touched or that reference it. A pass that
   rewrites untouched files is unreviewable inside a release diff.
 - **No staging, no committing.** Hand the working tree back to the release flow.
-- **Don't re-derive the mechanical gate.** `/verify-plugin-edits <plugin>` owns JSON, syntax, paths,
-  descriptions, tests, collisions; its `--root` mode runs only the root hook suites. Duplicating its
-  checks here is the exact debt this skill exists to remove.
+- **Don't re-derive the mechanical gate.** Whatever `/verify-plugin-edits` checks
+  (`.claude/commands/verify-plugin-edits.md`) stays its job, in both `<plugin>` and `--root` mode.
+  Duplicating its checks here is the exact debt this skill exists to remove.
 
 ## Done when
 
