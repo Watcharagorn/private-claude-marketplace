@@ -1,6 +1,6 @@
 {
   "eval_name": "mentor-v6.0.0-run-behaviour",
-  "note": "Behaviour checks for an approved plan run (AGENTS.md → Mentor core concept). Each case seeds a small approved plan in a scratch repo, approves it with Proceed, and grades the transcript and plan.md. Graded by a reader against the assertions; not run by harness.py, which scores routing only.",
+  "note": "Behaviour checks for a mentor plan run (AGENTS.md → Mentor core concept). Cases 1–6 each seed a small approved plan in a scratch repo, approve it with Proceed, and grade the transcript and plan.md. Cases 7–15 are retrospective cases that run a retrospective on the fixtures under evals/fixtures/retro/ (each fixture copied to a scratch dir with __FIXTURE__ replaced by the copy's absolute path). Graded by a reader against the assertions; not run by harness.py, which scores routing only.",
   "evals": [
     {
       "id": 1,
@@ -57,6 +57,89 @@
       "assertions": [
         "## Playbook reads `none`",
         "The plan, Goal check, and Done review name no git, test, CI, or PR step"
+      ]
+    },
+    {
+      "id": 7,
+      "name": "S1-plain-repeat-becomes-new-skill",
+      "prompt": "Retro on the session fixture plugins/mentor/evals/fixtures/retro/s1-repeat/ — a plain session where the user ran the same three steps twice (make openapi → npm run gen:client → npm test -- client). Graded against plugins/mentor/evals/fixtures/retro/s1-repeat/expected.md.",
+      "assertions": [
+        "Exactly one Accepted new-skill row for the repeated three-step procedure, with its destination (`.claude/skills/<name>` + a relative `.codex/skills/<name>` symlink)",
+        "The Accepted row matches s1-repeat/expected.md; after the one approval the skill exists and passes quick_validate.py"
+      ]
+    },
+    {
+      "id": 8,
+      "name": "S2-claude-orchestrator-compacted-delegates",
+      "prompt": "Retro with --claude-config pointing at a scratch copy of plugins/mentor/evals/fixtures/retro/s2-claude-orchestrator/claude-config/ (orchestrator root + subagents/) and --agt-home at the same copy's agt-home/ (state/groups/, jobs/) and --until r2-0000-4000-8000-000000000016 to freeze the cutoff explicitly at the \"Staged everything. Ready to commit.\" event — the fixture is first copied to a scratch dir with every __FIXTURE__ replaced by the copy's absolute path (as s2-claude-orchestrator/expected.md says), so __FIXTURE__/worker-claude-config and __FIXTURE__/claude-config resolve under the copy. The session is a Claude Code orchestrator with 2 compactions, a Claude subagent, two agt workers (one claude, one kiro), a correction before compaction 1 the agent repeated after it. Graded against s2-claude-orchestrator/expected.md.",
+      "assertions": [
+        "manifest.json lists root, subagent, both workers and 3 epochs; the kiro worker is marked opaque; no event after the frozen cutoff appears",
+        "An Accepted row cites the correction in epoch 1 and the repeat in epoch 3",
+        "\"worker had no shell\" lands in Leftovers as an agt-config proposal, not an applied edit"
+      ]
+    },
+    {
+      "id": 9,
+      "name": "S3-codex-orchestrator-children",
+      "prompt": "Retro with --codex-home pointing at a scratch copy of plugins/mentor/evals/fixtures/retro/s3-codex-orchestrator/codex-home/ (rollouts under codex-home/sessions/2026/11/01/) — the fixture is first copied to a scratch dir with every __FIXTURE__ replaced by the copy's absolute path (as s3-codex-orchestrator/expected.md says; this fixture has none). A Codex orchestrator with spawn_agent children and a `compacted` item. Graded against s3-codex-orchestrator/expected.md.",
+      "assertions": [
+        "Root is found via $CODEX_THREAD_ID / session_meta.id; children are linked by session_meta.parent_thread_id",
+        "The `compacted` epoch is split; the manifest contract matches S2's (nodes, epochs, coverage)"
+      ]
+    },
+    {
+      "id": 10,
+      "name": "S4-resumed-session-dedupe",
+      "prompt": "Retro on the resumed Claude session in a scratch copy of plugins/mentor/evals/fixtures/retro/s2-claude-orchestrator/claude-config/ (a --resume jsonl replays the old one) — the fixture is first copied to a scratch dir with every __FIXTURE__ replaced by the copy's absolute path (as s2-claude-orchestrator/expected.md says). Graded against s2-claude-orchestrator/expected.md.",
+      "assertions": [
+        "Both jsonl files are chained via the referenced sessionId / last-prompt trailer",
+        "Replayed events are counted once (deduped by uuid), not twice"
+      ]
+    },
+    {
+      "id": 11,
+      "name": "S5-concurrent-sessions-identity-A-prompt-match",
+      "prompt": "Retro with the opening prompt \"Refactor the marketplace sync script to stream manifests\" given (and no session id) against a scratch copy of plugins/mentor/evals/fixtures/retro/s5-concurrent/claude-config/ (two sessions live in one project dir -tmp-retro-fixture-proj) — the fixture is first copied to a scratch dir with every __FIXTURE__ replaced by the copy's absolute path (as s5-concurrent/expected.md says; this fixture has none), run with --claude-config at that copy's claude-config/. Graded against s5-concurrent/expected.md (Case A).",
+      "assertions": [
+        "Identity resolves by the unique cwd + opening-prompt match to the OLDER file s5aaaaa0-0000-4000-8000-000000000001 (identity.method prompt-match), proving selection is by prompt not recency",
+        "The newer file s5bbbbb0-0000-4000-8000-000000000002 is never picked"
+      ]
+    },
+    {
+      "id": 12,
+      "name": "S5-concurrent-sessions-identity-B-partial",
+      "prompt": "Retro with no session id and no opening prompt given against a scratch copy of plugins/mentor/evals/fixtures/retro/s5-concurrent/claude-config/ (two sessions live in one project dir -tmp-retro-fixture-proj) — the fixture is first copied to a scratch dir with every __FIXTURE__ replaced by the copy's absolute path (as s5-concurrent/expected.md says; this fixture has none), run with --claude-config at that copy's claude-config/. Graded against s5-concurrent/expected.md (Case B).",
+      "assertions": [
+        "With no disambiguator, identity.method is partial and the result is labelled partial (nodes: [], one skipped row for ambiguous identity)",
+        "The newest file s5bbbbb0-0000-4000-8000-000000000002 is never used to pick the session"
+      ]
+    },
+    {
+      "id": 13,
+      "name": "S6-retro-interrupted-resumes-from-evidence",
+      "prompt": "A retro on s2-claude-orchestrator/ is interrupted after its evidence/lens-*.md files are written, then restarted.",
+      "assertions": [
+        "On restart the playbook reads evidence/ first and runs only the stages whose output is missing",
+        "The existing lens files are byte-identical after the restart and no lens is dispatched again"
+      ]
+    },
+    {
+      "id": 14,
+      "name": "S7-retro-refused-during-live-run",
+      "prompt": "User runs /mentor:retro while this session's run marker points at an in_progress plan.",
+      "assertions": [
+        "The command refuses and says a plan run is in progress or paused and must finish first",
+        "A paused run (stored state `approved` with a run marker) also refuses, not only in_progress",
+        "No second plan gate is armed (begin-plan.sh is not reached)"
+      ]
+    },
+    {
+      "id": 15,
+      "name": "S8-invitation-after-implemented-not-after-retro",
+      "prompt": "A non-retro plan reaches `implemented`; separately a `playbook-retrospective` plan reaches `implemented`.",
+      "assertions": [
+        "The non-retro plan's final report shows exactly one non-blocking /mentor:retro invitation line",
+        "The retro plan's final report shows no invitation line"
       ]
     }
   ]

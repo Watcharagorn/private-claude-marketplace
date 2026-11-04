@@ -110,19 +110,23 @@ another host, invoke the matching skill or describe the same intent naturally.
 | Command | What it does |
 |---|---|
 | `/mentor:plan <task>` | The gated plan flow (above). |
+| `/mentor:retro [session]` | **Retrospective of a finished session** — rebuilds the session from disk (even after several compactions, and across Claude or Codex subagents and agt workers), runs three lenses and a synthesizer over it, and turns the approved findings into skill changes (new skills for repeated procedures, edits, description tunes). A thin facade over the gated plan flow: it refuses while this session's own run is `in_progress` or paused (stored `approved`), and stops without arming when `jq` is missing, then arms the gate and hands `planning` a retro goal that loads `playbook-retrospective`. Offered as a one-line invitation after a plan reaches `implemented`. `--claude-config` / `--codex-home` / `--agt-home` point it at explicit source-transcript roots. |
 | `/mentor:preview [subject]` | **One scenario-based review page for a plan or any subject** — a repo subsystem, a doc, a mentor plan, or the thing under discussion; no plan file or planning session required. Draws only what the subject changes: a mockup of every surface each scenario reaches (each edge case its own card, Before/After per scenario), each sequence under the scenario that starts it, the C4 levels that move, the changed data and contracts, and the decisions; every card has a comment box with Copy, and open questions come back to chat one at a time. Writes `.mentor/reviews/<subject-slug>/review.html` (gitignored), opens it, and offers to publish it on Claude. `planning` Step 5 delegates here for an in-planning page. |
 | `/mentor:ship` | Finish the current branch: clean-check → `/simplify` → tests → push + auto-open PR/MR (or push to upstream). Standalone it asks; inside a plan run (the software playbook's deliver mode) it follows the plan's Definition of done and puts the Done review in the PR body. Never force-pushes. |
 | `/mentor:merge [PR#]` | The tail `/mentor:ship` leaves off: one bounded `gh pr checks --watch`, then one triage — flake (one rerun max) / regression (stop and report) / already broken on the base branch (don't spend the rerun; you choose **Merge anyway** or **Leave open**, and any leftover work is named in the report) — then an independent verifier grades the PR, and it merges only on your explicit choice (or under a constitution that grants merge), then walks the runbook's after-merge steps, pausing on always-pause lines. GitHub-only. |
 | `/mentor:grill [topic]` | One-question-at-a-time interview that sharpens a design's open decisions before you approve — also the route for a plan-quality review before approval. Asks only product calls; evidence- and constitution-settleable questions are settled without asking. Conversation only, pre-approval only. |
 | `/mentor:constitution [principles]` | Create/amend this repo's governing principles and autonomy contract (Always-pause list, Decision authority, Definition of done) at `.mentor/constitution.md` — versioned, committed, and honored by every plan and run. |
 
-Two skills have no command; they run from natural language matching their `description:`
-or `Skill({"skill": "mentor:<name>"})` — there is no `/playbook-software-change` or
-`/frontend-self-ex-review` command:
+Three skills have no command of their own; they run from natural language matching their
+`description:` or `Skill({"skill": "mentor:<name>"})` — there is no `/playbook-software-change`,
+`/playbook-retrospective` or `/frontend-self-ex-review` command (the two playbooks are loaded
+*by* `planning`; `/mentor:retro` is a facade that hands `planning` a retro goal, not a direct
+entry to the skill):
 
 | Skill | What it does |
 |---|---|
 | `playbook-software-change` | **The software playbook**, loaded by `planning` at runtime when the goal is a code change. Supplies five overlays the general flow reads: research directives (callers, tests, check commands), the Definition of done (the repo's checks pass), extra always-pause items (force-push, protected branches, merging, destructive migrations), the deliver mode (`shipping` then `merging`), and evidence kinds (test output, CI link, diff stat). Never a workflow of its own. |
+| `playbook-retrospective` | **The retrospective playbook**, loaded by `planning` at runtime when the goal is a retro of a finished session (reached via `/mentor:retro` or the post-`implemented` invitation). Rebuilds the session from disk as an evidence graph — frozen cutoff, compaction epochs, recursive Claude/Codex delegates and optional agt workers (kiro/agy workers stay opaque) — then runs three ported lenses (judgment, tooling, divergent) and a synthesizer that sorts findings into Accepted / Rejected / Backlog. Supplies planning's five overlays: the evidence-graph research, a per-Accepted-row Definition of done (`quick_validate.py`, the trigger check, and a relative, resolving symlink when the destination convention uses one), one extra always-pause item (committing or pushing — lessons that contradict a core concept or change the constitution or another tool's config go to Leftovers, never paused on), local-edits-then-Done-review delivery with Leftovers, and its evidence kinds. Never co-loaded with `playbook-software-change`. Adapted from Cursor's pstack `/reflect`. |
 | `frontend-self-ex-review` | **Self-explanatory UI review, feedback only** — say "make this screen self-explanatory", "make it textless", "too much text", or "users don't know what to click". Reviews a screen, component, flow, screenshot, or proposed design in one of two modes: **audit** (the default — findings tied to `file:line`, each with its proposed change tagged *small fix* or *needs a plan*) and **verify** (checks a change already made: states, ~360px, keyboard — reported as observed / executed / inferred / not tested). It writes no files and no plans; applying the feedback is follow-on work. A general UX/UI review without that goal doesn't trigger it. Cuts decorative and redundant copy by *purpose*, never by keyword, and keeps labels, constraints, consequences, and user content. Isolated from the rest of mentor: beyond the host-portability paragraph every mentor skill carries, it reads no mentor state and calls no mentor helper, so the folder can be copied into any project's skills directory. |
 
 ## Where a new rule goes (skill authoring convention)
@@ -540,6 +544,49 @@ Knobs — set under `env` in `~/.claude/settings.json` (a shell `export` won't r
 | `MENTOR_PLAN_OPENER` | `auto` (default) · `vscode` · `chrome` · `system` |
 | `MENTOR_PLAN_VSCODE_BIN` | Force the VSCode CLI binary (default: auto-detect `code` / `cursor` / `windsurf` / …) |
 | `MENTOR_PLAN_OPEN=off` | Disable auto-open entirely |
+
+## Changes in v6.1.0
+
+**A retrospective playbook: `/mentor:retro`.** Mentor could plan and run work but never
+looked back — lessons stayed in the session and steps the user repeated by hand never became
+skills. The new `playbook-retrospective` skill, inspired by Cursor's pstack `/reflect`, turns
+one finished session into approved skill changes: new skills for repeated procedures, edits to
+existing ones, and description tunes, plus reported proposals it does not apply. It runs inside
+mentor's pinned core concept — you approve once, and the retro runs to its done-check — reusing
+the edit gate, decision log, independent verifier and Done review with **no new hooks, scripts,
+state tokens or `plan-state.sh` subcommands**.
+
+- **Works for orchestrated, compacted sessions on both hosts.** The hard requirement was that
+  the retro handle a session where **Claude Code or Codex was the orchestrator**, delegating to
+  subagents and agt workers, and **compacted several times** — after which the agent's own
+  context holds only the latest summary. So it never reviews from memory: the parent rebuilds the
+  session from disk first as an **evidence graph** — a frozen cutoff, compaction epochs, recursive
+  Claude subagents / Codex child rollouts and optional agt workers (kiro/agy workers stay opaque),
+  each reduced to a `jq` digest under `evidence/`. Three lenses and a synthesizer read the digests;
+  raw transcripts never enter the parent's context.
+- **Thin facade, no new machinery.** `/mentor:retro [session id | path]` refuses while this
+  session's own run is `in_progress` or paused (stored `approved`) — reading the state with
+  `jq` and failing closed without it — arms the gate exactly as `/mentor:plan` does, then
+  hands `planning` a retro goal that loads `playbook-retrospective` (never co-loaded with
+  `playbook-software-change`). `--claude-config` / `--codex-home` / `--agt-home` point it at
+  explicit source-transcript roots (overriding `CLAUDE_CONFIG_DIR` / `CODEX_HOME` / `AGT_HOME`);
+  an unavailable explicit root yields a `partial` result with no fallback to the real stores.
+- **Outputs.** The synthesizer sorts findings into Accepted / Rejected / Backlog; each Accepted
+  row carries its own done-check (`quick_validate.py` passes, the description triggers on its
+  motivating prompt, and, when the destination convention uses a symlink, that link is relative and
+  resolves) and names its destination. Backlog items, constitution proposals, core-concept
+  proposals and other-tool-config proposals go to Leftovers, reported but never applied.
+- **Where skills land.** New skills follow the workspace's documented skill-storage convention —
+  for this repo that is `plugins/*/skills/` edited directly under the repo gates; with none
+  documented, `.claude/skills/<name>` on Claude Code. No Codex project-skill path is promised: on
+  Codex, or when a Codex copy is wanted, the path to verify is reported as a Leftover. Installed
+  plugin skills are copied to the workspace and the copy is edited, never the cache.
+- **Boundary with loom.** Mentor retro covers **one** session, interactively, with one approval,
+  on both hosts. loom covers batches across sessions, uses a ledger, runs headless, and is Claude
+  Code only. Nine skills are now staged in the trigger evals; `capabilities.json` gains a
+  `retrospective` workflow.
+- **Serial fallback.** When the host has no subagents the lenses run serially in-thread and are
+  labelled `self-graded`; nothing depends on agt or loom.
 
 ## Changes in v6.0.2
 
@@ -2039,3 +2086,10 @@ The `grilling` (`/mentor:grill`) skill is adapted from
 [mattpocock/skills](https://github.com/mattpocock/skills) (the `productivity` skill set), reworked
 to fit mentor's conventions, namespacing, and gates. A handoff skill adapted from the same set
 shipped until v5.0.0.
+
+The `playbook-retrospective` skill (`/mentor:retro`) is inspired by Cursor's
+[pstack](https://github.com/cursor/plugins/tree/main/pstack) plugin and its `/reflect`
+command — the three-reviewer-over-one-session pattern and the Accepted / Rejected / Backlog
+synthesis. mentor's port runs inside its own core concept (approve once, run to a done-check),
+adds the cross-host, compaction-surviving evidence graph, and removes Cursor's model names and
+paths.

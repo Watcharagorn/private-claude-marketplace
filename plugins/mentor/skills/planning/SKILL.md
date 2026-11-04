@@ -875,7 +875,12 @@ step ticks — but `failed` and `paused` cannot be derived from ticks.
 7. **Deliver.** The general deliver state hands the deliverable named in the Goal check
    to the human with the Done review beside it. A picked playbook's Deliver mode
    replaces this.
-8. `set <slug> implemented`, remove the run marker, and report.
+8. `set <slug> implemented`, remove the run marker, and report. After reporting, offer
+   a retrospective in one line (`/mentor:retro` in Claude Code; on other hosts, ask for a
+   retrospective of this session) to turn this session's lessons into skills — a
+   non-blocking invitation so repeated steps become reusable without the human having to
+   ask. Skip the offer when this plan's `## Playbook` is `playbook-retrospective` (a retro
+   inviting its own retro is noise).
 
 A dead end is reported, not spun on: two identical failures in a row with no new
 evidence is a re-plan, never a third identical attempt.

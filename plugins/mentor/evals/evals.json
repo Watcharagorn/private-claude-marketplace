@@ -4,6 +4,7 @@
   "skills_in_play": [
     "planning",
     "playbook-software-change",
+    "playbook-retrospective",
     "grilling",
     "previewing",
     "merging",
@@ -263,6 +264,42 @@
       "expected": "constitution-authoring",
       "tests": "v6: the autonomy contract lives in the constitution",
       "query": "i want agents to stop asking me about naming and test depth, but they must always stop before deploying or messaging anyone outside the team. where do i set that for this repo?"
+    },
+    {
+      "id": 77,
+      "expected": "playbook-retrospective",
+      "tests": "v6.1: core trigger — a retro on this session, repeated steps become skills",
+      "query": "run a retro on this session and turn the steps i kept repeating into skills"
+    },
+    {
+      "id": 78,
+      "expected": "playbook-retrospective",
+      "tests": "v6.1: core trigger — lessons from today's session into skills",
+      "query": "what lessons from today's session should become skills?"
+    },
+    {
+      "id": 79,
+      "expected": "playbook-retrospective",
+      "tests": "v6.1: core trigger — compacted, delegated session; check the subagents' work too",
+      "query": "reflect on this session — it compacted three times and the subagents did most of the work, check their work too"
+    },
+    {
+      "id": 80,
+      "expected": "playbook-retrospective",
+      "tests": "v6.1: plain-wording trigger — a one-session review that proposes skill edits",
+      "query": "look back over everything we did in this thread and tell me which bits are worth saving as a reusable skill or a tweak to an existing one"
+    },
+    {
+      "id": 81,
+      "expected": "none",
+      "tests": "v6.1 NEAR-MISS: a batch harvest across ALL past sessions is loom's job (headless, ledger, Claude-only), not a single-session mentor retro",
+      "query": "go through every session from the last two weeks and batch-harvest all the automations and skills out of them into the ledger"
+    },
+    {
+      "id": 82,
+      "expected": "planning",
+      "tests": "v6.1 NEAR-MISS: a forward code-change goal is planning, not a retrospective of past work",
+      "query": "plan adding a retry with backoff to the uploader and run it till it's done"
     }
   ]
 }

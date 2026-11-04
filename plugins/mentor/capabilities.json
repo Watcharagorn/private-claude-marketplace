@@ -92,6 +92,21 @@
         "status": "supported",
         "test": "plugins/mentor/tests/test-dual-host-contract.sh"
       }
+    },
+    {
+      "name": "retrospective",
+      "skills": [
+        "playbook-retrospective"
+      ],
+      "fallback": "The retro runs on Claude Code or Codex and reads source transcripts from either host's store (resolving identity from $CLAUDE_CODE_SESSION_ID or $CODEX_THREAD_ID, else a unique cwd + opening-prompt match). It is a portable playbook loaded by planning, so it needs no slash-command facade; /mentor:retro is a thin Claude Code entry point. When subagents are unavailable the three lenses run serially in-thread and are labelled self-graded. When session identity or a transcript store cannot be resolved, the result is labelled partial with no fallback to the real stores.",
+      "claude": {
+        "status": "supported",
+        "test": "plugins/mentor/tests/test-dual-host-contract.sh"
+      },
+      "codex": {
+        "status": "supported",
+        "test": "plugins/mentor/tests/test-dual-host-contract.sh"
+      }
     }
   ],
   "waiver": null

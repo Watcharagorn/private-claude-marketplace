@@ -7,7 +7,8 @@ description: >
   by the planning skill at runtime (Step 2) when the goal matches; it is not a
   workflow of its own and never plans or approves anything itself. Use it whenever a
   mentor plan's goal is a code change in a git repository. Not for a non-code goal
-  (a report, a brief, research, a doc set outside a codebase) and not to ship or
+  (a report, a brief, research, a doc set outside a codebase), not for a retrospective
+  of a session (that is `playbook-retrospective`), and not to ship or
   merge by hand — that is /mentor:ship and /mentor:merge directly.
 ---
 

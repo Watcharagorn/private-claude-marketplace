@@ -1,0 +1,3 @@
+# Empty kiro worker home.
+# The kiro agt worker (job g-e5f6a7b8 / j-kiro-0001) has no transcript here:
+# status.json records session_id: null, so this worker is opaque.
