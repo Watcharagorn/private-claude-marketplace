@@ -20,8 +20,9 @@ and the edits are covered by the same gate as the original change.
 
 That coverage holds in full only for changes under `plugins/<name>/`, because
 `/verify-plugin-edits <plugin>` reads `plugins/$1/…`. A root-only prune, editing `.claude/**` or
-`CLAUDE.md` as this skill's own files do, runs `scripts/verify-plugin-edits --root` instead, and that
-mode is narrower: it runs only the root hook suites (`.claude/hooks/tests/*.sh`), so it catches a prune
+`CLAUDE.md` as this skill's own files do, runs `scripts/verify-plugin-edits --root` instead;
+mixed prunes run `<plugin>` for each touched plugin plus `--root`. Root mode is narrower:
+it runs only the root hook suites (`.claude/hooks/tests/*.sh`), so it catches a prune
 that breaks a root hook, not one that breaks root skill or command prose. The cost of the wrong order is
 invisible at commit time and shows up as a broken skill on install, which is the worst place to
 find it.

@@ -9,9 +9,11 @@ UI integrations are adapters.
 - Use `scripts/marketplace` to synchronize, validate, and publish marketplace
   metadata. Do not hand-edit one host's catalog or manifest as a release
   substitute.
-- Run `scripts/verify-plugin-edits <plugin>` after a plugin change. It runs the
-  canonical marketplace validation, the plugin's deterministic tests, and
-  available skill validation.
+- Run `scripts/verify-plugin-edits <plugin>` for each changed plugin, and
+  `scripts/verify-plugin-edits --root` when `.claude/**` or root `CLAUDE.md`
+  changed. Plugin mode runs canonical marketplace validation, the plugin's
+  deterministic tests, and available skill validation; root mode runs
+  `.claude/hooks/tests/*.sh`.
 - Keep `plugin.json` and portable `skills/` free of host-only paths, tools, and
   guarantees. Put Claude Code or Codex-specific behavior in that host's adapter.
 

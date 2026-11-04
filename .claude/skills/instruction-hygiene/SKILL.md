@@ -29,7 +29,8 @@ mechanical fixes and asking before it deletes anything that constrains behavior.
    `plugins/<name>/` only**: every check it runs reads `plugins/$1/…`, so it never inspects
    `.claude/**` or root `CLAUDE.md`. A root-only prune's step 2 is
    `scripts/verify-plugin-edits --root`, which runs the repo's own hook suites
-   (`.claude/hooks/tests/*.sh`).
+   (`.claude/hooks/tests/*.sh`). Mixed changes run `<plugin>` for each touched plugin
+   plus `--root`.
 3. `git commit` / `/loom:publish-plugin`.
 
 That order is not cosmetic: this pass edits instruction files, so running it *after* validation
@@ -62,8 +63,8 @@ sed -n 's#^plugins/\([^/]*\)/.*#\1#p' /tmp/ih-changed.txt | sort -u
 ```
 
 No changed paths at all → say so and stop; there is nothing to prune. Plugin paths present →
-those plugins are the targets. Only root paths (`CLAUDE.md`, `.claude/**`) → the repo's own
-instruction surface is the target.
+those plugins are the targets; include root `CLAUDE.md` and `.claude/**` when changed too.
+Only root paths → the repo's own instruction surface is the target.
 
 Read the actual diff of the changed instruction files (`git diff` / `git diff --cached` /
 `git diff "origin/${base}...HEAD"` on those paths) before dispatching. The diff is what tells an
@@ -209,8 +210,9 @@ done
 Then sweep **your own edits** for the debt you just created: every heading you pointed at must
 exist, every renamed symbol must resolve, no pointer may name a file you deleted from.
 
-Hand the mechanical checks to `/verify-plugin-edits <plugin>`, or `/verify-plugin-edits --root` for a
-root-only target — do not re-run its checks here.
+Hand the mechanical checks to `/verify-plugin-edits <plugin>` for each touched plugin and
+`/verify-plugin-edits --root` when `.claude/**` or root `CLAUDE.md` changed. Do not re-run its
+checks here.
 
 ## Step 7 — Report
 

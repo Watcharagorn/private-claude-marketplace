@@ -15,6 +15,7 @@ a warning rather than masking the deterministic result.
 Pass `--root` instead of a plugin name for a root-only change (`.claude/**`, `CLAUDE.md`):
 `verify-plugin-edits --root` runs the repo's root hook suites (`.claude/hooks/tests/*.sh`) and
 fails if any suite fails or none match.
+For mixed changes, run `<plugin>` for each touched plugin plus `--root`.
 
 ```bash
 scripts/verify-plugin-edits "$1"

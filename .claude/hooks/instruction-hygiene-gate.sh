@@ -76,8 +76,8 @@ cat <<MSG
 This repo's CLAUDE.md requires it before every commit/ship/publish that touches plugins/**,
 .claude/**, or CLAUDE.md: a change leaves stale references, duplicated rules, contradictions and
 run-time-only narrative behind in the files it did NOT touch, and nothing else here reads the
-corpus as a whole. Run /prune-instructions [plugin], then /verify-plugin-edits <plugin> for a
-plugin change or /verify-plugin-edits --root for a root-only (.claude/**, CLAUDE.md) change,
-before committing. If this is a pure version bump or a typo-only fix, that exception applies — proceed.
+corpus as a whole. Before committing, run /prune-instructions [plugin], then /verify-plugin-edits
+<plugin> for each changed plugin and /verify-plugin-edits --root when .claude/** or root CLAUDE.md
+changed. If this is a pure version bump or a typo-only fix, that exception applies — proceed.
 MSG
 exit 0

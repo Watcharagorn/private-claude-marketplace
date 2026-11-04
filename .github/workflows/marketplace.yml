@@ -5,6 +5,7 @@ on:
     paths:
       - ".agents/plugins/**"
       - ".claude-plugin/**"
+      - ".claude/**"
       - ".github/workflows/marketplace.yml"
       - "AGENTS.md"
       - "CLAUDE.md"
@@ -16,6 +17,7 @@ on:
     paths:
       - ".agents/plugins/**"
       - ".claude-plugin/**"
+      - ".claude/**"
       - ".github/workflows/marketplace.yml"
       - "AGENTS.md"
       - "CLAUDE.md"
@@ -46,3 +48,6 @@ jobs:
             [ -d "$plugin_dir" ] || continue
             scripts/verify-plugin-edits "$(basename "$plugin_dir")"
           done
+      - name: Run the repo-root hook suites
+        shell: bash
+        run: scripts/verify-plugin-edits --root
