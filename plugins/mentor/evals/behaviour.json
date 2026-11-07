@@ -1,6 +1,6 @@
 {
   "eval_name": "mentor-v6.0.0-run-behaviour",
-  "note": "Behaviour checks for a mentor plan run (AGENTS.md → Mentor core concept). Cases 1–6 each seed a small approved plan in a scratch repo, approve it with Proceed, and grade the transcript and plan.md. Cases 7–15 are retrospective cases that run a retrospective on the fixtures under evals/fixtures/retro/ (each fixture copied to a scratch dir with __FIXTURE__ replaced by the copy's absolute path). Graded by a reader against the assertions; not run by harness.py, which scores routing only.",
+  "note": "Behaviour checks for a mentor plan run (AGENTS.md → Mentor core concept). Cases 1–6 each seed a small approved plan in a scratch repo, approve it with Proceed, and grade the transcript and plan.md. Cases 7–15 are retrospective cases that run a retrospective on the fixtures under evals/fixtures/retro/ (each fixture copied to a scratch dir with __FIXTURE__ replaced by the copy's absolute path). Cases 16–17 cover the planning approval turn and the show plan escape hatch (16), and the run-end verdict report (17). Graded by a reader against the assertions; not run by harness.py, which scores routing only.",
   "evals": [
     {
       "id": 1,
@@ -140,6 +140,30 @@
       "assertions": [
         "The non-retro plan's final report shows exactly one non-blocking /mentor:retro invitation line",
         "The retro plan's final report shows no invitation line"
+      ]
+    },
+    {
+      "id": 16,
+      "name": "approval-turn-is-a-pointer",
+      "prompt": "A draft plan at .mentor/plans/pointer-approval/plan.md has 8 implementation steps, a Goal check, a diagram, and a table; its newest changelog line is Rev 2 · 2026-11-07 · moved optional export to Out of scope. The first approval ask was for Rev 1. Re-ask for approval after verifying the revision. The user then types show plan in Other; no approving answer has been returned.",
+      "assertions": [
+        "The text before AskUserQuestion is a pointer card of at most 5 lines with no plan table, diagram, or code block; its link text is .mentor/plans/pointer-approval/plan.md and its target is the absolute plan path",
+        "The question text names .mentor/plans/pointer-approval/plan.md and Rev 2, and says that change requests, plan-quality asks, and show plan go in Other",
+        "The re-ask card includes Changed since last ask: moved optional export to Out of scope, taken from the newest Rev line",
+        "Typing show plan prints the full body once, then re-asks the same approval question without approving; approve-plan.sh is not run",
+        "The option set remains exactly Proceed, Deliver plan only, Keep planning, in that order"
+      ]
+    },
+    {
+      "id": 17,
+      "name": "run-end-is-a-verdict-line",
+      "prompt": "An approved 3-step plan at .mentor/plans/verdict-demo/plan.md uses the general playbook (## Playbook: none; no PR) and runs to done. All 3 steps and the Goal check are graded PASS, the decision log has 2 rows with `review?: needed`, and the Done review lists 1 leftover: rename the legacy flag in a follow-up. Deliver the result and report the completed run.",
+      "assertions": [
+        "The final chat report has exactly one verdict line: PASS · 3/3 steps · 2 decisions need review · 1 leftovers · .mentor/plans/verdict-demo/plan.md; it preserves the template's wording, including `1 leftovers`",
+        "The leftover `rename the legacy flag in a follow-up` is named on its own short line under the verdict line",
+        "The full ## Done review and the decision log grouped by use case, with `review?: needed` rows first within each group, are written into .mentor/plans/verdict-demo/plan.md and are not pasted into chat",
+        "General delivery hands over the deliverable named in the Goal check and points to the Done review in plan.md; no PR is created",
+        "The retrospective invitation, if offered, is one non-blocking line after the run report"
       ]
     }
   ]

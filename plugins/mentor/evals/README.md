@@ -142,7 +142,7 @@ perspective page skill (checked against the then-staged `tour` and `plan-review`
 which skill fires — no question on a reversible fork, a pause on an always-pause item, a
 decision-log row per choice, a verifier before every tick, a mid-run product call decided without pausing, and
 a non-code goal picking no playbook. Cases 1–6 each seed a scratch repo with an approved
-plan; cases 7–15 set up the state their prompt names. Each is
+plan; cases 7–17 set up the state their prompt names. Each is
 graded by a reader against its assertions; `harness.py` does not run it.
 
 v6.1.0 adds cases 7–15 for the retrospective playbook (scenarios S1–S8; S5 is two cases,
@@ -153,3 +153,10 @@ concurrent-session identity resolving to `partial` rather than newest-file, a re
 from `evidence/` after its own interruption, the live-run refusal, and the one-line
 invitation after `implemented` (and none after a retro plan). S1/S2/S3/S5 point at the
 fixtures under `fixtures/retro/` and their `expected.md`.
+
+v6.2.0 adds case 16, the one pre-approval case: the approval turn sends a pointer card of
+at most 5 lines instead of the plan body, the question names the plan path and Rev, a
+re-ask carries the newest Rev line's note only when the plan changed, and `show plan`
+in Other prints the body once and re-asks without approving. Case 17 checks the run-end
+report — one verdict line with counts and the plan path, leftovers named one per line,
+the Done review left in plan.md.

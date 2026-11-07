@@ -73,6 +73,29 @@ checks every time. v6.0.0 added the fourth — a new plan must carry `## Goal ch
 on, and a plan without a log leaves the human nothing to review afterwards. Legacy plans
 already past `draft` are skipped, so released data keeps verifying.
 
+## Step 6 — why the approval message is a pointer, not the plan
+
+A plan already lives at `.mentor/plans/<slug>/plan.md`; pasting it verbatim at approval
+adds a second complete copy to the conversation. Real plans run 160–400 lines, so the
+`Write` payload plus the paste costs about two copies of the plan per approval turn,
+plus one more paste per re-ask. Rewriting the whole file for small revisions adds
+another full payload. Whole-section edits and the short pointer card keep the file
+current without repeatedly carrying its full body through chat.
+
+The card links to the absolute path because a session can move into a subdirectory.
+The question repeats the repo-relative path and newest Rev because the question dialog
+may be the only thing visible. An appended Rev changelog identifies the exact content
+being approved and supplies the re-ask's change note without treating step ticks or
+run-time log rows as new content revisions.
+
+Auto-opening the file is only a convenience: remote users, phones, hosts without an
+opener, and users who disable it still need a way to read the plan. `show plan` in
+Other prints it once and re-asks the same question, preserving the existing three
+options and leaving approval explicit. The Done review and grouped decision log can
+be another large chat dump, so they stay in the file while the terminal verdict gives
+counts and its path. A playbook that delivers the review in a PR body still does so,
+because the PR is the deliverable.
+
 ## Step 6 — why there is one gate and three options
 
 The approval is the only point where the human must answer (AGENTS.md → Mentor core
