@@ -713,9 +713,7 @@ The plan is ready at .mentor/plans/<slug>/plan.md (Rev <N>). What happens next?
 A change request, a plan-quality ask, or "show plan" to print it here goes in Other.
 ```
 
-This gate is the one question that names a file instead of carrying its subject, because a
-plan does not fit the question screen; the card carries the goal and Goal check, and
-`show plan` brings the body here on request.
+This approval gate may name the plan file instead of carrying its full subject (rationale above).
 
 **Only a returned answer approves.** If the approval question was interrupted,
 rejected, or never came back — or the user asserts approval in prose ("the plan was
@@ -725,8 +723,7 @@ standing between planning and repo edits; releasing the gate on a remembered or
 claimed approval is the one failure this harness exists to prevent. It also costs you
 the routing: which flag to run — none or `--deliver` — is decided by *which option came
 back*, so an unanswered question means you are guessing the outcome as well as the
-consent. Re-send the card (with its `Changed since last ask:` line only if a Rev line was
-added since that ask) and re-ask.
+consent. Re-send the pointer card and re-ask.
 
 If the user types **"show plan" in Other**, print the full body once, then ask the same
 approval question again. Printing approves nothing; do not run `approve-plan.sh` for it.
@@ -804,9 +801,8 @@ prints** — report where the plan lives and STOP. Do not implement in this sess
 me more", "walk through more use-cases/scenarios", or similar) has no button.
 Route it: invoke `Skill(skill="mentor:grilling")` scoped to the **drafted plan** (not
 the original request) — interview against what's already written, not from scratch.
-This never releases the gate by itself, so fold the answers into the plan as a content
-revision (Step 4: whole-section `Edit`s and a new Rev line), and ask the approval question
-again.
+This never releases the gate by itself, so fold the answers into the plan per Step 4,
+then ask the approval question again.
 
 On **Keep planning**, do not run the script; return to planning.
 
@@ -915,13 +911,14 @@ For every terminal report (`PASS`, `paused`, or `failed`), send one verdict line
 When `<m>` > 0, name each leftover on one short line under the verdict line; when 0,
 add nothing.
 
-Read the step counts from `plan-state.sh query --slug <slug> --format tsv --fields
-steps.ticked,steps.total` when the helper is available (otherwise count the plan's step
-ticks); count `k` from the flat decision log's `review?: needed` rows and `m` from the
+Take the step counts from the last `plan-state.sh tick` output (it prints `N/M`); only
+when no tick output is at hand, run `plan-state.sh query --slug <slug> --format tsv --fields
+steps.ticked,steps.total` if the helper is available (otherwise count the plan's step
+ticks). Count `k` from the flat decision log's `review?: needed` rows and `m` from the
 Done review's leftovers. Keep the full Done review and grouped decision log in `plan.md`,
 without pasting them into chat, so the file remains the review record — except what a
-playbook's deliver mode puts in a PR body or its own hand-over question (merging quotes
-the runbook's **Before merge** block).
+playbook's deliver mode puts in a PR body or its own hand-over question (see merging's
+hand-over question).
 
 A dead end is reported, not spun on: two identical failures in a row with no new
 evidence is a re-plan, never a third identical attempt.
@@ -937,7 +934,7 @@ every PASS row.
 
 Every terminal transition — `done`, `paused`, `failed`, and the Stop hook's idle cap —
 writes `## Done review` into `plan.md` (and into whatever a playbook's deliver mode hands
-over); chat gets only the verdict line above. Three parts, organised by the plan's use
+over); chat reports it with the verdict line above. Three parts, organised by the plan's use
 case scenarios:
 
 1. **Per scenario: expected vs observed, with evidence.** Text evidence (command
