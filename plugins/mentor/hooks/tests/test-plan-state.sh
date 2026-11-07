@@ -1167,6 +1167,17 @@ out="$(ps tick hash-plan 1)"
 chk "unchanged idempotent tick → no drift notice" hasnt "$NOTICE" "$out"
 chk "unchanged idempotent tick → known" test "$(psout drift hash-plan)" = known
 
+before_already_tick="$(cksum "$HASH_STATE")"
+printf '\noutside edit before an already-ticked step\n' >> "$HASH_MD"
+before_already_content="$(cksum "$HASH_MD")"
+out="$(ps tick hash-plan 1)"; rc=$?
+chk "already-ticked step after outside edit → exit 0" test "$rc" = 0
+chk "already-ticked step after outside edit → reports no write" has 'was already ✅' "$out"
+chk "already-ticked step after outside edit → reports drift" has "$NOTICE" "$out"
+chk "already-ticked step after outside edit → sidecar unchanged" test "$(cksum "$HASH_STATE")" = "$before_already_tick"
+chk "already-ticked step after outside edit → plan.md unchanged" test "$(cksum "$HASH_MD")" = "$before_already_content"
+chk "already-ticked step after outside edit → drift still changed" test "$(psout drift hash-plan)" = changed
+
 before_failed_tick="$(cat "$HASH_STATE")"
 printf '\nanother outside edit\n' >> "$HASH_MD"
 before_failed_content="$(cat "$HASH_MD")"
@@ -1194,7 +1205,7 @@ out="$(cd "$REPO" && _env bash "$HOOKS/begin-plan.sh" hash-approval 2>&1)"; rc=$
 chk "approval fixture: begin-plan succeeds" test "$rc" = 0
 chk "approval fixture: this worktree's gate is armed" test -f "$OWN_MARKER"
 sleep 1
-plan hash-approval '# approval' '## Implementation steps' '1. first' '2. second' '## Verification'
+plan hash-approval '# approval' '## Implementation steps' '1. first' '2. second' '## Verification' '## Goal check' 'The change is verified.'
 ps init hash-approval >/dev/null
 ps record-write hash-approval >/dev/null
 approval_content="$(cat "$PLANS/hash-approval/plan.md")"

@@ -293,6 +293,34 @@ mentor_armed_draft() {
   return 0
 }
 
+# mentor_live_plan <plans_dir> <wt_id> <session_id> [live_gate] — shared read-only
+# selection for SessionStart and prompt context: armed draft, exact-session run,
+# then explicitly owned in_progress recovery. Emits <source><TAB><plan.md>, or
+# empty. A selected missing plan still names its path for recovery reporting.
+mentor_live_plan() {
+  local plans_dir="${1:-}" wt_id="${2:-}" session="${3:-}" gate="${4:-}"
+  local candidate="" slug=""
+  [ -n "$plans_dir" ] && [ -d "$plans_dir" ] || return 0
+  if [ "$#" -lt 4 ]; then gate="$(mentor_live_gate "$plans_dir" "$wt_id")"; fi
+  candidate="$(mentor_armed_draft "$plans_dir" "$wt_id" "$gate")"
+  if [ -n "$candidate" ]; then
+    printf 'draft\t%s\n' "$candidate"; return 0
+  fi
+  case "$session" in
+    ''|*/*|.|..) ;;
+    *) slug="$(mentor_marker_field "${plans_dir%/*}/.run-${session}" slug)" ;;
+  esac
+  case "$slug" in
+    ''|*/*|.|..) ;;
+    *) printf 'run\t%s/%s/plan.md\n' "$plans_dir" "$slug"; return 0 ;;
+  esac
+  if [ -n "$wt_id" ]; then
+    candidate="$(mentor_newest_stored_plan "$plans_dir" "$wt_id" in_progress)"
+    if [ -n "$candidate" ]; then printf 'recovery\t%s\n' "$candidate"; fi
+  fi
+  return 0
+}
+
 # mentor_newly_planned <plans_dir> <marker> <wt_id> — echo one plan.md path per output
 # line: the same `find … -newer "$marker"` snapshot approve-plan.sh takes (plans
 # written since <marker> was armed), restricted to the mentor_newest_plan_owned

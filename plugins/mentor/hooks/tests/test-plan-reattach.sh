@@ -204,13 +204,13 @@ reset_selection() {
   mkdir -p "$STATE/plans"
   live_gate "$GATE"
 }
-selection() { # <case> <expected-slug-or-empty>
-  local label="$1" slug="$2" pointer expected
+selection() { # <case> <expected-slug-or-empty> [stored-state=draft]
+  local label="$1" slug="$2" stored="${3:-draft}" pointer expected
   run compact
   chk "$label → one SessionStart block" one_block
   if [ -n "$slug" ]; then
     chk "$label → reattaches $slug" has "path: .mentor/plans/$slug/plan.md" "$CONTEXT"
-    expected="mentor plan: $slug · .mentor/plans/$slug/plan.md · draft · next:"
+    expected="mentor plan: $slug · .mentor/plans/$slug/plan.md · $stored · next:"
   else
     chk "$label → invents no slug" has 'path: .mentor/plans/ (no plan.md yet)' "$CONTEXT"
     expected='mentor plan: no plan file yet · it is created at research start (planning Step 2)'
@@ -237,7 +237,8 @@ for stored in implemented failed superseded approved in_progress; do
   selection "newer $stored plan cannot steal draft" current
 done
 rm -rf "$STATE/plans/current"
-selection 'armed run without a current draft does not become the draft' ''
+selection 'armed gate without a current draft recovers owned in_progress' terminal in_progress
+chk 'recovered run retains its stored state' has 'state: in_progress' "$CONTEXT"
 
 reset_selection
 selection_plan foreign draft other-worktree
@@ -294,6 +295,25 @@ live_gate "$STATE/plans/.planning"
 selection_plan fallback draft ''
 chk 'empty worktree id keeps legacy/unowned selector fallback' \
   test "$(mentor_armed_draft "$STATE/plans" '')" = "$STATE/plans/fallback/plan.md"
+
+echo '== F2. armed fresh draft B wins over kept run marker A =='
+reset_selection
+selection_plan plan-a in_progress "$WT"
+selection_plan plan-b draft "$WT"
+after_gate "$STATE/plans/plan-a/plan.md" 20
+after_gate "$STATE/plans/plan-b/plan.md" 10
+printf 'slug=plan-a\nstarted=kept\n' > "$STATE/.run-$SID"
+before="$(cksum "$GATE" "$STATE/.run-$SID" "$STATE/plans"/*/plan.md "$STATE/plans"/*/.state.json)"
+selection 'kept run A + armed fresh draft B' plan-b
+chk 'draft selection never offers to resume run A' hasnt 'resume with /mentor:plan plan-a' "$CONTEXT"
+chk 'draft selection preserves the kept run marker and all plan state' \
+  test "$(cksum "$GATE" "$STATE/.run-$SID" "$STATE/plans"/*/plan.md "$STATE/plans"/*/.state.json)" = "$before"
+rm -rf "$STATE/plans/plan-b"
+selection 'no armed draft falls back to exact-session run A' plan-a in_progress
+chk 'exact-session run fallback retains ownership' hasnt 'resume with' "$CONTEXT"
+rm "$STATE/.run-$SID"
+selection 'no draft or marker falls back to owned recovery A' plan-a in_progress
+chk 'owned recovery offers the resume command' has 'resume with /mentor:plan plan-a' "$CONTEXT"
 
 echo '== G. fail-open input and dependency edges =='
 for raw in '' 'not json' '[]' 'null'; do

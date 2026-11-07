@@ -1194,10 +1194,12 @@ case "$sub" in
     if tick_result="$(mentor_plan_tick_step "$plan_md" "$step")"; then
       read -r tick_status tick_n tick_total <<<"$tick_result"
       case "$tick_status" in
-        ticked)  echo "[mentor plan-state] ${slug}: step ${step} ✅ ticked (${tick_n}/${tick_total})." ;;
+        ticked)
+          echo "[mentor plan-state] ${slug}: step ${step} ✅ ticked (${tick_n}/${tick_total})."
+          record_plan_write "$plan_md"
+          ;;
         already) echo "[mentor plan-state] ${slug}: step ${step} was already ✅ (${tick_n}/${tick_total}) — no write." ;;
       esac
-      record_plan_write "$plan_md"
     else
       read -r _ tick_total <<<"$tick_result"
       echo "[mentor plan-state] tick: ${slug} has no step ${step} (plan.md has ${tick_total:-0} step(s) in '## Implementation steps'). No write." >&2

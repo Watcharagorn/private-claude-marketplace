@@ -210,28 +210,20 @@ return 0
 # all steps ticked still leaves the Goal check to grade before a run is finished.
 mentor_plan_pointer() {
   local pp_gate pp_md="" pp_slug="" pp_stored
-  local pp_session pp_run pp_next pp_total pp_ticked pp_title pp_change=""
+  local pp_session pp_source pp_next pp_total pp_ticked pp_title pp_change=""
   [ -n "$repo_root" ] && [ -d "$plans_dir" ] || return 0
   pp_gate="$(mentor_live_gate "$plans_dir" "$wt_id")"
 
-  if [ -n "$pp_gate" ]; then
-    pp_md="$(mentor_armed_draft "$plans_dir" "$wt_id" "$pp_gate")"
-    if [ -z "$pp_md" ]; then
+  pp_session="$(printf '%s' "$INPUT" | jq -r '.session_id // ""' 2>/dev/null)" || return 0
+  IFS=$'\t' read -r pp_source pp_md <<<"$(mentor_live_plan "$plans_dir" "$wt_id" "$pp_session" "$pp_gate")" || return 0
+  if [ -z "$pp_md" ]; then
+    if [ -n "$pp_gate" ]; then
       echo "mentor plan: no plan file yet · it is created at research start (planning Step 2)"
-      return 0
     fi
-    pp_slug="${pp_md%/plan.md}"
-    pp_slug="${pp_slug##*/}"
-  else
-    pp_session="$(printf '%s' "$INPUT" | jq -r '.session_id // ""' 2>/dev/null)" || return 0
-    case "$pp_session" in ''|*[!A-Za-z0-9_-]*) return 0 ;; esac
-    pp_run="${repo_root}/.mentor/.run-${pp_session}"
-    [ -f "$pp_run" ] || return 0
-    pp_slug="$(mentor_marker_field "$pp_run" slug)"
-    case "$pp_slug" in ''|.|..|*[!A-Za-z0-9_-]*) return 0 ;; esac
-    pp_md="${plans_dir}/${pp_slug}/plan.md"
-    [ -f "$pp_md" ] || return 0
+    return 0
   fi
+  pp_slug="${pp_md%/plan.md}"
+  pp_slug="${pp_slug##*/}"
 
   pp_stored="$(mentor_plan_state_stored "${pp_md%/plan.md}")"
   if [ ! -f "$pp_md" ]; then

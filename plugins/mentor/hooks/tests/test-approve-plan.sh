@@ -71,7 +71,8 @@ ap_b()   { ( cd "$WTB"  && HOME="$SANDBOX" env -u CLAUDE_CODE_SESSION_ID bash "$
 apsess() { local sess="$1"; shift; ( cd "$REPO" && HOME="$SANDBOX" CLAUDE_CODE_SESSION_ID="$sess" bash "$APPROVE" "$@" 2>&1 ); }
 arm() { : > "$MARKER"; }
 arm_b() { : > "$MARKER_B"; }
-fresh_plan() { sleep 1; mkdir -p "$PLANS_DIR/fixture-plan"; printf '# Plan\n\n1. Do the thing.\n' > "$PLANS_DIR/fixture-plan/plan.md"; }
+write_complete_plan() { printf '# %s\n\n## Goal check\nVerified result.\n\n## Implementation steps\n1. Do the thing.\n   - Done when: verified.\n' "$2" > "$1"; }
+fresh_plan() { sleep 1; mkdir -p "$PLANS_DIR/fixture-plan"; write_complete_plan "$PLANS_DIR/fixture-plan/plan.md" Plan; }
 stale_plan() { mkdir -p "$PLANS_DIR/fixture-plan"; printf '# Old plan\n\nfrom last session\n' > "$PLANS_DIR/fixture-plan/plan.md"; }
 clear_plans() { rm -rf "$PLANS_DIR"/*/ 2>/dev/null; rm -f "$PLANS_DIR"/*.md; }
 sidecar() { jq -r "${2}" "$PLANS_DIR/$1/.state.json" 2>/dev/null; }   # sidecar <slug> <jq filter>
@@ -198,7 +199,7 @@ echo "== J. Plan state: every approval path promotes, and only THIS session's pl
 # `[ a -nt b ]` and `find -newer b` are TRUE when b is gone. Asking "which plans are
 # newer than the marker" AFTER the release would stamp every plan dir in the repo.
 st()  { psq list | awk -v s="$1" '$3 == s { print $2 }'; }   # $2 STATE · $3 PLAN
-newplan() { sleep 1; mkdir -p "$PLANS_DIR/$1"; printf '# %s\n' "$1" > "$PLANS_DIR/$1/plan.md"; psq init "$1" >/dev/null; }
+newplan() { sleep 1; mkdir -p "$PLANS_DIR/$1"; write_complete_plan "$PLANS_DIR/$1/plan.md" "$1"; psq init "$1" >/dev/null; }
 
 clear_plans; rm -f "$MARKER"
 # A months-old plan dir. It must survive every approve below untouched.
@@ -271,8 +272,8 @@ echo "== L. Ownership matrix: A owns plan-a, B owns plan-b — A's approve promo
 clear_plans; rm -f "$MARKER" "$MARKER_B" "$LEGACY_MARKER"
 arm; arm_b
 sleep 1
-mkdir -p "$PLANS_DIR/plan-a"; printf '# a\n' > "$PLANS_DIR/plan-a/plan.md"; psq init plan-a >/dev/null
-mkdir -p "$PLANS_DIR/plan-b"; printf '# b\n' > "$PLANS_DIR/plan-b/plan.md"; psq_b init plan-b >/dev/null
+mkdir -p "$PLANS_DIR/plan-a"; write_complete_plan "$PLANS_DIR/plan-a/plan.md" a; psq init plan-a >/dev/null
+mkdir -p "$PLANS_DIR/plan-b"; write_complete_plan "$PLANS_DIR/plan-b/plan.md" b; psq_b init plan-b >/dev/null
 chk "plan-a owned by A before approving"           test "$(sidecar plan-a '.owner')" = "$WTA_ID"
 chk "plan-b owned by B before approving"           test "$(sidecar plan-b '.owner')" = "$WTB_ID"
 out="$(ap)"; rc=$?
@@ -294,7 +295,7 @@ echo "== M. Unowned plan + live sibling marker → excluded from newest AND the 
 clear_plans; rm -f "$MARKER" "$MARKER_B"
 arm; arm_b
 sleep 1
-mkdir -p "$PLANS_DIR/owned-a"; printf '# a\n' > "$PLANS_DIR/owned-a/plan.md"; psq init owned-a >/dev/null
+mkdir -p "$PLANS_DIR/owned-a"; write_complete_plan "$PLANS_DIR/owned-a/plan.md" a; psq init owned-a >/dev/null
 mkdir -p "$PLANS_DIR/stray-unowned"; printf '# u\n' > "$PLANS_DIR/stray-unowned/plan.md"   # never init'd — unowned
 out="$(ap)"; rc=$?
 chk "A's approve, sibling live + unowned present → exit 0"  test "$rc" = "0"
@@ -306,7 +307,7 @@ echo "== M2. Unowned plan, no sibling live → promoted (solo back-compat); prom
 clear_plans; rm -f "$MARKER" "$MARKER_B"
 arm
 sleep 1
-mkdir -p "$PLANS_DIR/solo-unowned"; printf '# s\n' > "$PLANS_DIR/solo-unowned/plan.md"   # never init'd — unowned
+mkdir -p "$PLANS_DIR/solo-unowned"; write_complete_plan "$PLANS_DIR/solo-unowned/plan.md" s   # never init'd — unowned
 chk "solo-unowned starts with no owner"      test -z "$(sidecar solo-unowned '.owner')"
 out="$(ap)"; rc=$?
 chk "solo unowned, no sibling → exit 0"      test "$rc" = "0"
@@ -318,7 +319,7 @@ echo "== N. legacy_mode requires session match — matching session gets repo-wi
 clear_plans; rm -f "$MARKER" "$MARKER_B" "$LEGACY_MARKER"
 { echo "session=S1"; echo "cwd=/wherever"; } > "$LEGACY_MARKER"
 sleep 1
-mkdir -p "$PLANS_DIR/legacy-plan"; printf '# lp\n' > "$PLANS_DIR/legacy-plan/plan.md"
+mkdir -p "$PLANS_DIR/legacy-plan"; write_complete_plan "$PLANS_DIR/legacy-plan/plan.md" lp
 before_sum="$(cksum "$LEGACY_MARKER")"
 out="$(apsess S2)"; rc=$?
 chk "mismatched session → exit 1"                test "$rc" = "1"
@@ -338,7 +339,7 @@ clear_plans; rm -f "$MARKER" "$MARKER_B" "$LEGACY_MARKER"
 { echo "session=S1"; echo "cwd=/other"; } > "$LEGACY_MARKER"
 arm
 sleep 1
-mkdir -p "$PLANS_DIR/own-and-legacy"; printf '# x\n' > "$PLANS_DIR/own-and-legacy/plan.md"; psq init own-and-legacy >/dev/null
+mkdir -p "$PLANS_DIR/own-and-legacy"; write_complete_plan "$PLANS_DIR/own-and-legacy/plan.md" x; psq init own-and-legacy >/dev/null
 out="$(ap)"; rc=$?
 chk "own approve while legacy live → exit 0"     test "$rc" = "0"
 chk "own marker released"                        test ! -f "$MARKER"
@@ -463,6 +464,9 @@ arm; sleep 1
 mkdir -p "$PLANS_DIR/anchor-run"
 cat > "$PLANS_DIR/anchor-run/plan.md" <<'EOF'
 # Approval anchor
+
+## Goal check
+The change is verified.
 
 ## Implementation steps
 
@@ -615,6 +619,54 @@ PY
   chk "$approval → completed secondary keeps sweep-review note" \
     bash -c '[[ "$1" == *"not individually reviewed"* ]]' _ "$(sidecar secondary '.note')"
   chk "$approval → incomplete reporting retains original plan path" output_has "  plan: $PLANS_DIR/primary/plan.md"
+done
+
+echo "== T. Primary approval skips newer incomplete plans and refuses skeleton-only sessions =="
+for approval in proceed deliver; do
+  clear_plans; rm -f "$MARKER" "$MARKER_B" "$LEGACY_MARKER" "$STATE_DIR/.run-primary-selection"
+  arm
+  sweep_plan completed draft 10 "$complete_body"
+  sweep_plan abandoned draft 20 $'# Newer skeleton\n\n## Research notes\nFinding.'
+  sweep_plan newest-empty draft 30 ''
+  before_abandoned="$(sidecar_snapshot abandoned)"
+  before_empty="$(sidecar_snapshot newest-empty)"
+  if [ "$approval" = deliver ]; then out="$(apsess primary-selection --deliver)"; rc=$?
+  else out="$(apsess primary-selection)"; rc=$?; fi
+  chk "$approval + newer skeletons → newest complete primary succeeds" test "$rc" = 0
+  chk "$approval + newer skeletons → names complete primary" output_has "  plan: $PLANS_DIR/completed/plan.md"
+  chk "$approval + newer skeletons → primary promoted" test "$(sidecar completed '.state')" = approved
+  chk "$approval + newer skeletons → gate released" test ! -f "$MARKER"
+  chk "$approval + newer skeletons → research sidecar untouched" test "$(sidecar_snapshot abandoned)" = "$before_abandoned"
+  chk "$approval + newer skeletons → empty draft sidecar untouched" test "$(sidecar_snapshot newest-empty)" = "$before_empty"
+  skipped="$(printf '%s\n' "$out" | grep 'state: incomplete, skipped')"
+  for slug in abandoned newest-empty; do
+    chk "$approval + newer skeletons → reports $slug incomplete" bash -c '[[ "$1" == *"$2"* ]]' _ "$skipped" "$slug"
+  done
+  if [ "$approval" = proceed ]; then
+    chk "proceed + newer skeletons → run marker names complete primary" grep -qx 'slug=completed' "$STATE_DIR/.run-primary-selection"
+  else
+    chk "deliver + newer skeletons → no run marker" test ! -f "$STATE_DIR/.run-primary-selection"
+  fi
+
+  clear_plans; rm -f "$STATE_DIR/.run-primary-selection"; arm
+  sweep_plan skeleton draft 10 $'# Skeleton\n## Research notes\nFinding.'
+  sweep_plan missing-goal unknown 20 $'# No goal\n## Implementation steps\n1. Build'
+  sweep_plan missing-steps draft 30 $'# No steps\n## Goal check\nVerified.\n## Implementation steps\nStill researching.'
+  before_gate="$(cksum "$MARKER")"
+  before_sidecars="$(cksum "$PLANS_DIR"/*/.state.json)"
+  if [ "$approval" = deliver ]; then out="$(apsess primary-selection --deliver)"; rc=$?
+  else out="$(apsess primary-selection)"; rc=$?; fi
+  chk "$approval + no complete candidate → refuses approval" test "$rc" = 1
+  chk "$approval + no complete candidate → gate untouched" test "$(cksum "$MARKER")" = "$before_gate"
+  chk "$approval + no complete candidate → promotes nothing" test "$(cksum "$PLANS_DIR"/*/.state.json)" = "$before_sidecars"
+  chk "$approval + no complete candidate → no run marker" test ! -f "$STATE_DIR/.run-primary-selection"
+  chk "$approval + no complete candidate → explains Step 4" output_lacks 'Plan APPROVED'
+  chk "$approval + no complete candidate → finish planning directive" \
+    bash -c '[[ "$1" == *"plan not complete — finish planning Step 4"* ]]' _ "$out"
+  skipped="$(printf '%s\n' "$out" | grep 'state: incomplete, skipped')"
+  for slug in skeleton missing-goal missing-steps; do
+    chk "$approval + no complete candidate → reports $slug incomplete" bash -c '[[ "$1" == *"$2"* ]]' _ "$skipped" "$slug"
+  done
 done
 
 echo

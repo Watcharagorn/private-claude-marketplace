@@ -532,9 +532,9 @@ PY
 }
 rm -f "$PLANS"/.planning* "$STATE"/.run-*
 
-pointer_plan quiet-run in_progress "$WT_ID" $'# Plan\n## Implementation steps\n1. Work'
+pointer_plan quiet-run in_progress '' $'# Plan\n## Implementation steps\n1. Work'
 run "hello" pointer-none "$TX_UNDER"
-chk "no armed gate or run marker → no pointer" test -z "$OUT$ERR"
+chk "unowned run without gate or marker → no pointer" test -z "$OUT$ERR"
 printf 'slug=quiet-run\n' > "$STATE/.run-other-session"
 run "hello" pointer-none "$TX_UNDER"
 chk "different session run marker → no pointer" test -z "$OUT$ERR"
@@ -613,7 +613,7 @@ for spec in "warn:$TX_WARN:getting large" "warn-high:$TX_HIGH:nearing the limit"
   rm -f "$STATE/.run-pointer-$tier"
 done
 run "continue" pointer-warn "$TX_WARN"
-chk "WARN dedup with no live marker → silent" test -z "$OUT$ERR"
+chk "WARN dedup with no live marker → owned recovery pointer" test "$OUT" = "$RUN_POINTER"
 printf 'slug=active-run\n' > "$STATE/.run-pointer-warn"
 run "continue" pointer-warn "$TX_WARN"
 chk "WARN already consumed → pointer still prints" test "$OUT" = "$RUN_POINTER"
@@ -644,7 +644,8 @@ chk "corrupt sidecar → unknown stored state, never fails prompt" test "$RC:$ER
 chk "corrupt sidecar → ticks never imply implemented" contains " · unknown · next: goal check" "$OUT"
 rm -f "$PLANS/active-run/plan.md"
 run "continue" pointer-run "$TX_UNDER"
-chk "run plan file missing → silent, exit 0" test "$RC:$OUT$ERR" = "0:"
+chk "run plan file missing → names the unavailable plan, exit 0" \
+  test "$RC:$OUT$ERR" = "0:mentor plan: active-run · .mentor/plans/active-run/plan.md · unknown · next: unavailable (plan.md missing)"
 printf 'slug=../outside\n' > "$STATE/.run-pointer-run"
 run "continue" pointer-run "$TX_UNDER"
 chk "invalid run slug → silent, exit 0" test "$RC:$OUT$ERR" = "0:"
@@ -666,11 +667,11 @@ reset_selection() {
   mkdir -p "$PLANS"
   live_gate "$GATE"
 }
-selection() { # <case> <expected-slug-or-empty>
-  local label="$1" slug="$2" attached context expected
+selection() { # <case> <expected-slug-or-empty> [stored-state=draft]
+  local label="$1" slug="$2" stored="${3:-draft}" attached context expected
   run "hello" selection "$TX_UNDER"
   if [ -n "$slug" ]; then
-    chk "$label → prompt selects $slug" contains "mentor plan: $slug · .mentor/plans/$slug/plan.md · draft · next:" "$OUT"
+    chk "$label → prompt selects $slug" contains "mentor plan: $slug · .mentor/plans/$slug/plan.md · $stored · next:" "$OUT"
     expected="path: .mentor/plans/$slug/plan.md"
   else
     chk "$label → prompt gives only the research-start hint" test "$OUT" = "$NO_PLAN_HINT"
@@ -699,7 +700,7 @@ for stored in implemented failed superseded approved in_progress; do
   selection "newer $stored plan cannot steal draft" current
 done
 rm -rf "$PLANS/current"
-selection 'armed run without a current draft does not become the draft' ''
+selection 'armed gate without a current draft recovers owned in_progress' terminal in_progress
 
 reset_selection
 pointer_plan foreign draft other-worktree '# Foreign draft'
@@ -752,6 +753,22 @@ live_gate "$PLANS/.planning"
 pointer_plan fallback draft '' '# Empty worktree id fallback'
 chk 'empty worktree id keeps legacy/unowned selector fallback' \
   test "$(mentor_armed_draft "$PLANS" '')" = "$PLANS/fallback/plan.md"
+
+echo '== N2. armed fresh draft B wins over kept run marker A =='
+reset_selection
+pointer_plan plan-a in_progress "$WT_ID" $'# Run A\n## Implementation steps\n1. Continue run A'
+pointer_plan plan-b draft "$WT_ID" '# Fresh research B'
+after_gate "$PLANS/plan-a/plan.md" 20
+after_gate "$PLANS/plan-b/plan.md" 10
+printf 'slug=plan-a\nstarted=kept\n' > "$STATE/.run-selection"
+before="$(cksum "$GATE" "$STATE/.run-selection" "$PLANS"/*/plan.md "$PLANS"/*/.state.json)"
+selection 'kept run A + armed fresh draft B' plan-b
+chk 'draft B wins without modifying the kept marker or either plan' \
+  test "$(cksum "$GATE" "$STATE/.run-selection" "$PLANS"/*/plan.md "$PLANS"/*/.state.json)" = "$before"
+rm -rf "$PLANS/plan-b"
+selection 'no armed draft falls back to exact-session run A' plan-a in_progress
+rm "$STATE/.run-selection"
+selection 'no draft or marker falls back to owned recovery A' plan-a in_progress
 
 echo
 echo "RESULT: PASS=$PASS FAIL=$FAIL"

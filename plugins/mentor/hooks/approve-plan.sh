@@ -25,7 +25,7 @@
 #
 # Validation (only while a marker is resolved above): the newest Markdown plan
 # owned by this worktree (or unowned, when no sibling worktree marker is live)
-# must be non-empty AND newer than the resolved marker (the marker's mtime is
+# must have a Goal check and a parsed implementation step AND be newer than the resolved marker (the marker's mtime is
 # the session start — begin-plan.sh — so a stale plan from a prior session can
 # never release the gate). On failure the marker stays (gate CLOSED), exit 1.
 # While ANY sibling worktree's marker is live, an unowned plan is excluded from
@@ -137,6 +137,11 @@ _promote_plan() {
   fi
 }
 
+_plan_complete() {
+  grep -Eq '^##[[:space:]]+Goal check[[:space:]]*$' "$1" \
+    && mentor_plan_step_scan "$1" | awk -F '\t' '$1 == "TOTAL" { found = ($2 > 0) } END { exit !found }'
+}
+
 marker=""
 legacy_mode=0
 
@@ -206,7 +211,7 @@ if [ -n "$marker" ]; then
     newest_plan="$(mentor_newest_plan_owned "$plans_dir" "$filter_wt_id")"
   fi
 
-  if [ -z "$newest_plan" ] || [ ! -s "$newest_plan" ]; then
+  if [ -z "$newest_plan" ]; then
     excluded=0
     if [ -n "$wt_id" ] && [ "$legacy_mode" -eq 0 ]; then
       excluded="$(_excluded_owner_count "$plans_dir" "$wt_id" "$strict")"
@@ -222,7 +227,7 @@ if [ -n "$marker" ]; then
     else
       echo "[mentor approve-plan] No Markdown plan found in ${plans_dir}." >&2
     fi
-    echo "Write the plan (<slug>/plan.md) before approving — the gate stays CLOSED." >&2
+    echo "plan not complete — finish planning Step 4: write the plan (<slug>/plan.md) before approving — the gate stays CLOSED." >&2
     exit 1
   fi
 
@@ -266,6 +271,33 @@ if [ -n "$marker" ]; then
       fi
     done <<<"$newly_planned"
     newly_planned="${filtered%$'\n'}"
+  fi
+
+  # A newer research skeleton cannot take approval from a finished plan. Keep
+  # the existing ownership/freshness filters and superseded fallback, but choose
+  # the newest COMPLETE candidate before releasing anything.
+  complete_plan=""; complete_fallback=""; incomplete=""
+  while IFS= read -r p; do
+    [ -n "$p" ] || continue
+    if ! _plan_complete "$p"; then
+      incomplete="${incomplete}$(basename "$(dirname "$p")") "
+      continue
+    fi
+    if [ -z "$complete_fallback" ] || [ "$p" -nt "$complete_fallback" ]; then
+      complete_fallback="$p"
+    fi
+    [ "$(mentor_plan_effective_state "$(dirname "$p")")" != superseded ] || continue
+    if [ -z "$complete_plan" ] || [ "$p" -nt "$complete_plan" ]; then
+      complete_plan="$p"
+    fi
+  done <<<"$newly_planned"
+  newest_plan="${complete_plan:-$complete_fallback}"
+  if [ -z "$newest_plan" ]; then
+    echo "[mentor approve-plan] plan not complete — finish planning Step 4; the gate stays CLOSED." >&2
+    if [ -n "$incomplete" ]; then
+      echo "  state: incomplete, skipped — needs ## Goal check and at least one implementation step — ${incomplete% }" >&2
+    fi
+    exit 1
   fi
 
   # Release the gate.
@@ -316,7 +348,7 @@ fi
 # `implemented`, `failed` or `in_progress`. `unknown` is included because a plan
 # written this session predates nothing: it just means Step 4 never ran `init`, and
 # the approval should still land rather than depend on the model remembering.
-# Non-primary candidates also need a Goal check and a parsed implementation step;
+# All candidates need a Goal check and a parsed implementation step;
 # an abandoned research skeleton must remain draft rather than be swept to approved.
 #
 # Fail-soft throughout: every helper here exits 0, so a state-write problem can never
@@ -337,15 +369,14 @@ if [ -n "$newly_planned" ] || [ -n "$unowned_skipped" ]; then
       draft|unknown) ;;
       *) continue ;;
     esac
+    if ! _plan_complete "$plan_path"; then
+      incomplete="${incomplete}$(basename "$plan_dir") "
+      continue
+    fi
     if [ "$plan_path" = "$newest_plan" ]; then
       _promote_plan "$plan_dir" ""
       promoted="${promoted}$(basename "$plan_dir") "
     else
-      if ! grep -Eq '^##[[:space:]]+Goal check[[:space:]]*$' "$plan_path" \
-         || ! mentor_plan_step_scan "$plan_path" | awk -F '\t' '$1 == "TOTAL" { found = ($2 > 0) } END { exit !found }'; then
-        incomplete="${incomplete}$(basename "$plan_dir") "
-        continue
-      fi
       # Swept in only because its plan.md is also newer than this session's marker
       # (e.g. a different topic touched earlier in the same planning session) — NOT
       # the plan this call is approving. Stamp the sidecar note (not just the stdout

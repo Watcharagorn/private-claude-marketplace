@@ -39,30 +39,14 @@ plans_dir="$(mentor_plans_dir "$repo_root")"
 wt_id=""
 [ ! -d "$plans_dir" ] || wt_id="$(mentor_worktree_id "$CWD")"
 
-# Same key=value reader as plan-continue.sh. Never inspect another session's marker.
-slug=""; owns_run=0
-case "$session_id" in
-  ''|*/*|.|..) ;;
-  *) slug="$(mentor_marker_field "${state_dir}/.run-${session_id}" slug)" ;;
-esac
-case "$slug" in ''|*/*|.|..) slug="" ;; *) owns_run=1 ;; esac
-
 # A live own/legacy gate applies here; a sibling worktree's gate does not.
 armed=0
 gate="$(mentor_live_gate "$plans_dir" "$wt_id")"
 [ -z "$gate" ] || armed=1
-if [ -z "$slug" ] && [ "$armed" -eq 1 ]; then
-  candidate="$(mentor_armed_draft "$plans_dir" "$wt_id" "$gate")"
-  if [ -n "$candidate" ]; then slug="$(basename "$(dirname "$candidate")")"; fi
-fi
-
-# Include sidecars even when plan.md is missing. Only an explicit worktree owner
-# authorizes recovery without a gate; unowned/implemented plans are not live runs.
-if [ -z "$slug" ] && [ "$armed" -eq 0 ]; then
-  candidate=""
-  [ -z "$wt_id" ] || candidate="$(mentor_newest_stored_plan "$plans_dir" "$wt_id" in_progress)"
-  if [ -n "$candidate" ]; then slug="$(basename "$(dirname "$candidate")")"; fi
-fi
+slug=""; owns_run=0
+IFS=$'\t' read -r selection candidate <<<"$(mentor_live_plan "$plans_dir" "$wt_id" "$session_id" "$gate")"
+if [ -n "$candidate" ]; then slug="$(basename "$(dirname "$candidate")")"; fi
+[ "$selection" != run ] || owns_run=1
 [ -n "$slug" ] || [ "$armed" -eq 1 ] || exit 0
 
 if [ -z "$slug" ]; then
