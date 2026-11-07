@@ -163,6 +163,7 @@ record_plan_write() {
   [ -n "$digest" ] || return 0
   command -v jq >/dev/null 2>&1 || return 0
   sidecar="$(mentor_plan_state_file "$(dirname "$md")")"
+  [ "$(mentor_plan_state_field "${md%/*}" plan_sha256)" != "$digest" ] || return 0
   source=/dev/null
   [ ! -f "$sidecar" ] || source="$sidecar"
   tmp="$(mktemp "${sidecar}.tmp.XXXXXX" 2>/dev/null)" || return 0

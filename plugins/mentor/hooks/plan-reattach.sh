@@ -8,16 +8,36 @@ command -v jq >/dev/null 2>&1 || exit 0
 HOOK_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 . "${HOOK_DIR}/lib/state.sh" 2>/dev/null || exit 0
 INPUT="$(cat)" || exit 0
-printf '%s' "$INPUT" | jq -e 'type == "object"' >/dev/null 2>&1 || exit 0
+# NUL-delimited fields preserve whitespace in paths/session ids. The final token
+# confirms jq validated the whole input, including a possible trailing parse error.
+{
+  IFS= read -r -d '' CWD &&
+  IFS= read -r -d '' session_id &&
+  IFS= read -r -d '' source &&
+  IFS= read -r -d '' cwd_type &&
+  IFS= read -r -d '' parsed
+} < <(
+  printf '%s' "$INPUT" | jq -jse '
+    select(length > 0 and (.[-1] | type == "object"))
+    | (map(.cwd // empty | tostring) | join("\n")),
+      (map(.session_id // "" | select(type == "string")) | join("\n")),
+      (map(.source // "" | select(type == "string")) | join("\n")),
+      (if any(.[]; (.cwd // "" | type) == "object" or (.cwd // "" | type) == "array")
+       then "complex" else "scalar" end)
+    | gsub("\u0000"; "") | sub("\n+$"; "") | . + "\u0000"
+  ' 2>/dev/null && printf 'ok\0'
+) || exit 0
+[ "$parsed" = ok ] || exit 0
+# Keep mentor_cwd's pretty-printed handling of exceptional non-scalar cwd values.
+case "$cwd_type" in complex) CWD="$(mentor_cwd "$INPUT")" ;; esac
+[ -n "$CWD" ] || CWD="$PWD"
 
-CWD="$(mentor_cwd "$INPUT")"
 repo_root="$(mentor_repo_root "$CWD")"
 [ -n "$repo_root" ] || exit 0
 state_dir="$(mentor_state_dir "$repo_root")"
 plans_dir="$(mentor_plans_dir "$repo_root")"
-wt_id="$(mentor_worktree_id "$CWD")"
-session_id="$(printf '%s' "$INPUT" | jq -r '.session_id // "" | select(type == "string")' 2>/dev/null)" || exit 0
-source="$(printf '%s' "$INPUT" | jq -r '.source // "" | select(type == "string")' 2>/dev/null)" || exit 0
+wt_id=""
+[ ! -d "$plans_dir" ] || wt_id="$(mentor_worktree_id "$CWD")"
 
 # Same key=value reader as plan-continue.sh. Never inspect another session's marker.
 slug=""; owns_run=0
@@ -29,29 +49,19 @@ case "$slug" in ''|*/*|.|..) slug="" ;; *) owns_run=1 ;; esac
 
 # A live own/legacy gate applies here; a sibling worktree's gate does not.
 armed=0
-for marker in "$(mentor_plan_marker "$plans_dir" "$wt_id")" "${plans_dir}/.planning"; do
-  if [ -f "$marker" ] && ! mentor_marker_stale "$marker"; then armed=1; break; fi
-done
+gate="$(mentor_live_gate "$plans_dir" "$wt_id")"
+[ -z "$gate" ] || armed=1
 if [ -z "$slug" ] && [ "$armed" -eq 1 ]; then
-  candidate="$(mentor_armed_draft "$plans_dir" "$wt_id")"
+  candidate="$(mentor_armed_draft "$plans_dir" "$wt_id" "$gate")"
   if [ -n "$candidate" ]; then slug="$(basename "$(dirname "$candidate")")"; fi
 fi
 
 # Include sidecars even when plan.md is missing. Only an explicit worktree owner
 # authorizes recovery without a gate; unowned/implemented plans are not live runs.
 if [ -z "$slug" ] && [ "$armed" -eq 0 ]; then
-  newest=""
-  for dir in "${plans_dir}"/*; do
-    [ -d "$dir" ] || continue
-    owner="$(mentor_plan_owner "$dir")"
-    stored="$(mentor_plan_state_stored "$dir")"
-    [ -n "$wt_id" ] && [ "$owner" = "$wt_id" ] && [ "$stored" = in_progress ] || continue
-    stamp="${dir}/plan.md"
-    [ -f "$stamp" ] || stamp="${dir}/.state.json"
-    [ -f "$stamp" ] || continue
-    if [ -z "$newest" ] || [ "$stamp" -nt "$newest" ]; then newest="$stamp"; fi
-  done
-  if [ -n "$newest" ]; then slug="$(basename "$(dirname "$newest")")"; fi
+  candidate=""
+  [ -z "$wt_id" ] || candidate="$(mentor_newest_stored_plan "$plans_dir" "$wt_id" in_progress)"
+  if [ -n "$candidate" ]; then slug="$(basename "$(dirname "$candidate")")"; fi
 fi
 [ -n "$slug" ] || [ "$armed" -eq 1 ] || exit 0
 
@@ -78,15 +88,11 @@ else
     fi
   fi
   # The shared step scan is also used by plan-continue.sh: ticks never finish a run.
-  facts="$(mentor_plan_step_scan "$scan_md" 2>/dev/null)"
-  ticked="$(printf '%s\n' "$facts" | awk -F '\t' '$1 == "STEP" && $5 == 1 { n++ } END { print n+0 }')"
-  total="$(printf '%s\n' "$facts" | awk -F '\t' '$1 == "TOTAL" { print $2 }')"
-  total="${total:-0}"
-  next="$(printf '%s\n' "$facts" | awk -F '\t' '$1 == "STEP" && $5 == 0 { print $2; exit }')"
+  IFS=$'\t' read -r ticked total next title <<<"$(mentor_plan_scan_summary "$scan_md" 2>/dev/null)"
   if [ ! -f "$scan_md" ]; then where="unavailable (plan.md missing)"
   elif [ "$stored" = draft ]; then where=drafting
   elif [ "$total" -eq 0 ] && [ "$stored" != approved ] && [ "$stored" != in_progress ]; then where=drafting
-  elif [ -n "$next" ]; then where="step ${next}/${total}"
+  elif [ "$next" -gt 0 ]; then where="step ${next}/${total}"
   else where="goal check"; fi
   block="$(printf 'mentor plan: %s\npath: .mentor/plans/%s/plan.md\nstate: %s\nticks: %s/%s\nnext: %s' "$slug" "$slug" "$stored" "$ticked" "$total" "$where")"
   [ -z "$recovery" ] || block="${block}"$'\n'"${recovery}"

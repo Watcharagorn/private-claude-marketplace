@@ -76,6 +76,9 @@ esac
 
 CWD="$(mentor_cwd "$INPUT")"
 repo_root="$(mentor_repo_root "$CWD")"
+plans_dir="$(mentor_plans_dir "$repo_root")"
+wt_id=""
+[ ! -d "$plans_dir" ] || wt_id="$(mentor_worktree_id "$CWD")"
 
 # ---------------------------------------------------------------------------
 # TIER 1 — the context gate. A function, not the tail of the script, because the
@@ -170,12 +173,7 @@ esac
 # through mentor_worktree_id/mentor_plan_marker so a live SIBLING worktree's marker —
 # an independent gate that doesn't touch this worktree — never suppresses here.
 if [ -n "$repo_root" ]; then
-  pi_plans="${repo_root}/.mentor/plans"
-  pi_wt_id="$(mentor_worktree_id "$CWD")"
-  pi_own="$(mentor_plan_marker "$pi_plans" "$pi_wt_id")"
-  pi_legacy="$(mentor_plan_marker "$pi_plans" "")"
-  if { [ -e "$pi_own" ] && ! mentor_marker_stale "$pi_own"; } \
-     || { [ -n "$pi_wt_id" ] && [ -e "$pi_legacy" ] && ! mentor_marker_stale "$pi_legacy"; }; then
+  if [ -n "$(mentor_live_gate "$plans_dir" "$wt_id" -e)" ]; then
     return 0
   fi
 fi
@@ -211,17 +209,13 @@ return 0
 # drafting/running needs the path, including near compaction. Read stored state;
 # all steps ticked still leaves the Goal check to grade before a run is finished.
 mentor_plan_pointer() {
-  local pp_plans pp_wt pp_gate pp_legacy pp_md="" pp_slug="" pp_stored
-  local pp_session pp_run pp_next pp_total pp_change=""
-  [ -n "$repo_root" ] || return 0
-  pp_plans="$(mentor_plans_dir "$repo_root")"
-  pp_wt="$(mentor_worktree_id "$CWD")"
-  pp_gate="$(mentor_plan_marker "$pp_plans" "$pp_wt")"
-  pp_legacy="$(mentor_plan_marker "$pp_plans" "")"
+  local pp_gate pp_md="" pp_slug="" pp_stored
+  local pp_session pp_run pp_next pp_total pp_ticked pp_title pp_change=""
+  [ -n "$repo_root" ] && [ -d "$plans_dir" ] || return 0
+  pp_gate="$(mentor_live_gate "$plans_dir" "$wt_id")"
 
-  if { [ -f "$pp_gate" ] && ! mentor_marker_stale "$pp_gate"; } \
-     || { [ -n "$pp_wt" ] && [ -f "$pp_legacy" ] && ! mentor_marker_stale "$pp_legacy"; }; then
-    pp_md="$(mentor_armed_draft "$pp_plans" "$pp_wt")"
+  if [ -n "$pp_gate" ]; then
+    pp_md="$(mentor_armed_draft "$plans_dir" "$wt_id" "$pp_gate")"
     if [ -z "$pp_md" ]; then
       echo "mentor plan: no plan file yet · it is created at research start (planning Step 2)"
       return 0
@@ -235,28 +229,25 @@ mentor_plan_pointer() {
     [ -f "$pp_run" ] || return 0
     pp_slug="$(mentor_marker_field "$pp_run" slug)"
     case "$pp_slug" in ''|.|..|*[!A-Za-z0-9_-]*) return 0 ;; esac
-    pp_md="${pp_plans}/${pp_slug}/plan.md"
+    pp_md="${plans_dir}/${pp_slug}/plan.md"
     [ -f "$pp_md" ] || return 0
   fi
 
   pp_stored="$(mentor_plan_state_stored "${pp_md%/plan.md}")"
-  # One existing scanner supplies both the first unticked ordinal and total.
-  read -r pp_next pp_total <<<"$(mentor_plan_step_scan "$pp_md" | awk -F'\t' '
-    $1 == "STEP" && $5 == 0 && !next_step { next_step = $2 }
-    $1 == "TOTAL" { total = $2 }
-    END { print next_step+0, total+0 }
-  ')" || return 0
-  case "$pp_next:$pp_total" in *[!0-9:]*|:*|*:) return 0 ;; esac
   if [ ! -f "$pp_md" ]; then
     pp_next="unavailable (plan.md missing)"
   elif [ "$pp_stored" = draft ]; then
     pp_next="drafting"
-  elif [ "$pp_total" = "0" ] && [ "$pp_stored" != approved ] && [ "$pp_stored" != in_progress ]; then
-    pp_next="drafting"
-  elif [ "$pp_next" = "0" ]; then
-    pp_next="goal check"
   else
-    pp_next="step ${pp_next}/${pp_total}"
+    IFS=$'\t' read -r pp_ticked pp_total pp_next pp_title <<<"$(mentor_plan_scan_summary "$pp_md")" || return 0
+    case "$pp_next:$pp_total" in *[!0-9:]*|:*|*:) return 0 ;; esac
+    if [ "$pp_total" = "0" ] && [ "$pp_stored" != approved ] && [ "$pp_stored" != in_progress ]; then
+      pp_next="drafting"
+    elif [ "$pp_next" = "0" ]; then
+      pp_next="goal check"
+    else
+      pp_next="step ${pp_next}/${pp_total}"
+    fi
   fi
   if [ "$(mentor_plan_drift "$pp_md")" = "changed" ]; then
     pp_change=" · plan.md changed since mentor last wrote it — read it before editing it further"

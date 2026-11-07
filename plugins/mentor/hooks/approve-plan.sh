@@ -379,23 +379,13 @@ fi
 # Read the resolved approval candidate afresh, without recording a mentor write:
 # approval must preserve both plan.md and any evidence of an outside edit.
 _approval_anchor() {
+  local ticked total next title
   printf '\n  plan: %s\n' "${newest_plan:-(no plan file on record)}"
   if [ "$flag" != "--deliver" ]; then
-    mentor_plan_step_scan "$newest_plan" | awk -F'\t' '
-      $1 == "STEP" && $5 == 0 && !n {
-        n = $2
-        title = $8; for (i = 9; i <= NF; i++) title = title " " $i
-        sub(/^[[:space:]]*(-[[:space:]]+)?([*][*])?(#{3,4}[[:space:]]+)?/, "", title)
-        sub(/^([Ss]tep[[:space:]]+)?[0-9]+([.][0-9]+)*[.]?([*][*])?[[:space:]]*/, "", title)
-        sub(/^(:|—|-)[[:space:]]*/, "", title)
-      }
-      $1 == "TOTAL" { total = $2 }
-      END {
-        if (n) printf "  next: step %d/%d — %s\n", n, total, title
-        else if (total > 0) print "  next: all steps ticked"
-        else print "  next: drafting"
-      }
-    ' || true
+    IFS=$'\t' read -r ticked total next title <<<"$(mentor_plan_scan_summary "$newest_plan")"
+    if [ "$next" -gt 0 ]; then printf '  next: step %d/%d — %s\n' "$next" "$total" "$title"
+    elif [ "$total" -gt 0 ]; then echo '  next: all steps ticked'
+    else echo '  next: drafting'; fi
   fi
   if [ "$(mentor_plan_drift "$newest_plan")" = changed ]; then
     echo "  plan.md changed since mentor last wrote it — read it before editing it further"

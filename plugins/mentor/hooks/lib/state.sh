@@ -228,33 +228,68 @@ mentor_newest_plan_owned() {
   return 0
 }
 
-# mentor_armed_draft <plans_dir> <wt_id> — newest stored draft owned here and
-# written strictly after the live own gate, or the live legacy gate when no own
-# gate is live. An empty wt-id uses the legacy marker and unowned drafts. Missing
-# plan.md uses its sidecar's mtime for recovery; an existing plan always supplies
-# its own timestamp. Read-only; no eligible gate/draft echoes empty.
-mentor_armed_draft() {
-  local plans_dir="${1:-}" wt_id="${2:-}" gate legacy dir stamp newest="" plan=""
+# mentor_live_gate <plans_dir> <wt_id> [file_test=-f] — live own marker first,
+# then the legacy marker. The nudge passes -e to retain its existence-only check;
+# plan readers require a regular file. Read-only; no applicable gate echoes empty.
+mentor_live_gate() {
+  local plans_dir="${1:-}" wt_id="${2:-}" file_test="${3:--f}" gate
   [ -n "$plans_dir" ] && [ -d "$plans_dir" ] || { echo ""; return 0; }
   gate="$(mentor_plan_marker "$plans_dir" "$wt_id")"
-  legacy="$(mentor_plan_marker "$plans_dir" "")"
-  if [ ! -f "$gate" ] || mentor_marker_stale "$gate"; then
-    gate="$legacy"
+  if [ "$file_test" "$gate" ] && ! mentor_marker_stale "$gate"; then
+    echo "$gate"; return 0
   fi
-  [ -f "$gate" ] && ! mentor_marker_stale "$gate" || { echo ""; return 0; }
+  if [ -n "$wt_id" ]; then
+    gate="${plans_dir}/.planning"
+    if [ "$file_test" "$gate" ] && ! mentor_marker_stale "$gate"; then
+      echo "$gate"; return 0
+    fi
+  fi
+  echo ""
+  return 0
+}
+
+# mentor_newest_stored_plan <plans_dir> <wt_id> <state> [freshness_marker] —
+# newest plan with exactly this stored state/owner, optionally strictly newer than
+# a caller-validated marker. Missing plan.md falls back to the sidecar timestamp.
+# Check timestamps before parsing each sidecar, and read state/owner together.
+mentor_newest_stored_plan() {
+  local plans_dir="${1:-}" wt_id="${2:-}" state="${3:-}" gate="${4:-}"
+  local dir stamp newest="" plan=""
+  [ -n "$plans_dir" ] && [ -d "$plans_dir" ] || { echo ""; return 0; }
+  command -v jq >/dev/null 2>&1 || { echo ""; return 0; }
   for dir in "$plans_dir"/*; do
     [ -d "$dir" ] || continue
-    [ "$(mentor_plan_state_stored "$dir")" = draft ] || continue
-    [ "$(mentor_plan_owner "$dir")" = "$wt_id" ] || continue
     stamp="${dir}/plan.md"
     [ -f "$stamp" ] || stamp="${dir}/.state.json"
-    [ -f "$stamp" ] && [ "$stamp" -nt "$gate" ] || continue
+    [ -f "$stamp" ] || continue
+    [ -z "$gate" ] || [ "$stamp" -nt "$gate" ] || continue
+    # Match the scalar readers' partial reads and NUL/trailing-LF handling.
+    jq -ne --arg state "$state" --arg owner "$wt_id" '
+      def scalar($key): map(try (.[$key] // "" | tostring) catch empty) | join("\n")
+        | gsub("\u0000"; "") | sub("\n+$"; "");
+      [try inputs catch empty] | scalar("state") == $state and scalar("owner") == $owner
+    ' "${dir}/.state.json" >/dev/null 2>&1 || continue
     if [ -z "$newest" ] || [ "$stamp" -nt "$newest" ]; then
       newest="$stamp"
       plan="${dir}/plan.md"
     fi
   done
   echo "$plan"
+  return 0
+}
+
+# mentor_armed_draft <plans_dir> <wt_id> [live_gate] — newest stored draft owned here and
+# written strictly after the live own gate, or the live legacy gate when no own
+# gate is live. An empty wt-id uses the legacy marker and unowned drafts. Missing
+# plan.md uses its sidecar's mtime for recovery; an existing plan always supplies
+# its own timestamp. Read-only; no eligible gate/draft echoes empty.
+mentor_armed_draft() {
+  local plans_dir="${1:-}" wt_id="${2:-}" gate="${3:-}"
+  if [ "$#" -lt 3 ]; then
+    gate="$(mentor_live_gate "$plans_dir" "$wt_id")"
+  fi
+  [ -n "$gate" ] || { echo ""; return 0; }
+  mentor_newest_stored_plan "$plans_dir" "$wt_id" draft "$gate"
   return 0
 }
 
@@ -726,6 +761,25 @@ mentor_plan_step_scan() {
     }
     END { if (cur) emit(); printf "TOTAL\t%d\n", ord + 0 }
   ' "$md" 2>/dev/null || printf 'TOTAL\t0\n'
+  return 0
+}
+
+# mentor_plan_scan_summary <plan_md> — TSV ticked, total, next ordinal (0 when
+# all ticked/absent), and the next step's display title. Reduce the shared scanner
+# once; each hook keeps its own formatting and draft/missing-plan policy.
+mentor_plan_scan_summary() {
+  mentor_plan_step_scan "${1:-}" | awk -F'\t' '
+    $1 == "STEP" && $5 == 1 { ticked++ }
+    $1 == "STEP" && $5 == 0 && !next_step {
+      next_step = $2
+      title = $8; for (i = 9; i <= NF; i++) title = title " " $i
+      sub(/^[[:space:]]*(-[[:space:]]+)?([*][*])?(#{3,4}[[:space:]]+)?/, "", title)
+      sub(/^([Ss]tep[[:space:]]+)?[0-9]+([.][0-9]+)*[.]?([*][*])?[[:space:]]*/, "", title)
+      sub(/^(:|—|-)[[:space:]]*/, "", title)
+    }
+    $1 == "TOTAL" { total = $2 }
+    END { printf "%d\t%d\t%d\t%s\n", ticked+0, total+0, next_step+0, title }
+  ' || true
   return 0
 }
 
