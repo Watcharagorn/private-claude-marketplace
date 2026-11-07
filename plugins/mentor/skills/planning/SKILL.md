@@ -470,25 +470,22 @@ Two helper-backed consequences worth knowing:
 - **It is idempotent** — re-running it on a revision is harmless, so there is no branch
   to pick between "new plan" and "existing plan".
 
-Write the plan at that path with the `Write` tool. Approval and later sessions read
+Write the first draft at that path with the `Write` tool. Approval and later sessions read
 the state record to know which plans are built and which are pending.
 
 The path is inside the gate-exempt
 `.mentor/` tree, so the edit gate allows it; `plan-open.sh` auto-opens it for review the first time
 (VSCode tab when available; opener configurable through the host's Mentor environment).
-Opening is a convenience, not a delivery requirement. **Keep it current:** on every revision
-re-write this SAME file in place — never create a second timestamped copy. Never write the plan
-to a host-native plans directory instead of `.mentor/`.
+Opening is a convenience, not a delivery requirement. **Keep it current:** revise this SAME
+file with whole-section `Edit`s — replace a whole section, table, or fenced block per edit;
+use a full `Write` only for a restructure. Never
+create a second timestamped copy or write the plan to a host-native plans directory instead
+of `.mentor/`. Section edits avoid resending the whole plan on every revision, and an anchor
+that lands mid-table or mid-fence can splice a row or split a fence without erroring.
 
-**Verify the write:** when a revision applies a sequence of `Edit`s rather
-than one whole-block rewrite, re-`grep -n` each edit's target text against
-the file's current on-disk state immediately before applying it — an earlier
-edit in the same pass can shift nearby text out from under a stale anchor,
-and a miss usually means it already moved. An `Edit` whose anchor lands
-mid-table or mid-fence can also splice a row or split a fenced block without
-erroring — nothing else in this skill catches it, and a revision built from
-many small edits (a decision resolution, a split, a scope trim) is exactly
-when this happens. After such a revision, run:
+**Verify the write:** re-`grep -n` each edit's target text against the file's current
+on-disk state immediately before applying it; earlier edits can move an anchor. After
+the first draft and every content revision, run:
 
 ```bash
 bash "${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT}}/hooks/plan-state.sh" verify <slug>
@@ -508,8 +505,7 @@ body truncated by a mis-parsed step line looks like. Every other `CHECK:` line
 it prints is informational and never fails the call, `CHECK: context` included;
 that one is the same reading "Re-check context" below asks for, so if nothing
 else ran between this call and the approval ask, that reading already
-satisfies it — no second `context` call needed. Prefer replacing a whole
-table/fenced block in one edit over splicing a single row into it.
+satisfies it — no second `context` call needed.
 
 ### Content spec
 
@@ -518,7 +514,11 @@ on GitHub/GitLab and any Mermaid-capable viewer. No inline HTML/CSS/SVG.
 
 Required sections, in order:
 
-1. `# <Plan title>`
+1. `# <Plan title>` — directly below it, keep an appended Rev changelog, one line per
+   content revision: `Rev N · YYYY-MM-DD · <what changed>`, starting at Rev 1, newest last.
+   Add no Rev line for step ticks or run-time log rows. `verify` already reports Rev-line
+   order; the newest line identifies the content the user is asked to approve.
+   A plan with no Rev line yet gets `Rev 1` on its next content revision.
 2. `## Context` — the problem, what prompted it, intended outcome.
 3. `## Use case scenarios` — actors & triggers; current vs expected behavior;
    numbered concrete scenario walkthroughs (real values from research, not
@@ -690,14 +690,30 @@ the page never shows a plan that no longer exists. Step progress marks and
 > `mentor:previewing`'s page (Step 5), both under the gate-exempt `.mentor/`
 > tree — never repo source files.
 
-First **surface the complete plan body** in your message — plain markdown,
-verbatim, no commentary around it — so the user can review it in the transcript.
-If the plan is long, let them scroll; do not summarize instead. Then, in the
-same turn, ask via `AskUserQuestion` — `header: "Approve"`, question *"The plan is
-ready. What happens next?"* — with the option set the table below selects.
-Mention in the question text that a change request — not just approval or
-rejection — belongs in the always-present **Other** free text, so redirecting
-the plan doesn't have to arrive as a hard reject.
+First send a pointer card of **at most 5 lines**, with no tables, diagrams, or code
+blocks; keep the complete plan in `plan.md`. This avoids duplicate plan bodies in chat
+(see `references/rationale.md` → **Step 6 — why the approval message is a pointer, not the plan**).
+Use this card shape, including the last line only when a Rev line was added since the
+previous ask:
+
+```text
+Plan ready: [.mentor/plans/<slug>/plan.md](<absolute path printed by plan-state.sh start>) · Rev <N>
+Goal: <one sentence>
+<steps> steps · Goal check: <the predicate, one line>
+Changed since last ask: <the newest Rev line's note>
+```
+
+The link text is the repo-relative path, the link target is the absolute path Step 4
+printed, and `<N>` is the newest Rev line. Then, in the same turn,
+ask via `AskUserQuestion` — `header: "Approve"` — with this question text and the option
+set below:
+
+```text
+The plan is ready at .mentor/plans/<slug>/plan.md (Rev <N>). What happens next?
+A change request, a plan-quality ask, or "show plan" to print it here goes in Other.
+```
+
+This approval gate may name the plan file instead of carrying its full subject (rationale above).
 
 **Only a returned answer approves.** If the approval question was interrupted,
 rejected, or never came back — or the user asserts approval in prose ("the plan was
@@ -707,8 +723,10 @@ standing between planning and repo edits; releasing the gate on a remembered or
 claimed approval is the one failure this harness exists to prevent. It also costs you
 the routing: which flag to run — none or `--deliver` — is decided by *which option came
 back*, so an unanswered question means you are guessing the outcome as well as the
-consent. Re-surface the plan body only if it changed since the user last
-saw it (or never was surfaced); otherwise name its path and Rev and re-ask.
+consent. Re-send the pointer card and re-ask.
+
+If the user types **"show plan" in Other**, print the full body once, then ask the same
+approval question again. Printing approves nothing; do not run `approve-plan.sh` for it.
 
 ### Re-check context
 
@@ -742,7 +760,7 @@ copy in a script drifts. (Why one gate and three options: `references/rationale.
 |---|---|
 | Proceed | Validate the plan, release the edit gate, and run it until the Goal check passes. Stops only for always-pause items; every decision is logged for review. |
 | Deliver plan only | Validate the plan and release the gate; the plan file is the deliverable — no implementation in this session. |
-| Keep planning | Do not release — keep refining, or say what to change. Re-write the plan file and ask again when ready. |
+| Keep planning | Do not release — keep refining, or say what to change. Revise the plan file and ask again when ready. |
 
 Everything else the user may want reaches you through the always-present "Other" free
 text: a change request, moving isolated deliverables into `## Out of scope`, or a
@@ -767,7 +785,7 @@ worktree's `.planning.<wt-id>`, or the legacy repo-global `.planning` when runni
 in legacy_mode), deletes that marker — the gate OPENS for this worktree — and writes
 the session's **run marker** `.mentor/.run-<session_id>` (`slug=` + `started=`), which
 the `plan-continue.sh` Stop hook reads to keep the run going. On failure it prints the
-problem, keeps the gate closed, and exits non-zero: fix the plan (re-write per Step 4)
+problem, keeps the gate closed, and exits non-zero: fix the plan (revise it per Step 4)
 and re-ask. On success, run the plan per **After Proceed** below.
 
 On **Deliver plan only**, run:
@@ -783,8 +801,8 @@ prints** — report where the plan lives and STOP. Do not implement in this sess
 me more", "walk through more use-cases/scenarios", or similar) has no button.
 Route it: invoke `Skill(skill="mentor:grilling")` scoped to the **drafted plan** (not
 the original request) — interview against what's already written, not from scratch.
-This never releases the gate by itself, so fold the answers into the plan, re-write it,
-and ask the approval question again.
+This never releases the gate by itself, so fold the answers into the plan per Step 4,
+then ask the approval question again.
 
 On **Keep planning**, do not run the script; return to planning.
 
@@ -866,21 +884,41 @@ step ticks — but `failed` and `paused` cannot be derived from ticks.
 5. **Pause only for an always-pause item** — the constitution's list, the built-in
    default (constitution-authoring → "The autonomy contract"), or a picked playbook's
    extra items — or a stop word ("stop", "pause", "wait"). Write a `paused` row, set
-   the paused state, write the **Done review** (a pause ends this run), ask the one
-   question, and on the answer write `resumed` and continue.
+   the paused state, write the **Done review** in `plan.md` (a pause ends this run),
+   report the verdict line below with its one question underneath, and on the answer
+   write `resumed` and continue.
 6. When every step is ticked, dispatch the `## Verification` topics (one fresh
    verifier each), write the **Done review** below, then dispatch the **Goal check**
    verifier with it. A FAIL re-enters step 3's re-plan path for the step that owns
    the gap.
 7. **Deliver.** The general deliver state hands the deliverable named in the Goal check
-   to the human with the Done review beside it. A picked playbook's Deliver mode
-   replaces this.
-8. `set <slug> implemented`, remove the run marker, and report. After reporting, offer
+   to the human and points to the Done review in `plan.md`. A picked playbook's Deliver
+   mode replaces this.
+8. `set <slug> implemented`, remove the run marker, and report the verdict line below.
+   After reporting, offer
    a retrospective in one line (`/mentor:retro` in Claude Code; on other hosts, ask for a
    retrospective of this session) to turn this session's lessons into skills — a
    non-blocking invitation so repeated steps become reusable without the human having to
    ask. Skip the offer when this plan's `## Playbook` is `playbook-retrospective` (a retro
    inviting its own retro is noise).
+
+For every terminal report (`PASS`, `paused`, or `failed`), send one verdict line:
+
+```text
+<PASS|paused|failed> · <ticked>/<total> steps · <k> decisions need review · <m> leftovers · <plan path>
+```
+
+When `<m>` > 0, name each leftover on one short line under the verdict line; when 0,
+add nothing.
+
+Take the step counts from the last `plan-state.sh tick` output (it prints `N/M`); only
+when no tick output is at hand, run `plan-state.sh query --slug <slug> --format tsv --fields
+steps.ticked,steps.total` if the helper is available (otherwise count the plan's step
+ticks). Count `k` from the flat decision log's `review?: needed` rows and `m` from the
+Done review's leftovers. Keep the full Done review and grouped decision log in `plan.md`,
+without pasting them into chat, so the file remains the review record — except what a
+playbook's deliver mode puts in a PR body or its own hand-over question (see merging's
+hand-over question).
 
 A dead end is reported, not spun on: two identical failures in a row with no new
 evidence is a re-plan, never a third identical attempt.
@@ -896,7 +934,8 @@ every PASS row.
 
 Every terminal transition — `done`, `paused`, `failed`, and the Stop hook's idle cap —
 writes `## Done review` into `plan.md` (and into whatever a playbook's deliver mode hands
-over). Three parts, organised by the plan's use case scenarios:
+over); chat reports it with the verdict line above. Three parts, organised by the plan's use
+case scenarios:
 
 1. **Per scenario: expected vs observed, with evidence.** Text evidence (command
    output, logs, responses) goes inline as short excerpts. Screenshots and larger

@@ -70,7 +70,9 @@ In Claude Code, `/mentor:plan` additionally:
    and a recommended option. Each resolution is a decision-log row. Then the Markdown plan is
    written to `<repo>/.mentor/plans/<slug>/plan.md` (in-repo, gitignored).
 3. **The one approval**: **Proceed** (run it), **Deliver plan only** (the plan file is the
-   deliverable), or **Keep planning**. A plan-quality ask typed into "Other" runs
+   deliverable), or **Keep planning**. The full plan stays in the file; chat shows a
+   short card with its path and Rev. Type `show plan` in "Other" to print it once and
+   re-ask without approving. A plan-quality ask typed into "Other" runs
    `/mentor:grill` on the drafted plan. An approving choice runs `approve-plan.sh`, which
    validates the plan (non-empty, newer than the marker) and deletes the gate marker;
    Proceed also writes the session's run marker `.mentor/.run-<session_id>`.
@@ -544,6 +546,21 @@ Knobs — set under `env` in `~/.claude/settings.json` (a shell `export` won't r
 | `MENTOR_PLAN_OPENER` | `auto` (default) · `vscode` · `chrome` · `system` |
 | `MENTOR_PLAN_VSCODE_BIN` | Force the VSCode CLI binary (default: auto-detect `code` / `cursor` / `windsurf` / …) |
 | `MENTOR_PLAN_OPEN=off` | Disable auto-open entirely |
+
+## Changes in v6.2.0
+
+**The plan stays in the file.** Approval chat shows a pointer card of at most 5 lines;
+the question names the plan path and Rev. Content revisions append a Rev note and use
+whole-section edits, with a change note on a re-ask only when a Rev line was added since
+the previous ask. Type `show plan` in Other to
+print the full body once and re-ask without approving. Run-end chat reports one verdict
+line with step, review-decision, and leftover counts; leftovers are named one per line
+under the verdict line. The Done review and grouped
+decision log stay in `plan.md`. Playbook delivery into a PR body is unchanged.
+
+Compatibility decision: **non-breaking: no state or option change; plans gain a Rev
+changelog that `verify` reports but never requires, and `show plan` gives the old view
+on request**. Existing plans remain readable without a Rev line.
 
 ## Changes in v6.1.0
 
