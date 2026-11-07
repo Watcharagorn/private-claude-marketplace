@@ -34,7 +34,9 @@ skill is an **independent primitive**: it may point at a sibling or execute a ve
 reached, but never claims the session's lifecycle or governs a sibling's internals —
 `frontend-self-ex-review` is the reference shape; a playbook is loaded *by* planning and only
 fills slots planning leaves open. The plan file is mentor's **primary** source of truth,
-never its only mode. Before adding a hook, script, state token, or `plan-state.sh`
+never its only mode. Plan-file tracking adds read-only per-prompt and SessionStart
+pointers, plus `record-write` / `drift` commands for a content-hash baseline (v6.3.0);
+none of them approves a plan, claims a run or chooses work. Before adding a hook, script, state token, or `plan-state.sh`
 subcommand, amend this paragraph first: if the addition contradicts it, the addition is
 wrong. (The v1.0.0 slim-down regrew 32 → 79 files in five weeks; this paragraph and
 `hooks/tests/test-hook-roster.sh` exist so it doesn't again.)
@@ -64,11 +66,12 @@ In Claude Code, `/mentor:plan` additionally:
    independently (see "Known limitations").
 2. Follows the `planning` skill: optional clarify (grilling), a **playbook pick** (a
    `playbook-*` skill whose description matches the goal — `playbook-software-change` for
-   code), research, then **triage** of every open question: answered from the material, settled
+   code), research (starting with a plan-file skeleton), then **triage** of every open question: answered from the material, settled
    by a quick experiment, decided by a decision-maker agent within the constitution's Decision
    authority, or — only for a genuine product call — asked via `AskUserQuestion` with evidence
-   and a recommended option. Each resolution is a decision-log row. Then the Markdown plan is
-   written to `<repo>/.mentor/plans/<slug>/plan.md` (in-repo, gitignored).
+   and a recommended option. Findings and decision-log rows land incrementally in
+   `<repo>/.mentor/plans/<slug>/plan.md` (in-repo, gitignored), then the remaining sections
+   are completed before approval.
 3. **The one approval**: **Proceed** (run it), **Deliver plan only** (the plan file is the
    deliverable), or **Keep planning**. The full plan stays in the file; chat shows a
    short card with its path and Rev. Type `show plan` in "Other" to print it once and
@@ -156,8 +159,8 @@ rule from a session should append the narrative to `references/rationale.md`, no
 
 Since v3.0.0 that binds automated contributors in a stronger form as well: **new lessons
 land as skill prose or `references/rationale.md` — never as new hooks, new scripts, new
-state tokens, or new `plan-state.sh` subcommands.** (v6.0.0's Stop hook and run marker are
-the sanctioned exception, added by a human-approved plan that amended the charter first —
+state tokens, or new `plan-state.sh` subcommands.** (v6.0.0's Stop hook/run marker and
+v6.3.0's plan-file pointers/hash commands are sanctioned exceptions, added by human-approved plans that amended the charter first —
 the route any future machinery takes too.) A new domain's know-how lands as a new
 `playbook-<name>` skill, never as domain text in `planning`. A lesson that seems to need machinery
 goes in as prose plus a proposal for the user to decide on;
@@ -174,12 +177,12 @@ State is **project-scoped** — `<repo>/.mentor/`, with one dir per plan topic:
 │                    #   constitution_path                                 ← committed
 ├── constitution.md  # governing principles + autonomy contract            ← committed
 ├── .run-<session_id> # v6: slug= + started=; written by approve-plan.sh on Proceed,
-│                    #   removed at done/failed; read by plan-continue.sh  ← gitignored
+│                    #   removed at done/failed; read by continuation and plan pointers ← gitignored
 ├── plans/           # one .planning.<wt-id> gate marker PER WORKTREE (v2.23.0) +
 │                    #   one dir per plan topic, SHARED across every worktree;
 │                    #   bare `.planning` is the reserved legacy repo-wide marker ← gitignored
 │   └── <slug>/      #   plan.md (+ ## Goal check, ## Decision log, ## Done review)
-│       ├── .state.json # lifecycle state + relations — written only by plan-state.sh
+│       ├── .state.json # lifecycle state + relations + plan_sha256 — written only by plan-state.sh
 │       ├── evidence/   # v6: captured logs, screenshots, probe scripts (the run)
 │       └── step-N-verify.md · topic-N-verify.md · goal-verify.md  # verifier verdicts
 └── reviews/         # /mentor:preview pages — <subject-slug>/review.html (+ _ids.md,
@@ -222,7 +225,7 @@ outranks the derivation, since only a run that watched something break writes it
 an all-ticked plan must not read its way back out of that. That derivation reports how
 far *building* got, not the run: an all-ticked plan reads `implemented` while its
 `## Verification` topics, Goal check, Done review and delivery may still be owed — which
-is why `plan-continue.sh` and `begin-plan.sh` read the **stored** state. While it is
+is why `plan-continue.sh`, `begin-plan.sh` and the plan pointers read the **stored** state. While it is
 still stored `in_progress`, `/mentor:plan <slug>` prints `ALREADY APPROVED` with a
 pointer to resume at After Proceed step 6; finish steps 6–8, then
 `set <slug> implemented`. Since implementation ticks each step as it passes, a forgotten
@@ -236,8 +239,9 @@ lists with the right state, group, and position — a plan dir needs nothing but
 
 > This is not a return to the v1.0.0 footer markers. Those were in-document contracts
 > the model had to maintain by hand, and they broke when it forgot. The sidecar is
-> written only by `hooks/plan-state.sh` and is *derivable from the plan file*, so
-> forgetting is a no-op rather than a corruption.
+> written only by `hooks/plan-state.sh`; lifecycle progress is *derivable from the
+> plan file*, while the optional content hash remembers the last mentor write.
+> Older sidecars remain readable without that baseline.
 
 ### Sidecar schema
 
@@ -252,6 +256,7 @@ migration — every reader defaults the fields it doesn't find.
 | `note` | free text, replaced each write | `set --note` | v2.4.0 |
 | `deps` | array of plan slugs, default `[]` | `init --deps a,b` / `set-deps <slug> a,b` | v2.17.0 |
 | `owner` / `owner_session` | wt-id + session id, or `null` | `ensure-dir` / `init` / `relocate` | v2.23.0 |
+| `plan_sha256` | sha256 string or absent | `record-write` / `tick`; Claude Code's Write/Edit hook calls `record-write` | v6.3.0 |
 
 Omitting a flag **preserves** whatever is stored, which is what lets deps and ownership
 survive a later `set <slug> approved` untouched; passing one with an explicit empty value
@@ -266,6 +271,27 @@ writes survive untouched: sidecars from older versions keep `origin`, `parent`,
 dependency cycle (direct or transitive) — fail-soft: a stderr warning, no write.
 Unknown dep slugs are allowed (the dep plan may not exist yet); `query` marks them
 `missing` rather than failing.
+
+### Content changes
+
+`plan-state.sh record-write <slug>` records the current `plan.md` hash in
+`plan_sha256`, preserving every other sidecar key. `tick` reports existing drift before
+changing the file and records its resulting hash. Both commands and
+`plan-state.sh drift <slug>` work on every host. When mentor calls them is owned by the
+`planning` skill: "Step 2 — Research" → **Track every plan write on every host**, and
+"After Proceed — run until the Goal check passes".
+
+| `drift <slug>` | Meaning |
+|---|---|
+| `known` | The file matches the last recorded mentor write. |
+| `changed` | The file differs from that write. |
+| `unknown` | No baseline yet (including a legacy sidecar), or the file/hash cannot be read. |
+
+The notice is `plan.md changed since mentor last wrote it — read it before editing it further`.
+It identifies a change without attributing it to a writer; unknown never produces a notice.
+**Claude-only hooks** add the per-prompt pointer, SessionStart re-attachment and automatic
+hash recording for Write/Edit. Shell writes and hosts without those hooks use
+`record-write` explicitly; the portable `drift` and `tick` commands keep the same meaning.
 
 ### Listing plans (`query`)
 
@@ -406,17 +432,19 @@ Knobs — env vars under `env` in `~/.claude/settings.json` (or the project's
 | `commands/plan.md` | The `/mentor:plan` trigger. |
 | `hooks/begin-plan.sh` | Arms (unless the `<slug>` argument names a plan already `approved`/`in_progress` and owned here or unowned — then it prints `ALREADY APPROVED: <slug>` and arms nothing) **this worktree's own** `.planning.<wt-id>` marker (v2.23.0; closes the gate for this worktree only — an optional `<slug>` argument WARNs if that slug is already owned by a live sibling worktree); prunes stale sibling markers with a per-marker notice; refuses over a live legacy `.planning` (distinct refusal message); prints any live siblings as informational "also armed elsewhere" lines — and a `CONTEXT:` line (`WARN`, or `HIGH` at/over the limit: `context_block_tokens`, or 65% of a known window when that is lower — warn-only; the gate arms either way). A foreign-marker refusal (a DIFFERENT, still-live session owns this worktree's own marker) names the supported recovery: re-run with `--override-foreign-marker` once the user explicitly authorizes it — the flag re-arms past the guard and still prints who it overrode; it is the confirmed-override route, never a way to skip the confirm itself. |
 | `hooks/plan-gate.sh` | **The one gate.** Fail-closed `PreToolUse` on Write/Edit/MultiEdit/NotebookEdit — denies in-repo writes while THIS worktree's own marker or the legacy repo-wide marker exists, even under `bypassPermissions`; a live sibling worktree's marker never denies here. Mentor's own `.mentor/` tree (where the plan file lives) is exempt, so the plan is always writable. Stale markers (>8h) self-heal on a would-deny write, each with a named notice. |
-| `hooks/approve-plan.sh` | Validates the plan (non-empty `.md` **newer than the marker**), releases this worktree's gate, and on Proceed (no flag) writes the run marker `.mentor/.run-<session_id>` (`slug=` + `started=`) when a session id is known. Promotes only plans **owned** by this worktree (or unowned, when no sibling marker is live) — never a sibling's in-flight draft; a live legacy marker only sweeps repo-wide when the approving session is the one that armed it. Flags map to the approval options: no-arg starts the run, `--deliver` (no run marker) prints the deliverable soft-stop (also printed on a re-run when the gate is already open); unknown flags — including the retired `--handoff` — are rejected. |
-| `hooks/plan-open.sh` | Auto-opens the Markdown plan for review the first time it is written (VSCode tab / OS default). When the plan has a review page (`.mentor/reviews/<slug>/review.html`), every Write/Edit of the plan also returns a reminder to regenerate the page's changed sections (`previewing` §7) before the turn ends. `previewing` opens its own page. |
-| `hooks/context-gate.sh` | **Context gate.** `UserPromptSubmit` — measures live context from the transcript: warns (~200k, or 50% of a known window when that is lower; re-arming on growth), re-warns near the limit, and warns `CONTEXT: HIGH` at the limit (~350k, or 65% of a known window when that is lower) — thresholds from `mentor_context_limits`, warn-only, never a question or a handoff steer. Since v2.34.0 it also carries the **planning-intent nudge** as its tier-2 output — an anchored opener ("help me plan…", "let's plan…") suggests `/mentor:plan <topic>` so a conversational planning ask doesn't silently skip the edit gate (`hooks/tests/test-planning-nudge.sh` covers it). Never blocks or erases prompts. Fail-soft; slash commands always pass. |
+| `hooks/approve-plan.sh` | Re-anchors approval with a fresh disk read: the plan path, a drift notice when changed, and `planning ended — edit gate released`; without `--deliver` it also names the next step and the instruction to tick each step after its PASS row. Validates the plan (non-empty `.md` **newer than the marker**), releases this worktree's gate, and on Proceed (no flag) writes the run marker `.mentor/.run-<session_id>` (`slug=` + `started=`) when a session id is known. Promotes only plans **owned** by this worktree (or unowned, when no sibling marker is live) — never a sibling's in-flight draft; a live legacy marker only sweeps repo-wide when the approving session is the one that armed it. The approval sweep skips non-primary drafts that are still skeletons (no `## Goal check` or no implementation steps), preserving their sidecars. Flags map to the approval options: no-arg starts the run, `--deliver` (no run marker) prints the deliverable soft-stop (also printed on a re-run when the gate is already open); unknown flags — including the retired `--handoff` — are rejected. |
+| `hooks/plan-open.sh` | Records the Write/Edit hash through `record-write` before opener-off or already-open exits. Auto-opens the Markdown plan for review the first time it is written (VSCode tab / OS default). When the plan has a review page (`.mentor/reviews/<slug>/review.html`), every Write/Edit of the plan also returns a reminder to regenerate the page's changed sections (`previewing` §7) before the turn ends. `previewing` opens its own page. |
+| `hooks/context-gate.sh` | **Per-prompt plan pointer (Claude Code).** While this worktree has an armed draft (a stored `draft` owned by this worktree and newer than the gate) or this session has a run, prints the plan path, stored state, next step and drift notice when changed, including alongside all context-warning tiers. Every stored draft shows `next: drafting`; a run shows `step N/M` or `goal check`. With an armed gate but no such draft, prints `mentor plan: no plan file yet · it is created at research start (planning Step 2)`. **Context gate.** `UserPromptSubmit` — measures live context from the transcript: warns (~200k, or 50% of a known window when that is lower; re-arming on growth), re-warns near the limit, and warns `CONTEXT: HIGH` at the limit (~350k, or 65% of a known window when that is lower) — thresholds from `mentor_context_limits`, warn-only, never a question or a handoff steer. Since v2.34.0 it also carries the **planning-intent nudge** as its tier-2 output — an anchored opener ("help me plan…", "let's plan…") suggests `/mentor:plan <topic>` so a conversational planning ask doesn't silently skip the edit gate (`hooks/tests/test-planning-nudge.sh` covers it). Never blocks or erases prompts. Fail-soft; slash commands always pass. |
 | `hooks/context-checkpoint.sh` | **Context checkpoint** (v2.37.0). `PostToolBatch` — the reading `context-gate.sh` cannot take: that gate is `UserPromptSubmit`-only, so any long autonomous stretch that collapses N human turns into one got zero readings in between (one real session grew ~247k tokens unseen). Fires the same WARN/WARN-HIGH/HIGH tiers between tool batches, rate-limited by its own `.context-checkpoint-<session_id>` marker (speaks on a tier rise or one re-arm step of growth: ~50k tokens, or 10% of a known window). **Advisory only, by ruling — never exit 2** (which would kill the agentic loop mid-step); every tier is a one-line size warning ending in the gate's progress-first sentence, never a handoff steer. Kill switches: the gate's own, plus `MENTOR_CONTEXT_CHECKPOINT=off` / `"context_checkpoint":"off"`. |
 | `hooks/plan-continue.sh` | **Run continuation** (v6.0.0). `Stop` — while this session's run marker exists and its plan's **stored** state is `in_progress`, blocks the stop (`{"decision":"block"}`) with a reason naming the next unticked step. First match wins: off switch → no marker → stored state not `in_progress` (paused, failed, done) → `plan.md` untouched for 8h (deletes the marker) → 3 consecutive blocks with no progress (allows, with a notice) → block. Ignores `stop_hook_active` (true on every re-entry); never reads decision-log rows or decides what to do. Fail-open everywhere. |
-| `hooks/plan-state.sh` | **The one plan-state API** (not a hook — skills call it directly). `init` / `start` / `set` / `set-deps` / `tick` / `verify` / `list [--owners]` / `current [--any]` / `query` / `sweep` / `context` / `dir` / `ensure-dir` / `relocate` / `gate`. `verify <slug>` backs planning's "Verify the write": four gating `CHECK:` lines — fence balance, table pipe-count uniformity, every step body inside `## Implementation steps` carrying a `Done when:`, and (v6.0.0, draft/unknown plans only) both `## Goal check` and `## Decision log` present (read via `mentor_plan_step_scan`, the one step-scan, so it can never disagree with `tick`/`query` about what a step is) — plus informational-only lines for Rev-note order, a stray ✅ on a non-step line, an `###` heading inside the steps section, and `CHECK: context` (the pre-approval context re-check folded into the same call). Exit 1 iff a gating check fails. Sole writer of `.state.json` (state, group, order, note, `deps`, and `owner`/`owner_session` — the minting/re-owning worktree, stamped by `ensure-dir`/`init`/`relocate`); every write merges into the existing object, so keys it no longer writes survive. Derives effective state from the plan's ✅ ticks; `current` is group-aware and ownership-scoped to plans owned by this worktree (`--any` for a deliberate repo-wide read) — after a split it reports the whole owned group rather than whichever child finished last. `list --owners` adds an OWNER column for slug-reuse scans. `query` computes the repo-wide plans+deps+owner listing fresh on every call (see "Listing plans"). `dir` is the one repo-scoped `.mentor` path derivation — skills call it instead of hand-rolling `git-common-dir` snippets that drift. `relocate <src-plan-dir>` copies a plan from a DIFFERENT repo's `.mentor/plans/<slug>` into this one (run from the destination repo) and re-owns it here in one step — never deletes the source, and warns about repo-relative paths left stale under "Suggested first steps" and about the source repo's plan-gate no longer protecting edits made back there. `gate` is the one plan-gate marker status check for THIS worktree (`ARMED`/`STALE`/`ARMED_ELSEWHERE`/`RELEASED`, read-only; `--verbose` adds per-token fields, e.g. `owner_worktree=` on `ARMED` or one `elsewhere=` line per live sibling on `ARMED_ELSEWHERE`) — skills call it instead of re-deriving the marker path and 8h staleness window themselves. `sweep <pattern> [--roots plans\|repo] [--ignore-case]` is the one portable search over mentor's own state: it prints `SWEEP: roots=N files=N hits=N` **before** the hits and exits like grep — `0` hits found, `1` files read but nothing matched, `2` nothing was searched (plus an explicit `NOTHING-SEARCHED` line) or a usage error — so a zero result can be told apart from a search that never read a file. Root sets: `plans` (default) = the main repo's `.mentor/plans`, `repo` = the whole worktree minus `.git/`. It exists because `.mentor/` is gitignored and ignore rules apply only while **grep itself** walks: `find` does the walking here and grep only reads the list it is handed, so gitignored state is reached under GNU grep, BSD grep and ugrep alike. planning's Step 2 research sweep calls it. |
+| `hooks/plan-reattach.sh` | **Plan re-attachment (Claude Code).** `SessionStart`, with no matcher: startup/resume/clear/compact/fork. Emits one `hookSpecificOutput` block with `hookEventName: SessionStart` and `additionalContext`: path, stored state, ticks N/M, next step and drift notice when changed. An armed draft is a stored `draft` owned by this worktree and newer than the gate; every stored draft shows `next: drafting`. Silent without such an armed draft, exact-session run marker or owned `in_progress` plan. An unmatched owned run gets `resume with /mentor:plan <slug>`; a fork is told it owns no run. A missing `plan.md` names the sidecar state plus the newest `_plan.md` review copy for that slug, or says no copy was found. Read-only and fail-open; never creates a run marker. |
+| `hooks/plan-state.sh` | **The one plan-state API** (not a hook — skills call it directly). `init` / `start` / `set` / `set-deps` / `record-write` / `drift` / `tick` / `verify` / `list [--owners]` / `current [--any]` / `query` / `sweep` / `context` / `dir` / `ensure-dir` / `relocate` / `gate`. `verify <slug>` backs planning's "Verify the write": four gating `CHECK:` lines — fence balance, table pipe-count uniformity, every step body inside `## Implementation steps` carrying a `Done when:`, and (v6.0.0, draft/unknown plans only) both `## Goal check` and `## Decision log` present (read via `mentor_plan_step_scan`, the one step-scan, so it can never disagree with `tick`/`query` about what a step is) — plus informational-only lines for Rev-note order, a stray ✅ on a non-step line, an `###` heading inside the steps section, and `CHECK: context` (the pre-approval context re-check folded into the same call). Exit 1 iff a gating check fails. Sole writer of `.state.json` (state, group, order, note, `deps`, `plan_sha256`, and `owner`/`owner_session` — the minting/re-owning worktree, stamped by `ensure-dir`/`init`/`relocate`); every write merges into the existing object, so keys it no longer writes survive. Derives effective state from the plan's ✅ ticks; `current` is group-aware and ownership-scoped to plans owned by this worktree (`--any` for a deliberate repo-wide read) — after a split it reports the whole owned group rather than whichever child finished last. `list --owners` adds an OWNER column for slug-reuse scans. `query` computes the repo-wide plans+deps+owner listing fresh on every call (see "Listing plans"). `dir` is the one repo-scoped `.mentor` path derivation — skills call it instead of hand-rolling `git-common-dir` snippets that drift. `relocate <src-plan-dir>` copies a plan from a DIFFERENT repo's `.mentor/plans/<slug>` into this one (run from the destination repo) and re-owns it here in one step — never deletes the source, and warns about repo-relative paths left stale under "Suggested first steps" and about the source repo's plan-gate no longer protecting edits made back there. `gate` is the one plan-gate marker status check for THIS worktree (`ARMED`/`STALE`/`ARMED_ELSEWHERE`/`RELEASED`, read-only; `--verbose` adds per-token fields, e.g. `owner_worktree=` on `ARMED` or one `elsewhere=` line per live sibling on `ARMED_ELSEWHERE`) — skills call it instead of re-deriving the marker path and 8h staleness window themselves. `sweep <pattern> [--roots plans\|repo] [--ignore-case]` is the one portable search over mentor's own state: it prints `SWEEP: roots=N files=N hits=N` **before** the hits and exits like grep — `0` hits found, `1` files read but nothing matched, `2` nothing was searched (plus an explicit `NOTHING-SEARCHED` line) or a usage error — so a zero result can be told apart from a search that never read a file. Root sets: `plans` (default) = the main repo's `.mentor/plans`, `repo` = the whole worktree minus `.git/`. It exists because `.mentor/` is gitignored and ignore rules apply only while **grep itself** walks: `find` does the walking here and grep only reads the list it is handed, so gitignored state is reached under GNU grep, BSD grep and ugrep alike. planning's Step 2 research sweep calls it. |
 
 Registered hooks: `PreToolUse` (Write|Edit|MultiEdit|NotebookEdit) → `plan-gate.sh`,
-`PostToolUse` (Write|Edit) → `plan-open.sh`, `UserPromptSubmit` → `context-gate.sh`, and
-`PostToolBatch` → `context-checkpoint.sh`, and `Stop` → `plan-continue.sh`. There is no
-`SessionStart` hook and nothing on Task/Agent calls.
+`PostToolUse` (Write|Edit) → `plan-open.sh`, `UserPromptSubmit` → `context-gate.sh`,
+`PostToolBatch` → `context-checkpoint.sh`, `Stop` → `plan-continue.sh`, and
+`SessionStart` (no matcher) → `plan-reattach.sh`: **six registrations**, all Claude-only.
+Nothing is registered on Task/Agent calls.
 
 ### Commands and skills never share a name
 
@@ -546,6 +574,33 @@ Knobs — set under `env` in `~/.claude/settings.json` (a shell `export` won't r
 | `MENTOR_PLAN_OPENER` | `auto` (default) · `vscode` · `chrome` · `system` |
 | `MENTOR_PLAN_VSCODE_BIN` | Force the VSCode CLI binary (default: auto-detect `code` / `cursor` / `windsurf` / …) |
 | `MENTOR_PLAN_OPEN=off` | Disable auto-open entirely |
+
+## Changes in v6.3.0
+
+**The plan stays attached through its lifecycle.** Research starts with a plan-file
+skeleton; rejection feedback goes into the decision log and the answering revision gets
+a Rev line. On every host, `record-write`, `drift` and `tick` maintain the optional
+`plan_sha256` baseline with known / changed / unknown drift.
+
+- **Per-prompt pointer (Claude Code).** An armed draft (a stored `draft` owned by this
+  worktree and newer than the gate) or this session's run gets its path, stored state
+  and next step, including alongside context warnings. Every stored draft shows
+  `next: drafting`; with an armed gate but no such draft, the pointer says
+  `mentor plan: no plan file yet · it is created at research start (planning Step 2)`.
+- **Approval re-anchor.** Approval reads the file fresh and names its path, change notice when needed and released gate; Proceed also names the next step and the instruction to tick after each PASS.
+  The approval sweep skips non-primary drafts that are still skeletons (no
+  `## Goal check` or no implementation steps), preserving their sidecars.
+- **SessionStart re-attachment (Claude Code).** Startup, resume, clear, compact and fork
+  receive one block for a live plan: path, stored state, ticks and next step. Armed drafts
+  must be stored `draft`, owned by this worktree and newer than the gate; every stored
+  draft shows `next: drafting`. Unmatched
+  owned runs get one recovery command; forks own no run. Missing files name the newest
+  available review snapshot or report no copy found. Inactive sessions stay silent.
+  This is a new purpose for SessionStart; v5's `handoff-check.sh` stays retired.
+
+Compatibility decision: **non-breaking: no lifecycle state or approval-option change**.
+Legacy sidecars without a hash read `unknown`; Claude-only hook output is declared in
+`capabilities.json`, and hosts without hooks use the portable tracking commands.
 
 ## Changes in v6.2.0
 

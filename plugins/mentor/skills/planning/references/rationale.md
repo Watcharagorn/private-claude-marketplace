@@ -10,6 +10,44 @@ to explain something that only matters when the rule itself is in question.
 
 Each section is anchored so `SKILL.md` can point at it directly.
 
+## Plan-file continuity — early drafts, feedback, and tracked writes
+
+The plan-file tracking session found that research and decision-making could outlast
+the context window before Step 4 created a file. The session wrote an early plan by
+hand to avoid losing those findings. Step 2 now runs the reuse scan and `start` before
+research, then writes a skeleton with a title, Rev 1, Context, Research notes, and the
+Decision log. Findings and decisions land incrementally in that same file; Step 4
+completes its approval sections. Strict `verify` still begins at Step 4 because an
+intentional research skeleton does not yet have the Goal check or implementation
+predicates it requires. An abandoned skeleton remains a discoverable draft, without
+adding a cleanup question to the flow.
+
+Moving the reuse scan earlier retains its ownership boundary: an obvious same-topic
+draft can continue only when this worktree owns it or it is unowned. Reading its
+existing plan and sidecar note preserves earlier decisions and rejection feedback;
+`start` is idempotent but stamps ownership, so it is not permission to take another
+worktree's slug. The stable path also gives a retrospective's Step 2 evidence an
+existing plan directory before its research overlays run.
+
+The same review found that **Keep planning** revised the file without retaining the
+user's feedback. A `kept` decision-log row now records that feedback, including change
+requests returned through Other. The Rev line on the answering revision identifies
+the resulting content; the row explains why it changed. Both remain on disk if the
+session compacts or resumes before the next approval answer.
+
+Content hashes introduced a second continuity problem: Write/Edit hooks cannot see
+shell writes, and hosts without hooks cannot observe any model write that way. A
+mentor-authored PASS row would then look like an outside edit when `tick` checked
+drift. Explicit `record-write` immediately after each mentor write covers every host
+and write mechanism, and is harmless when a hook already recorded the same bytes.
+The run therefore orders its writes as PASS row → `record-write` → `tick`.
+
+The pre-edit `drift` check and a read of changed content protect changes that arrived
+since the last tracked write. Recording the hash merely to dismiss a notice would
+hide those bytes without incorporating them; only an actual mentor write establishes
+the new baseline. When helpers are unavailable, the skill's existing artifact fallback
+still applies and reports the state action it could not perform.
+
 ## Step 0 — the armed-gate check
 
 (The `dir` guard comes first on purpose: outside a git repo, `dir` echoes the
@@ -85,8 +123,8 @@ current without repeatedly carrying its full body through chat.
 The card links to the absolute path because a session can move into a subdirectory.
 The question repeats the repo-relative path and newest Rev because the question dialog
 may be the only thing visible. An appended Rev changelog identifies the exact content
-being approved and supplies the re-ask's change note without treating step ticks or
-run-time log rows as new content revisions.
+being approved and supplies the re-ask's change note for content revisions (not step ticks,
+run-time log rows, or research notes and decision rows appended during Steps 2–3).
 
 Auto-opening the file is only a convenience: remote users, phones, hosts without an
 opener, and users who disable it still need a way to read the plan. `show plan` in

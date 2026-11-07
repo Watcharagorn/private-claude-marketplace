@@ -39,7 +39,7 @@
 # a re-run must never silently downgrade a no-implementation instruction.
 #
 # Plan state (v2.4.0, widened v2.14.0): EVERY approval path — no-arg and --deliver —
-# promotes this session's plans to `approved` in their .state.json sidecars. Approval
+# promotes this session's eligible plans to `approved` in their .state.json sidecars. Approval
 # is approval: the flag only changes what happens NEXT (implement now / deliver), not
 # whether the plan was approved. A flagged approval left at `draft` reads as "the gate
 # never released" in the next session — but it did. See the promotion block for why the
@@ -59,8 +59,8 @@ case "$flag" in
   *)
     echo "[mentor approve-plan] Unknown flag: ${flag}" >&2
     echo "Usage: approve-plan.sh [--deliver]" >&2
-    echo "This script takes no plan argument — it releases the gate and promotes every" >&2
-    echo "plan newer than the .planning marker. To approve ONE plan by slug, use:" >&2
+    echo "This script takes no plan argument — it releases the gate and promotes eligible" >&2
+    echo "plans newer than the .planning marker. To approve ONE plan by slug, use:" >&2
     echo "  plan-state.sh set <slug> approved --note \"…\"" >&2
     exit 1
     ;;
@@ -316,6 +316,8 @@ fi
 # `implemented`, `failed` or `in_progress`. `unknown` is included because a plan
 # written this session predates nothing: it just means Step 4 never ran `init`, and
 # the approval should still land rather than depend on the model remembering.
+# Non-primary candidates also need a Goal check and a parsed implementation step;
+# an abandoned research skeleton must remain draft rather than be swept to approved.
 #
 # Fail-soft throughout: every helper here exits 0, so a state-write problem can never
 # turn a successful gate release into an error.
@@ -326,7 +328,7 @@ fi
 # successful-looking approval went unnoticed until the next session refused to build it.
 # One `state:` line always prints, before the --deliver early exit below.
 if [ -n "$newly_planned" ] || [ -n "$unowned_skipped" ]; then
-  promoted=""; swept=""; candidates=0
+  promoted=""; swept=""; incomplete=""; candidates=0
   while IFS= read -r plan_path; do
     [ -n "$plan_path" ] || continue
     candidates=$((candidates + 1))
@@ -339,6 +341,11 @@ if [ -n "$newly_planned" ] || [ -n "$unowned_skipped" ]; then
       _promote_plan "$plan_dir" ""
       promoted="${promoted}$(basename "$plan_dir") "
     else
+      if ! grep -Eq '^##[[:space:]]+Goal check[[:space:]]*$' "$plan_path" \
+         || ! mentor_plan_step_scan "$plan_path" | awk -F '\t' '$1 == "TOTAL" { found = ($2 > 0) } END { exit !found }'; then
+        incomplete="${incomplete}$(basename "$plan_dir") "
+        continue
+      fi
       # Swept in only because its plan.md is also newer than this session's marker
       # (e.g. a different topic touched earlier in the same planning session) — NOT
       # the plan this call is approving. Stamp the sidecar note (not just the stdout
@@ -356,7 +363,10 @@ if [ -n "$newly_planned" ] || [ -n "$unowned_skipped" ]; then
   if [ -n "$swept" ]; then
     echo "  state: approved (also swept in — newer than this session's marker but not the plan being approved here; if you didn't mean to approve this one, verify it — plan-state.sh set <slug> draft to undo) — ${swept% }"
   fi
-  if [ -z "$promoted" ] && [ -z "$swept" ]; then
+  if [ -n "$incomplete" ]; then
+    echo "  state: incomplete, skipped — needs ## Goal check and at least one implementation step — ${incomplete% }"
+  fi
+  if [ -z "$promoted" ] && [ -z "$swept" ] && [ -z "$incomplete" ]; then
     echo "  state: unchanged — nothing needed promoting (${candidates} candidate(s), none in draft/unknown)"
   fi
   if [ -n "$unowned_skipped" ]; then
@@ -365,6 +375,37 @@ if [ -n "$newly_planned" ] || [ -n "$unowned_skipped" ]; then
 else
   echo "  state: unchanged — no plans written this session, nothing to promote"
 fi
+
+# Read the resolved approval candidate afresh, without recording a mentor write:
+# approval must preserve both plan.md and any evidence of an outside edit.
+_approval_anchor() {
+  printf '\n  plan: %s\n' "${newest_plan:-(no plan file on record)}"
+  if [ "$flag" != "--deliver" ]; then
+    mentor_plan_step_scan "$newest_plan" | awk -F'\t' '
+      $1 == "STEP" && $5 == 0 && !n {
+        n = $2
+        title = $8; for (i = 9; i <= NF; i++) title = title " " $i
+        sub(/^[[:space:]]*(-[[:space:]]+)?([*][*])?(#{3,4}[[:space:]]+)?/, "", title)
+        sub(/^([Ss]tep[[:space:]]+)?[0-9]+([.][0-9]+)*[.]?([*][*])?[[:space:]]*/, "", title)
+        sub(/^(:|—|-)[[:space:]]*/, "", title)
+      }
+      $1 == "TOTAL" { total = $2 }
+      END {
+        if (n) printf "  next: step %d/%d — %s\n", n, total, title
+        else if (total > 0) print "  next: all steps ticked"
+        else print "  next: drafting"
+      }
+    ' || true
+  fi
+  if [ "$(mentor_plan_drift "$newest_plan")" = changed ]; then
+    echo "  plan.md changed since mentor last wrote it — read it before editing it further"
+  fi
+  echo "  planning ended — edit gate released"
+  if [ "$flag" != "--deliver" ]; then
+    echo '  tick each step with `plan-state.sh tick` after its PASS row'
+  fi
+  return 0
+}
 
 if [ "$flag" = "--deliver" ]; then
   cat <<EOF
@@ -375,6 +416,7 @@ Do NOT implement in this session.
 Report where the plan lives and STOP. (The user can ask to proceed later — the
 gate is already open.)
 EOF
+  _approval_anchor
   exit 0
 fi
 
@@ -410,4 +452,5 @@ Run the plan until its Goal check passes (planning → "After Proceed"):
   deliver, then set the plan implemented — or failed, with --note "<why>".
 EOF
 
+_approval_anchor
 exit 0

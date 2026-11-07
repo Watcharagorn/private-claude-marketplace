@@ -21,7 +21,7 @@
         "planning",
         "grilling"
       ],
-      "fallback": "Use ordinary conversation for the one approval and persist the plan under .mentor. Without a Stop hook the run-until-done loop is a prose rule (keep working until a terminal state); without subagents each step is verified serially in the main thread and labelled self-graded.",
+      "fallback": "Use ordinary conversation for the one approval and persist the plan under .mentor. Without a Stop hook the run-until-done loop is a prose rule (keep working until a terminal state); without subagents each step is verified serially in the main thread and labelled self-graded. Plan-file tracking on every host: create the plan at research start, log rejection feedback, call plan-state.sh record-write <slug> after mentor writes, inspect drift <slug> (known/changed/unknown), and tick each step after its PASS row. Claude-only hooks: per-prompt plan pointer (context-gate.sh), SessionStart re-attachment (plan-reattach.sh), and automatic hook-recorded plan_sha256 hashes on Write/Edit (plan-open.sh). Codex has no automatic prompt pointer, SessionStart block or write hook; use the durable plan and the portable record-write, drift and tick commands explicitly.",
       "claude": {
         "status": "supported",
         "test": "plugins/mentor/tests/test-dual-host-contract.sh"

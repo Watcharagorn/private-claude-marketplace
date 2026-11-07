@@ -27,7 +27,7 @@ open.
 
 ## 1. Research directives (planning Step 2)
 
-Before drafting, find and cite with `file:line`:
+Before planning completes the plan, find and cite with `file:line`:
 
 - **Callers and dependents** of every function, type, endpoint, or config key the
   change touches — the set a reviewer will ask about first.

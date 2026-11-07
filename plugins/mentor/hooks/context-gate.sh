@@ -1,13 +1,11 @@
 #!/usr/bin/env bash
 # context-gate.sh — UserPromptSubmit (the ONE per-prompt hook)
 #
-# Carries two independent advisories that both fire on every prompt: the CONTEXT GATE
-# (tier 1) and the PLANNING-INTENT NUDGE (tier 2, merged in from the retired
-# planning-intent.sh in v2.34.0). They share nothing but the preamble — one process, one
-# `. lib/state.sh`, one jq parse of stdin, one cwd/repo resolution — which is the entire
-# reason they are one file. Each keeps its own kill switch, its own config key, its own
-# marker location, and its own passthrough semantics for synthetic prompts (the gate
-# MEASURES them; the nudge skips them). See each tier's own banner below.
+# Carries three independent advisories: the CONTEXT GATE (tier 1), the
+# PLANNING-INTENT NUDGE (tier 2, merged in from the retired planning-intent.sh in
+# v2.34.0), and a live PLAN POINTER on every prompt. They share one process, one
+# `. lib/state.sh`, and one cwd/repo resolution. Warning and nudge switches remain
+# independent; synthetic prompts are measured by the gate and skipped by the nudge.
 #
 # TIER 1 — the mentor CONTEXT GATE. Measures the live context size from the session transcript
 # and WARNS in three tiers. Warn-only (v4.2.0): it never blocks and never asks a question —
@@ -29,17 +27,16 @@
 #     over-the-limit notice, also every prompt. (The cap keeps its historical name:
 #     MENTOR_CONTEXT_BLOCK_TOKENS / context_block_tokens.)
 #
-# Escape hatches ALWAYS pass: an empty prompt, or any prompt starting with "/" (slash
-# commands like /compact, /mentor:plan) — checked FIRST, before any measurement, so the
-# gate can never slow down the tools that fix it.
+# Empty prompts and slash commands skip context measurement and the nudge; a live
+# plan pointer still prints so /compact and /mentor:plan retain the plan's location.
 #
 # Harness-synthetic prompts (an inbound agent/teammate report, a task notification, a
 # background-agent stop notice — no actionable human REQUEST behind them) are MEASURED
 # like any prompt but never consume the re-arming WARN (see the WARN tier) — that notice
 # belongs to the human's next real prompt.
 #
-# Fail-soft everywhere: no jq / no transcript / no usage record in the tail window /
-# malformed input → exit 0. Never brick a session.
+# Fail-soft everywhere: no jq / malformed input → exit 0. No transcript or usage
+# record skips the context warning while the plan pointer remains independent.
 #
 # Kill switch: MENTOR_CONTEXT_GATE=off (env) or "context_gate":"off" (.mentor/config.json).
 # Thresholds: MENTOR_CONTEXT_{WARN,WARN_HIGH,BLOCK}_TOKENS / MENTOR_CONTEXT_{WARN,HIGH}_RATIO
@@ -50,14 +47,14 @@ set -euo pipefail
 
 command -v jq >/dev/null 2>&1 || exit 0
 HOOK_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-. "${HOOK_DIR}/lib/state.sh"
+. "${HOOK_DIR}/lib/state.sh" 2>/dev/null || exit 0
 
 INPUT="$(cat)" || exit 0
 
 PROMPT="$(printf '%s' "$INPUT" | jq -r '.prompt // ""' 2>/dev/null)" || exit 0
-# Passthroughs FIRST: empty prompt or any slash command → never gate.
-[ -z "$PROMPT" ] && exit 0
-case "$PROMPT" in /*) exit 0 ;; esac
+# Passthroughs skip the warning/nudge functions, independently of the plan pointer.
+PASSTHROUGH=0
+case "$PROMPT" in ''|/*) PASSTHROUGH=1 ;; esac
 
 # Harness-synthetic prompt? Still measured below, but never consumes the WARN re-arm (see header).
 # Patterns are ANCHORED at position 0 on purpose: a leading `*…*` would exempt a real
@@ -88,6 +85,7 @@ repo_root="$(mentor_repo_root "$CWD")"
 # Bodies are deliberately NOT re-indented: an indent-only diff would hide real changes in
 # review.
 mentor_context_tiers() {
+[ "$PASSTHROUGH" = "0" ] || return 0
 # Kill switch (env or per-repo config).
 [ "$(mentor_context_gate_state "$repo_root")" = "on" ] || return 0
 
@@ -156,8 +154,9 @@ return 0
 # own kill switch, its own config key, and its marker living under a machine-global
 # scratch dir rather than the repo (a heuristic prompt match must never create .mentor/
 # in a repo that has never used mentor). The shared preamble above already applied its
-# empty-prompt, slash-command and synthetic-prompt passthroughs, which were identical.
+# empty-prompt, slash-command and synthetic-prompt classification.
 mentor_planning_nudge() {
+[ "$PASSTHROUGH" = "0" ] || return 0
 # Kill switch (env, or per-repo config when one already exists — read-only, never
 # creates .mentor/ or config.json).
 case "${MENTOR_PLANNING_INTENT:-}" in
@@ -207,10 +206,70 @@ echo "[mentor] This looks like a planning request. Use mentor's planning flow so
 return 0
 }
 
-# Order mirrors the hooks.json order these two used to have: the context verdict is the
-# more urgent line and must land above the nudge. Both write to stdout, which
-# UserPromptSubmit injects as context — exactly as two separate hooks did.
-mentor_context_tiers
-mentor_planning_nudge
+# ---------------------------------------------------------------------------
+# The plan pointer has no warning threshold or dedup marker: every prompt while
+# drafting/running needs the path, including near compaction. Read stored state;
+# all steps ticked still leaves the Goal check to grade before a run is finished.
+mentor_plan_pointer() {
+  local pp_plans pp_wt pp_gate pp_legacy pp_md="" pp_slug="" pp_stored
+  local pp_session pp_run pp_next pp_total pp_change=""
+  [ -n "$repo_root" ] || return 0
+  pp_plans="$(mentor_plans_dir "$repo_root")"
+  pp_wt="$(mentor_worktree_id "$CWD")"
+  pp_gate="$(mentor_plan_marker "$pp_plans" "$pp_wt")"
+  pp_legacy="$(mentor_plan_marker "$pp_plans" "")"
+
+  if { [ -f "$pp_gate" ] && ! mentor_marker_stale "$pp_gate"; } \
+     || { [ -n "$pp_wt" ] && [ -f "$pp_legacy" ] && ! mentor_marker_stale "$pp_legacy"; }; then
+    pp_md="$(mentor_armed_draft "$pp_plans" "$pp_wt")"
+    if [ -z "$pp_md" ]; then
+      echo "mentor plan: no plan file yet · it is created at research start (planning Step 2)"
+      return 0
+    fi
+    pp_slug="${pp_md%/plan.md}"
+    pp_slug="${pp_slug##*/}"
+  else
+    pp_session="$(printf '%s' "$INPUT" | jq -r '.session_id // ""' 2>/dev/null)" || return 0
+    case "$pp_session" in ''|*[!A-Za-z0-9_-]*) return 0 ;; esac
+    pp_run="${repo_root}/.mentor/.run-${pp_session}"
+    [ -f "$pp_run" ] || return 0
+    pp_slug="$(mentor_marker_field "$pp_run" slug)"
+    case "$pp_slug" in ''|.|..|*[!A-Za-z0-9_-]*) return 0 ;; esac
+    pp_md="${pp_plans}/${pp_slug}/plan.md"
+    [ -f "$pp_md" ] || return 0
+  fi
+
+  pp_stored="$(mentor_plan_state_stored "${pp_md%/plan.md}")"
+  # One existing scanner supplies both the first unticked ordinal and total.
+  read -r pp_next pp_total <<<"$(mentor_plan_step_scan "$pp_md" | awk -F'\t' '
+    $1 == "STEP" && $5 == 0 && !next_step { next_step = $2 }
+    $1 == "TOTAL" { total = $2 }
+    END { print next_step+0, total+0 }
+  ')" || return 0
+  case "$pp_next:$pp_total" in *[!0-9:]*|:*|*:) return 0 ;; esac
+  if [ ! -f "$pp_md" ]; then
+    pp_next="unavailable (plan.md missing)"
+  elif [ "$pp_stored" = draft ]; then
+    pp_next="drafting"
+  elif [ "$pp_total" = "0" ] && [ "$pp_stored" != approved ] && [ "$pp_stored" != in_progress ]; then
+    pp_next="drafting"
+  elif [ "$pp_next" = "0" ]; then
+    pp_next="goal check"
+  else
+    pp_next="step ${pp_next}/${pp_total}"
+  fi
+  if [ "$(mentor_plan_drift "$pp_md")" = "changed" ]; then
+    pp_change=" · plan.md changed since mentor last wrote it — read it before editing it further"
+  fi
+  printf 'mentor plan: %s · .mentor/plans/%s/plan.md · %s · next: %s%s\n' \
+    "$pp_slug" "$pp_slug" "${pp_stored:-unknown}" "$pp_next" "$pp_change"
+  return 0
+}
+
+# Keep warning priority and the existing UserPromptSubmit stdout context channel.
+# Each advisory runs independently; none can fail the prompt or swallow another.
+mentor_context_tiers 2>/dev/null || true
+mentor_planning_nudge 2>/dev/null || true
+mentor_plan_pointer 2>/dev/null || true
 
 exit 0

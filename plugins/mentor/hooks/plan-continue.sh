@@ -52,7 +52,7 @@ find "$state_dir" -maxdepth 1 -name '.run-*' -mmin +1440 -delete 2>/dev/null || 
 marker="${state_dir}/.run-${SESSION_ID}"
 [ -f "$marker" ] || exit 0
 
-slug="$(sed -n 's/^slug=//p' "$marker" 2>/dev/null | head -n 1)"
+slug="$(mentor_marker_field "$marker" slug)"
 [ -n "$slug" ] || exit 0
 plan_dir="${state_dir}/plans/${slug}"
 plan_md="${plan_dir}/plan.md"

@@ -453,6 +453,170 @@ chk "draft → marker written"                          test -f "$MARKER"
 chk "draft → no ALREADY APPROVED"                     sh -c "! printf '%s' \"\$0\" | grep -q 'ALREADY APPROVED'" "$out"
 rm -f "$MARKER"
 
+echo "== R. Approval re-anchors the run after mentor writes and ticks =="
+output_has() { printf '%s\n' "$out" | grep -Fqx -- "$1"; }
+output_lacks() { ! printf '%s\n' "$out" | grep -Fq -- "$1"; }
+change_notice='plan.md changed since mentor last wrote it — read it before editing it further'
+tick_instruction='tick each step with `plan-state.sh tick` after its PASS row'
+clear_plans; rm -f "$MARKER" "$MARKER_B" "$LEGACY_MARKER"
+arm; sleep 1
+mkdir -p "$PLANS_DIR/anchor-run"
+cat > "$PLANS_DIR/anchor-run/plan.md" <<'EOF'
+# Approval anchor
+
+## Implementation steps
+
+1. Record the finding
+   - Done when: finding recorded.
+2. Build the change
+   - Done when: change verified.
+EOF
+psq init anchor-run >/dev/null
+psq record-write anchor-run >/dev/null
+psq tick anchor-run 1 >/dev/null
+before_plan="$(cksum "$PLANS_DIR/anchor-run/plan.md")"
+before_hash="$(sidecar anchor-run '.plan_sha256')"
+out="$(ap)"; rc=$?
+chk "anchor after mentor write + tick → exit 0" test "$rc" = "0"
+chk "anchor → resolved plan path printed" output_has "  plan: $PLANS_DIR/anchor-run/plan.md"
+chk "anchor → first unticked step number and title" output_has "  next: step 2/2 — Build the change"
+chk "anchor → tick instruction" output_has "  $tick_instruction"
+chk "anchor → planning ended and edit gate released" output_has "  planning ended — edit gate released"
+chk "mentor record-write + tick → no change notice" output_lacks "$change_notice"
+chk "approval → plan.md byte-untouched" test "$(cksum "$PLANS_DIR/anchor-run/plan.md")" = "$before_plan"
+chk "approval → tracked hash unchanged" test "$(sidecar anchor-run '.plan_sha256')" = "$before_hash"
+expected_anchor="$(printf '  plan: %s\n  next: step 2/2 — Build the change\n  planning ended — edit gate released\n  %s' "$PLANS_DIR/anchor-run/plan.md" "$tick_instruction")"
+chk "anchor block follows every existing output line" test "$(printf '%s\n' "$out" | tail -n 4)" = "$expected_anchor"
+
+echo "== R2. Outside edits are reported without approval re-baselining =="
+arm; sleep 1
+printf '\n3. Outside-added step\n   - Done when: extra work verified.\n' >> "$PLANS_DIR/anchor-run/plan.md"
+before_plan="$(cksum "$PLANS_DIR/anchor-run/plan.md")"
+out="$(ap)"; rc=$?
+chk "outside edit → approval still exits 0" test "$rc" = "0"
+chk "outside edit → change notice printed" output_has "  $change_notice"
+chk "outside edit → fresh step total read from disk" output_has "  next: step 2/3 — Build the change"
+chk "outside edit → approval leaves plan.md untouched" test "$(cksum "$PLANS_DIR/anchor-run/plan.md")" = "$before_plan"
+chk "outside edit → approval preserves old tracked hash" test "$(sidecar anchor-run '.plan_sha256')" = "$before_hash"
+chk "outside edit → drift remains changed after approval" test "$(psq drift anchor-run)" = "changed"
+
+echo "== R3. --deliver re-anchors without starting implementation =="
+arm; sleep 1
+printf '\nMentor recorded a finding.\n' >> "$PLANS_DIR/anchor-run/plan.md"
+psq record-write anchor-run >/dev/null
+out="$(apsess anchor-deliver --deliver)"; rc=$?
+chk "deliver anchor → exit 0" test "$rc" = "0"
+chk "deliver anchor → path printed" output_has "  plan: $PLANS_DIR/anchor-run/plan.md"
+chk "deliver anchor → gate-released line" output_has "  planning ended — edit gate released"
+chk "deliver anchor → no next-step line" output_lacks "next:"
+chk "deliver anchor → no tick instruction" output_lacks "$tick_instruction"
+chk "deliver mentor record-write → no change notice" output_lacks "$change_notice"
+chk "deliver anchor → no run marker" test ! -f "$STATE_DIR/.run-anchor-deliver"
+expected_anchor="$(printf '  plan: %s\n  planning ended — edit gate released' "$PLANS_DIR/anchor-run/plan.md")"
+chk "deliver anchor block is last" test "$(printf '%s\n' "$out" | tail -n 2)" = "$expected_anchor"
+
+echo "== R4. Fully ticked steps never invent another step =="
+psq tick anchor-run 2 >/dev/null
+psq tick anchor-run 3 >/dev/null
+out="$(ap)"; rc=$?
+chk "all ticked → approval exits 0" test "$rc" = "0"
+chk "all ticked → names completed steps" output_has "  next: all steps ticked"
+chk "all ticked → no phantom next step" output_lacks "next: step"
+chk "mentor ticks → no change notice" output_lacks "$change_notice"
+
+echo "== R5. Already-open gate uses its existing repo-wide newest candidate =="
+sleep 1
+mkdir -p "$PLANS_DIR/foreign-newest"
+printf '# Foreign plan\n\n## Implementation steps\n\n### 1. Freshly read title\n' > "$PLANS_DIR/foreign-newest/plan.md"
+psq_b init foreign-newest >/dev/null
+out="$(ap)"; rc=$?
+chk "open gate anchor → exit 0" test "$rc" = "0"
+chk "open gate → retains repo-wide candidate warning" output_has "  plan (repo-wide newest, may not be yours): $PLANS_DIR/foreign-newest/plan.md"
+chk "open gate anchor → names the same candidate" output_has "  plan: $PLANS_DIR/foreign-newest/plan.md"
+chk "open gate anchor → reads candidate's first step and title" output_has "  next: step 1/1 — Freshly read title"
+chk "legacy unknown hash → no change notice" output_lacks "$change_notice"
+chk "approval never establishes a missing hash" test "$(psq drift foreign-newest)" = "unknown"
+chk "open gate anchor → tick instruction still printed" output_has "  $tick_instruction"
+out="$(ap --deliver)"
+chk "open gate deliver anchor → path printed" output_has "  plan: $PLANS_DIR/foreign-newest/plan.md"
+chk "open gate deliver anchor → gate-released line" output_has "  planning ended — edit gate released"
+chk "open gate deliver anchor → no next-step line" output_lacks "next:"
+chk "open gate deliver anchor → no tick instruction" output_lacks "$tick_instruction"
+
+echo "== R6. Missing steps and missing plan keep successful approval paths =="
+clear_plans
+mkdir -p "$PLANS_DIR/skeleton"
+printf '# Skeleton\n\n## Research notes\n\nFinding.\n' > "$PLANS_DIR/skeleton/plan.md"
+out="$(ap)"; rc=$?
+chk "no steps → approval exits 0" test "$rc" = "0"
+chk "no steps → next is drafting" output_has "  next: drafting"
+clear_plans
+out="$(ap)"; rc=$?
+chk "open gate without a plan → still exits 0" test "$rc" = "0"
+chk "no plan → explicit path fallback" output_has "  plan: (no plan file on record)"
+chk "no plan → no change notice" output_lacks "$change_notice"
+
+echo "== S. Non-primary approval sweep leaves incomplete research unchanged =="
+sweep_plan() { # <slug> <stored-state-or-unknown> <offset-after-gate> <body>
+  local dir="$PLANS_DIR/$1"
+  mkdir -p "$dir"
+  printf '%s\n' "$4" > "$dir/plan.md"
+  jq -nc --arg state "$2" --arg owner "$WTA_ID" \
+    '{owner:$owner,note:"research remains recoverable",extra:42} +
+     (if $state == "unknown" then {} else {state:$state} end)' > "$dir/.state.json"
+  python3 - "$dir/plan.md" "$MARKER" "$3" <<'PY'
+import os, sys
+stamp = os.stat(sys.argv[2]).st_mtime + int(sys.argv[3])
+os.utime(sys.argv[1], (stamp, stamp))
+PY
+}
+sidecar_snapshot() {
+  python3 - "$PLANS_DIR/$1/.state.json" <<'PY'
+import hashlib, os, sys
+path = sys.argv[1]
+stat = os.stat(path)
+with open(path, 'rb') as source:
+    print(stat.st_ino, stat.st_mtime_ns, hashlib.sha256(source.read()).hexdigest())
+PY
+}
+complete_body=$'# Completed plan\n\n## Implementation steps\n1. Build the change\n   - Done when: verified.\n\n## Goal check\nVerified result.'
+for approval in proceed deliver; do
+  clear_plans; rm -f "$MARKER" "$MARKER_B" "$LEGACY_MARKER"
+  arm
+  python3 - "$MARKER" <<'PY'
+import os, sys, time
+stamp = time.time() - 60
+os.utime(sys.argv[1], (stamp, stamp))
+PY
+  sweep_plan abandoned draft 10 $'# Abandoned skeleton\n\n## Research notes\nFinding.'
+  sweep_plan missing-goal unknown 20 $'# Missing Goal check\n\n## Implementation steps\n1. Build work\n   - Done when: verified.'
+  sweep_plan missing-steps draft 30 $'# Missing parsed steps\n\n1. Numbered research outside implementation.\n\n## Implementation steps\nResearch is still in progress.\n\n## Goal check\nVerified result.'
+  sweep_plan secondary draft 40 "$complete_body"
+  sweep_plan unknown-secondary unknown 45 "$complete_body"
+  sweep_plan primary draft 50 "$complete_body"
+  before_abandoned="$(sidecar_snapshot abandoned)"
+  before_goal="$(sidecar_snapshot missing-goal)"
+  before_steps="$(sidecar_snapshot missing-steps)"
+  if [ "$approval" = deliver ]; then out="$(ap --deliver)"; rc=$?
+  else out="$(ap)"; rc=$?; fi
+  chk "$approval + completed primary → approval succeeds" test "$rc" = 0
+  chk "$approval → primary promoted" test "$(sidecar primary '.state')" = approved
+  chk "$approval → gate released" test ! -f "$MARKER"
+  chk "$approval → abandoned skeleton stays draft" test "$(sidecar abandoned '.state')" = draft
+  chk "$approval → abandoned skeleton sidecar unchanged" test "$(sidecar_snapshot abandoned)" = "$before_abandoned"
+  chk "$approval → missing Goal check sidecar unchanged" test "$(sidecar_snapshot missing-goal)" = "$before_goal"
+  chk "$approval → missing parsed steps sidecar unchanged" test "$(sidecar_snapshot missing-steps)" = "$before_steps"
+  skipped="$(printf '%s\n' "$out" | grep 'state: incomplete, skipped')"
+  for slug in abandoned missing-goal missing-steps; do
+    chk "$approval → reports $slug as incomplete" bash -c '[[ "$1" == *"$2"* ]]' _ "$skipped" "$slug"
+  done
+  chk "$approval → completed secondary still promoted" test "$(sidecar secondary '.state')" = approved
+  chk "$approval → completed unknown secondary still promoted" test "$(sidecar unknown-secondary '.state')" = approved
+  chk "$approval → completed secondary keeps sweep-review note" \
+    bash -c '[[ "$1" == *"not individually reviewed"* ]]' _ "$(sidecar secondary '.note')"
+  chk "$approval → incomplete reporting retains original plan path" output_has "  plan: $PLANS_DIR/primary/plan.md"
+done
+
 echo
 echo "RESULT: PASS=$PASS FAIL=$FAIL"
 [ "$FAIL" = "0" ]

@@ -1131,6 +1131,137 @@ chk "start: outside a git repo → exit 1"         test "$rc" = "1"
 chk "..names the reason"                         has "Not inside a git repo" "$out"
 CWD="$REPO"
 
+echo "== X. plan content drift: record-write, outside edits, ticks and lifecycle writes =="
+NOTICE='plan.md changed since mentor last wrote it — read it before editing it further'
+plan hash-plan '# tracked' '## Implementation steps' '1. first' '2. second' '## Verification'
+HASH_MD="$PLANS/hash-plan/plan.md"
+HASH_STATE="$PLANS/hash-plan/.state.json"
+chk "no sidecar → drift unknown" test "$(psout drift hash-plan)" = unknown
+cat > "$HASH_STATE" <<'JSON'
+{"state":"approved","owner":"old-wt","owner_session":"old-session","note":"keep this note","group":"old-group","order":4,"deps":["solo"],"extra":{"keep":[1,true,null]}}
+JSON
+chk "legacy sidecar without plan_sha256 → drift unknown" test "$(psout drift hash-plan)" = unknown
+hash_fields="$(jq -cS . "$HASH_STATE")"
+hash_content="$(cat "$HASH_MD")"
+out="$(ps record-write hash-plan)"; rc=$?
+chk "record-write → exit 0" test "$rc" = 0
+chk "record-write never changes plan.md" test "$(cat "$HASH_MD")" = "$hash_content"
+chk "record-write → known" test "$(psout drift hash-plan)" = known
+chk "lib mentor_plan_drift → known" test "$(mentor_plan_drift "$HASH_MD")" = known
+chk "record-write stores a sha256" jq -e '.plan_sha256 | test("^[0-9a-f]{64}$")' "$HASH_STATE"
+chk "record-write preserves every other sidecar key" test "$(jq -cS 'del(.plan_sha256)' "$HASH_STATE")" = "$hash_fields"
+hash_once="$(cat "$HASH_STATE")"
+ps record-write hash-plan >/dev/null
+chk "record-write is idempotent" test "$(cat "$HASH_STATE")" = "$hash_once"
+
+printf '\noutside edit\n' >> "$HASH_MD"
+chk "outside printf append → changed" test "$(psout drift hash-plan)" = changed
+chk "lib mentor_plan_drift → changed" test "$(mentor_plan_drift "$HASH_MD")" = changed
+out="$(ps tick hash-plan 1)"; rc=$?
+chk "tick after outside edit → exit 0" test "$rc" = 0
+chk "tick reports drift BEFORE its tick result" test "$(printf '%s\n' "$out" | head -1)" = "$NOTICE"
+chk "tick reports the drift notice once" test "$(printf '%s\n' "$out" | grep -Fxc "$NOTICE")" = 1
+chk "successful tick re-baselines → known" test "$(psout drift hash-plan)" = known
+chk "tick preserves every other sidecar key" test "$(jq -cS 'del(.plan_sha256)' "$HASH_STATE")" = "$hash_fields"
+out="$(ps tick hash-plan 1)"
+chk "unchanged idempotent tick → no drift notice" hasnt "$NOTICE" "$out"
+chk "unchanged idempotent tick → known" test "$(psout drift hash-plan)" = known
+
+before_failed_tick="$(cat "$HASH_STATE")"
+printf '\nanother outside edit\n' >> "$HASH_MD"
+before_failed_content="$(cat "$HASH_MD")"
+out="$(ps tick hash-plan 99)"; rc=$?
+chk "failed tick → non-zero" test "$rc" = 1
+chk "failed tick preserves the old baseline and sidecar" test "$(cat "$HASH_STATE")" = "$before_failed_tick"
+chk "failed tick preserves plan.md" test "$(cat "$HASH_MD")" = "$before_failed_content"
+chk "failed tick leaves outside edit changed" test "$(psout drift hash-plan)" = changed
+
+plan hash-cycle '# hookless' '## Implementation steps' '1. first' '2. second' '3. third' '## Verification'
+ps init hash-cycle >/dev/null
+ps record-write hash-cycle >/dev/null
+for cycle in 1 2; do
+  printf '| Step %s | PASS |\n' "$cycle" >> "$PLANS/hash-cycle/plan.md"
+  ps record-write hash-cycle >/dev/null
+  out="$(ps tick hash-cycle "$cycle")"; rc=$?
+  chk "hookless cycle $cycle: PASS row → record-write → tick succeeds" test "$rc" = 0
+  chk "hookless cycle $cycle → no drift notice" hasnt "$NOTICE" "$out"
+  chk "hookless cycle $cycle → known" test "$(psout drift hash-cycle)" = known
+done
+# Approval must promote a fresh, unticked draft through a real gate release;
+# an already-open gate or the ticked hash-cycle plan would skip the sidecar write.
+rm -f "$OWN_MARKER" "$LEGACY_MARKER" "$SIB_MARKER" "$SIB_MARKER_C"
+out="$(cd "$REPO" && _env bash "$HOOKS/begin-plan.sh" hash-approval 2>&1)"; rc=$?
+chk "approval fixture: begin-plan succeeds" test "$rc" = 0
+chk "approval fixture: this worktree's gate is armed" test -f "$OWN_MARKER"
+sleep 1
+plan hash-approval '# approval' '## Implementation steps' '1. first' '2. second' '## Verification'
+ps init hash-approval >/dev/null
+ps record-write hash-approval >/dev/null
+approval_content="$(cat "$PLANS/hash-approval/plan.md")"
+approval_baseline="$(sidecar hash-approval .plan_sha256)"
+chk "approval fixture: stored state is draft" test "$(sidecar hash-approval .state)" = draft
+chk "approval fixture: plan is newer than the gate marker" test "$PLANS/hash-approval/plan.md" -nt "$OWN_MARKER"
+chk "approval fixture: recorded baseline is a sha256" jq -e '.plan_sha256 | test("^[0-9a-f]{64}$")' "$PLANS/hash-approval/.state.json"
+chk "approval fixture: drift is known" test "$(psout drift hash-approval)" = known
+out="$(cd "$REPO" && _env bash "$HOOKS/approve-plan.sh" 2>&1)"; rc=$?
+chk "fresh draft approval → exit 0" test "$rc" = 0
+chk "fresh draft approval → gate released" test ! -f "$OWN_MARKER"
+chk "fresh draft approval → stored state approved" test "$(sidecar hash-approval .state)" = approved
+chk "fresh draft approval → no drift notice" hasnt "$NOTICE" "$out"
+chk "fresh draft approval → known" test "$(psout drift hash-approval)" = known
+chk "fresh draft approval preserves plan.md" test "$(cat "$PLANS/hash-approval/plan.md")" = "$approval_content"
+chk "fresh draft approval preserves the baseline" test "$(sidecar hash-approval .plan_sha256)" = "$approval_baseline"
+out="$(ps set hash-approval in_progress)"; rc=$?
+chk "state transition → exit 0" test "$rc" = 0
+chk "state transition → stored state in_progress" test "$(sidecar hash-approval .state)" = in_progress
+chk "state transition → no drift notice" hasnt "$NOTICE" "$out"
+chk "state transition → known" test "$(psout drift hash-approval)" = known
+chk "state transition preserves plan.md" test "$(cat "$PLANS/hash-approval/plan.md")" = "$approval_content"
+chk "state transition preserves the baseline" test "$(sidecar hash-approval .plan_sha256)" = "$approval_baseline"
+
+out="$(ps record-write absent-hash-plan)"; rc=$?
+chk "record-write on a missing plan → non-zero" test "$rc" = 1
+chk "record-write on a missing plan creates no sidecar" test ! -e "$PLANS/absent-hash-plan/.state.json"
+mkdir -p "$PLANS/hash-empty"
+out="$(ps record-write hash-empty)"; rc=$?
+chk "record-write on a dir without plan.md → non-zero" test "$rc" = 1
+chk "record-write without plan.md creates no sidecar" test ! -e "$PLANS/hash-empty/.state.json"
+chk "drift without plan.md → unknown" test "$(psout drift hash-empty)" = unknown
+out="$(ps record-write)"; rc=$?
+chk "record-write without a slug → usage error" test "$rc" = 1
+out="$(ps drift hash-plan extra)"; rc=$?
+chk "drift rejects extra arguments" test "$rc" = 1
+CWD="$BARE"
+out="$(ps record-write missing)"; rc=$?
+chk "record-write with no plans dir → non-zero" test "$rc" = 1
+chk "drift with no plans dir → unknown" test "$(psout drift missing)" = unknown
+CWD="$REPO"
+
+echo "== X2. unavailable hash tools and sha256sum fallback =="
+NOHASH_DIR="$ROOT/nohash"; mkdir -p "$NOHASH_DIR"
+for tool in git dirname jq; do ln -s "$(command -v "$tool")" "$NOHASH_DIR/$tool"; done
+out="$(cd "$REPO" && _env PATH="$NOHASH_DIR" "$BASH_BIN" "$PLANSTATE" drift hash-cycle)"; rc=$?
+chk "no sha256 tool → drift exits 0" test "$rc" = 0
+chk "no sha256 tool → unknown" test "$out" = unknown
+before_nohash="$(cat "$PLANS/hash-cycle/.state.json")"
+out="$(cd "$REPO" && _env PATH="$NOHASH_DIR" "$BASH_BIN" "$PLANSTATE" record-write hash-cycle)"; rc=$?
+chk "no sha256 tool → record-write exits 0" test "$rc" = 0
+chk "no sha256 tool → existing baseline preserved" test "$(cat "$PLANS/hash-cycle/.state.json")" = "$before_nohash"
+# Use the real Linux utility when present; on macOS adapt the real shasum to the
+# same stdin interface so the fallback branch remains covered on either host.
+if command -v sha256sum >/dev/null 2>&1; then
+  ln -s "$(command -v sha256sum)" "$NOHASH_DIR/sha256sum"
+else
+  printf '#!%s\nexec "%s" -a 256 "$@"\n' "$BASH_BIN" "$(command -v shasum)" > "$NOHASH_DIR/sha256sum"
+  chmod +x "$NOHASH_DIR/sha256sum"
+fi
+out="$(cd "$REPO" && _env PATH="$NOHASH_DIR" "$BASH_BIN" "$PLANSTATE" drift hash-cycle)"; rc=$?
+chk "sha256sum fallback → exit 0" test "$rc" = 0
+chk "sha256sum fallback matches the recorded hash → known" test "$out" = known
+out="$(psout --help)"
+chk "help documents record-write" has 'record-write <slug>' "$out"
+chk "help documents drift" has 'drift <slug>' "$out"
+
 echo
 echo "RESULT: PASS=$PASS FAIL=$FAIL"
 [ "$FAIL" = "0" ]

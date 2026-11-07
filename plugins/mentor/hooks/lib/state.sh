@@ -19,7 +19,7 @@
 #   │                     #   marker — blocks every worktree until released/stale.
 #   │   └── <slug>/       #   plan.md (+ hidden .plan.md.opened sidecar)
 #   │       └── .state.json  # {"state","group","order","note","deps","owner",
-#   │                        #   "owner_session"} — written ONLY via plan-state.sh, which
+#   │                        #   "owner_session","plan_sha256"} — written ONLY via plan-state.sh, which
 #   │                        #   MERGES into the existing object, so any other key
 #   │                        #   (e.g. pre-5.0 origin/parent/priority/category/
 #   │                        #   deferred_from) survives untouched and is never read.
@@ -228,6 +228,36 @@ mentor_newest_plan_owned() {
   return 0
 }
 
+# mentor_armed_draft <plans_dir> <wt_id> — newest stored draft owned here and
+# written strictly after the live own gate, or the live legacy gate when no own
+# gate is live. An empty wt-id uses the legacy marker and unowned drafts. Missing
+# plan.md uses its sidecar's mtime for recovery; an existing plan always supplies
+# its own timestamp. Read-only; no eligible gate/draft echoes empty.
+mentor_armed_draft() {
+  local plans_dir="${1:-}" wt_id="${2:-}" gate legacy dir stamp newest="" plan=""
+  [ -n "$plans_dir" ] && [ -d "$plans_dir" ] || { echo ""; return 0; }
+  gate="$(mentor_plan_marker "$plans_dir" "$wt_id")"
+  legacy="$(mentor_plan_marker "$plans_dir" "")"
+  if [ ! -f "$gate" ] || mentor_marker_stale "$gate"; then
+    gate="$legacy"
+  fi
+  [ -f "$gate" ] && ! mentor_marker_stale "$gate" || { echo ""; return 0; }
+  for dir in "$plans_dir"/*; do
+    [ -d "$dir" ] || continue
+    [ "$(mentor_plan_state_stored "$dir")" = draft ] || continue
+    [ "$(mentor_plan_owner "$dir")" = "$wt_id" ] || continue
+    stamp="${dir}/plan.md"
+    [ -f "$stamp" ] || stamp="${dir}/.state.json"
+    [ -f "$stamp" ] && [ "$stamp" -nt "$gate" ] || continue
+    if [ -z "$newest" ] || [ "$stamp" -nt "$newest" ]; then
+      newest="$stamp"
+      plan="${dir}/plan.md"
+    fi
+  done
+  echo "$plan"
+  return 0
+}
+
 # mentor_newly_planned <plans_dir> <marker> <wt_id> — echo one plan.md path per output
 # line: the same `find … -newer "$marker"` snapshot approve-plan.sh takes (plans
 # written since <marker> was armed), restricted to the mentor_newest_plan_owned
@@ -349,7 +379,8 @@ mentor_cwd() {
 # Each plan dir carries a hidden `.state.json` sidecar:
 #   {"state":"draft|approved|in_progress|implemented|failed|superseded",
 #    "group":"<parent slug>"|null, "order":<n>|null, "note":"<free text>",
-#    "deps":["<slug>", …], "owner":"<wt-id>"|null, "owner_session":"<session id>"|null}
+#    "deps":["<slug>", …], "owner":"<wt-id>"|null, "owner_session":"<session id>"|null,
+#    "plan_sha256":"<last tracked plan.md hash>"}
 # `group` is the slug of the plan that /plan-split replaced; standalone plans hold null.
 # `deps` names plan slugs this one needs first (unknown slugs allowed; `plan-state.sh
 # query` marks those `missing`). `owner` is the wt-id (mentor_worktree_id) that minted
@@ -357,6 +388,8 @@ mentor_cwd() {
 # `set`; read it via mentor_plan_owner, never mentor_plan_state_field directly, so a
 # future second read site never has to remember the field name by hand.
 # `owner_session` is the session id that performed that stamp, alongside it.
+# `plan_sha256` is recorded by `plan-state.sh record-write` and successful ticks;
+# legacy sidecars without it read as unknown drift, with no migration required.
 #
 # Any OTHER key is preserved byte-for-byte by every write (mentor_plan_state_write
 # merges) and read by nothing. Pre-5.0 sidecars carry origin/parent/priority/category/
@@ -453,6 +486,37 @@ mentor_plan_state_field() {
   if [ ! -f "$f" ]; then echo ""; return 0; fi
   command -v jq >/dev/null 2>&1 || { echo ""; return 0; }
   jq -r --arg k "$key" '.[$k] // "" | tostring' "$f" 2>/dev/null || true
+  return 0
+}
+
+# mentor_plan_sha256 <plan_md> — current content hash, or empty when unmeasurable.
+# Hash stdin so spaces, newlines and option-like filenames never affect the digest.
+mentor_plan_sha256() {
+  local md="${1:-}" digest
+  [ -n "$md" ] && [ -f "$md" ] || { echo ""; return 0; }
+  if command -v shasum >/dev/null 2>&1; then
+    digest="$(shasum -a 256 < "$md" 2>/dev/null || true)"
+  elif command -v sha256sum >/dev/null 2>&1; then
+    digest="$(sha256sum < "$md" 2>/dev/null || true)"
+  else
+    echo ""; return 0
+  fi
+  digest="${digest%% *}"
+  if [[ "$digest" =~ ^[[:xdigit:]]{64}$ ]]; then echo "$digest"; else echo ""; fi
+  return 0
+}
+
+# mentor_plan_drift <plan_md> — known / changed / unknown; read-only, fail-soft.
+mentor_plan_drift() {
+  local md="${1:-}" stored current
+  [ -n "$md" ] && [ -f "$md" ] || { echo unknown; return 0; }
+  stored="$(mentor_plan_state_field "$(dirname "$md")" plan_sha256)"
+  [ -n "$stored" ] || { echo unknown; return 0; }
+  current="$(mentor_plan_sha256 "$md")"
+  if [ -z "$current" ]; then echo unknown
+  elif [ "$stored" = "$current" ]; then echo known
+  else echo changed
+  fi
   return 0
 }
 

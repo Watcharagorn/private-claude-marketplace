@@ -15,8 +15,9 @@
 #
 # Since v2.34.0 this hook also carries the planning-intent nudge as tier 2 (see
 # test-planning-nudge.sh). Every case here pins MENTOR_PLANNING_INTENT=off so the tiers
-# stay separately measurable; section J below is the one place both run at once, and it
+# stay separately measurable; section J tests both running at once, and it
 # exists because the merge's whole risk is one tier's early return swallowing the other.
+# Section M covers the per-prompt plan pointer, independently of both warning tiers.
 set -uo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
@@ -27,6 +28,7 @@ for f in "$HOOK" "$BEGIN"; do [ -f "$f" ] || { echo "FATAL: not found: $f" >&2; 
 command -v jq >/dev/null 2>&1 || { echo "FATAL: jq required to run this suite" >&2; exit 1; }
 
 ROOT="$(cd "$(mktemp -d)" && pwd -P)"
+SANDBOX="$ROOT/home"; mkdir -p "$SANDBOX"
 REPO="$ROOT/sample-repo"
 git init -q -b main "$REPO" >/dev/null 2>&1
 ( cd "$REPO"; git config user.email t@t.co; git config user.name t; echo x > f; git add -A; git commit -q -m init ) >/dev/null 2>&1
@@ -94,7 +96,7 @@ run() {
   local prompt="$1" sess="$2" tx="$3"; shift 3
   RC=0
   OUT="$(mkinput "$prompt" "$tx" "$REPO" "$sess" \
-    | env "${PIN_ENV[@]}" MENTOR_STATE_HOME="$STATE_HOME" MENTOR_PLANNING_INTENT=off "$@" bash "$HOOK" 2>"$ERRFILE")" || RC=$?
+    | env "${PIN_ENV[@]}" HOME="$SANDBOX" MENTOR_STATE_HOME="$STATE_HOME" MENTOR_PLANNING_INTENT=off "$@" bash "$HOOK" 2>"$ERRFILE")" || RC=$?
   ERR="$(cat "$ERRFILE")"
 }
 # run_nojq: same, but with a PATH where jq cannot be found. Input is fed from a FILE
@@ -104,7 +106,7 @@ run_nojq() {
   local prompt="$1" sess="$2" tx="$3"
   mkinput "$prompt" "$tx" "$REPO" "$sess" > "$ROOT/in.json"
   RC=0
-  OUT="$(PATH="$NOJQ_DIR" "$BASH_BIN" "$HOOK" < "$ROOT/in.json" 2>"$ERRFILE")" || RC=$?
+  OUT="$(HOME="$SANDBOX" PATH="$NOJQ_DIR" "$BASH_BIN" "$HOOK" < "$ROOT/in.json" 2>"$ERRFILE")" || RC=$?
   ERR="$(cat "$ERRFILE")"
 }
 marker() { echo "$STATE/.context-warned-$1"; }
@@ -308,7 +310,7 @@ bp() { # <transcript-tokens|none> → sets RC/OUT; cleans marker first
   if [ "$toks" = "none" ]; then rm -f "$CFG/projects/proj/$SESS.jsonl"
   else mktx "$CFG/projects/proj/$SESS.jsonl" "usage:$toks"; fi
   RC=0
-  OUT="$( cd "$REPO" && env "${PIN_ENV[@]}" MENTOR_STATE_HOME="$STATE_HOME" \
+  OUT="$( cd "$REPO" && env "${PIN_ENV[@]}" HOME="$SANDBOX" MENTOR_STATE_HOME="$STATE_HOME" \
       CLAUDE_CONFIG_DIR="$CFG" CLAUDE_CODE_SESSION_ID="$SESS" bash "$BEGIN" 2>&1 )" || RC=$?
 }
 bp 400000
@@ -487,6 +489,269 @@ run "hello" nowin3 "$TX_HIGH"
 chk "no window, WARN-HIGH → progress-first line"       contains "$PROGRESS_LINE" "$OUT"
 run "hello" nowin4 "$TX_ASK"
 chk "no window, HIGH → progress-first line"            contains "$PROGRESS_LINE" "$OUT"
+
+echo "== M. Live plan pointer on every prompt =="
+. "$LIB"
+PLANS="$STATE/plans"
+WT_ID="$(mentor_worktree_id "$REPO")"
+GATE="$(mentor_plan_marker "$PLANS" "$WT_ID")"
+CHANGE_NOTE="plan.md changed since mentor last wrote it — read it before editing it further"
+NO_PLAN_HINT="mentor plan: no plan file yet · it is created at research start (planning Step 2)"
+mkdir -p "$PLANS"
+# Every fixture records stored state explicitly; tests must never infer lifecycle
+# state from ticks or accidentally depend on real session/config directories.
+pointer_plan() { # <slug> <stored-state> <owner> <body>
+  local slug="$1" stored="$2" owner="$3" body="$4"
+  mkdir -p "$PLANS/$slug"
+  printf '%s\n' "$body" > "$PLANS/$slug/plan.md"
+  jq -n --arg state "$stored" --arg owner "$owner" \
+    '{state:$state,owner:$owner}' > "$PLANS/$slug/.state.json"
+}
+pointer_lines() { printf '%s\n' "$1" | grep -c '^mentor plan:'; }
+line_count() { printf '%s\n' "$1" | grep -c .; }
+pointer_baseline() {
+  local plan_dir="$PLANS/$1" digest
+  digest="$(mentor_plan_sha256 "$plan_dir/plan.md")"
+  jq --arg hash "$digest" '. + {plan_sha256:$hash}' "$plan_dir/.state.json" > "$ROOT/sidecar.tmp"
+  mv "$ROOT/sidecar.tmp" "$plan_dir/.state.json"
+}
+live_gate() {
+  : > "$1"
+  python3 - "$1" <<'PY'
+import os, sys, time
+stamp = time.time() - 60
+os.utime(sys.argv[1], (stamp, stamp))
+PY
+}
+after_gate() { # <file> [seconds after the own gate]
+  python3 - "$1" "$GATE" "${2:-10}" <<'PY'
+import os, sys
+stamp = os.stat(sys.argv[2]).st_mtime + int(sys.argv[3])
+os.utime(sys.argv[1], (stamp, stamp))
+PY
+}
+rm -f "$PLANS"/.planning* "$STATE"/.run-*
+
+pointer_plan quiet-run in_progress "$WT_ID" $'# Plan\n## Implementation steps\n1. Work'
+run "hello" pointer-none "$TX_UNDER"
+chk "no armed gate or run marker → no pointer" test -z "$OUT$ERR"
+printf 'slug=quiet-run\n' > "$STATE/.run-other-session"
+run "hello" pointer-none "$TX_UNDER"
+chk "different session run marker → no pointer" test -z "$OUT$ERR"
+rm -f "$STATE/.run-other-session"
+
+live_gate "$GATE"
+run "hello" pointer-empty "$TX_UNDER"
+chk "armed gate with no owned draft → research-start location hint" test "$OUT" = "$NO_PLAN_HINT"
+pointer_plan sibling-draft draft sibling-worktree $'# Sibling\n## Research notes\nFinding'
+run "hello" pointer-empty "$TX_UNDER"
+chk "sibling-owned draft → research-start location hint" test "$OUT" = "$NO_PLAN_HINT"
+pointer_plan older-draft draft "$WT_ID" $'# Old draft\n## Research notes\nOld finding'
+touch -t 202001010000 "$PLANS/older-draft/plan.md"
+pointer_plan active-draft draft "$WT_ID" $'# Draft\n## Research notes\nFinding'
+pointer_baseline active-draft
+pointer_plan completed implemented "$WT_ID" $'# Completed\n## Implementation steps\n1. Shipped ✅'
+after_gate "$PLANS/active-draft/plan.md"
+# Other candidates are newer: only a current owned draft qualifies.
+run "hello" pointer-draft "$TX_UNDER"
+DRAFT_POINTER="mentor plan: active-draft · .mentor/plans/active-draft/plan.md · draft · next: drafting"
+chk "armed draft → slug, path, stored state, next: drafting" test "$OUT" = "$DRAFT_POINTER"
+chk "known draft → no change note" test -z "$(printf '%s\n' "$OUT" | grep -F "$CHANGE_NOTE")"
+run "hello again" pointer-draft "$TX_UNDER"
+chk "armed draft → pointer repeats each prompt" test "$OUT" = "$DRAFT_POINTER"
+run "/compact" pointer-draft "$TX_ASK"
+chk "slash command → pointer without context warning" test "$OUT" = "$DRAFT_POINTER"
+run "" pointer-draft "$TX_ASK"
+chk "empty prompt → pointer without context warning" test "$OUT" = "$DRAFT_POINTER"
+run "hello" pointer-draft "$TX_NONE"
+chk "unmeasurable context → pointer still prints" test "$OUT" = "$DRAFT_POINTER"
+run "hello" pointer-draft "$TX_ASK" MENTOR_CONTEXT_GATE=off
+chk "context gate off → pointer still prints" test "$OUT" = "$DRAFT_POINTER"
+printf '\n## Implementation steps\n1. Await approval\n2. Later work\n' >> "$PLANS/active-draft/plan.md"
+pointer_baseline active-draft
+run "hello" pointer-draft "$TX_UNDER"
+chk "step-bearing draft → next: drafting before approval" test "$OUT" = "$DRAFT_POINTER"
+printf '\nOutside edit\n' >> "$PLANS/active-draft/plan.md"
+run "hello" pointer-draft "$TX_UNDER"
+chk "changed plan → exact change note on pointer" test "$OUT" = "$DRAFT_POINTER · $CHANGE_NOTE"
+chk "changed plan → one pointer line" test "$(line_count "$OUT")" = 1
+pointer_baseline active-draft
+run "hello" pointer-draft "$TX_UNDER"
+chk "tracked write → change note cleared" test "$OUT" = "$DRAFT_POINTER"
+rm -f "$GATE"
+
+RUN_BODY=$'# Run\n## Implementation steps\n1. First ✅\n2. Second\n3. Third ✅\n## Goal check\nPredicate'
+pointer_plan active-run in_progress "$WT_ID" "$RUN_BODY"
+pointer_baseline active-run
+printf 'slug=active-run\n' > "$STATE/.run-pointer-run"
+RUN_POINTER="mentor plan: active-run · .mentor/plans/active-run/plan.md · in_progress · next: step 2/3"
+run "continue" pointer-run "$TX_UNDER"
+chk "session run → first unticked step N/M" test "$OUT" = "$RUN_POINTER"
+chk "session run → exit 0, silent stderr" test "$RC:$ERR" = "0:"
+run "continue again" pointer-run "$TX_UNDER"
+chk "session run → pointer repeats each prompt" test "$OUT" = "$RUN_POINTER"
+jq '.state="approved"' "$PLANS/active-run/.state.json" > "$ROOT/sidecar.tmp"
+mv "$ROOT/sidecar.tmp" "$PLANS/active-run/.state.json"
+run "continue" pointer-run "$TX_UNDER"
+chk "approved session plan → first unticked step N/M" \
+  test "$OUT" = "mentor plan: active-run · .mentor/plans/active-run/plan.md · approved · next: step 2/3"
+jq '.state="in_progress"' "$PLANS/active-run/.state.json" > "$ROOT/sidecar.tmp"
+mv "$ROOT/sidecar.tmp" "$PLANS/active-run/.state.json"
+
+# Every warning retains its original line and adds exactly one pointer line.
+for spec in "warn:$TX_WARN:getting large" "warn-high:$TX_HIGH:nearing the limit" "high:$TX_ASK:CONTEXT: HIGH"; do
+  tier="${spec%%:*}"; rest="${spec#*:}"
+  tx="${rest%%:*}"; warning="${rest#*:}"
+  printf 'slug=active-run\n' > "$STATE/.run-pointer-$tier"
+  run "continue" "pointer-$tier" "$tx"
+  chk "$tier + run → warning retained" contains "$warning" "$OUT"
+  chk "$tier + run → pointer retained" contains "$RUN_POINTER" "$OUT"
+  chk "$tier + run → one extra line" test "$(line_count "$OUT")" = 2
+  chk "$tier + run → exactly one pointer" test "$(pointer_lines "$OUT")" = 1
+  chk "$tier + run → warning precedes pointer" contains "$warning" "${OUT%%$'\n'*}"
+  chk "$tier + run → exit 0, silent stderr" test "$RC:$ERR" = "0:"
+  rm -f "$STATE/.run-pointer-$tier"
+done
+run "continue" pointer-warn "$TX_WARN"
+chk "WARN dedup with no live marker → silent" test -z "$OUT$ERR"
+printf 'slug=active-run\n' > "$STATE/.run-pointer-warn"
+run "continue" pointer-warn "$TX_WARN"
+chk "WARN already consumed → pointer still prints" test "$OUT" = "$RUN_POINTER"
+rm -f "$STATE/.run-pointer-warn"
+
+printf '%s\n' "$RUN_BODY" | sed 's/2\. Second/2. Second ✅/' > "$PLANS/active-run/plan.md"
+pointer_baseline active-run
+run "continue" pointer-run "$TX_UNDER"
+chk "all steps ticked → stored in_progress and next: goal check" \
+  test "$OUT" = "mentor plan: active-run · .mentor/plans/active-run/plan.md · in_progress · next: goal check"
+jq '.state="approved"' "$PLANS/active-run/.state.json" > "$ROOT/sidecar.tmp"
+mv "$ROOT/sidecar.tmp" "$PLANS/active-run/.state.json"
+run "continue" pointer-run "$TX_UNDER"
+chk "all steps ticked → approved session plan still points to goal check" \
+  test "$OUT" = "mentor plan: active-run · .mentor/plans/active-run/plan.md · approved · next: goal check"
+jq '.state="in_progress"' "$PLANS/active-run/.state.json" > "$ROOT/sidecar.tmp"
+mv "$ROOT/sidecar.tmp" "$PLANS/active-run/.state.json"
+printf '\nOutside run edit\n' >> "$PLANS/active-run/plan.md"
+run "continue" pointer-run "$TX_UNDER"
+chk "changed run → change note" contains "next: goal check · $CHANGE_NOTE" "$OUT"
+printf '{"state":"in_progress","owner":"%s"}\n' "$WT_ID" > "$PLANS/active-run/.state.json"
+run "continue" pointer-run "$TX_UNDER"
+chk "legacy sidecar → unknown drift stays quiet" \
+  test "$OUT" = "mentor plan: active-run · .mentor/plans/active-run/plan.md · in_progress · next: goal check"
+printf '{broken json\n' > "$PLANS/active-run/.state.json"
+run "continue" pointer-run "$TX_UNDER"
+chk "corrupt sidecar → unknown stored state, never fails prompt" test "$RC:$ERR" = "0:"
+chk "corrupt sidecar → ticks never imply implemented" contains " · unknown · next: goal check" "$OUT"
+rm -f "$PLANS/active-run/plan.md"
+run "continue" pointer-run "$TX_UNDER"
+chk "run plan file missing → silent, exit 0" test "$RC:$OUT$ERR" = "0:"
+printf 'slug=../outside\n' > "$STATE/.run-pointer-run"
+run "continue" pointer-run "$TX_UNDER"
+chk "invalid run slug → silent, exit 0" test "$RC:$OUT$ERR" = "0:"
+rm -f "$STATE/.run-pointer-run"
+: > "$PLANS/.planning.sibling-worktree"
+run "hello" pointer-sibling "$TX_UNDER"
+chk "sibling armed gate → no pointer" test -z "$OUT$ERR"
+rm -f "$PLANS/.planning.sibling-worktree"
+: > "$GATE"
+touch -t 202001010000 "$GATE"
+run "hello" pointer-stale "$TX_UNDER"
+chk "stale armed gate → no pointer" test -z "$OUT$ERR"
+rm -f "$GATE"
+
+echo "== N. Armed-draft freshness and reattachment parity =="
+reset_selection() {
+  rm -rf "$PLANS"
+  rm -f "$STATE"/.run-*
+  mkdir -p "$PLANS"
+  live_gate "$GATE"
+}
+selection() { # <case> <expected-slug-or-empty>
+  local label="$1" slug="$2" attached context expected
+  run "hello" selection "$TX_UNDER"
+  if [ -n "$slug" ]; then
+    chk "$label → prompt selects $slug" contains "mentor plan: $slug · .mentor/plans/$slug/plan.md · draft · next:" "$OUT"
+    expected="path: .mentor/plans/$slug/plan.md"
+  else
+    chk "$label → prompt gives only the research-start hint" test "$OUT" = "$NO_PLAN_HINT"
+    expected="path: .mentor/plans/ (no plan.md yet)"
+  fi
+  attached="$(jq -nc --arg cwd "$REPO" '{cwd:$cwd,session_id:"selection",source:"compact"}' \
+    | env "${PIN_ENV[@]}" HOME="$SANDBOX" bash "$HOOKS/plan-reattach.sh")"
+  context="$(printf '%s' "$attached" | jq -r '.hookSpecificOutput.additionalContext // empty' 2>/dev/null)"
+  chk "$label → SessionStart agrees with the prompt selector" contains "$expected" "$context"
+}
+reset_selection
+pointer_plan old-only draft "$WT_ID" '# Old draft'
+after_gate "$PLANS/old-only/plan.md" -10
+selection 'old-only draft' ''
+after_gate "$PLANS/old-only/.state.json" 30
+selection 'fresh sidecar cannot refresh an existing old plan' ''
+touch -r "$GATE" "$PLANS/old-only/plan.md"
+selection 'plan timestamp equal to gate' ''
+
+reset_selection
+pointer_plan current draft "$WT_ID" '# Current draft'
+after_gate "$PLANS/current/plan.md" 10
+for stored in implemented failed superseded approved in_progress; do
+  pointer_plan terminal "$stored" "$WT_ID" $'# Terminal\n## Implementation steps\n1. Done ✅'
+  after_gate "$PLANS/terminal/plan.md" 40
+  selection "newer $stored plan cannot steal draft" current
+done
+rm -rf "$PLANS/current"
+selection 'armed run without a current draft does not become the draft' ''
+
+reset_selection
+pointer_plan foreign draft other-worktree '# Foreign draft'
+pointer_plan unowned draft '' '# Unowned draft'
+after_gate "$PLANS/foreign/plan.md" 20
+after_gate "$PLANS/unowned/plan.md" 30
+selection 'foreign and unowned drafts' ''
+pointer_plan first draft "$WT_ID" '# First current draft'
+pointer_plan second draft "$WT_ID" '# Second current draft'
+after_gate "$PLANS/first/plan.md" 10
+after_gate "$PLANS/second/plan.md" 20
+after_gate "$PLANS/first/.state.json" 40
+selection 'multiple current drafts use plan mtime' second
+before="$(cksum "$GATE" "$PLANS"/*/plan.md "$PLANS"/*/.state.json)"
+selection 'selector is read-only' second
+chk 'armed selectors preserve gates, plans and sidecars' test "$before" = "$(cksum "$GATE" "$PLANS"/*/plan.md "$PLANS"/*/.state.json)"
+
+reset_selection
+pointer_plan between draft "$WT_ID" '# Between gates'
+after_gate "$PLANS/between/plan.md" -10
+: > "$PLANS/.planning"
+after_gate "$PLANS/.planning" -20
+selection 'live own gate takes precedence over older legacy gate' ''
+after_gate "$PLANS/between/plan.md" 10
+after_gate "$PLANS/.planning" 20
+selection 'live own gate takes precedence over newer legacy gate' between
+touch -t 202001010000 "$GATE"
+selection 'stale own gate falls back to live legacy freshness' ''
+touch -r "$PLANS/.planning" "$PLANS/between/plan.md"
+printf '\nFresh research\n' >> "$PLANS/between/plan.md"
+selection 'live legacy gate selects a fresh draft' between
+touch -t 202001010000 "$PLANS/.planning"
+run 'hello' selection "$TX_UNDER"
+chk 'both gates stale → prompt is silent' test -z "$OUT$ERR"
+
+reset_selection
+pointer_plan missing draft "$WT_ID" '# Missing draft'
+rm "$PLANS/missing/plan.md"
+after_gate "$PLANS/missing/.state.json" -10
+selection 'stale missing-draft sidecar' ''
+touch -r "$GATE" "$PLANS/missing/.state.json"
+selection 'missing sidecar equal to gate' ''
+after_gate "$PLANS/missing/.state.json" 10
+selection 'fresh missing-draft sidecar' missing
+chk 'missing armed draft gives no invented next step' contains 'next: unavailable (plan.md missing)' "$OUT"
+
+reset_selection
+rm "$GATE"
+live_gate "$PLANS/.planning"
+pointer_plan fallback draft '' '# Empty worktree id fallback'
+chk 'empty worktree id keeps legacy/unowned selector fallback' \
+  test "$(mentor_armed_draft "$PLANS" '')" = "$PLANS/fallback/plan.md"
 
 echo
 echo "RESULT: PASS=$PASS FAIL=$FAIL"
