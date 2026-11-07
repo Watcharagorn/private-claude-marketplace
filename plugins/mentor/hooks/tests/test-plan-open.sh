@@ -12,9 +12,11 @@ set -uo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 HOOK="$(dirname "$SCRIPT_DIR")/plan-open.sh"
+PLANSTATE="$(dirname "$SCRIPT_DIR")/plan-state.sh"
 [ -f "$HOOK" ] || { echo "FATAL: hook not found at $HOOK" >&2; exit 1; }
 
 ROOT="$(mktemp -d)"
+SANDBOX="$ROOT/home"; mkdir -p "$SANDBOX/.claude"
 REPO="$ROOT/sample-repo"
 git init -q -b main "$REPO" >/dev/null 2>&1
 ( cd "$REPO"; git config user.email t@t.co; git config user.name t; echo x > f; git add -A; git commit -q -m init ) >/dev/null 2>&1
@@ -33,14 +35,15 @@ MARKER="$PLAN_DIR/.plan.md.opened"
 trap 'rm -rf "$ROOT"' EXIT   # .mentor/ lives inside $ROOT, so this cleans everything
 
 PASS=0; FAIL=0
-mkjson() { python3 -c 'import json,sys;print(json.dumps({"tool_name":"Write","tool_input":{"file_path":sys.argv[1]}}))' "$1"; }
+mkjson() { python3 -c 'import json,sys;print(json.dumps({"tool_name":sys.argv[2],"tool_input":{"file_path":sys.argv[1]}}))' "$1" "${2:-Write}"; }
 
 # Base runner: clears any inherited VSCode signals, enables the dry-run seam, applies per-case
 # env assignments ("$@"), and returns the hook's stdout (the selected opener name, or empty).
 run() {
   local fp="$1"; shift
-  printf '%s' "$(mkjson "$fp")" \
+  printf '%s' "$(mkjson "$fp" "${TEST_PLAN_TOOL:-Write}")" \
     | env -u TERM_PROGRAM -u VSCODE_PID -u VSCODE_GIT_IPC_HANDLE -u VSCODE_IPC_HOOK_CLI -u VSCODE_INJECTION \
+          HOME="$SANDBOX" CLAUDE_CONFIG_DIR="$SANDBOX/.claude" \
           MENTOR_PLAN_OPEN_DRYRUN=1 "$@" bash "$HOOK" 2>/dev/null
 }
 check() { # expect desc filepath [env=val ...]
@@ -52,6 +55,8 @@ check() { # expect desc filepath [env=val ...]
 }
 ok()  { PASS=$((PASS+1)); printf "  ok   %s\n" "$1"; }
 bad() { FAIL=$((FAIL+1)); printf "  FAIL %s\n" "$1"; }
+chk() { local desc="$1"; shift; if "$@"; then ok "$desc"; else bad "$desc"; fi; }
+drift() { (cd "$REPO" && HOME="$SANDBOX" CLAUDE_CONFIG_DIR="$SANDBOX/.claude" bash "$PLANSTATE" drift sample-plan); }
 
 echo "== C. No-op cases (no opener selected) =="
 check "" "off-switch MENTOR_PLAN_OPEN=off on plan.md -> no-op" "$PLAN" MENTOR_PLAN_OPEN=off
@@ -121,6 +126,31 @@ rm -rf "$REVIEW_DIR"
 : > "$MARKER"
 out="$(run "$PLAN")"
 [ -z "$out" ] && ok "no page -> silent" || bad "no page -> silent (got: $out)"
+rm -f "$MARKER"
+
+echo "== G. Every model write records its hash before opener exits =="
+rm -f "$PLAN_DIR/.state.json"
+printf '# model write\n' > "$PLAN"
+got="$(run "$PLAN" MENTOR_PLAN_OPEN=off)"
+chk "model Write with opening off → no opener output" test -z "$got"
+chk "model Write with opening off → known" test "$(drift)" = known
+chk "off-switch records plan_sha256" jq -e '.plan_sha256 | test("^[0-9a-f]{64}$")' "$PLAN_DIR/.state.json"
+printf '\noutside edit\n' >> "$PLAN"
+chk "outside printf after model Write → changed" test "$(drift)" = changed
+: > "$MARKER"
+printf '\nmodel Edit\n' >> "$PLAN"
+got="$(TEST_PLAN_TOOL=Edit run "$PLAN")"
+chk "model Edit with opened marker → no opener output" test -z "$got"
+chk "model Edit with opened marker → known" test "$(drift)" = known
+printf '{"state":"in_progress","owner":"wt","owner_session":"sess","note":"preserve","group":"g","order":2,"deps":["a"],"extra":true}\n' > "$PLAN_DIR/.state.json"
+hash_fields="$(jq -cS . "$PLAN_DIR/.state.json")"
+got="$(run "$PLAN" MENTOR_PLAN_OPEN=off)"
+chk "model write preserves every pre-existing sidecar key" test "$(jq -cS 'del(.plan_sha256)' "$PLAN_DIR/.state.json")" = "$hash_fields"
+chk "model write with both early exits active → known" test "$(drift)" = known
+rm -f "$MARKER" "$PLAN_DIR/.state.json"
+got="$(run "$PLAN")"
+chk "first model Write still opens the plan" test "$got" = vscode
+chk "first model Write with opening enabled → known" test "$(drift)" = known
 rm -f "$MARKER"
 
 echo

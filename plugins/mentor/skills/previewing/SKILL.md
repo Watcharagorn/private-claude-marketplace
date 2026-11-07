@@ -222,7 +222,10 @@ save_renderer() {   # $1 = diagram-design | fallback; keeps every other key and 
   diagrams because diagram-design was not installed — and naming its source,
   `https://github.com/cathrynlavery/diagram-design` (on Claude Code: `/plugin marketplace add
   cathrynlavery/diagram-design`, then `/plugin install diagram-design@diagram-design`), so the user can
-  install it later. Installing a third-party plugin is the user's call, never this skill's.
+  install it later. Immediately after this plan write, run
+  `bash "$plugin_root/hooks/plan-state.sh" record-write <plan-slug>` when the helper resolved
+  in §0 is available; this keeps mentor’s own writes from appearing as drift.
+  Installing a third-party plugin is the user's call, never this skill's.
 - `diagram-design` but the skill cannot load this session: this run uses the fallback and the header says so.
 
 **Fallback.** Hand-drawn inline SVG that follows diagram-design's rules: its tokens, per-diagram id prefixes,
@@ -353,8 +356,10 @@ Questions for you in dependency order and ask one at a time, putting the cleanes
 host's question tool when it has one, otherwise in plain text. Write each question so it stands alone: plain
 words, no plan section numbers or ids the user would have to look up. When the subject is a mentor plan,
 append each verdict to the plan's `## Decision log` as a new row (planning Step 4's columns:
-`# · use case · decision · why · evidence · result · review?`, with `result: kept`), then regenerate the
-affected fragments (§7). The questions live here because the page is read-only and chat is the channel back.
+`# · use case · decision · why · evidence · result · review?`, with `result: kept`).
+Immediately after this plan write, run `bash "$plugin_root/hooks/plan-state.sh" record-write <plan-slug>`
+when the helper resolved in §0 is available; this keeps mentor’s own writes from appearing as drift.
+Then regenerate the affected fragments (§7). The questions live here because the page is read-only and chat is the channel back.
 `grilling` is a related skill for interrogating a design, but this loop never depends on it. A legacy plan with
 no `## Decision log` gets one, with those seven columns, holding its first recorded answer. Only a genuine
 product or preference call becomes one of these questions; anything evidence or a decision-maker agent can

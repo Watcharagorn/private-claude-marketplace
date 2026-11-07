@@ -40,8 +40,16 @@
 #       (idempotent — already-ticked is a no-op) — replaces hand-rolling an Edit to
 #       find and mark that exact line, whose placement is load-bearing (a tick on
 #       the wrong line reads as the step never having started). No such step at N →
-#       fails loud, no write. Needs no jq: unlike every other subcommand here this
-#       edits plan.md directly, not the JSON sidecar.
+#       fails loud, no write. Reports drift before editing, then records the new
+#       hash on success. The tick itself still works without jq or a sha256 tool.
+#
+#   record-write <slug>
+#       Record plan.md's current sha256, preserving every other sidecar key.
+#       Idempotent, never edits plan.md; a missing plan is an error.
+#
+#   drift <slug>
+#       known|changed|unknown compared with the last tracked write. Read-only;
+#       legacy sidecars and an unavailable sha256 tool read unknown.
 #
 #   list [--group G] [--owners]
 #       One row per plan: ordinal, EFFECTIVE state, slug, group, order — and, with
@@ -137,12 +145,37 @@
 # slug) — mirroring approve-plan.sh. Everything environmental is fail-soft: no repo,
 # no plans dir, no jq, nothing to report → empty stdout, ONE reason line on stderr,
 # exit 0. Silent-empty would be indistinguishable from "no plans" and the calling
-# skill would improvise a listing.
+# skill would improvise a listing. Exceptions: drift prints unknown without a
+# registry; record-write needs an existing plan and exits 1 without a repo/registry.
 
 set -euo pipefail
 
 hook_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 . "${hook_dir}/lib/state.sh"
+
+# record_plan_write <plan_md> — hash-only merge shared by record-write and tick.
+# Keep this write behind the CLI: PostToolUse calls record-write rather than
+# becoming another sidecar writer. Lifecycle writes replace note, so cannot be
+# reused here without changing unrelated sidecar fields.
+record_plan_write() {
+  local md="$1" digest sidecar source tmp
+  digest="$(mentor_plan_sha256 "$md")"
+  [ -n "$digest" ] || return 0
+  command -v jq >/dev/null 2>&1 || return 0
+  sidecar="$(mentor_plan_state_file "$(dirname "$md")")"
+  [ "$(mentor_plan_state_field "${md%/*}" plan_sha256)" != "$digest" ] || return 0
+  source=/dev/null
+  [ ! -f "$sidecar" ] || source="$sidecar"
+  tmp="$(mktemp "${sidecar}.tmp.XXXXXX" 2>/dev/null)" || return 0
+  if jq -s --arg digest "$digest" '
+      (.[0] | if type == "object" then . else {} end) + {plan_sha256: $digest}
+    ' "$source" > "$tmp" 2>/dev/null; then
+    mv -f "$tmp" "$sidecar" 2>/dev/null || rm -f "$tmp" 2>/dev/null || true
+  else
+    rm -f "$tmp" 2>/dev/null || true
+  fi
+  return 0
+}
 
 # warn_same_slug_collision <plan_dir> <this_wt_id> <plans_dir> — stderr WARNING when
 # <plan_dir> already exists AND its sidecar `owner` is a DIFFERENT worktree whose own
@@ -176,6 +209,8 @@ Usage: plan-state.sh <subcommand>
   set <slug> <state> [--note "…"]       state: draft|approved|in_progress|implemented|failed|superseded
   set-deps <slug> a,b                   replace deps wholesale (cycle-checked, fail-soft)
   tick <slug> <N>                       append ✅ to step N in plan.md (idempotent, fails loud)
+  record-write <slug>                   record plan.md's sha256; preserve all other sidecar keys
+  drift <slug>                          known|changed|unknown since the last tracked write (read-only)
   verify <slug>                         plan.md structural checks (fence balance, table pipe-count,
                                          step bodies each carrying a Done when:, a draft plan's
                                          ## Goal check + ## Decision log, Rev-note order,
@@ -624,7 +659,7 @@ fi
 # gate, sweep, start) exits before reaching here, so none of them appears in this
 # allow-list — adding one would be unreachable code, not a fix.
 case "$sub" in
-  init|set|set-deps|tick|verify|query|list|current) ;;
+  init|set|set-deps|tick|record-write|drift|verify|query|list|current) ;;
   claim|brief|policy|set-parent|set-priority|set-category|handoff-path|handoff-selfcheck)
     echo "plan-state.sh: '${sub}' was removed in mentor v5.0.0 — no replacement" >&2
     exit 1
@@ -644,12 +679,16 @@ esac
 
 repo_root="$(mentor_repo_root "$(pwd)")"
 if [ -z "$repo_root" ]; then
+  [ "$sub" != drift ] || { echo unknown; exit 0; }
   echo "[mentor plan-state] Not in a git repo — mentor keeps no plan registry here." >&2
+  [ "$sub" != record-write ] || exit 1
   exit 0
 fi
 plans_dir="$(mentor_plans_dir "$repo_root")"
 if [ ! -d "$plans_dir" ]; then
+  [ "$sub" != drift ] || { echo unknown; exit 0; }
   echo "[mentor plan-state] No plans dir yet (${plans_dir}) — nothing planned in this repo." >&2
+  [ "$sub" != record-write ] || exit 1
   exit 0
 fi
 
@@ -1105,6 +1144,26 @@ case "$sub" in
     echo "[mentor plan-state] ${slug}: deps = ${clean_csv:-(none)}"
     ;;
 
+  record-write|drift)
+    slug="${1:-}"; [ "$#" -gt 0 ] && shift
+    if [ "$#" -gt 0 ]; then
+      echo "[mentor plan-state] ${sub}: unexpected argument ${1}" >&2
+      usage >&2
+      exit 1
+    fi
+    require_slug "$slug"
+    plan_md="${plans_dir}/${slug}/plan.md"
+    if [ "$sub" = drift ]; then
+      mentor_plan_drift "$plan_md"
+    else
+      if [ ! -f "$plan_md" ]; then
+        echo "[mentor plan-state] record-write: no plan.md at ${plan_md}." >&2
+        exit 1
+      fi
+      record_plan_write "$plan_md"
+    fi
+    ;;
+
   tick)
     slug="${1:-}"; [ "$#" -gt 0 ] && shift
     step="${1:-}"; [ "$#" -gt 0 ] && shift
@@ -1127,12 +1186,18 @@ case "$sub" in
       echo "[mentor plan-state] tick: no plan.md at ${plan_md}." >&2
       exit 1
     fi
+    if [ "$(mentor_plan_drift "$plan_md")" = changed ]; then
+      echo "plan.md changed since mentor last wrote it — read it before editing it further"
+    fi
     # `if var=$(cmd)` (not a bare assignment) — under `set -e` a failing bare
     # assignment aborts the script before the rc check below ever runs.
     if tick_result="$(mentor_plan_tick_step "$plan_md" "$step")"; then
       read -r tick_status tick_n tick_total <<<"$tick_result"
       case "$tick_status" in
-        ticked)  echo "[mentor plan-state] ${slug}: step ${step} ✅ ticked (${tick_n}/${tick_total})." ;;
+        ticked)
+          echo "[mentor plan-state] ${slug}: step ${step} ✅ ticked (${tick_n}/${tick_total})."
+          record_plan_write "$plan_md"
+          ;;
         already) echo "[mentor plan-state] ${slug}: step ${step} was already ✅ (${tick_n}/${tick_total}) — no write." ;;
       esac
     else

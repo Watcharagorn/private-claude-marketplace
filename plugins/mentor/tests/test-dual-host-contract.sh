@@ -18,6 +18,28 @@ capabilities = json.loads((root / "capabilities.json").read_text())
 assert capabilities["tier"] == "dual-enhanced"
 assert capabilities["hosts"]["claude"]["status"] == "supported"
 assert capabilities["hosts"]["codex"]["status"] == "supported"
+assert capabilities["hosts"]["codex"]["hooks"] is False
+workflows = {workflow["name"]: workflow for workflow in capabilities["workflows"]}
+tracking = workflows["planning"]["fallback"]
+for declaration in (
+    "Claude-only hooks:",
+    "per-prompt plan pointer (context-gate.sh)",
+    "SessionStart re-attachment (plan-reattach.sh)",
+    "automatic hook-recorded plan_sha256 hashes on Write/Edit (plan-open.sh)",
+    "plan-state.sh record-write <slug>",
+    "drift <slug> (known/changed/unknown)",
+    "portable record-write, drift and tick commands",
+):
+    assert declaration in tracking, declaration
+for host in ("claude", "codex"):
+    assert workflows["planning"][host]["status"] == "supported"
+
+hooks = json.loads((root / "hooks" / "hooks.json").read_text())["hooks"]
+assert len(hooks["SessionStart"]) == 1
+reattach = hooks["SessionStart"][0]
+assert "matcher" not in reattach  # Includes clear/fork as well as startup/resume/compact.
+assert reattach["hooks"][0]["command"] == 'bash "${CLAUDE_PLUGIN_ROOT}/hooks/plan-reattach.sh"'
+assert (root / "hooks" / "plan-reattach.sh").is_file()
 
 skills = sorted((root / "skills").glob("*/SKILL.md"))
 assert len(skills) == 9, len(skills)

@@ -19,8 +19,8 @@ description: >
 Use a structured question UI when the host offers one; otherwise ask the same focused question directly and wait for the answer. If delegated agents are unavailable or prohibited, perform the required research, review, or implementation serially and retain the same evidence, scope, and verification contract. Treat Mentor helpers as optional host integrations: resolve them with `PLUGIN_ROOT` first, then `CLAUDE_PLUGIN_ROOT`; if neither is available, work from the repository's durable `.mentor/` artifacts and report any state action that cannot be performed safely. This rule overrides later host-specific tool names, preserving user choice and plan continuity across hosts.
 
 The flow: check the gate & load the constitution → clarify if needed →
-pick a playbook & research → triage open questions (evidence, decision-maker,
-human) → write the Markdown plan (Goal check, decision log, Constitution Check
+create the draft, pick a playbook & research → triage open questions (evidence, decision-maker,
+human) → complete the Markdown plan (Goal check, decision log, Constitution Check
 when a constitution exists) → (optional review page via `mentor:previewing`, on
 request) → **the one human approval** → run until the Goal check passes →
 deliver with a Done review. This is the core concept pinned in the
@@ -147,7 +147,75 @@ designing anything. Skip this for well-specified tasks.
 
 ## Step 2 — Research {#research}
 
-**Pick a playbook first.** A playbook is a skill named `playbook-<name>` whose
+**Create the plan file before research.** Scan for a topic-adjacent existing plan before
+minting a slug, so a repeated request can continue its earlier draft:
+
+```bash
+plugin_root="${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT}}"
+if [ -n "$plugin_root" ] && [ -f "$plugin_root/hooks/plan-state.sh" ]; then
+  bash "$plugin_root/hooks/plan-state.sh" list --owners
+else
+  repo_root="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
+  find "$repo_root/.mentor/plans" -mindepth 2 -maxdepth 2 -name plan.md -print 2>/dev/null
+fi
+```
+
+Reuse only an obvious same-topic slug owned by this worktree or unowned (`-`); mint
+fresh when uncertain or when another worktree owns it. Read a reused plan and its
+sidecar `note` for prior decisions or rejection feedback, using the helper-resolved
+plans dir rather than a CWD-relative path:
+
+```bash
+jq -r .note "$(bash "${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT}}/hooks/plan-state.sh" dir --plans)/<slug>/.state.json"
+```
+
+Without the helper, use `$repo_root/.mentor/plans/<slug>/` from the scan and read the
+sidecar's `owner` as well. This preserves prior work without taking another worktree's
+plan.
+
+Create or reuse the directory and state record in one call, substituting the selected
+slug (for a new one, kebab-case, ≤30 chars, drop articles, keep nouns/verbs):
+
+```bash
+plugin_root="${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT}}"
+if [ -n "$plugin_root" ] && [ -f "$plugin_root/hooks/plan-state.sh" ]; then
+  plan_md="$(bash "$plugin_root/hooks/plan-state.sh" start "<slug>")" || exit 1
+else
+  repo_root="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
+  plan_md="$repo_root/.mentor/plans/<slug>/plan.md"
+  mkdir -p "$(dirname "$plan_md")"
+fi
+plan_dir="$(dirname "$plan_md")"
+echo "$plan_md"   # stable across revisions; no timestamp
+```
+
+`start` is idempotent: it creates the private directory, records a new plan as `draft`,
+and stamps this worktree's ownership. Without the helper, keep the same durable path
+and preserve any existing `.state.json`; do not invent or overwrite a sidecar.
+
+**Track every plan write on every host.** Before editing a plan that may have changed,
+run `bash "${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT}}/hooks/plan-state.sh" drift <slug>` and
+read any changed content before editing it. Immediately after every mentor write to
+`plan.md`, including shell writes and writes on hosts without hooks, run:
+
+```bash
+bash "${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT}}/hooks/plan-state.sh" record-write <slug>
+```
+
+Never call `record-write` merely to clear a change notice. This preserves outside
+changes and keeps mentor's own writes from appearing as drift (mechanism:
+`references/rationale.md` → **Plan-file continuity — early drafts, feedback, and tracked writes**).
+
+Write a new skeleton with the title, `Rev 1 · YYYY-MM-DD · Research started`,
+`## Context`, `## Research notes`, and `## Decision log` (the flat table in Step 4's
+Content spec); extend a reused draft without replacing its content or Rev history.
+Append findings and decision rows as they land, and complete the remaining sections
+in Step 4 before running strict `verify`. Leave an abandoned skeleton as a `draft`
+visible in `plan-state.sh list`, without a cleanup prompt. This keeps research and
+decisions recoverable through compaction (rationale: **Plan-file continuity — early
+drafts, feedback, and tracked writes**).
+
+**Pick a playbook.** A playbook is a skill named `playbook-<name>` whose
 description states the goal shapes it fits (`playbook-software-change` fits
 "change code in a repo"). Match the goal against the descriptions of the
 playbooks available this session — the session's skill list, not a filesystem
@@ -178,7 +246,7 @@ only the repo the session's CWD sits in.
 **Research the category, not just the named instance.** When the request names
 one instance of something the repo may have several of — one job to make
 continuous, one config to centralize, one surface to consolidate — search for
-its siblings before drafting, and carry each hit into Step 3 as a scope
+its siblings before completing the plan, and carry each hit into Step 3 as a scope
 decision. A sibling found at the approval gate rewrites the plan; the same
 sibling found here costs one question.
 
@@ -186,7 +254,7 @@ sibling found here costs one question.
 migration or cleanup that only fixes the data leaves whatever produced it free
 to reproduce the same defect on the next run — a script, an importer, a cron
 job, a form handler, or a skill/rule that doesn't validate before writing are
-all candidates. Search for that producer before drafting, and carry what you
+all candidates. Search for that producer before completing the plan, and carry what you
 find into Step 3 as a scope decision, the same way a sibling instance is
 above.
 
@@ -196,7 +264,7 @@ routing table, a tab registry, or any other structure that already has
 several siblings sometimes means updating a second, independently-maintained
 list that mirrors the first without either side pointing at the other — a
 route table beside a nav list, a hardcoded switch beside a registry. Check
-for a second list before drafting, the same way a sibling instance is above;
+for a second list before completing the plan, the same way a sibling instance is above;
 a hand-paired list found at the approval gate rewrites the plan, the same
 list found here costs one question.
 
@@ -248,7 +316,7 @@ has already shaped a user question.
 
 ## Step 3 — Triage open questions & decisions {#decisions}
 
-Before writing the plan, drain every open question so the plan encodes
+Before completing the plan, drain every open question so the plan encodes
 decisions, not question marks. Collect them from all sources: the open
 questions research surfaced (Step 2), the playbook's directives, and any design
 fork you noticed yourself (approach A vs B, scope boundary, acceptance criteria,
@@ -329,7 +397,7 @@ recommendations rather than answering item by item — often by interrupting the
 question ("go with your recommendation", "pick the defaults") — map it onto the queue:
 accept the recommended option for every decision still unanswered; every question here
 carries one by construction (below), so this path leaves nothing unresolved. Before
-drafting, name what you are accepting on — each decision by its plain-language name,
+completing the plan, name what you are accepting on — each decision by its plain-language name,
 one line each — since "your recommendation" after four answered questions usually
 means the remainder but can mean the whole set, and the user can only correct a span
 you showed them. An instruction that also changes what the plan covers is a scope
@@ -399,79 +467,12 @@ grill session does not skip this step — research may have surfaced new forks �
 but a decision already resolved anywhere in the conversation is never
 re-asked.
 
-## Step 4 — Write the Markdown plan {#write-the-plan}
+## Step 4 — Complete the Markdown plan {#write-the-plan}
 
-**Check for a topic-adjacent existing plan before minting a slug** — a re-typed
-request derives a fresh slug with no memory of an earlier attempt on the same
-topic, and `ensure-dir` below will happily create a second directory beside it,
-orphaning whichever one doesn't get worked on next:
-
-```bash
-plugin_root="${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT}}"
-if [ -n "$plugin_root" ] && [ -f "$plugin_root/hooks/plan-state.sh" ]; then
-  bash "$plugin_root/hooks/plan-state.sh" list --owners
-else
-  repo_root="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
-  find "$repo_root/.mentor/plans" -mindepth 2 -maxdepth 2 -name plan.md -print 2>/dev/null
-fi
-```
-
-This is a quick scan, not a fuzzy-match algorithm: only act on a genuinely obvious
-naming match — when in doubt, mint fresh, since a false reuse is worse than an
-extra plan dir. If one plainly names the same topic, reuse that slug for
-`plan_dir` below instead of minting a new one, and read its sidecar `note` for any
-prior decision or rejection worth carrying forward — through the helper's plans dir,
-never a CWD-relative path (a session in a subdirectory or linked worktree would read
-nothing):
-
-```bash
-jq -r .note "$(bash "${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT}}/hooks/plan-state.sh" dir --plans)/<slug>/.state.json"
-```
-
-(Without the helper, read `$repo_root/.mentor/plans/<slug>/.state.json` from the scan
-above.) **Never reuse a slug the OWNER
-column shows as owned by a different worktree** — that is another worktree's live
-or recent draft, not yours to continue; mint a fresh slug instead, the same call
-you'd make if nothing plainly matched. Reuse is safe only for a slug this
-worktree already owns, or one the OWNER column shows unowned (`-`).
-
-Then mint the plan directory and, when the bundled helper is available, its state
-record in **one** call (substituting a kebab-case `<slug>` derived from the request —
-≤30 chars, drop articles, keep nouns/verbs):
-
-```bash
-plugin_root="${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT}}"
-if [ -n "$plugin_root" ] && [ -f "$plugin_root/hooks/plan-state.sh" ]; then
-  plan_md="$(bash "$plugin_root/hooks/plan-state.sh" start "<slug>")" || exit 1
-else
-  repo_root="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
-  plan_md="$repo_root/.mentor/plans/<slug>/plan.md"
-  mkdir -p "$(dirname "$plan_md")"
-fi
-echo "$plan_md"   # fixed name inside the slug dir, NO timestamp — stable across revisions
-```
-
-When available, `start` does two things in one call: creates the dir and locks the
-whole path to 700, and records the plan as `draft` in a hidden `.state.json` beside
-it. Its stdout is exactly the plan path, so the capture above fails the
-pipeline if anything went wrong; the state summary goes to stderr where you can still
-read it.
-
-With no helper, write the same `plan.md` at the printed path and do not invent or
-overwrite a `.state.json` sidecar: an existing state file remains compatible with the
-Claude facade, while a host adapter can add equivalent lifecycle updates later. The
-plan itself stays the portable source of truth.
-
-Two helper-backed consequences worth knowing:
-
-- **Ownership is stamped on this call** — `start` marks THIS worktree as the dir's owner,
-  and last-write-wins, so running it on a slug another worktree minted re-owns it to you.
-  That is how a plan continues in a different worktree.
-- **It is idempotent** — re-running it on a revision is harmless, so there is no branch
-  to pick between "new plan" and "existing plan".
-
-Write the first draft at that path with the `Write` tool. Approval and later sessions read
-the state record to know which plans are built and which are pending.
+Complete the skeleton at Step 2's existing `plan_md` path with the Content spec below,
+preserving its research notes, decisions, and Rev history; do not mint another slug.
+This keeps research and the approval draft in one durable file (rationale:
+`references/rationale.md` → **Plan-file continuity — early drafts, feedback, and tracked writes**).
 
 The path is inside the gate-exempt
 `.mentor/` tree, so the edit gate allows it; `plan-open.sh` auto-opens it for review the first time
@@ -484,8 +485,8 @@ of `.mentor/`. Section edits avoid resending the whole plan on every revision, a
 that lands mid-table or mid-fence can splice a row or split a fence without erroring.
 
 **Verify the write:** re-`grep -n` each edit's target text against the file's current
-on-disk state immediately before applying it; earlier edits can move an anchor. After
-the first draft and every content revision, run:
+on-disk state immediately before applying it; earlier edits can move an anchor. Once
+the Content spec is complete, and after every later content revision, run:
 
 ```bash
 bash "${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT}}/hooks/plan-state.sh" verify <slug>
@@ -516,10 +517,13 @@ Required sections, in order:
 
 1. `# <Plan title>` — directly below it, keep an appended Rev changelog, one line per
    content revision: `Rev N · YYYY-MM-DD · <what changed>`, starting at Rev 1, newest last.
-   Add no Rev line for step ticks or run-time log rows. `verify` already reports Rev-line
+   Step 2's skeleton is Rev 1; completing the plan in Step 4 adds the next Rev line, and so
+   does each later revision. Add no Rev line for research notes or decision rows appended
+   during Steps 2–3, step ticks, or run-time log rows. `verify` already reports Rev-line
    order; the newest line identifies the content the user is asked to approve.
    A plan with no Rev line yet gets `Rev 1` on its next content revision.
-2. `## Context` — the problem, what prompted it, intended outcome.
+2. `## Context` — the problem, what prompted it, intended outcome. Retain Step 2's
+   `## Research notes` directly after it.
 3. `## Use case scenarios` — actors & triggers; current vs expected behavior;
    numbered concrete scenario walkthroughs (real values from research, not
    placeholders); edge cases & assumptions (flag anything unverified). Give this
@@ -600,9 +604,8 @@ Required sections, in order:
     `result` is one of `kept` (human answered) · `decided` (agent decided) · `PASS` ·
     `FAIL` (a verifier grade) · `paused` · `resumed` · `failed`. `review?` is `needed`
     for a paused row, a deviation from the plan, a mid-run product call decided by an
-    agent, or a re-plan — `optional` otherwise. Every Step 3 resolution writes a row at
-    drafting
-    time; the run appends the rest. The flat table is canonical: grouping by use
+    agent, or a re-plan — `optional` otherwise. Append every Step 3 resolution as it
+    lands; the run appends the rest. The flat table is canonical: grouping by use
     case happens only when it is rendered for review (After Proceed → Done review).
 
 **Visualization decision rule (pick exactly ONE idiom per artifact):**
@@ -654,7 +657,7 @@ truncates the note — use `,` or `+`.
 define jargon at first use, state why each step matters, prefer concrete
 examples. The plan must be approvable by someone outside the domain.
 
-**Verify headline counts before the first write.** Step 3's evidence rule —
+**Verify headline counts before stating them in the plan.** Step 3's evidence rule —
 read the artifact itself, a summary is not the evidence — applies to every
 count the plan states about its own scope, not just the decisions that reach a
 question: an orphan count, an affected-row count, a terminal-state count.
@@ -703,7 +706,7 @@ Goal: <one sentence>
 Changed since last ask: <the newest Rev line's note>
 ```
 
-The link text is the repo-relative path, the link target is the absolute path Step 4
+The link text is the repo-relative path, the link target is the absolute path Step 2
 printed, and `<N>` is the newest Rev line. Then, in the same turn,
 ask via `AskUserQuestion` — `header: "Approve"` — with this question text and the option
 set below:
@@ -804,7 +807,11 @@ the original request) — interview against what's already written, not from scr
 This never releases the gate by itself, so fold the answers into the plan per Step 4,
 then ask the approval question again.
 
-On **Keep planning**, do not run the script; return to planning.
+On **Keep planning** or a change request in **Other**, record the user's feedback as a decision-log row (`result: kept`).
+Revise the same plan with a Rev line for the
+revision that answers it, and ask again when ready; do not run `approve-plan.sh`.
+This carries the feedback into the next revision (rationale:
+`references/rationale.md` → **Plan-file continuity — early drafts, feedback, and tracked writes**).
 
 **No repository root?** begin-plan reported the gate was NOT armed — skip
 `approve-plan.sh` (it needs a repository root) and honor the user's choice
@@ -850,7 +857,8 @@ and names the next step; `paused`, `failed`, and `done` all let the session end.
 
 ```bash
 bash "${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT}}/hooks/plan-state.sh" set <slug> in_progress            # run starts / resumes
-bash "${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT}}/hooks/plan-state.sh" tick <slug> <N>                   # after the step's PASS row
+bash "${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT}}/hooks/plan-state.sh" record-write <slug>               # immediately after every plan.md write
+bash "${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT}}/hooks/plan-state.sh" tick <slug> <N>                   # after PASS row → record-write
 bash "${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT}}/hooks/plan-state.sh" set <slug> approved --note "paused: row N"
 bash "${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT}}/hooks/plan-state.sh" set <slug> implemented            # Goal-check PASS + Done review + delivered
 bash "${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT}}/hooks/plan-state.sh" set <slug> failed --note "<what broke>"
@@ -866,11 +874,19 @@ step ticks — but `failed` and `paused` cannot be derived from ticks.
 
 **The loop, step by step:**
 
+Apply Step 2's drift check before editing a plan that may have changed, and call
+`bash "${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT}}/hooks/plan-state.sh" record-write <slug>`
+immediately after every mentor write to `plan.md`, on every host; never call it merely
+to clear a change notice. This keeps run-time log writes tracked without hiding
+outside edits (rationale: `references/rationale.md` → **Plan-file continuity — early
+drafts, feedback, and tracked writes**).
+
 1. `set <slug> in_progress`. Build steps in order.
 2. **Grade every step independently.** When a step looks done, dispatch one fresh
    verifier with its `Goal:` and `Done when:` per `references/verifier-contract.md`.
-   On PASS, append a `PASS` row citing the verdict file, then
-   `plan-state.sh tick <slug> <N>`. No PASS row, no tick — the builder never grades
+   On PASS, append a `PASS` row citing the verdict file, run
+   `plan-state.sh record-write <slug>`, then `plan-state.sh tick <slug> <N>`.
+   No PASS row, no tick — the builder never grades
    its own work. Tick per step, never in a batch.
 3. **FAIL** → fix the `[GOAL]` gaps and re-grade once with a fresh verifier. A second
    FAIL → **re-plan** that step: rewrite its approach (log a `review?: needed` row),

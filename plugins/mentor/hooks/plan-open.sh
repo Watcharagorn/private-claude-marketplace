@@ -39,8 +39,13 @@ esac
 
 [ -f "$file" ] || exit 0
 
-# Plan and page in sync: remind the agent to regenerate the plan's review page this turn.
+# Every model Write/Edit records the content, even when opening is off or done.
+# Resolve from the edited plan's repo, which can differ from the hook's cwd.
 plan_dir="$(dirname "$file")"
+hook_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+(cd "$plan_dir" && bash "${hook_dir}/plan-state.sh" record-write "$(basename "$plan_dir")") >/dev/null 2>&1 || true
+
+# Plan and page in sync: remind the agent to regenerate the plan's review page this turn.
 review_page="$(dirname "$(dirname "$plan_dir")")/reviews/$(basename "$plan_dir")/review.html"
 if [ -f "$review_page" ]; then
   msg="[mentor] This plan has a review page (${review_page}). If this edit changed plan content (not only a step progress mark), regenerate the page's changed sections with mentor:previewing §7 once, after your last plan edit this turn, so the page matches the plan."
